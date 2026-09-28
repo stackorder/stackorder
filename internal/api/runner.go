@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -102,9 +103,14 @@ func (s *server) getRun(w http.ResponseWriter, r *http.Request, id identity) err
 	if err != nil {
 		return err
 	}
-	if id.Kind == principal.Session {
+	switch id.Kind {
+	case principal.Session:
 		if err := s.checkRepoVisible(r, id, run.Repo); err != nil {
 			return err
+		}
+	case principal.OIDC:
+		if !strings.EqualFold(run.Repo, id.Claims.Repository) {
+			return notFound(fmt.Sprintf("run %q not found in %s", runID.String(), id.Claims.Repository))
 		}
 	}
 	if run.HTMLURL == "" {

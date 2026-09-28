@@ -273,6 +273,10 @@ func TestRunnerEndpointsDelegate(t *testing.T) {
 	call = e.runs.last()
 	assert.Equal(t, "GetRunForPrincipal", call.method)
 	assert.Equal(t, principal.OIDC, call.p.Kind)
+
+	e.runs.run = &v1.Run{ID: runID, Repo: "globex/platform"}
+	rec = e.do(bearer(newRequest(t, http.MethodGet, "/v1/runs/"+runID, nil), e.planToken()))
+	assert.Equal(t, http.StatusNotFound, rec.Code, "a runner token only reads runs of its own repository")
 }
 
 func TestCreateRunStatus(t *testing.T) {

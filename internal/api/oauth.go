@@ -213,17 +213,20 @@ func (s *server) installURL(slug string) string {
 
 func (s *server) appSlug(r *http.Request) string {
 	s.slugMu.Lock()
-	defer s.slugMu.Unlock()
-	if s.slug != "" || s.app == nil {
-		return s.slug
+	slug := s.slug
+	s.slugMu.Unlock()
+	if slug != "" || s.app == nil {
+		return slug
 	}
 	info, err := s.app.AppInfo(r.Context())
 	if err != nil {
 		s.log.WarnContext(r.Context(), "look up app slug", "request_id", requestIDOf(r), "error", err.Error())
 		return ""
 	}
+	s.slugMu.Lock()
 	s.slug = info.Slug
-	return s.slug
+	s.slugMu.Unlock()
+	return info.Slug
 }
 
 func (s *server) logout(w http.ResponseWriter, r *http.Request) {
