@@ -39,6 +39,10 @@
 //  5. Cross-repo. External stacks with an ordering edge to a scheduled stack
 //     are listed in ResolveResponse.External and never scheduled.
 //
+// A local stack whose key path or Path is not a canonical repository relative
+// directory, such as "../x", "./x" or "/x", is never scheduled and is named in
+// a warning, so no matrix entry points outside the checkout.
+//
 // A non-empty Input.Requested narrows the scheduled set to the requested
 // stacks. Requested stacks that are affected keep their reasons; the others
 // are added with the reason "requested". The relative order of two scheduled

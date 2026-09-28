@@ -1002,6 +1002,42 @@ func TestResolveInvalidGraph(t *testing.T) {
 	}
 }
 
+func TestResolveNeverSchedulesStacksOutsideTheRepository(t *testing.T) {
+	m := localKey("modules/m")
+	g := newGraph().stacks("stacks/a").
+		stack(v1.Stack{Key: "../../etc"}).
+		stack(v1.Stack{Key: "stacks/escape", Path: "../../etc"}).
+		stack(v1.Stack{Key: "./stacks/dot", Path: "stacks/dot"}).
+		stack(v1.Stack{Key: "/abs/key", Path: "abs/key"}).
+		local("modules/m").
+		uses("stacks/a", m).uses("../../etc", m).uses("./stacks/dot", m).
+		dep("stacks/escape", "stacks/a").dep("/abs/key", "stacks/a").
+		build()
+	resp, err := Resolve(g, Input{
+		ChangedPaths: []string{"modules/m/main.tf", "stacks/escape/main.tf", "stacks/dot/main.tf", "abs/key/main.tf"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"stacks/a"}}, resp.Waves)
+	require.Equal(t, []string{"stacks/a"}, affectedKeys(resp))
+	require.Equal(t, "stacks/a", resp.Matrix.Include[0].Stack)
+	require.Equal(t, []string{
+		`changed path abs/key/main.tf is inside no stack or module`,
+		`changed path stacks/dot/main.tf is inside no stack or module`,
+		`changed path stacks/escape/main.tf is inside no stack or module`,
+		`stack ../../etc has no canonical directory inside the repository and is never scheduled`,
+		`stack ./stacks/dot has no canonical directory inside the repository and is never scheduled`,
+		`stack /abs/key has no canonical directory inside the repository and is never scheduled`,
+		`stack stacks/a has no environment mapping; it runs under environment "default"`,
+		`stack stacks/escape has no canonical directory inside the repository and is never scheduled`,
+	}, resp.Warnings)
+
+	resp, err = Resolve(g, Input{Requested: []string{"../../etc", "stacks/escape", "stacks/a"}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"stacks/a"}, affectedKeys(resp))
+	require.Contains(t, resp.Warnings, "requested stack ../../etc has no canonical directory inside the repository and cannot be scheduled")
+	require.Contains(t, resp.Warnings, "requested stack stacks/escape has no canonical directory inside the repository and cannot be scheduled")
+}
+
 func TestResolveToleratesMalformedEdges(t *testing.T) {
 	g := newGraph().stacks("stacks/a", "stacks/b").stack(v1.Stack{}).stack(v1.Stack{Key: "stacks/nopath:ws", Path: "../x"}).
 		module(v1.Module{Kind: v1.ModuleLocal, Path: "modules/unnamed"}).

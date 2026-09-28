@@ -108,6 +108,7 @@ func Resolve(g *v1.Graph, in Input) (*v1.ResolveResponse, error) {
 		modules: map[string]bool{},
 	}
 	r.warnUnknownDependencies()
+	r.warnUnschedulable()
 	changedModules := r.classifyPaths()
 	r.moduleConsumers(changedModules)
 	if cfg.Propagate.DependentsEnabled() {
@@ -140,6 +141,14 @@ func (r *resolver) warnUnknownDependencies() {
 		}
 		if _, ok := r.ix.stacks[e.To.Key]; !ok {
 			r.warn("stack %s depends_on unknown stack %s", e.From.Key, e.To.Key)
+		}
+	}
+}
+
+func (r *resolver) warnUnschedulable() {
+	for key, s := range r.ix.stacks {
+		if !s.External && !schedulable(s) {
+			r.warn("stack %s has no canonical directory inside the repository and is never scheduled", key)
 		}
 	}
 }
@@ -293,6 +302,8 @@ func (r *resolver) request() (domain, scheduled []string) {
 			r.warn("requested stack %s is not in the graph", key)
 		case s.External:
 			r.warn("requested stack %s is external to this repository and cannot be scheduled", key)
+		case !schedulable(s):
+			r.warn("requested stack %s has no canonical directory inside the repository and cannot be scheduled", key)
 		default:
 			if _, ok := r.reasons[key]; !ok {
 				r.mark(key, bitRequested)

@@ -59,7 +59,7 @@ func newIndex(g *v1.Graph) *index {
 
 func (ix *index) localStack(key string) *v1.Stack {
 	s := ix.stacks[key]
-	if s == nil || s.External {
+	if s == nil || !schedulable(s) {
 		return nil
 	}
 	return s
@@ -68,14 +68,17 @@ func (ix *index) localStack(key string) *v1.Stack {
 func (ix *index) stackDirs() map[string][]string {
 	dirs := make(map[string][]string)
 	for key, s := range ix.stacks {
-		if s.External {
-			continue
-		}
-		if d := stackDir(s); d != "" {
+		if schedulable(s) {
+			d := stackDir(s)
 			dirs[d] = append(dirs[d], key)
 		}
 	}
 	return dirs
+}
+
+func schedulable(s *v1.Stack) bool {
+	p, _ := v1.SplitStackKey(s.Key)
+	return !s.External && p != "" && p == repoPath(p) && stackDir(s) != ""
 }
 
 func (ix *index) moduleDirs() map[string][]string {
