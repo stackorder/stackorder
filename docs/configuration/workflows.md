@@ -19,8 +19,10 @@ jobs:
       contents: read
       actions: read
       checks: write
+      pull-requests: read
     uses: stackorder/actions/.github/workflows/plan.yml@v1
     with:
+      server-url: ${{ vars.STACKORDER_SERVER_URL }}
       aws-role-arn: arn:aws:iam::123456789012:role/stackorder-plan
       tool: tofu
     secrets: inherit
@@ -41,7 +43,7 @@ on:
       mode: { type: string, required: true }
       wave: { type: string, required: false }
       sha: { type: string, required: false }
-      stacks: { type: string, required: false }
+      stacks: { type: string, required: true }
 jobs:
   run:
     permissions:
@@ -51,6 +53,7 @@ jobs:
       checks: write
     uses: stackorder/actions/.github/workflows/run.yml@v1
     with:
+      server-url: ${{ vars.STACKORDER_SERVER_URL }}
       run-id: ${{ inputs.run_id }}
       mode: ${{ inputs.mode }}
       wave: ${{ inputs.wave }}
@@ -78,22 +81,26 @@ A `stackorder plan` comment dispatches `mode: plan` for the named stacks. The sc
 
 Both `plan.yml` and `run.yml` accept:
 
-| Input | Meaning |
-| --- | --- |
-| `aws-role-arn` | The IAM role every stack job assumes. |
-| `aws-role-arn-map` | A JSON object from stack path prefix to IAM role ARN, for one role per environment. Use this or `aws-role-arn`. |
-| `tool` | `terraform` or `tofu`. |
-| `tool-version` | The version of the tool to install. |
-| `stackorder-version` | The `stackorder` CLI release to install. |
-| `runner` | The runner label jobs run on. |
-| `max-parallel` | The most matrix jobs that run at once. |
-| `working-directory` | The directory the jobs run the CLI in. |
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `server-url` | required | The server's base URL. |
+| `aws-role-arn` | empty | The IAM role for stacks that match no prefix in `aws-role-arn-map`. |
+| `aws-role-arn-map` | empty | A JSON object from stack path prefix to IAM role ARN, for one role per environment. The longest matching prefix wins. |
+| `aws-region` | `us-east-1` | The AWS region for the credentials. |
+| `tool` | `terraform` | `terraform` or `tofu`, for stacks whose matrix entry names no tool. |
+| `tool-version` | `latest` | The tool version to install, for stacks whose matrix entry pins none. |
+| `stackorder-version` | `latest` | The `stackorder` CLI release to install. |
+| `runner` | `ubuntu-latest` | The runner label jobs run on, or a JSON array or object for `runs-on`. |
+| `max-parallel` | `6` | The most matrix jobs that run at once. |
+| `working-directory` | `.` | The directory the jobs run the CLI in. |
 
-`run.yml` also takes the dispatch inputs, passed through as `run-id`, `mode`, `wave`, `sha` and `stacks`.
+When neither `aws-role-arn` nor `aws-role-arn-map` yields a role for a stack, the job skips AWS credentials, which suits self-hosted runners with an instance role. Reading `aws-role-arn-map` needs `jq` on the runner.
+
+`plan.yml` also takes `base-ref`, the ref to diff against (default: the pull request base), and `stacks`, comma separated stack keys to restrict the plan to. `run.yml` also takes the dispatch inputs, passed through as `run-id`, `mode`, `wave`, `sha` and `stacks`.
 
 `secrets: inherit` passes the repository's secrets to the reusable workflow, for providers that need credentials besides AWS.
 
-The CLI inside the jobs finds the server through `STACKORDER_SERVER_URL`. With it unset, the CLI runs in local mode and marks every result `unconfirmed`. Set it as an organization or repository Actions variable.
+The files above read `server-url` from the Actions variable `STACKORDER_SERVER_URL`. Set it for the organization or the repository. If it is empty, the CLI runs in local mode and marks every result `unconfirmed`.
 
 ## Permissions {#permissions}
 
@@ -107,7 +114,9 @@ permissions:
   checks: write        # fallback check when the server is unreachable
 ```
 
-A called workflow can only keep or narrow the permissions of the `GITHUB_TOKEN` its caller grants. Grant the same four on the calling job, as the files above do, or `id-token: write` is missing whenever the repository's default token permissions are read-only.
+The `resolve` job of `plan.yml` also needs `pull-requests: read`, to read the pull request's base and head.
+
+A called workflow can only keep or narrow the permissions of the `GITHUB_TOKEN` its caller grants. Grant them on the calling job, as the files above do: all five for `stackorder-plan.yml`, the four above for `stackorder-run.yml`. A called job that asks for more than its caller grants does not start, and `id-token: write` is never part of the default token permissions.
 
 There are no shared secrets between the runner and the server. The CLI requests an OIDC token with the server's base URL as audience and sends it as a bearer token; the server checks its claims against the run. See [OIDC binding](/reference/api#oidc-binding).
 

@@ -241,8 +241,10 @@ jobs:
       contents: read
       actions: read
       checks: write
+      pull-requests: read
     uses: stackorder/actions/.github/workflows/plan.yml@v1
     with:
+      server-url: ${{ vars.STACKORDER_SERVER_URL }}
       aws-role-arn: arn:aws:iam::123456789012:role/stackorder-plan
       tool: tofu
     secrets: inherit
@@ -259,7 +261,7 @@ on:
       mode: { type: string, required: true }
       wave: { type: string, required: false }
       sha: { type: string, required: false }
-      stacks: { type: string, required: false }
+      stacks: { type: string, required: true }
 jobs:
   run:
     permissions:
@@ -269,6 +271,7 @@ jobs:
       checks: write
     uses: stackorder/actions/.github/workflows/run.yml@v1
     with:
+      server-url: ${{ vars.STACKORDER_SERVER_URL }}
       run-id: ${{ inputs.run_id }}
       mode: ${{ inputs.mode }}
       wave: ${{ inputs.wave }}
@@ -280,7 +283,7 @@ jobs:
 
 The `permissions` blocks matter: a called workflow can only narrow the permissions its caller grants. [Workflows](/configuration/workflows) explains each input and permission.
 
-The CLI in these jobs reaches the server at `STACKORDER_SERVER_URL`; with it unset, the CLI runs in local mode and every check ends up `unconfirmed`. Set it as an Actions variable for the organization or the repository:
+Both reusable workflows require `server-url`, the server's base URL. The files above read it from the Actions variable `STACKORDER_SERVER_URL`; if it is empty, the CLI runs in local mode and every check ends up `unconfirmed`. Set it for the organization or the repository:
 
 ```sh
 gh variable set STACKORDER_SERVER_URL --org acme --visibility all \

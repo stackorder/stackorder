@@ -36,7 +36,7 @@ Stackorder degrades gracefully but never silently. Every refusal is a PR comment
 
 1. Check the server: `curl -fsS https://stackorder.example.com/readyz`.
 2. Read the resolve step in the job log. It shows whether the CLI ran in local mode or got an error from the server.
-3. If the CLI ran in local mode, `STACKORDER_SERVER_URL` is not reaching the job.
+3. If the CLI ran in local mode, the workflow passed an empty `server-url`: check that the `STACKORDER_SERVER_URL` Actions variable is set for the repository or its organization.
 4. If the server answered `unauthorized` or `forbidden`, see [OIDC rejected](#oidc).
 5. Once the cause is fixed, re-plan: push to the PR or comment `stackorder plan`.
 
