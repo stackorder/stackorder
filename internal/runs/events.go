@@ -629,7 +629,14 @@ func (s *Service) HandlePush(ctx context.Context, ev *gh.PushEvent) error {
 		if err != nil {
 			return err
 		}
-		return s.loadConfig(ctx, c, repo, ev.After, ev.Sender.Login)
+		head, err := c.GetRef(ctx, repo.FullName, "heads/"+repo.DefaultBranch)
+		switch {
+		case errors.Is(err, gh.ErrNotFound):
+			head = ev.After
+		case err != nil:
+			return fmt.Errorf("runs: head of %s: %w", repo.FullName, err)
+		}
+		return s.loadConfig(ctx, c, repo, head, ev.Sender.Login)
 	case ev.IsTag():
 		return s.recordTag(ctx, repo, ev)
 	}

@@ -464,6 +464,18 @@ func TestPushUpdatesConfigAndModuleVersions(t *testing.T) {
 	require.Len(t, rows, 1)
 	assert.Contains(t, rows[0].Details["error"], "version")
 
+	const olderSHA, newerSHA = "6666666666666666666666666666666666666666", "7777777777777777777777777777777777777777"
+	e.gh.SetContents(repoName, olderSHA, "stackorder.yaml", []byte("version: 1\napply:\n  require_approvals: 1\n"))
+	e.gh.SetContents(repoName, newerSHA, "stackorder.yaml", []byte("version: 1\napply:\n  require_approvals: 3\n"))
+	older := e.gh.PushEvent(repoName, "refs/heads/main", olderSHA, "stackorder.yaml")
+	newer := e.gh.PushEvent(repoName, "refs/heads/main", newerSHA, "stackorder.yaml")
+	require.NoError(t, e.svc.HandlePush(e.ctx, newer))
+	require.NoError(t, e.svc.HandlePush(e.ctx, older))
+	repo, err = e.st.GetRepo(e.ctx, repoID)
+	require.NoError(t, err)
+	assert.Equal(t, 3, repo.Config.Apply.RequireApprovals, "a push handled late cannot bring back an older policy")
+	assert.Equal(t, newerSHA, repo.ConfigSHA)
+
 	require.NoError(t, e.svc.HandlePush(e.ctx, e.gh.PushEvent(repoName, "refs/heads/feature", baseSHA)), "other branches are ignored")
 
 	renamed := e.gh.PushEvent(repoName, "refs/heads/trunk", baseSHA)
