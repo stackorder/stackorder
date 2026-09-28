@@ -1,5 +1,5 @@
 import { useLocation } from 'preact-iso';
-import { useMemo } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 
 import { useApi } from '../api/context';
 import type { Edge, GraphView, Run } from '../api/types';
@@ -66,6 +66,10 @@ export function RepoGraphPage({ owner, repo }: { owner: string; repo: string }) 
   const { query, route } = useLocation();
   const ref = query.ref ?? '';
   const runId = query.run ?? '';
+  const [refDraft, setRefDraft] = useState(ref);
+  useEffect(() => {
+    setRefDraft(ref);
+  }, [ref]);
 
   const graph = useResource(
     (signal) => api.repoGraph(owner, repo, { ref, run: runId }, { signal }),
@@ -115,12 +119,21 @@ export function RepoGraphPage({ owner, repo }: { owner: string; repo: string }) 
           class="controls__ref"
           onSubmit={(e) => {
             e.preventDefault();
-            const value = new FormData(e.currentTarget).get('ref');
-            navigate({ ref: typeof value === 'string' ? value.trim() : '' });
+            navigate({ ref: refDraft.trim() });
           }}
         >
           <label for="graph-ref">Ref</label>
-          <input id="graph-ref" name="ref" type="text" defaultValue={ref} placeholder="default branch" spellcheck={false} />
+          <input
+            id="graph-ref"
+            name="ref"
+            type="text"
+            value={refDraft}
+            placeholder="default branch"
+            spellcheck={false}
+            onInput={(e) => {
+              setRefDraft(e.currentTarget.value);
+            }}
+          />
           <button type="submit" class="button">
             Show
           </button>

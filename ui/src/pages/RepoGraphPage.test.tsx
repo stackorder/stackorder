@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/preact';
 import { describe, expect, it } from 'vitest';
 
+import { Routes } from '../app';
 import { ids } from '../fixtures';
 import { json, renderWithApp } from '../test/render';
 import { RepoGraphPage } from './RepoGraphPage';
@@ -82,6 +83,23 @@ describe('RepoGraphPage', () => {
     });
     await waitFor(() => {
       expect(calls.some((c) => c.search === '?ref=release%2F2026-09')).toBe(true);
+    });
+  });
+
+  it('shows the ref of the current address after going back', async () => {
+    renderWithApp(<Routes />, { url: '/repos/acme/infra' });
+    const input = await screen.findByLabelText('Ref');
+    fireEvent.input(input, { target: { value: 'release/2026-09' } });
+    fireEvent.submit(input);
+    await waitFor(() => {
+      expect(window.location.search).toBe('?ref=release%2F2026-09');
+    });
+    window.history.back();
+    await waitFor(() => {
+      expect(window.location.search).toBe('');
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Ref')).toHaveValue('');
     });
   });
 
