@@ -53,12 +53,15 @@ func Handler() http.Handler {
 }
 
 // HandlerFS serves a built UI from fsys, whose root holds index.html and the
-// assets directory. Requests under assets/ or ending in a static file
-// extension are served as files, with 404 when missing; files under assets/
-// are content hashed and cached as immutable. Every other path is a
-// client-side route and gets index.html with no-cache. When fsys has no
-// index.html, routes get a plain-text page explaining how to build the UI,
-// with status 503.
+// assets directory. A path naming a file in fsys is served as that file;
+// files under assets/ are content hashed and cached as immutable, others
+// are revalidated. No path with a segment starting with a dot is served as
+// a file. A missing file under assets/, or a missing top-level or dotted
+// path with a static file extension, is 404. Every other path is a
+// client-side route and gets index.html with no-cache, so a route such as
+// /repos/acme/chart.js still loads the app. When fsys has no index.html,
+// routes get a plain-text page explaining how to build the UI, with status
+// 503.
 func HandlerFS(fsys fs.FS) http.Handler {
 	return &handler{fsys: fsys}
 }
@@ -77,25 +80,26 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
 	immutable := strings.HasPrefix(name, assetsDir)
-	if !immutable && !staticExtensions[strings.ToLower(path.Ext(name))] {
-		h.serveIndex(w, r)
-		return
+	if fs.ValidPath(name) && !hidden(name) {
+		cache := cacheRevalidate
+		if immutable {
+			cache = cacheImmutable
+		}
+		err := h.serveFile(w, r, name, cache)
+		if err == nil {
+			return
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
 	}
-	if hidden(name) {
+	static := staticExtensions[strings.ToLower(path.Ext(name))]
+	if immutable || (static && (hidden(name) || !strings.Contains(name, "/"))) {
 		http.NotFound(w, r)
 		return
 	}
-	cache := cacheRevalidate
-	if immutable {
-		cache = cacheImmutable
-	}
-	if err := h.serveFile(w, r, name, cache); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			http.NotFound(w, r)
-			return
-		}
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-	}
+	h.serveIndex(w, r)
 }
 
 func (h *handler) serveIndex(w http.ResponseWriter, r *http.Request) {

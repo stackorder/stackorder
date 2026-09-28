@@ -24,6 +24,8 @@ func builtFS() fstest.MapFS {
 		"assets/index-9c8d7e.css": {Data: []byte(testCSS)},
 		".gitkeep":                {Data: nil},
 		".secret/key.json":        {Data: []byte(`{"k":"v"}`)},
+		".env.json":               {Data: []byte(`{"k":"v"}`)},
+		"assets/.cache":           {Data: []byte(`x`)},
 	}
 }
 
@@ -67,6 +69,12 @@ func TestHandlerFSServesBuiltUI(t *testing.T) {
 		{"route with query falls back", http.MethodGet, "/repos/acme/infra?run=abc&ref=main", http.StatusOK, testIndex, "text/html; charset=utf-8", cacheRevalidate},
 		{"dotted repo name is a route", http.MethodGet, "/repos/acme/acme.github.io", http.StatusOK, testIndex, "text/html; charset=utf-8", cacheRevalidate},
 		{"dot repo name is a route", http.MethodGet, "/repos/acme/.github", http.StatusOK, testIndex, "text/html; charset=utf-8", cacheRevalidate},
+		{"repo named like a script is a route", http.MethodGet, "/repos/acme/chart.js", http.StatusOK, testIndex, "text/html; charset=utf-8", cacheRevalidate},
+		{"repo named like a page is a route", http.MethodGet, "/repos/acme/handbook.html", http.StatusOK, testIndex, "text/html; charset=utf-8", cacheRevalidate},
+		{"repo named like data is a route", http.MethodGet, "/repos/acme/terraform.json", http.StatusOK, testIndex, "text/html; charset=utf-8", cacheRevalidate},
+		{"missing top-level text file is 404", http.MethodGet, "/robots.txt", http.StatusNotFound, "404 page not found\n", "text/plain; charset=utf-8", ""},
+		{"hidden top-level file is 404", http.MethodGet, "/.env.json", http.StatusNotFound, "404 page not found\n", "text/plain; charset=utf-8", ""},
+		{"hidden file under assets is 404", http.MethodGet, "/assets/.cache", http.StatusNotFound, "404 page not found\n", "text/plain; charset=utf-8", ""},
 		{"traversal is cleaned to a route", http.MethodGet, "/../../etc/passwd", http.StatusOK, testIndex, "text/html; charset=utf-8", cacheRevalidate},
 		{"assets directory is a route", http.MethodGet, "/assets/", http.StatusOK, testIndex, "text/html; charset=utf-8", cacheRevalidate},
 		{"hashed script is immutable", http.MethodGet, "/assets/index-3f2a1b.js", http.StatusOK, testJS, "text/javascript; charset=utf-8", cacheImmutable},
