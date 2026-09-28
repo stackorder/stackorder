@@ -100,10 +100,24 @@ Go version is the one in `go.mod`; `GOTOOLCHAIN=auto` downloads it. Node 24.
   for named policy checks.
 - Sticky PR comment: one per PR, found by the hidden marker
   `<!-- stackorder:sticky -->` on its first line.
-- Plan artifact name: `stackorder-plan-<key with / and : replaced by ->-<sha>`.
+- Plan artifact name: `v1.PlanArtifactName(key, sha)`, i.e.
+  `stackorder-plan-<key with / and : replaced by ->-<sha>`. The plan file
+  inside it is `<artifact name>.tfplan`.
 - Workflow files in user repos: `.github/workflows/stackorder-plan.yml` and
   `.github/workflows/stackorder-run.yml` (id `stackorder-run.yml` is what the
-  server dispatches).
+  server dispatches). `stackorder-run.yml` inputs: `run_id`, `mode`
+  (`plan`, `apply` or `drift`), `wave`, `sha` (commit to check out) and
+  `stacks` (JSON array of `v1.MatrixEntry`).
+- Stacks with no environment mapping run under `v1.DefaultEnvironment`
+  (`default`), never under an empty environment name.
+- Hooks `.stackorder/hooks/{pre-plan,post-plan,pre-apply,post-apply}.sh` are
+  run by the CLI itself, in CI and locally, with `STACKORDER_STACK`,
+  `STACKORDER_RUN_ID`, `STACKORDER_PLAN_JSON` and `STACKORDER_PLAN_FILE` set.
+- Release assets on `stackorder/stackorder` tags `vX.Y.Z`:
+  `stackorder_X.Y.Z_<os>_<arch>.tar.gz` (`.zip` on windows) containing the
+  `stackorder` binary, `os` in `linux`, `darwin`, `windows`, `arch` in
+  `amd64`, `arm64`, plus `stackorder_X.Y.Z_checksums.txt` (sha256). The
+  server image is `ghcr.io/stackorder/stackorder:X.Y.Z` and `:latest`.
 - Comment commands: `stackorder plan [key…]`, `stackorder apply [key…]`,
   `stackorder unlock [key…]`, `stackorder help`. The first token must be
   exactly `stackorder`, case insensitive, at the start of a line.
@@ -121,11 +135,38 @@ decoded key.
 | `POST /v1/runs/{id}/stacks/{key}/result` | `v1.StackResult` | `v1.RunStack` |
 | `POST /v1/runs/{id}/stacks/{key}/checks/{name}` | `v1.CheckVerdict` | `v1.Check` |
 | `GET /v1/runs/{id}` | | `v1.Run` |
+| `POST /v1/unlock` | `v1.UnlockRequest` with `repo` and `stack_key` | `v1.UnlockResponse` |
+
+A manual run (`POST /v1/runs` with an API key, `trigger: manual`, `mode:
+apply` and `stacks`) makes the server take the locks before answering and
+release them when the results arrive; this is how `stackorder apply --local`
+works.
 
 Authentication: `Authorization: Bearer <GitHub OIDC token>` for runners,
 `Authorization: Bearer sk_<key>` for automation, cookie `stackorder_session`
 for humans. Errors are `v1.Error` with codes `unauthorized`, `forbidden`,
 `not_found`, `conflict`, `invalid`, `locked`, `unconfirmed`, `internal`.
+
+## CLI commands
+
+Global flags: `--server` (`STACKORDER_SERVER_URL`), `--repo-root` (default
+`GITHUB_WORKSPACE` or the git top level), `--verbose`, `--format`
+(`text`, `json`, `dot` where it applies). In Actions the CLI reads the
+repository, SHA, event, PR number, run id and attempt from the `GITHUB_*`
+variables and the event payload; outputs go to `GITHUB_OUTPUT` and a
+Markdown summary to `GITHUB_STEP_SUMMARY`.
+
+| Command | Flags | Outputs |
+| --- | --- | --- |
+| `resolve` | `--base <ref>`, `--stacks a,b` | `run-id`, `matrix`, `waves`, `affected`, `count`, `unconfirmed` |
+| `plan --stack <key>` | `--run-id`, `--out <file>` | `has-changes`, `plan-file`, `artifact`, `summary`, `unconfirmed` |
+| `apply --stack <key> --run-id <id>` | `--plan-file`, `--local` | `summary` |
+| `drift --stack <key>` | `--run-id` | `drifted`, `summary` |
+| `check --stack <key> --run-id <id> --name <n> --status pass\|fail\|warn` | `--summary`, `--details-url` | |
+| `graph` | `--format` | |
+| `affected --base <ref>` | `--format` | |
+| `unlock <key>…` | `--reason`, `--force-state` | |
+| `version` | | |
 
 ## Human and automation endpoints
 
@@ -178,10 +219,13 @@ Policy for the gate is read from the default branch `stackorder.yaml`
 Waves are the longest-path layering of the affected subgraph over
 `depends_on` and `reads_state` edges. The server dispatches
 `stackorder-run.yml` once per (wave, environment) with inputs `run_id`,
-`mode`, `wave` and `stacks` (JSON array of `v1.MatrixEntry`). Wave n+1 is
-dispatched when every stack of wave n is terminal and none failed. Locks are
-taken on all affected stacks before wave 0 is dispatched and released on
-merge (`before_merge`) or run completion (`on_merge`).
+`mode`, `wave`, `sha` and `stacks` (JSON array of `v1.MatrixEntry` carrying
+`plan_run_id` and `artifact` for applies). Wave n+1 is dispatched when every
+stack of wave n is terminal and none failed. Locks are taken on all affected
+stacks before wave 0 is dispatched and released on merge (`before_merge`) or
+run completion (`on_merge`). A `stackorder plan` comment dispatches
+`mode: plan` for the named stacks; the scheduler dispatches `mode: drift`
+per stack with `sha` set to the default branch head.
 
 ## OIDC binding
 

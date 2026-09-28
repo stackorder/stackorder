@@ -275,7 +275,13 @@ type AffectedStack struct {
 	LockedBy *LockInfo `json:"locked_by,omitempty"`
 }
 
-// MatrixEntry is one element of the GitHub Actions matrix include list.
+// DefaultEnvironment is the GitHub environment assigned to stacks that match
+// no prefix in the environments map. GitHub creates it on first use with no
+// protection rules.
+const DefaultEnvironment = "default"
+
+// MatrixEntry is one element of the GitHub Actions matrix include list. The
+// same shape is passed as the `stacks` input of stackorder-run.yml.
 type MatrixEntry struct {
 	Stack       string `json:"stack"`
 	Key         string `json:"key"`
@@ -285,6 +291,18 @@ type MatrixEntry struct {
 	Tool        Tool   `json:"tool"`
 	ToolVersion string `json:"tool_version"`
 	PlanOutput  string `json:"plan_output"`
+	// SHA is the commit the job must check out.
+	SHA string `json:"sha,omitempty"`
+	// PlanRunID is the Actions workflow run that uploaded the plan artifact,
+	// and Artifact its name; both are set for apply dispatches.
+	PlanRunID int64  `json:"plan_run_id,omitempty"`
+	Artifact  string `json:"artifact,omitempty"`
+}
+
+// PlanArtifactName builds the workflow artifact name for a stack's plan file.
+func PlanArtifactName(stackKey, sha string) string {
+	r := strings.NewReplacer("/", "-", ":", "-")
+	return "stackorder-plan-" + r.Replace(stackKey) + "-" + sha
 }
 
 // Matrix is the JSON GitHub Actions expects in a strategy.matrix expression.
@@ -306,6 +324,9 @@ type CreateRunRequest struct {
 	// RunID is set when the workflow was dispatched by the server for an
 	// existing run and the runner is only registering itself.
 	RunID string `json:"run_id,omitempty"`
+	// Stacks names the stacks of a manual run started with an API key from
+	// outside Actions; the server takes their locks before answering.
+	Stacks []string `json:"stacks,omitempty"`
 }
 
 // CreateRunResponse is the body returned by POST /v1/runs.
@@ -571,10 +592,18 @@ type RepoSummary struct {
 	LastRunAt     *time.Time `json:"last_run_at,omitempty"`
 }
 
-// UnlockRequest is the body of POST /v1/stacks/{id}/unlock.
+// UnlockRequest is the body of POST /v1/stacks/{id}/unlock and of
+// POST /v1/unlock, which addresses the stack by repository and key instead.
 type UnlockRequest struct {
+	Repo       string `json:"repo,omitempty"`
+	StackKey   string `json:"stack_key,omitempty"`
 	Reason     string `json:"reason,omitempty"`
 	ForceState bool   `json:"force_state,omitempty"`
+}
+
+// UnlockResponse is returned by the unlock endpoints.
+type UnlockResponse struct {
+	Released []LockInfo `json:"released"`
 }
 
 // Error is the body of every non-2xx response.
