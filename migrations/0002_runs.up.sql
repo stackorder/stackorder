@@ -79,7 +79,7 @@ CREATE TABLE dispatches (
     dispatched_at   timestamptz NOT NULL DEFAULT now(),
     completed_at    timestamptz,
     conclusion      text NOT NULL DEFAULT '',
-    UNIQUE (run_id, wave, environment)
+    UNIQUE (run_id, wave, environment, mode)
 );
 
 CREATE INDEX dispatches_workflow_run_idx ON dispatches (workflow_run_id) WHERE workflow_run_id IS NOT NULL;

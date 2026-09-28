@@ -12,7 +12,7 @@ import (
 )
 
 // Dispatch is one workflow_dispatch of stackorder-run.yml for a (wave,
-// environment) of a run.
+// environment, mode) of a run.
 type Dispatch struct {
 	ID            uuid.UUID  `db:"id"`
 	RunID         uuid.UUID  `db:"run_id"`
@@ -33,9 +33,9 @@ const dispatchSelect = `SELECT ` + dispatchCols + ` FROM dispatches d JOIN runs 
 
 const dispatchFromCTE = ` SELECT ` + dispatchCols + ` FROM d JOIN runs r ON r.id = d.run_id`
 
-// CreateDispatch records a dispatch for a (run, wave, environment). If one
-// already exists it is returned with created == false, which makes the
-// dispatching handler idempotent. An empty environment is
+// CreateDispatch records a dispatch for a (run, wave, environment, mode).
+// If one already exists it is returned with created == false, which makes
+// the dispatching handler idempotent. An empty environment is
 // v1.DefaultEnvironment.
 func (s *Store) CreateDispatch(ctx context.Context, runID uuid.UUID, wave int, environment string, mode v1.RunMode) (Dispatch, bool, error) {
 	const op = "create dispatch"
@@ -44,7 +44,7 @@ func (s *Store) CreateDispatch(ctx context.Context, runID uuid.UUID, wave int, e
 		WITH d AS (
 			INSERT INTO dispatches (run_id, wave, environment, mode)
 			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (run_id, wave, environment) DO NOTHING
+			ON CONFLICT (run_id, wave, environment, mode) DO NOTHING
 			RETURNING *
 		)`+dispatchFromCTE, runID, wave, environment, mode)
 	if err == nil {
@@ -54,7 +54,7 @@ func (s *Store) CreateDispatch(ctx context.Context, runID uuid.UUID, wave int, e
 		return Dispatch{}, false, wrap(op, err)
 	}
 	out, err = queryOne[Dispatch](ctx, s.db, dispatchSelect+`
-		WHERE d.run_id = $1 AND d.wave = $2 AND d.environment = $3`, runID, wave, environment)
+		WHERE d.run_id = $1 AND d.wave = $2 AND d.environment = $3 AND d.mode = $4`, runID, wave, environment, mode)
 	return out, false, wrap(op, err)
 }
 

@@ -475,6 +475,11 @@ func TestDispatches(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, created, "empty and default name the same (run, wave, environment)")
 	assert.Equal(t, unmapped.ID, same.ID)
+	replan, created, err := f.s.CreateDispatch(f.ctx, r.ID, 2, v1.DefaultEnvironment, v1.ModePlan)
+	require.NoError(t, err)
+	assert.True(t, created, "a plan dispatch of the wave must not stand in for its apply dispatch")
+	assert.NotEqual(t, unmapped.ID, replan.ID)
+	assert.Equal(t, v1.ModePlan, replan.Mode)
 
 	_, err = f.s.CompleteDispatch(f.ctx, uuid.New(), "x")
 	require.ErrorIs(t, err, store.ErrNotFound)
