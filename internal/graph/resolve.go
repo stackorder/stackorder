@@ -21,7 +21,9 @@ type Input struct {
 	// ChangedPaths are the repository relative file paths changed between the
 	// base and the head of the change.
 	ChangedPaths []string
-	// Config is the root stackorder.yaml; nil means config.Default().
+	// Config is the root stackorder.yaml. Fields left at their zero value
+	// take their config.ApplyDefaults defaults, so nil means
+	// config.Default(); Config itself is never modified.
 	Config *v1.RepoConfig
 	// Requested restricts the result to these stack keys, as named by a
 	// "stackorder plan" or "stackorder apply" comment. Keys are normalised
@@ -87,9 +89,11 @@ func Resolve(g *v1.Graph, in Input) (*v1.ResolveResponse, error) {
 	if dups := append(slices.Clone(ix.dupStacks), ix.dupModules...); len(dups) > 0 {
 		return nil, fmt.Errorf("resolve: %w: duplicate node keys %s", ErrInvalidGraph, strings.Join(dups, ", "))
 	}
-	cfg := in.Config
-	if cfg == nil {
-		cfg = config.Default()
+	cfg := config.Default()
+	if in.Config != nil {
+		c := *in.Config
+		config.ApplyDefaults(&c)
+		cfg = &c
 	}
 	r := &resolver{
 		g:       g,

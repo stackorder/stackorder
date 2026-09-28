@@ -926,6 +926,26 @@ func TestResolveIgnore(t *testing.T) {
 	}
 }
 
+func TestResolvePartialConfigTakesDefaults(t *testing.T) {
+	cfg := &v1.RepoConfig{Environments: map[string]string{"stacks/prod/": "production"}}
+	before, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	resp, err := Resolve(exampleGraph().build(), Input{
+		ChangedPaths: []string{"stacks/prod/vpc/README.md", "stacks/staging/vpc/docs/notes.md", "stacks/prod/eks/main.tf"},
+		Config:       cfg,
+	})
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{prodEKS}, {prodApps}}, resp.Waves)
+	for _, e := range resp.Matrix.Include {
+		require.Equal(t, v1.ToolTerraform, e.Tool, e.Key)
+		require.Equal(t, string(v1.PlanOutputFull), e.PlanOutput, e.Key)
+		require.Equal(t, "production", e.Environment, e.Key)
+	}
+	after, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	require.JSONEq(t, string(before), string(after))
+}
+
 func TestResolveWarnings(t *testing.T) {
 	cfg := exampleConfig()
 	g := newGraph().stacks("stacks/prod/a", "stacks/prod/b").
