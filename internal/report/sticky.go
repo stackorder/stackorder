@@ -1,6 +1,7 @@
 package report
 
 import (
+	"fmt"
 	"html"
 	"strings"
 
@@ -85,6 +86,12 @@ func aggregateLine(run v1.Run, stacks []v1.RunStack, p phase) string {
 	sum, _ := sumSummaries(stacks)
 	scope := plural(len(stacks), "stack") + " in " + plural(waveCount(run), "wave")
 	if p == phaseApply && run.Status == v1.RunApplied {
+		done, skipped := appliedStacks(stacks)
+		sum, _ = sumSummaries(done)
+		scope = plural(len(done), "stack") + " in " + plural(waveCount(run), "wave")
+		if skipped > 0 {
+			scope += fmt.Sprintf(", skipped %d not in the requested subset", skipped)
+		}
 		return "Applied " + scope + ": " + lowerFirst(appliedLong(sum)) + "."
 	}
 	return capitalize(scope) + ": " + lowerFirst(SummaryLong(sum)) + "."

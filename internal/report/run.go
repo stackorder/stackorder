@@ -127,6 +127,17 @@ func runStatusWord(s v1.RunStatus) string {
 	return string(s)
 }
 
+func appliedStacks(stacks []v1.RunStack) (done []v1.RunStack, skipped int) {
+	for _, rs := range stacks {
+		if rs.Status == v1.StackSkipped {
+			skipped++
+			continue
+		}
+		done = append(done, rs)
+	}
+	return done, skipped
+}
+
 func summaryMode(rs v1.RunStack) bool { return rs.PlanOutput == string(v1.PlanOutputSummary) }
 
 func otherLocks(run v1.Run, o Options) []v1.LockInfo {

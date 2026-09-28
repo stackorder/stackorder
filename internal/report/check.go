@@ -342,6 +342,12 @@ func successTitle(run v1.Run, p phase) string {
 	n := plural(len(run.Stacks), "stack")
 	switch p {
 	case phaseApply:
+		done, skipped := appliedStacks(run.Stacks)
+		sum, _ = sumSummaries(done)
+		n = plural(len(done), "stack")
+		if skipped > 0 {
+			n += fmt.Sprintf(" (%d skipped)", skipped)
+		}
 		if sum.Empty() {
 			return "Applied " + n + ", no changes"
 		}

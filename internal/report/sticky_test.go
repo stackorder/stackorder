@@ -149,3 +149,10 @@ func BenchmarkStickyComment(b *testing.B) {
 		})
 	}
 }
+
+func TestStickyAppliedSubsetCountsOnlyAppliedStacks(t *testing.T) {
+	run := applyRun(v1.RunApplied,
+		stack("stacks/a", "", 0, 0, withStatus(v1.StackApplied), withSummary(1, 0, 0, 0)),
+		stack("stacks/b", "", 1, 0, withStatus(v1.StackSkipped), withSummary(4, 0, 0, 0)))
+	assert.Contains(t, StickyComment(run, Options{}), "\nApplied 1 stack in 3 waves, skipped 1 not in the requested subset: 1 added, 0 changed, 0 destroyed.\n")
+}
