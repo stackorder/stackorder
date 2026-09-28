@@ -85,9 +85,6 @@ func lockConflicts(in []v1.LockInfo) []v1.LockInfo {
 	return in
 }
 
-// toAPIError maps err to the response the API answers with. The second
-// result is true when the error is not one the vocabulary knows, so its
-// message is withheld from the caller and it must be logged instead.
 func toAPIError(err error) (*apiError, bool) {
 	var (
 		ae      *apiError
