@@ -40,10 +40,12 @@ func serve(t *testing.T, h http.Handler, method, target string, header http.Head
 
 func readBody(t *testing.T, res *http.Response) string {
 	t.Helper()
-	defer res.Body.Close()
 	b, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Fatalf("read body: %v", err)
+	}
+	if err := res.Body.Close(); err != nil {
+		t.Fatalf("close body: %v", err)
 	}
 	return string(b)
 }

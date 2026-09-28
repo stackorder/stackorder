@@ -97,11 +97,11 @@ func structFields(st *ast.StructType) map[string]goField {
 			continue
 		}
 		var nullable bool
-		switch f.Type.(type) {
+		switch typ := f.Type.(type) {
 		case *ast.ArrayType, *ast.MapType, *ast.StarExpr, *ast.InterfaceType:
 			nullable = true
 		case *ast.Ident:
-			nullable = f.Type.(*ast.Ident).Name == "any"
+			nullable = typ.Name == "any"
 		}
 		fields[name] = goField{omitempty: strings.Contains(opts, "omitempty"), nullable: nullable}
 	}
