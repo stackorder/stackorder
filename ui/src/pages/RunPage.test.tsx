@@ -207,6 +207,66 @@ describe('RunPage', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('stops refreshing once the session has ended and offers to sign in again', async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+    const live = clone(run);
+    live.status = 'applying';
+    let expired = false;
+    renderWithApp(page, {
+      url,
+      handler: (c) =>
+        c.path === `/v1/runs/${ids.run}`
+          ? expired
+            ? json({ code: 'unauthorized', message: 'session expired' }, 401)
+            : json(live)
+          : undefined,
+    });
+    expect(await screen.findByText('Refreshing every 10 s')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(setIntervalSpy.mock.calls.some(([, ms]) => ms === REFRESH_MS)).toBe(true);
+    });
+    const index = setIntervalSpy.mock.calls.findIndex(([, ms]) => ms === REFRESH_MS);
+    const tick = setIntervalSpy.mock.calls[index]?.[0] as () => void;
+    const timer: unknown = setIntervalSpy.mock.results[index]?.value;
+
+    expired = true;
+    tick();
+    expect(await screen.findByText(/Refresh failed: session expired/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(clearIntervalSpy).toHaveBeenCalledWith(timer);
+    });
+    expect(screen.queryByText('Refreshing every 10 s')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute('href', '/auth/login');
+    expect(setIntervalSpy.mock.calls.filter(([, ms]) => ms === REFRESH_MS)).toHaveLength(1);
+  });
+
+  it('keeps refreshing through a transient failure', async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    const live = clone(run);
+    live.status = 'applying';
+    let down = false;
+    renderWithApp(page, {
+      url,
+      handler: (c) =>
+        c.path === `/v1/runs/${ids.run}` ? (down ? json({ code: 'internal', message: 'database unavailable' }, 503) : json(live)) : undefined,
+    });
+    expect(await screen.findByText('Refreshing every 10 s')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(setIntervalSpy.mock.calls.some(([, ms]) => ms === REFRESH_MS)).toBe(true);
+    });
+    const tick = setIntervalSpy.mock.calls.find(([, ms]) => ms === REFRESH_MS)?.[0] as () => void;
+    down = true;
+    tick();
+    expect(await screen.findByText(/Refresh failed: database unavailable/)).toBeInTheDocument();
+    expect(screen.getByText('Refreshing every 10 s')).toBeInTheDocument();
+    down = false;
+    tick();
+    await waitFor(() => {
+      expect(screen.queryByText(/Refresh failed/)).not.toBeInTheDocument();
+    });
+  });
+
   it('shows not found for an unknown run', async () => {
     renderWithApp(<RunPage id="00000000-0000-4000-8000-000000000000" />, { url: '/runs/00000000-0000-4000-8000-000000000000' });
     expect(await screen.findByText('This run does not exist or you do not have access to it.')).toBeInTheDocument();

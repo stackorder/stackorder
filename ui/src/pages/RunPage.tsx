@@ -1,11 +1,12 @@
 import { useLocation } from 'preact-iso';
 import { useEffect, useState } from 'preact/hooks';
 
+import { ApiError } from '../api/client';
 import { useApi } from '../api/context';
 import { runTerminal, type PlanSummary, type Run, type RunStack } from '../api/types';
 import { useResource } from '../api/useResource';
 import { Dialog } from '../components/Dialog';
-import { ErrorState } from '../components/ErrorState';
+import { ErrorState, LOGIN_PATH } from '../components/ErrorState';
 import { Loading } from '../components/Loading';
 import { runTitle } from '../components/RunLink';
 import { Badge, StatusBadge, statusTone } from '../components/StatusBadge';
@@ -211,7 +212,10 @@ function RunView({ id }: { id: string }) {
   const run = res.data;
   usePageTitle(run ? `Run ${shortId(run.id)}` : 'Run');
 
-  const polling = run !== undefined && !runTerminal(run.status);
+  const refreshError = res.error instanceof ApiError ? res.error : undefined;
+  const signedOut = refreshError?.unauthorized === true;
+  const refused = signedOut || refreshError?.notFound === true || refreshError?.status === 403;
+  const polling = run !== undefined && !runTerminal(run.status) && !refused;
   const { reload } = res;
   useEffect(() => {
     if (!polling) return;
@@ -330,6 +334,12 @@ function RunView({ id }: { id: string }) {
         {res.error && (
           <p class="text-warning" role="status">
             Refresh failed: {res.error.message}
+            {signedOut && (
+              <>
+                {' '}
+                <a href={LOGIN_PATH}>Sign in again</a>
+              </>
+            )}
           </p>
         )}
       </div>
