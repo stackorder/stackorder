@@ -482,6 +482,12 @@ type RunStack struct {
 	Checks       []Check      `json:"checks,omitempty"`
 	StartedAt    *time.Time   `json:"started_at,omitempty"`
 	FinishedAt   *time.Time   `json:"finished_at,omitempty"`
+	// BlockedBy lists the keys of the failed predecessors that put a
+	// blocked stack in that state.
+	BlockedBy []string `json:"blocked_by,omitempty"`
+	// PlanOutput is the stack's effective plan_output; "summary" means plan
+	// text must never be rendered for it.
+	PlanOutput string `json:"plan_output,omitempty"`
 }
 
 // StackDetail is the body of GET /v1/stacks/{id}.
