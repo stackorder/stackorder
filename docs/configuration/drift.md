@@ -49,7 +49,7 @@ The same command works on a laptop, with credentials that can read the stack's s
 
 ```sh
 stackorder drift --stack stacks/prod/vpc
-echo $?   # 0: no drift, 2: drift, 1: error
+echo $?   # 0: no drift, 2: drift, 1: error, 3: refused by the server
 ```
 
 With `--format json` the result is machine readable. See the [CLI reference](/reference/cli#drift).
