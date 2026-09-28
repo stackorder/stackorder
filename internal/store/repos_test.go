@@ -60,6 +60,30 @@ func TestInstallations(t *testing.T) {
 	assert.Empty(t, stacks)
 }
 
+func TestListInstallations(t *testing.T) {
+	f := newFixture(t)
+	f.addRepo(3, 300, "Globex", "Globex/platform")
+	f.addRepo(2, 200, "acme-labs", "acme-labs/sandbox")
+	require.NoError(t, f.s.SuspendInstallation(f.ctx, 2, true))
+
+	got, err := f.s.ListInstallations(f.ctx)
+	require.NoError(t, err)
+	accounts := make([]string, len(got))
+	for i, in := range got {
+		accounts[i] = in.Account
+	}
+	assert.Equal(t, []string{"acme", "acme-labs", "Globex"}, accounts)
+	assert.Nil(t, got[0].SuspendedAt)
+	assert.NotNil(t, got[1].SuspendedAt, "suspended installations are listed")
+
+	require.NoError(t, f.s.DeleteInstallation(f.ctx, 1))
+	require.NoError(t, f.s.DeleteInstallation(f.ctx, 2))
+	require.NoError(t, f.s.DeleteInstallation(f.ctx, 3))
+	got, err = f.s.ListInstallations(f.ctx)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
 func TestRepos(t *testing.T) {
 	f := newFixture(t)
 	other := f.addRepo(2, 200, "globex", "globex/platform")

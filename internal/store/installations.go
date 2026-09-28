@@ -35,6 +35,14 @@ func (s *Store) GetInstallation(ctx context.Context, id int64) (Installation, er
 	return out, wrap("get installation", err)
 }
 
+// ListInstallations returns every installation ordered by account and id,
+// suspended ones included.
+func (s *Store) ListInstallations(ctx context.Context) ([]Installation, error) {
+	out, err := queryAll[Installation](ctx, s.db,
+		`SELECT `+installationColumns+` FROM installations ORDER BY lower(account), id`)
+	return out, wrap("list installations", err)
+}
+
 // SuspendInstallation marks the installation suspended, keeping the first
 // suspension time, or clears the mark when suspended is false.
 func (s *Store) SuspendInstallation(ctx context.Context, id int64, suspended bool) error {
