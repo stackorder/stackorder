@@ -197,6 +197,8 @@ func (a *app) commands() []*cobra.Command {
 		a.planCommand(),
 		a.applyCommand(),
 		a.driftCommand(),
+		a.checkCommand(),
+		a.unlockCommand(),
 	}
 }
 
