@@ -30,7 +30,7 @@ jobs:
 
 - **Trigger.** `pull_request` on `opened`, `synchronize` and `reopened`. Plans never wait for the server: GitHub starts them.
 - **Concurrency.** One group per PR with `cancel-in-progress: true`, so a new push cancels the plan of the previous one.
-- **Jobs.** The reusable `plan.yml` runs a `resolve` job, which scans the repository, posts the graph and gets the matrix back, and a `plan` job with one matrix entry per affected stack.
+- **Jobs.** The reusable `plan.yml` runs a `resolve` job, which scans the repository, posts the graph and gets the matrix back, and a `plan` job with one matrix entry per affected stack. For a pull request from a fork it runs neither; see [Fork pull requests](#forks).
 
 ## `stackorder-run.yml` {#run}
 
@@ -174,6 +174,6 @@ As a `post-plan.sh` hook, this produces the check `stackorder/policy: stacks/pro
 
 The `pull_request` trigger gives workflows from forks a read-only `GITHUB_TOKEN` and no `id-token` permission. Neither the AWS role nor the Stackorder API is reachable from a fork.
 
-By default Stackorder posts a single neutral check explaining this and runs nothing.
+By default Stackorder posts a single neutral check explaining this and runs nothing. The reusable `plan.yml` skips its `resolve` and `plan` jobs when the head repository is a fork, and explains why in the job summary.
 
-Maintainers who want fork plans can switch the plan workflow to `pull_request_target` behind a label gate. Stackorder does not encourage it. `pull_request_target` runs with the base repository's permissions and secrets, so the label is all that stands between code from the fork and your plan role. Note also that the server's OIDC binding accepts plan results only from `pull_request` events.
+To get plans for a fork's change, a maintainer pushes the branch to the repository itself and opens the pull request from there. Switching the plan workflow to `pull_request_target` does not help: `plan.yml` skips forks whatever the event, and the server's OIDC binding accepts plan results only from `pull_request` events. It would also run code from the fork with the base repository's permissions and secrets.
