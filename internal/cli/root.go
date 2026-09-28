@@ -191,6 +191,7 @@ func (a *app) rootCommand() *cobra.Command {
 func (a *app) commands() []*cobra.Command {
 	return []*cobra.Command{
 		a.versionCommand(),
+		a.planCommand(),
 	}
 }
 
