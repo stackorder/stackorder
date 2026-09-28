@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
@@ -21,8 +22,11 @@ type Repo struct {
 	ConfigSHA      string         `db:"config_sha"`
 	Private        bool           `db:"private"`
 	Suspended      bool           `db:"suspended"`
-	CreatedAt      time.Time      `db:"created_at"`
-	UpdatedAt      time.Time      `db:"updated_at"`
+	// DefaultGraphID is the graph of the pull request merged last, which
+	// stands for the default branch; nil until a merge is seen.
+	DefaultGraphID *uuid.UUID `db:"default_graph_id"`
+	CreatedAt      time.Time  `db:"created_at"`
+	UpdatedAt      time.Time  `db:"updated_at"`
 }
 
 // RepoParams are the GitHub-owned fields of a repository.
@@ -39,7 +43,7 @@ type RepoParams struct {
 const repoSelect = `
 	SELECT r.id, r.installation_id, i.account, r.full_name, r.default_branch, r.config,
 	       r.config_sha, r.private, i.suspended_at IS NOT NULL AS suspended,
-	       r.created_at, r.updated_at
+	       r.default_graph_id, r.created_at, r.updated_at
 	FROM repos r JOIN installations i ON i.id = r.installation_id`
 
 // UpsertRepo creates the repository or refreshes its GitHub fields, keeping
@@ -111,6 +115,23 @@ func (s *Store) UpdateRepoConfig(ctx context.Context, id int64, cfg *v1.RepoConf
 		return notFound("update repo config")
 	}
 	return nil
+}
+
+// SetDefaultGraph records the graph that stands for the repository's
+// default branch. The graph must belong to the repository, or ErrNotFound
+// is returned.
+func (s *Store) SetDefaultGraph(ctx context.Context, repoID int64, graphID uuid.UUID) error {
+	return s.execOne(ctx, "set default graph", `
+		UPDATE repos SET default_graph_id = $2, updated_at = now()
+		WHERE id = $1 AND EXISTS (SELECT 1 FROM graphs g WHERE g.id = $2 AND g.repo_id = $1)`,
+		repoID, graphID)
+}
+
+// GetDefaultGraph returns the repository's default-branch graph and its id,
+// or ErrNotFound when none was recorded.
+func (s *Store) GetDefaultGraph(ctx context.Context, repoID int64) (*v1.Graph, uuid.UUID, error) {
+	return s.loadGraph(ctx, "get default graph", graphSelect+`
+		JOIN repos d ON d.default_graph_id = g.id WHERE d.id = $1`, repoID)
 }
 
 // DeleteRepo removes a repository and everything recorded for it. Deleting

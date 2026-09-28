@@ -12,7 +12,8 @@ import (
 )
 
 // Dispatch is one workflow_dispatch of stackorder-run.yml for a (wave,
-// environment, mode) of a run.
+// environment, mode) of a run. A wave and environment with more stacks than
+// one dispatch may carry is split into chunks numbered from 0.
 type Dispatch struct {
 	ID            uuid.UUID  `db:"id"`
 	RunID         uuid.UUID  `db:"run_id"`
@@ -20,14 +21,18 @@ type Dispatch struct {
 	Wave          int        `db:"wave"`
 	Environment   string     `db:"environment"`
 	Mode          v1.RunMode `db:"mode"`
+	Chunk         int        `db:"chunk"`
 	WorkflowRunID *int64     `db:"workflow_run_id"`
 	DispatchedAt  time.Time  `db:"dispatched_at"`
-	CompletedAt   *time.Time `db:"completed_at"`
-	Conclusion    string     `db:"conclusion"`
+	// SentAt is when GitHub accepted the workflow_dispatch call; nil while
+	// the call has not been made or has not succeeded.
+	SentAt      *time.Time `db:"sent_at"`
+	CompletedAt *time.Time `db:"completed_at"`
+	Conclusion  string     `db:"conclusion"`
 }
 
-const dispatchCols = `d.id, d.run_id, r.repo_id, d.wave, d.environment, d.mode, d.workflow_run_id,
-	d.dispatched_at, d.completed_at, d.conclusion`
+const dispatchCols = `d.id, d.run_id, r.repo_id, d.wave, d.environment, d.mode, d.chunk, d.workflow_run_id,
+	d.dispatched_at, d.sent_at, d.completed_at, d.conclusion`
 
 const dispatchSelect = `SELECT ` + dispatchCols + ` FROM dispatches d JOIN runs r ON r.id = d.run_id`
 
@@ -36,17 +41,26 @@ const dispatchFromCTE = ` SELECT ` + dispatchCols + ` FROM d JOIN runs r ON r.id
 // CreateDispatch records a dispatch for a (run, wave, environment, mode).
 // If one already exists it is returned with created == false, which makes
 // the dispatching handler idempotent. An empty environment is
-// v1.DefaultEnvironment.
+// v1.DefaultEnvironment. It is CreateDispatchChunk for chunk 0.
 func (s *Store) CreateDispatch(ctx context.Context, runID uuid.UUID, wave int, environment string, mode v1.RunMode) (Dispatch, bool, error) {
+	return s.CreateDispatchChunk(ctx, runID, wave, environment, mode, 0)
+}
+
+// CreateDispatchChunk records one chunk of the dispatches for a (run, wave,
+// environment, mode), or returns the existing one with created == false.
+func (s *Store) CreateDispatchChunk(ctx context.Context, runID uuid.UUID, wave int, environment string, mode v1.RunMode, chunk int) (Dispatch, bool, error) {
 	const op = "create dispatch"
+	if chunk < 0 {
+		return Dispatch{}, false, invalid(op, "chunk must not be negative")
+	}
 	environment = environmentOrDefault(environment)
 	out, err := queryOne[Dispatch](ctx, s.db, `
 		WITH d AS (
-			INSERT INTO dispatches (run_id, wave, environment, mode)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (run_id, wave, environment, mode) DO NOTHING
+			INSERT INTO dispatches (run_id, wave, environment, mode, chunk)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (run_id, wave, environment, mode, chunk) DO NOTHING
 			RETURNING *
-		)`+dispatchFromCTE, runID, wave, environment, mode)
+		)`+dispatchFromCTE, runID, wave, environment, mode, chunk)
 	if err == nil {
 		return out, true, nil
 	}
@@ -54,8 +68,25 @@ func (s *Store) CreateDispatch(ctx context.Context, runID uuid.UUID, wave int, e
 		return Dispatch{}, false, wrap(op, err)
 	}
 	out, err = queryOne[Dispatch](ctx, s.db, dispatchSelect+`
-		WHERE d.run_id = $1 AND d.wave = $2 AND d.environment = $3 AND d.mode = $4`, runID, wave, environment, mode)
+		WHERE d.run_id = $1 AND d.wave = $2 AND d.environment = $3 AND d.mode = $4 AND d.chunk = $5`,
+		runID, wave, environment, mode, chunk)
 	return out, false, wrap(op, err)
+}
+
+// MarkDispatchSent records that GitHub accepted the dispatch. The first
+// time is kept when it is marked twice.
+func (s *Store) MarkDispatchSent(ctx context.Context, id uuid.UUID) (Dispatch, error) {
+	out, err := queryOne[Dispatch](ctx, s.db, `
+		WITH d AS (
+			UPDATE dispatches SET sent_at = COALESCE(sent_at, now()) WHERE id = $1 RETURNING *
+		)`+dispatchFromCTE, id)
+	return out, wrap("mark dispatch sent", err)
+}
+
+// GetDispatch returns one dispatch.
+func (s *Store) GetDispatch(ctx context.Context, id uuid.UUID) (Dispatch, error) {
+	out, err := queryOne[Dispatch](ctx, s.db, dispatchSelect+` WHERE d.id = $1`, id)
+	return out, wrap("get dispatch", err)
 }
 
 // SetDispatchWorkflowRun links a dispatch to the Actions workflow run it
@@ -90,10 +121,10 @@ func (s *Store) CompleteDispatch(ctx context.Context, id uuid.UUID, conclusion s
 }
 
 // ListDispatches returns the dispatches of a run ordered by wave,
-// environment and dispatch time.
+// environment, chunk and dispatch time.
 func (s *Store) ListDispatches(ctx context.Context, runID uuid.UUID) ([]Dispatch, error) {
 	out, err := queryAll[Dispatch](ctx, s.db, dispatchSelect+`
-		WHERE d.run_id = $1 ORDER BY d.wave, d.environment, d.dispatched_at, d.id`, runID)
+		WHERE d.run_id = $1 ORDER BY d.wave, d.environment, d.chunk, d.dispatched_at, d.id`, runID)
 	return out, wrap("list dispatches", err)
 }
 

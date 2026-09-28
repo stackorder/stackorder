@@ -62,9 +62,12 @@ type Run struct {
 	Warnings           []string     `db:"warnings"`
 	WorkflowRunID      int64        `db:"workflow_run_id"`
 	WorkflowRunAttempt int          `db:"workflow_run_attempt"`
-	CreatedAt          time.Time    `db:"created_at"`
-	StartedAt          *time.Time   `db:"started_at"`
-	FinishedAt         *time.Time   `db:"finished_at"`
+	// CheckRuns maps the names of the GitHub check runs created for the
+	// run to their ids.
+	CheckRuns  map[string]int64 `db:"check_runs"`
+	CreatedAt  time.Time        `db:"created_at"`
+	StartedAt  *time.Time       `db:"started_at"`
+	FinishedAt *time.Time       `db:"finished_at"`
 }
 
 // ToV1 converts the row without its stacks; see RunDetail for the full
@@ -121,7 +124,7 @@ type RunFilter struct {
 
 const runCols = `r.id, r.repo_id, p.full_name AS repo, r.sha, r.base_sha, r.pr_number, r.trigger,
 	r.mode, r.status, r.requested_by, r.graph_id, r.waves, r.current_wave, r.warnings,
-	r.workflow_run_id, r.workflow_run_attempt, r.created_at, r.started_at, r.finished_at`
+	r.workflow_run_id, r.workflow_run_attempt, r.check_runs, r.created_at, r.started_at, r.finished_at`
 
 const runSelect = `SELECT ` + runCols + ` FROM runs r JOIN repos p ON p.id = r.repo_id`
 
@@ -285,6 +288,29 @@ func (s *Store) SetRunWorkflowRun(ctx context.Context, id uuid.UUID, workflowRun
 		id, workflowRunID, attempt)
 }
 
+// SetRunCheckRun records the id of a GitHub check run created for a run
+// under its check run name, replacing an id recorded before under the same
+// name.
+func (s *Store) SetRunCheckRun(ctx context.Context, id uuid.UUID, name string, checkRunID int64) error {
+	const op = "set run check run"
+	if name == "" || checkRunID <= 0 {
+		return invalid(op, "name and a positive check run id are required")
+	}
+	return s.execOne(ctx, op, `
+		UPDATE runs SET check_runs = check_runs || jsonb_build_object($2::text, $3::bigint) WHERE id = $1`,
+		id, name, checkRunID)
+}
+
+// FindRunForStack returns the newest run of the repository in the given
+// mode that was created at or after since and has a row for the stack.
+func (s *Store) FindRunForStack(ctx context.Context, repoID int64, stackID uuid.UUID, mode v1.RunMode, since time.Time) (Run, error) {
+	out, err := queryOne[Run](ctx, s.db, runSelect+`
+		WHERE r.repo_id = $1 AND r.mode = $3 AND r.created_at >= $4
+		  AND EXISTS (SELECT 1 FROM run_stacks rs WHERE rs.run_id = r.id AND rs.stack_id = $2)
+		ORDER BY r.created_at DESC, r.id DESC LIMIT 1`, repoID, stackID, mode, since)
+	return out, wrap("find run for stack", err)
+}
+
 // SupersedeRuns moves every non-terminal run of a pull request whose SHA
 // differs from exceptSHA to superseded and returns how many moved. A zero
 // prNumber matches nothing.
@@ -339,9 +365,17 @@ type RunStack struct {
 	PlanText          string          `db:"plan_text"`
 	PlanTextTruncated bool            `db:"plan_text_truncated"`
 	ErrorText         string          `db:"error_text"`
-	StartedAt         *time.Time      `db:"started_at"`
-	FinishedAt        *time.Time      `db:"finished_at"`
-	UpdatedAt         time.Time       `db:"updated_at"`
+	// PlanURL points at the full plan text in the optional artifact store.
+	PlanURL string `db:"plan_url"`
+	// PlanOutput is the stack's effective plan_output setting.
+	PlanOutput string `db:"plan_output"`
+	// BlockedBy lists the failed predecessors of a blocked stack.
+	BlockedBy []string `db:"blocked_by"`
+	// DispatchID is the workflow dispatch the stack was sent in, if any.
+	DispatchID *uuid.UUID `db:"dispatch_id"`
+	StartedAt  *time.Time `db:"started_at"`
+	FinishedAt *time.Time `db:"finished_at"`
+	UpdatedAt  time.Time  `db:"updated_at"`
 }
 
 // ToV1 converts the row; checks are attached by RunDetail.
@@ -362,9 +396,14 @@ func (rs RunStack) ToV1() v1.RunStack {
 		Truncated:    rs.PlanTextTruncated,
 		StartedAt:    utc(rs.StartedAt),
 		FinishedAt:   utc(rs.FinishedAt),
+		PlanOutput:   rs.PlanOutput,
+		PlanURL:      rs.PlanURL,
 	}
 	if len(rs.Reasons) > 0 {
 		out.Reasons = rs.Reasons
+	}
+	if len(rs.BlockedBy) > 0 {
+		out.BlockedBy = rs.BlockedBy
 	}
 	return out
 }
@@ -391,23 +430,34 @@ type RunStackPatch struct {
 	// PlanTextTruncated says the sender already truncated PlanText.
 	PlanTextTruncated *bool
 	ErrorText         *string
+	// PlanURL replaces the link to the full plan text.
+	PlanURL *string
+	// BlockedBy replaces the list of failed predecessors.
+	BlockedBy *[]string
+	// DispatchID records the dispatch the stack was sent in.
+	DispatchID *uuid.UUID
+	// StartedAt sets started_at when the row has none and the patch does
+	// not start the stack itself.
+	StartedAt *time.Time
 }
 
 const runStackColsHead = `rs.run_id, rs.stack_id, s.key, s.path, s.workspace, rs.wave, rs.mode, rs.status,
 	rs.reasons, rs.environment, rs.adds, rs.changes, rs.destroys, rs.replaces, rs.has_changes,
 	rs.exit_code, rs.job_url, rs.plan_artifact, rs.plan_run_id, rs.summary, `
 
-const runStackColsTail = `, rs.plan_text_truncated, rs.error_text, rs.started_at, rs.finished_at, rs.updated_at`
+const runStackColsTail = `, rs.plan_text_truncated, rs.error_text, rs.plan_url, rs.plan_output, rs.blocked_by,
+	rs.dispatch_id, rs.started_at, rs.finished_at, rs.updated_at`
 
 const runStackCols = runStackColsHead + `COALESCE(rs.plan_text, '') AS plan_text` + runStackColsTail
 
 const runStackColsNoText = runStackColsHead + `'' AS plan_text` + runStackColsTail
 
 // UpsertRunStacks records the affected stacks of a run. New rows take the
-// given status (pending by default) and mode (the run's by default);
-// existing rows only have their wave, reasons and environment refreshed, so
-// results already reported are kept. An empty environment is
-// v1.DefaultEnvironment.
+// given status (pending by default) and mode (the run's by default), and
+// the given summary, change flag, plan artifact and plan run, which is how
+// an apply run inherits its plans; existing rows only have their wave,
+// reasons, environment and plan output refreshed, so results already
+// reported are kept. An empty environment is v1.DefaultEnvironment.
 func (s *Store) UpsertRunStacks(ctx context.Context, runID uuid.UUID, stacks []RunStack) error {
 	if len(stacks) == 0 {
 		return nil
@@ -418,17 +468,21 @@ func (s *Store) UpsertRunStacks(ctx context.Context, runID uuid.UUID, stacks []R
 		b := &pgx.Batch{}
 		for _, rs := range sorted {
 			b.Queue(`
-				INSERT INTO run_stacks (run_id, stack_id, wave, mode, status, reasons, environment)
+				INSERT INTO run_stacks (run_id, stack_id, wave, mode, status, reasons, environment, plan_output,
+				                        summary, adds, changes, destroys, replaces, has_changes, plan_artifact, plan_run_id)
 				VALUES ($1, $2, $3,
 				        COALESCE(NULLIF($4::text, ''), (SELECT mode FROM runs WHERE id = $1), 'plan'),
-				        COALESCE(NULLIF($5::text, ''), 'pending'), $6::text[], $7)
+				        COALESCE(NULLIF($5::text, ''), 'pending'), $6::text[], $7, $8,
+				        $9::jsonb, $10, $11, $12, $13, $14, $15, $16)
 				ON CONFLICT (run_id, stack_id) DO UPDATE SET
 					wave = EXCLUDED.wave,
 					reasons = EXCLUDED.reasons,
 					environment = EXCLUDED.environment,
+					plan_output = EXCLUDED.plan_output,
 					updated_at = now()`,
 				runID, rs.StackID, rs.Wave, string(rs.Mode), string(rs.Status), strs(nonNil(rs.Reasons)),
-				environmentOrDefault(rs.Environment))
+				environmentOrDefault(rs.Environment), rs.PlanOutput,
+				rs.Summary, rs.Adds, rs.Changes, rs.Destroys, rs.Replaces, rs.HasChanges, rs.PlanArtifact, rs.PlanRunID)
 		}
 		return tx.SendBatch(ctx, b).Close()
 	})
@@ -475,8 +529,12 @@ func (s *Store) UpdateRunStack(ctx context.Context, runID, stackID uuid.UUID, p 
 				plan_text = COALESCE($17::text, plan_text),
 				plan_text_truncated = COALESCE($18::boolean, plan_text_truncated),
 				error_text = COALESCE($19::text, error_text),
+				plan_url = COALESCE($23::text, plan_url),
+				blocked_by = COALESCE($24::text[], blocked_by),
+				dispatch_id = COALESCE($25::uuid, dispatch_id),
 				started_at = CASE
 					WHEN $3::text IS NOT NULL AND $3::text <> status AND $3::text = ANY($20::text[]) THEN now()
+					WHEN $26::timestamptz IS NOT NULL THEN COALESCE(started_at, $26::timestamptz)
 					ELSE started_at END,
 				finished_at = CASE
 					WHEN $3::text IS NULL OR $3::text = status THEN finished_at
@@ -490,7 +548,8 @@ func (s *Store) UpdateRunStack(ctx context.Context, runID, stackID uuid.UUID, p 
 		SELECT `+runStackCols+` FROM rs JOIN stacks s ON s.id = rs.stack_id`,
 		runID, stackID, p.Status, p.Mode, p.Wave, p.Environment, p.Summary,
 		adds, changes, destroys, replaces, p.HasChanges, p.ExitCode, p.JobURL, p.PlanArtifact,
-		p.PlanRunID, text, truncated, p.ErrorText, startedStatuses, finishedStackStates, strs(p.IfStatus))
+		p.PlanRunID, text, truncated, p.ErrorText, startedStatuses, finishedStackStates, strs(p.IfStatus),
+		p.PlanURL, p.BlockedBy, p.DispatchID, p.StartedAt)
 	if errors.Is(err, pgx.ErrNoRows) && len(p.IfStatus) > 0 {
 		return out, s.guardError(ctx, op, `SELECT 1 FROM run_stacks WHERE run_id = $1 AND stack_id = $2`, runID, stackID)
 	}
