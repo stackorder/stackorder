@@ -134,11 +134,26 @@ func TestHousekeepingSlots(t *testing.T) {
 	assert.Equal(t, "reconcile:"+fmt.Sprint(at("2026-09-28T07:59:00Z").Unix()), reconcile[0])
 	assert.Equal(t, prefixed("prune:", unix("2026-09-28T08:00:00Z", "2026-09-28T09:00:00Z")), q.keys(runs.JobPrune))
 	assert.Equal(t, prefixed("stale_locks:", unix("2026-09-28T08:00:00Z")), q.keys(runs.JobStaleLocks))
+	assert.Empty(t, q.keys(runs.JobSyncInstallations), "installations are synced at 04:00 only")
 	seen := map[string]bool{}
 	for _, c := range q.calls {
 		assert.False(t, seen[c.key], "slot %s enqueued twice", c.key)
 		seen[c.key] = true
 		assert.Empty(t, c.payload)
+	}
+}
+
+func TestInstallationsSyncDaily(t *testing.T) {
+	q := &recorder{}
+	s := newTestScheduler(&repos{}, q, nil)
+	tickEvery(t, s, at("2026-09-27T03:58:40Z"), at("2026-09-28T04:01:10Z"), 30*time.Second)
+
+	assert.Equal(t, prefixed("sync_installations:", unix("2026-09-27T04:00:00Z", "2026-09-28T04:00:00Z")),
+		q.keys(runs.JobSyncInstallations))
+	for _, c := range q.calls {
+		if c.kind == runs.JobSyncInstallations {
+			assert.Empty(t, c.payload)
+		}
 	}
 }
 

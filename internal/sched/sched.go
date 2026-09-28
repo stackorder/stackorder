@@ -9,6 +9,8 @@
 //   - "reconcile" every minute, key reconcile:<minute unix>;
 //   - "prune" every hour, key prune:<hour unix>;
 //   - "stale_locks" daily at 08:00 UTC, key stale_locks:<08:00 unix>;
+//   - "sync_installations" daily at 04:00 UTC, key
+//     sync_installations:<04:00 unix>;
 //   - "schedule_drift" with payload {"repo_id": id} for every repository
 //     whose stored configuration sets drift.schedule, at each cron fire
 //     time, key schedule_drift:<repo id>:<fire unix>.
@@ -48,6 +50,7 @@ var housekeeping = []struct {
 	{runs.JobReconcile, mustParse("* * * * *")},
 	{runs.JobPrune, mustParse("0 * * * *")},
 	{runs.JobStaleLocks, mustParse("0 8 * * *")},
+	{runs.JobSyncInstallations, mustParse("0 4 * * *")},
 }
 
 func mustParse(spec string) cron.Schedule {
