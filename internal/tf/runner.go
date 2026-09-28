@@ -318,7 +318,7 @@ func (r *Runner) run(ctx context.Context, args, env []string, stdout, stderr io.
 	if r.Bin == "" {
 		return -1, errors.New("tf: runner has no binary; use Detect")
 	}
-	cmd := exec.CommandContext(ctx, r.Bin, args...)
+	cmd := exec.CommandContext(ctx, r.Bin, args...) //nolint:gosec
 	cmd.Dir = r.Dir
 	cmd.Env = append(append(append(processEnv(r.Dir), automationEnv...), r.Env...), env...)
 	cmd.Stdout = stdout

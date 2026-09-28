@@ -77,7 +77,7 @@ func RunHook(ctx context.Context, repoRoot, name string, env map[string]string, 
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
-	cmd := exec.CommandContext(ctx, bash, path)
+	cmd := exec.CommandContext(ctx, bash, path) //nolint:gosec
 	cmd.Dir = repoRoot
 	cmd.Env = processEnv(repoRoot)
 	for _, k := range keys {
