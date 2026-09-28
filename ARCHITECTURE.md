@@ -218,10 +218,10 @@ for humans. Every runner token is accepted once (its `jti` is recorded), so
 the CLI requests a fresh token for every call. Errors are `v1.Error` with
 codes `unauthorized` (401), `forbidden` (403), `not_found` (404), `invalid`
 (400), `conflict` (409), `refused` (409, apply gate; `details.failures`),
-`locked` (423, `details.conflicts`), `superseded` (409), `unconfirmed`,
+`locked` (423, `details.conflicts`), `superseded` (409),
 `internal` (500), `unavailable` (503, JWKS or database unreachable). The CLI
-exits 3 on `forbidden`, `conflict`, `refused`, `locked`, `superseded` and
-`unconfirmed`. `invalid` carries `details.field` and `details.reason` when a
+exits 3 on `forbidden`, `conflict`, `refused`, `locked` and `superseded`,
+and on its own fail-closed decisions (an unreachable server during apply). `invalid` carries `details.field` and `details.reason` when a
 field is at fault. A body over its route's limit (8 MB for graph uploads,
 1 MB for every other POST under `/v1` and `/auth`) is 413 with code
 `invalid`; `POST /webhooks/github` has no API limit, `internal/webhook`
@@ -294,20 +294,46 @@ When a PR merges, its latest graph becomes the repository's default-branch
 graph (`repos.default_graph_id`), which the graph endpoint and module
 consumer queries prefer over the newest PR graph.
 
+Per-stack policy (`allowed_teams`, `plan_output`) comes from the default
+branch: the default-branch graph when known, else the `.stackorder.yaml`
+files read through the Contents API at the default-branch head. A
+default-branch `plan_output: summary` always wins over the PR's copy.
+`workflow_job` events of the pull-request plan workflow, matched through
+`runs.workflow_run_id`, move stacks to `planning`. Named check verdicts may
+not use the reserved names `resolve`, `plan` or `apply`. A pull request has
+at most one apply in flight. An apply of a PR that affects nothing is
+answered with a comment, while a `before_merge` PR whose head affects
+nothing still gets a successful `stackorder/apply` check so branch
+protection can pass.
+
 ## Apply gate, in order
 
-1. Commenter may apply every affected stack: `allowed_teams` membership
-   (`active`, nested teams count, cached 60 s) or push permission when the
-   list is empty.
-2. PR approvals >= `require_approvals`, PR mergeable, `four_eyes` and
-   `require_codeowner_review` when set.
-3. Every affected stack has a `planned` row for the current head SHA.
+1. A requester is required (an empty requester fails; API keys are trusted)
+   and may apply every affected stack: `allowed_teams` membership (`active`,
+   nested teams count, cached 60 s) or push permission when the list is
+   empty.
+2. The PR is open and not merged, `mergeable` is not false and
+   `mergeable_state` is not `dirty` (`blocked` is not a refusal, because
+   `stackorder/apply` is itself a required check); approvals on the head SHA
+   from users with push permission (a later `CHANGES_REQUESTED` or a
+   dismissal cancels one) >= `require_approvals`; `four_eyes` and
+   `require_codeowner_review` (owner reviews also only from users with push
+   permission) when set.
+3. Every affected stack has a `planned` row for the current head SHA, with
+   a plan artifact when `apply.from_plan` is true.
 4. Every named check on those stacks is `pass` (`warn` passes, `fail` refuses).
-5. No affected stack is locked by another PR.
+5. No affected stack is locked by another PR, and no other apply of this PR
+   is in flight.
 
 All failures are collected and reported together in one PR comment naming
 the failing layer and the exact reason. Policy for the gate is read from the
 default branch `stackorder.yaml` (`repos.config`), never from the PR's copy.
+In `on_merge` repositories `stackorder apply` comments are refused; the
+merge evaluates layers 1 (with the merger), 3, 4 and 5, applies the merge
+commit with the head commit's plans, and releases the locks on completion.
+Comment commands are accepted only from users with push permission, then
+rate limited to 10 per PR per minute (counted from audit rows); a command
+runs at most once, and one that fails part way is answered with a comment.
 
 ## Waves and dispatch
 
@@ -324,11 +350,18 @@ terminal and none failed. Locks are taken on all affected stacks before wave
 scheduler dispatches `mode: drift` per stack under `default` with `sha` set
 to the default branch head.
 
-Each dispatch row binds at most one Actions `workflow_run_id`, learned from
-the `workflow_run` event's `display_title` or from the first OIDC call of a
-job in that run. A job from a different workflow run for an already bound
-dispatch is refused, which makes a duplicated dispatch (a retried POST after
-a processed 5xx) harmless: the duplicate's jobs fail closed.
+Dispatches are unique per (run, wave, environment, mode, chunk), where
+chunks split one (wave, environment) by `apply.max_parallel`; `sent_at`
+marks a dispatch GitHub accepted, and Reconcile resends unsent ones after
+60 s. Each dispatch row binds at most one Actions `workflow_run_id`: a
+`workflow_run` event's `display_title` binds only when it names a single
+dispatch of that (run, wave, mode); otherwise the stacks named by the run's
+jobs choose the dispatch, or the environment of a `deployment_protection_rule`
+does, and Reconcile never binds by position. The first OIDC call of a job
+also binds. A workflow run whose dispatch is already bound binds nothing and
+its jobs are refused, which makes a duplicated dispatch (a retried POST
+after a processed 5xx) harmless. Cross-repo plan runs use trigger `push` and
+are deduplicated per upstream run and repository.
 
 ## OIDC binding
 
@@ -346,7 +379,12 @@ per run kind:
 - Plan runs: `event_name` is `pull_request`, `ref` is
   `refs/pull/<run.pr_number>/merge`, and the PR's current head SHA fetched
   from GitHub equals the run's SHA (the CLI registers plan runs with the
-  head SHA from the event payload).
+  head SHA from the event payload). `pull_request` tokens reach only plan
+  runs registered by a pull-request resolve job; every server-dispatched
+  run, plan runs included, needs the `workflow_dispatch` binding. Results
+  for a terminal run are refused. Superseding compares against the PR head
+  fetched from GitHub, never against an event's SHA, and default-branch
+  pushes load `stackorder.yaml` at the branch head.
 - Dispatched runs: `event_name` is `workflow_dispatch`, `ref` is
   `refs/heads/<default branch>`, `run_id` matches the dispatch bound to the
   run (binding it on first contact), `run_attempt` is recorded, and for
@@ -355,6 +393,22 @@ per run kind:
 
 `actor` is recorded as `requested_by`. `pull_request_target` plans are not
 supported; fork pull requests get a neutral check from the server.
+
+## Metrics
+
+All names carry the `stackorder_` prefix: `runs_total{status,trigger,mode}`,
+`stack_finished_total{mode,status}`, `stack_duration_seconds{mode}`,
+`dispatches_total{mode,result}`, `drifted_stacks`, `locks_held`,
+`commands_total{verb,accepted}`, `webhook_received_total{event}`,
+`webhook_duplicates_total`, `webhook_lag_seconds` (received to a worker
+starting on the event), `events_processed_total{kind,result}`,
+`events_dead_total{kind}`, `jobs_processed_total{kind,result}`,
+`queue_depth{queue}` (refreshed once a minute), `github_requests_total{route,status}`,
+`github_request_duration_seconds{route}` (routes as `METHOD /template`),
+`github_rate_limit_remaining`, `scheduler_leader`,
+`http_requests_total{route,method,status}`, `http_request_duration_seconds`,
+`build_info{version,commit}`. Label values outside a known set are counted
+as `other`.
 
 ## Server configuration
 
@@ -395,6 +449,17 @@ characters with the sha256 stored and a 10 character display prefix. Edges
 store `from_key` and `to_key` text so they can point at external stacks;
 backends are a `backend` jsonb column. Job `dedupe_key` stays taken until the
 job is pruned, so recurring jobs put a time slot in the key.
+`store.ReleaseLockOfPR` checks the holder and deletes in one statement.
+Queue: worker ids are `host:pid:n`; a failed row retries after 1 m, 5 m,
+30 m and 2 h and becomes a dead letter after 5 attempts; shutdown hands
+unstarted claims back through `store.ReleaseClaims` and cancels handlers
+after a 30 s drain; the stale claim age (10 m) exceeds the handler timeout
+(5 m); `store.QueueDepth` feeds the gauges. Scheduler: cron runs in UTC
+unless the expression carries a `CRON_TZ=` prefix; a new leader catches up
+at most one hour, keeping the latest fire per window; dedupe keys are
+`reconcile:<minute>`, `prune:<hour>`, `stale_locks:<day>`,
+`schedule_drift:<repo>:<fire unix>`, `drift:<stack>:<hour>` and
+`dispatch_wave:<run>:<wave>`.
 `store.SetDefaultGraph` records `repos.default_graph_id` (the runs service
 calls it when a PR merges) and `store.GetDefaultGraph` reads it back;
 `ModuleConsumers` and `StackModules` read each repository's default-branch
