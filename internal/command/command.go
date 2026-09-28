@@ -89,8 +89,9 @@ func (c Command) String() string {
 // Parse finds the first comment command in a pull request comment body. A
 // line is a command when its first whitespace separated token is
 // "stackorder" and its second is a known verb, both compared
-// case-insensitively. Lines inside fenced code blocks and quoted lines
-// starting with ">" are ignored. The remaining tokens are stack keys,
+// case-insensitively. Lines inside fenced code blocks, lines indented by
+// four or more columns (indented code blocks) and quoted lines starting
+// with ">" are ignored. The remaining tokens are stack keys,
 // normalised with config.NormalizePath; commas also separate keys and
 // enclosing backticks are dropped. ok is false when no line matches.
 func Parse(body string) (cmd *Command, ok bool) {
@@ -108,6 +109,9 @@ func Parse(body string) (cmd *Command, ok bool) {
 		}
 		if f, opened := openFence(trimmed); opened {
 			fence = f
+			continue
+		}
+		if indentation(line) >= 4 {
 			continue
 		}
 		if c, matched := parseLine(trimmed); matched {
@@ -174,6 +178,21 @@ func (f fenceState) closes(line string) bool {
 	t := strings.TrimSpace(line)
 	n := runLength(t, f.char)
 	return n >= f.width && n == len(t)
+}
+
+func indentation(line string) int {
+	col := 0
+	for _, r := range line {
+		switch r {
+		case ' ':
+			col++
+		case '\t':
+			col += 4 - col%4
+		default:
+			return col
+		}
+	}
+	return col
 }
 
 func runLength(s string, c byte) int {
