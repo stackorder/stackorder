@@ -72,6 +72,8 @@ type Command struct {
 	Verb Verb
 	// Stacks lists the normalised stack keys named after the verb, in the
 	// order given and without duplicates; nil means every affected stack.
+	// A token that normalises to nothing, such as ".", is kept as typed so
+	// the server refuses it rather than widening the command to every stack.
 	Stacks []string
 	// Raw is the matching comment line with surrounding whitespace removed.
 	Raw string
@@ -143,7 +145,10 @@ func stackKeys(tokens []string) []string {
 	for _, tok := range tokens {
 		for _, part := range strings.FieldsFunc(tok, func(r rune) bool { return r == ',' || unicode.IsSpace(r) }) {
 			key := config.NormalizePath(strings.Trim(part, "`"))
-			if key == "" || seen[key] {
+			if key == "" {
+				key = part
+			}
+			if seen[key] {
 				continue
 			}
 			seen[key] = true
