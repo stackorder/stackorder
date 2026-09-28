@@ -4,7 +4,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +15,7 @@ import (
 	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/metrics"
+	"github.com/stackorder/stackorder/internal/testutil/metricstest"
 )
 
 type runsMetrics interface {
@@ -344,27 +344,7 @@ func TestHandlerServesTextExposition(t *testing.T) {
 
 func sample(t *testing.T, r *metrics.Registry, series string) float64 {
 	t.Helper()
-	value, ok := scrape(t, r)[series]
+	value, ok := metricstest.Scrape(t, r)[series]
 	require.True(t, ok, "no sample %s", series)
 	return value
-}
-
-func scrape(t *testing.T, r *metrics.Registry) map[string]float64 {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	r.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-	require.Equal(t, http.StatusOK, rec.Code)
-	out := map[string]float64{}
-	for line := range strings.Lines(rec.Body.String()) {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		i := strings.LastIndexByte(line, ' ')
-		require.Positive(t, i, "malformed line %q", line)
-		v, err := strconv.ParseFloat(line[i+1:], 64)
-		require.NoError(t, err, "line %q", line)
-		out[line[:i]] = v
-	}
-	return out
 }
