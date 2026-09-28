@@ -142,6 +142,19 @@ func (s *Store) ReleaseLock(ctx context.Context, stackID uuid.UUID) (Lock, error
 	return out, wrap("release lock", err)
 }
 
+// ReleaseLockOfPR releases the lock on one stack only while the pull
+// request holds it, and returns it; ErrNotFound means the stack is not
+// locked by that pull request.
+func (s *Store) ReleaseLockOfPR(ctx context.Context, stackID uuid.UUID, prNumber int) (Lock, error) {
+	const op = "release lock of pr"
+	if prNumber <= 0 {
+		return Lock{}, notFound(op)
+	}
+	out, err := queryOne[Lock](ctx, s.db, `
+		WITH l AS (DELETE FROM locks WHERE stack_id = $1 AND pr_number = $2 RETURNING *)`+lockFromCTE, stackID, prNumber)
+	return out, wrap(op, err)
+}
+
 // ListLocks returns the locks held in a repository, or in every repository
 // when repoID is 0, ordered by stack key.
 func (s *Store) ListLocks(ctx context.Context, repoID int64) ([]Lock, error) {

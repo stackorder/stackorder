@@ -200,3 +200,26 @@ func TestFindRunForStack(t *testing.T) {
 	_, err = f.s.FindRunForStack(f.ctx, f.repo.ID, ids["stacks/a"], v1.ModePlan, time.Now().Add(-3*time.Hour))
 	require.ErrorIs(t, err, store.ErrNotFound)
 }
+
+func TestReleaseLockOfPR(t *testing.T) {
+	f := newFixture(t)
+	ids := f.stacks("stacks/a")
+	r := f.run(store.CreateRunParams{PRNumber: 2})
+	conflicts, err := f.s.TryLockStacks(f.ctx, []uuid.UUID{ids["stacks/a"]}, r.ID, 2, "apply of #2")
+	require.NoError(t, err)
+	require.Empty(t, conflicts)
+	for _, pr := range []int{0, 1} {
+		_, err = f.s.ReleaseLockOfPR(f.ctx, ids["stacks/a"], pr)
+		require.ErrorIs(t, err, store.ErrNotFound, "pull request %d does not hold the lock", pr)
+	}
+	held, err := f.s.GetLock(f.ctx, ids["stacks/a"])
+	require.NoError(t, err)
+	assert.Equal(t, 2, held.PRNumber)
+
+	got, err := f.s.ReleaseLockOfPR(f.ctx, ids["stacks/a"], 2)
+	require.NoError(t, err)
+	assert.Equal(t, r.ID, got.RunID)
+	assert.Equal(t, "stacks/a", got.StackKey)
+	_, err = f.s.GetLock(f.ctx, ids["stacks/a"])
+	require.ErrorIs(t, err, store.ErrNotFound)
+}
