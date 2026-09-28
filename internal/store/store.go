@@ -97,10 +97,12 @@ func (s *Store) Pool() *pgxpool.Pool {
 	return s.pool
 }
 
-// InTx runs fn with a Store whose methods all execute inside one
+// InTx runs fn with a Store whose queries all execute inside one
 // transaction. The transaction commits when fn returns nil and rolls back
 // otherwise. Calls nest: inside fn, InTx and methods that need their own
-// transaction use savepoints.
+// transaction use savepoints. Ping, Migrate, MigrateDown, SchemaVersion and
+// TryAdvisoryLock always use connections of their own and are not part of
+// the transaction.
 func (s *Store) InTx(ctx context.Context, fn func(tx *Store) error) error {
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		return fn(&Store{pool: s.pool, db: tx})
