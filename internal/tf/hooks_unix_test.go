@@ -44,7 +44,7 @@ func TestRunHook(t *testing.T) {
 				writeHook(t, root, HookPostPlan, "set -eu\necho \"stack=$STACKORDER_STACK run=$STACKORDER_RUN_ID\"\n[ -f stackorder.yaml ] && echo in-root\necho warn >&2\n", 0o755)
 				require.NoError(t, os.WriteFile(filepath.Join(root, "stackorder.yaml"), []byte("version: 1\n"), 0o600))
 			},
-			env:        map[string]string{"STACKORDER_STACK": "stacks/prod/vpc", "STACKORDER_RUN_ID": "run-1"},
+			env:        map[string]string{HookEnvStack: "stacks/prod/vpc", HookEnvRunID: "run-1"},
 			wantRan:    true,
 			wantStdout: "stack=stacks/prod/vpc run=run-1\nin-root\n",
 			wantStderr: "warn\n",

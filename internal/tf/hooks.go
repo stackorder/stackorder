@@ -27,6 +27,17 @@ const (
 	HookPostApply = "post-apply"
 )
 
+const (
+	// HookEnvStack names the variable holding the stack key.
+	HookEnvStack = "STACKORDER_STACK"
+	// HookEnvRunID names the variable holding the server run id.
+	HookEnvRunID = "STACKORDER_RUN_ID"
+	// HookEnvPlanJSON names the variable holding the path of the plan JSON.
+	HookEnvPlanJSON = "STACKORDER_PLAN_JSON"
+	// HookEnvPlanFile names the variable holding the path of the binary plan.
+	HookEnvPlanFile = "STACKORDER_PLAN_FILE"
+)
+
 var (
 	// ErrHookNotExecutable reports a hook script that exists but lacks the
 	// executable bit. It is an error rather than a skip so that a policy hook
