@@ -447,6 +447,13 @@ func TestDispatches(t *testing.T) {
 	require.NoError(t, f.s.SetDispatchWorkflowRun(f.ctx, d.ID, 4242), "linking the same run again is idempotent")
 	require.ErrorIs(t, f.s.SetDispatchWorkflowRun(f.ctx, d.ID, 9999), store.ErrConflict,
 		"another workflow run cannot claim a linked dispatch")
+	require.ErrorIs(t, f.s.SetDispatchWorkflowRun(f.ctx, wave1.ID, 4242), store.ErrConflict,
+		"one workflow run cannot stand for two dispatches")
+	otherRun := f.run(store.CreateRunParams{SHA: "other", Mode: v1.ModeApply})
+	otherDispatch, _, err := f.s.CreateDispatch(f.ctx, otherRun.ID, 0, "production", v1.ModeApply)
+	require.NoError(t, err)
+	require.ErrorIs(t, f.s.SetDispatchWorkflowRun(f.ctx, otherDispatch.ID, 4242), store.ErrConflict,
+		"nor for a dispatch of another run")
 	found, err := f.s.FindDispatchByWorkflowRun(f.ctx, 4242)
 	require.NoError(t, err)
 	assert.Equal(t, d.ID, found.ID)
@@ -463,7 +470,11 @@ func TestDispatches(t *testing.T) {
 
 	open, err := f.s.OpenDispatches(f.ctx)
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []uuid.UUID{staging.ID, wave1.ID}, []uuid.UUID{open[0].ID, open[1].ID})
+	openIDs := make([]uuid.UUID, 0, len(open))
+	for _, o := range open {
+		openIDs = append(openIDs, o.ID)
+	}
+	assert.Equal(t, []uuid.UUID{staging.ID, wave1.ID, otherDispatch.ID}, openIDs, "open dispatches, oldest first")
 
 	list, err := f.s.ListDispatches(f.ctx, r.ID)
 	require.NoError(t, err)

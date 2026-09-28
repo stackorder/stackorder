@@ -59,8 +59,10 @@ func (s *Store) CreateDispatch(ctx context.Context, runID uuid.UUID, wave int, e
 }
 
 // SetDispatchWorkflowRun links a dispatch to the Actions workflow run it
-// started. A dispatch starts one workflow run, so linking it again to the
-// same run is a no-op and linking it to a different one is ErrConflict.
+// started. A dispatch starts one workflow run and a workflow run belongs to
+// one dispatch, so linking it again to the same run is a no-op, while
+// linking it to a different run, or linking a run already linked to another
+// dispatch, is ErrConflict.
 func (s *Store) SetDispatchWorkflowRun(ctx context.Context, id uuid.UUID, workflowRunID int64) error {
 	const op = "set dispatch workflow run"
 	tag, err := s.db.Exec(ctx, `
@@ -98,8 +100,7 @@ func (s *Store) ListDispatches(ctx context.Context, runID uuid.UUID) ([]Dispatch
 // FindDispatchByWorkflowRun returns the dispatch linked to an Actions
 // workflow run.
 func (s *Store) FindDispatchByWorkflowRun(ctx context.Context, workflowRunID int64) (Dispatch, error) {
-	out, err := queryOne[Dispatch](ctx, s.db, dispatchSelect+`
-		WHERE d.workflow_run_id = $1 ORDER BY d.dispatched_at DESC LIMIT 1`, workflowRunID)
+	out, err := queryOne[Dispatch](ctx, s.db, dispatchSelect+` WHERE d.workflow_run_id = $1`, workflowRunID)
 	return out, wrap("find dispatch by workflow run", err)
 }
 

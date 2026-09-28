@@ -82,7 +82,7 @@ CREATE TABLE dispatches (
     UNIQUE (run_id, wave, environment, mode)
 );
 
-CREATE INDEX dispatches_workflow_run_idx ON dispatches (workflow_run_id) WHERE workflow_run_id IS NOT NULL;
+CREATE UNIQUE INDEX dispatches_workflow_run_idx ON dispatches (workflow_run_id) WHERE workflow_run_id IS NOT NULL;
 CREATE INDEX dispatches_open_idx ON dispatches (dispatched_at) WHERE completed_at IS NULL;
 
 CREATE TABLE locks (
