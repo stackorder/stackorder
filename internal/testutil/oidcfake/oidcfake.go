@@ -240,7 +240,9 @@ type tokenOptions struct {
 	without []string
 }
 
-// WithKID sets the kid header; an empty kid omits the header.
+// WithKID sets the kid header; an empty kid omits the header. When kid
+// names one of the issuer's keys, retired ones included, that key signs the
+// token.
 func WithKID(kid string) TokenOption {
 	return func(o *tokenOptions) { o.kid = &kid }
 }

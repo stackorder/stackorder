@@ -13,9 +13,9 @@ import (
 	"github.com/stackorder/stackorder/internal/oidc"
 )
 
+const requestPath = "/_apis/distributedtask/hubs/Actions/plans/fake/jobs/fake/idtoken"
+
 const (
-	// TokenRequestPath is the path of the emulated token request endpoint.
-	TokenRequestPath = "/_apis/distributedtask/hubs/Actions/plans/fake/jobs/fake/idtoken"
 	// DefaultRepository is the repository of the token server's default
 	// claims.
 	DefaultRepository = "acme/infra"
@@ -65,7 +65,7 @@ func (i *Issuer) TokenRequestServer(t testing.TB) *TokenServer {
 }
 
 // URL is the value of ACTIONS_ID_TOKEN_REQUEST_URL.
-func (ts *TokenServer) URL() string { return ts.srv.URL + TokenRequestPath + "?api-version=2.0" }
+func (ts *TokenServer) URL() string { return ts.srv.URL + requestPath + "?api-version=2.0" }
 
 // RequestToken is the value of ACTIONS_ID_TOKEN_REQUEST_TOKEN.
 func (ts *TokenServer) RequestToken() string { return ts.requestToken }
@@ -154,7 +154,7 @@ func (ts *TokenServer) Setenv(t testing.TB) {
 
 func (ts *TokenServer) serve(w http.ResponseWriter, r *http.Request) {
 	switch {
-	case r.URL.Path != TokenRequestPath:
+	case r.URL.Path != requestPath:
 		writeJSON(w, http.StatusNotFound, map[string]string{"message": "not found"})
 		return
 	case r.Method != http.MethodGet:

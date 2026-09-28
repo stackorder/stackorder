@@ -25,7 +25,7 @@ func getJSON(t *testing.T, client *http.Client, url string, v any) int {
 	require.NoError(t, err)
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if v != nil {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(v))
 	}
@@ -61,7 +61,7 @@ func TestJWKSPublishesRotatedAndRetiredKeys(t *testing.T) {
 			} `json:"keys"`
 		}
 		require.Equal(t, http.StatusOK, getJSON(t, http.DefaultClient, iss.JWKSURL(), &set))
-		out := []string{}
+		out := make([]string, 0, len(set.Keys))
 		for _, k := range set.Keys {
 			assert.Equal(t, "RSA", k.Kty)
 			assert.Equal(t, "RS256", k.Alg)

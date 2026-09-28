@@ -30,7 +30,7 @@ func requestToken(t *testing.T, ts *oidcfake.TokenServer, method, rawURL, auth s
 	}
 	resp, err := ts.Client().Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
 	var body tokenResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
