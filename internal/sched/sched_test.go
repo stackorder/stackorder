@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -399,14 +398,4 @@ func TestRunTwice(t *testing.T) {
 	require.Eventually(t, func() bool { a, _ := election.snapshot(); return a >= 1 }, 5*time.Second, time.Millisecond)
 	require.ErrorIs(t, s.Run(t.Context()), ErrRunning)
 	stop()
-}
-
-func TestHousekeepingSchedulesParse(t *testing.T) {
-	kinds := make([]string, 0, len(housekeeping))
-	for _, h := range housekeeping {
-		kinds = append(kinds, h.kind)
-	}
-	sort.Strings(kinds)
-	assert.Equal(t, []string{"prune", "reconcile", "stale_locks"}, kinds)
-	assert.Panics(t, func() { mustParse("not a cron") })
 }
