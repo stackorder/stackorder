@@ -101,6 +101,11 @@ func okJSON(body string, headers ...string) func(http.ResponseWriter, *http.Requ
 	}
 }
 
+func secondaryLimit(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write([]byte(`{"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}`))
+}
+
 func get(route string) request {
 	return request{method: http.MethodGet, route: route, path: "/thing"}
 }
@@ -159,9 +164,23 @@ func TestRetryPolicy(t *testing.T) {
 			wantCalls:  2,
 		},
 		{
-			name:       "429 without headers backs off",
+			name:       "429 without headers waits a minute",
 			steps:      []func(http.ResponseWriter, *http.Request){status(429), okJSON(`{"id":1}`)},
-			wantSleeps: []time.Duration{750 * time.Millisecond},
+			wantSleeps: []time.Duration{time.Minute},
+			wantCalls:  2,
+		},
+		{
+			name:       "secondary rate limit 403 without headers waits a minute",
+			steps:      []func(http.ResponseWriter, *http.Request){secondaryLimit, okJSON(`{"id":1}`)},
+			wantSleeps: []time.Duration{time.Minute},
+			wantCalls:  2,
+		},
+		{
+			name:       "repeated secondary rate limit fails once the doubled wait exceeds max wait",
+			steps:      []func(http.ResponseWriter, *http.Request){secondaryLimit, secondaryLimit},
+			wantErr:    ErrRateLimited,
+			wantStatus: 403,
+			wantSleeps: []time.Duration{time.Minute},
 			wantCalls:  2,
 		},
 		{

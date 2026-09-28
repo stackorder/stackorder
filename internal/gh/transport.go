@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	maxResponseBytes = 64 << 20
-	maxPages         = 1000
-	maxBackoff       = 30 * time.Second
+	maxResponseBytes   = 64 << 20
+	maxPages           = 1000
+	maxBackoff         = 30 * time.Second
+	secondaryLimitWait = time.Minute
 )
 
 type tokenSource interface {
@@ -270,7 +271,7 @@ func (t *transport) retryDelay(resp *response, e *APIError, attempt int) (time.D
 		if d, ok := headerDelay(resp.header, t.now()); ok {
 			return d, true
 		}
-		return t.backoff(attempt), true
+		return secondaryLimitWait << min(attempt-1, 16), true
 	case resp.status >= 500:
 		if d, ok := headerDelay(resp.header, t.now()); ok {
 			return d, true
