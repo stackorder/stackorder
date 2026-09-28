@@ -98,6 +98,13 @@ func TestTryLockStacksAtomic(t *testing.T) {
 
 	_, err = f.s.TryLockStacks(f.ctx, []uuid.UUID{uuid.New()}, pr2.ID, 2, "apply")
 	require.ErrorIs(t, err, store.ErrNotFound)
+	_, err = f.s.TryLockStacks(f.ctx, []uuid.UUID{a}, uuid.New(), 2, "apply")
+	require.ErrorIs(t, err, store.ErrNotFound)
+
+	other := f.addRepo(1, 101, "acme", "acme/apps")
+	otherPR1 := f.run(store.CreateRunParams{RepoID: other.ID, PRNumber: 1})
+	_, err = f.s.TryLockStacks(f.ctx, []uuid.UUID{b}, otherPR1.ID, 1, "apply")
+	require.ErrorIs(t, err, store.ErrInvalid, "pull request 1 of another repository must not take over the lock")
 	assert.Len(t, lockedStacks(t, f), 3)
 }
 
@@ -200,4 +207,66 @@ func TestReleaseLocks(t *testing.T) {
 	none, err := f.s.ReleaseLocksForPR(f.ctx, f.repo.ID, 0)
 	require.NoError(t, err)
 	assert.Empty(t, none)
+}
+
+func TestTryLockStacksHeldWhenGrantedUnderChurn(t *testing.T) {
+	f := newFixture(t)
+	ids := f.stacks("stacks/a", "stacks/b")
+	stacks := []uuid.UUID{ids["stacks/a"], ids["stacks/b"]}
+	holder := f.run(store.CreateRunParams{PRNumber: 1})
+	contender := f.run(store.CreateRunParams{PRNumber: 2})
+	const rounds = 400
+
+	var (
+		wg        sync.WaitGroup
+		holderErr error
+		stop      = make(chan struct{})
+	)
+	wg.Go(func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if _, holderErr = f.s.TryLockStacks(f.ctx, stacks, holder.ID, 1, "apply"); holderErr != nil {
+				return
+			}
+			if _, holderErr = f.s.ReleaseLocksForRun(f.ctx, holder.ID); holderErr != nil {
+				return
+			}
+		}
+	})
+
+	var (
+		granted   int
+		violation map[uuid.UUID]uuid.UUID
+		err       error
+	)
+	for range rounds {
+		var conflicts []store.Lock
+		if conflicts, err = f.s.TryLockStacks(f.ctx, stacks, contender.ID, 2, "apply"); err != nil {
+			break
+		}
+		if len(conflicts) > 0 {
+			continue
+		}
+		granted++
+		held := lockedStacks(t, f)
+		if held[stacks[0]] != contender.ID || held[stacks[1]] != contender.ID {
+			violation = held
+			break
+		}
+		if _, err = f.s.ReleaseLocksForRun(f.ctx, contender.ID); err != nil {
+			break
+		}
+	}
+	close(stop)
+	wg.Wait()
+
+	require.NoError(t, err)
+	require.NoError(t, holderErr)
+	require.Nil(t, violation, "a granted lock must be held by the caller on every stack")
+	require.Positive(t, granted)
+	t.Logf("granted %d of %d rounds", granted, rounds)
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -49,8 +50,9 @@ var errLocked = errors.New("locked")
 // on none of them. A lock already held by the same run, or by another run
 // of the same pull request (prNumber > 0), is compatible and moves to this
 // run. When any stack is held by someone else nothing is locked and the
-// conflicting locks are returned with a nil error. Stack ids are locked in
-// a fixed order so concurrent callers cannot deadlock.
+// conflicting locks are returned with a nil error. The stacks must belong
+// to the run's repository. Stack ids are locked in a fixed order so
+// concurrent callers cannot deadlock.
 func (s *Store) TryLockStacks(ctx context.Context, stackIDs []uuid.UUID, runID uuid.UUID, prNumber int, reason string) ([]Lock, error) {
 	ids := slices.Clone(stackIDs)
 	slices.SortFunc(ids, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
@@ -60,26 +62,46 @@ func (s *Store) TryLockStacks(ctx context.Context, stackIDs []uuid.UUID, runID u
 	}
 	var conflicts []Lock
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO locks (stack_id, run_id, pr_number, reason)
-			SELECT t.id, $2, $3, $4 FROM unnest($1::uuid[]) AS t(id) ORDER BY t.id
-			ON CONFLICT (stack_id) DO NOTHING`, ids, runID, prNumber, reason); err != nil {
+		var known, foreign int
+		if err := tx.QueryRow(ctx, `
+			SELECT count(*), count(*) FILTER (WHERE s.repo_id <> r.repo_id)
+			FROM stacks s CROSS JOIN runs r
+			WHERE s.id = ANY($1::uuid[]) AND r.id = $2`, ids, runID).Scan(&known, &foreign); err != nil {
 			return err
 		}
-		var err error
-		conflicts, err = queryAll[Lock](ctx, tx, lockSelect+`
-			WHERE l.stack_id = ANY($1::uuid[]) AND l.run_id <> $2 AND ($3::integer = 0 OR l.pr_number <> $3::integer)
-			ORDER BY s.key`, ids, runID, prNumber)
+		switch {
+		case known < len(ids):
+			return fmt.Errorf("unknown run or stack: %w", ErrNotFound)
+		case foreign > 0:
+			return fmt.Errorf("stack outside the run's repository: %w", ErrInvalid)
+		}
+		rows, err := tx.Query(ctx, `
+			INSERT INTO locks (stack_id, run_id, pr_number, reason)
+			SELECT t.id, $2, $3, $4 FROM unnest($1::uuid[]) AS t(id) ORDER BY t.id
+			ON CONFLICT (stack_id) DO UPDATE SET run_id = EXCLUDED.run_id, reason = EXCLUDED.reason
+			WHERE locks.run_id = EXCLUDED.run_id
+			   OR (EXCLUDED.pr_number > 0 AND locks.pr_number = EXCLUDED.pr_number)
+			RETURNING stack_id`, ids, runID, prNumber, reason)
 		if err != nil {
 			return err
 		}
-		if len(conflicts) > 0 {
-			return errLocked
+		granted, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+		if err != nil {
+			return err
 		}
-		_, err = tx.Exec(ctx, `
-			UPDATE locks SET run_id = $2, reason = $3
-			WHERE stack_id = ANY($1::uuid[]) AND run_id <> $2`, ids, runID, reason)
-		return err
+		if len(granted) == len(ids) {
+			return nil
+		}
+		conflicts, err = queryAll[Lock](ctx, tx, lockSelect+`
+			WHERE l.stack_id = ANY($1::uuid[]) AND NOT (l.stack_id = ANY($2::uuid[]))
+			ORDER BY s.key`, ids, nonNil(granted))
+		if err != nil {
+			return err
+		}
+		if len(conflicts) == 0 {
+			return errors.New("lock refused without a conflicting holder")
+		}
+		return errLocked
 	})
 	if errors.Is(err, errLocked) {
 		return conflicts, nil
