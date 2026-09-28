@@ -10,7 +10,7 @@ export interface UnlockDialogProps {
   stackId: string;
   stackKey: string;
   onClose: () => void;
-  onUnlocked: (res: UnlockResponse) => void;
+  onUnlocked: (res: UnlockResponse | undefined) => void;
 }
 
 /** Asks for a reason and releases a stack's orchestration lock through the API. */

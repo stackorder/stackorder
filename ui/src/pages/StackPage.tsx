@@ -184,7 +184,8 @@ function StackList({ title, keys, links, empty }: { title: string; keys: string[
   );
 }
 
-function unlockedMessage(res: UnlockResponse): string {
+function unlockedMessage(res: UnlockResponse | undefined): string {
+  if (!res) return 'Lock released.';
   const released = res.released ?? [];
   if (released.length === 0) return 'The lock was already released.';
   const first = released[0];

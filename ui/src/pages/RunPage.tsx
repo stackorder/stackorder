@@ -223,7 +223,7 @@ export function RunPage({ id }: { id: string }) {
     setRerun({ busy: true });
     try {
       const created = await api.rerun(run.id);
-      if (created.run_id && created.run_id !== run.id) {
+      if (created?.run_id && created.run_id !== run.id) {
         route(`/runs/${encodeURIComponent(created.run_id)}`);
         setRerun({ busy: false });
       } else {

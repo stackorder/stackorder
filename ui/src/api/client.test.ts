@@ -77,9 +77,19 @@ describe('ApiClient requests', () => {
     expect(lastCall(fetch).init.method).toBe('POST');
   });
 
-  it('resolves 204 responses to undefined', async () => {
-    const { api } = client(respond(null, 204));
+  it.each([
+    ['204 No Content', () => respond(null, 204)],
+    ['202 with an empty body', () => respond('', 202, 'text/plain')],
+  ])('resolves a POST answered with %s to undefined', async (_name, answer) => {
+    const { api } = client(answer());
     await expect(api.unlockStack(id, {})).resolves.toBeUndefined();
+    const again = client(answer());
+    await expect(again.api.rerun(id)).resolves.toBeUndefined();
+  });
+
+  it('refuses an empty body where data is expected', async () => {
+    const { api } = client(respond('', 200, 'application/json'));
+    await expect(api.run(id)).rejects.toMatchObject({ status: 200, code: INVALID_RESPONSE, message: `GET /v1/runs/${id}: empty response` });
   });
 
   it('prefixes a base URL without doubling slashes', async () => {

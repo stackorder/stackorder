@@ -170,14 +170,14 @@ export class ApiClient {
     return this.get(`/v1/runs/${segment(id)}`, opts);
   }
 
-  /** POST /v1/stacks/{id}/unlock: release the stack's orchestration lock. */
-  unlockStack(id: string, body: UnlockRequest, opts?: RequestOptions): Promise<UnlockResponse> {
-    return this.send('POST', `/v1/stacks/${segment(id)}/unlock`, body, opts);
+  /** POST /v1/stacks/{id}/unlock: release the stack's orchestration lock; undefined when the server sends no body. */
+  unlockStack(id: string, body: UnlockRequest, opts?: RequestOptions): Promise<UnlockResponse | undefined> {
+    return this.send('POST', `/v1/stacks/${segment(id)}/unlock`, body, opts, true);
   }
 
-  /** POST /v1/runs/{id}/rerun: start the run again. */
-  rerun(id: string, opts?: RequestOptions): Promise<CreateRunResponse> {
-    return this.send('POST', `/v1/runs/${segment(id)}/rerun`, {}, opts);
+  /** POST /v1/runs/{id}/rerun: start the run again; undefined when the server sends no body. */
+  rerun(id: string, opts?: RequestOptions): Promise<CreateRunResponse | undefined> {
+    return this.send('POST', `/v1/runs/${segment(id)}/rerun`, {}, opts, true);
   }
 
   /** POST /auth/logout: end the session. */
@@ -189,13 +189,23 @@ export class ApiClient {
     return this.send('GET', path, undefined, opts);
   }
 
-  private async send<T>(method: string, path: string, body: unknown, opts?: RequestOptions): Promise<T> {
+  private async send<T>(method: string, path: string, body: unknown, opts?: RequestOptions, allowEmpty = false): Promise<T> {
     const res = await this.request(method, path, body, opts);
-    if (res.status === 204) return undefined as T;
+    let text: string;
     try {
-      return (await res.json()) as T;
+      text = await res.text();
     } catch (err) {
       if (isAbort(err)) throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      throw new ApiError(res.status, NETWORK_ERROR, `${method} ${path}: ${message}`, { cause: err });
+    }
+    if (text.trim() === '') {
+      if (allowEmpty) return undefined as T;
+      throw new ApiError(res.status, INVALID_RESPONSE, `${method} ${path}: empty response`);
+    }
+    try {
+      return JSON.parse(text) as T;
+    } catch (err) {
       throw new ApiError(res.status, INVALID_RESPONSE, `${method} ${path}: response is not JSON`, { cause: err });
     }
   }

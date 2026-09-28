@@ -152,6 +152,14 @@ describe('StackPage', () => {
     expect(calls.filter((c) => c.path === `/v1/stacks/${ids.stack}`)).toHaveLength(2);
   });
 
+  it('confirms an unlock the server answers without a body', async () => {
+    renderWithApp(page, { url, handler: (c) => (c.method === 'POST' ? new Response(null, { status: 204 }) : undefined) });
+    fireEvent.click(await screen.findByRole('button', { name: 'Unlock…' }));
+    fireEvent.input(screen.getByLabelText('Reason'), { target: { value: 'stale lock' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+    expect(await screen.findByText('Lock released.')).toBeInTheDocument();
+  });
+
   it('keeps the dialog open with the error when unlocking is refused', async () => {
     renderWithApp(page, {
       url,
