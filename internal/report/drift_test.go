@@ -1,6 +1,8 @@
 package report
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,4 +40,17 @@ func TestDriftIssueGolden(t *testing.T) {
 func TestDriftIssueTitle(t *testing.T) {
 	assert.Equal(t, "Drift detected in stacks/prod/vpc", DriftIssueTitle("stacks/prod/vpc"))
 	assert.Equal(t, "Drift detected in stacks/dev/app:green", DriftIssueTitle("stacks/dev/app:green"))
+}
+
+func TestDriftIssueStaysWithinTheBodyLimit(t *testing.T) {
+	addrs := make([]string, 20000)
+	for i := range addrs {
+		addrs[i] = fmt.Sprintf("module.fleet.aws_instance.node[%d]", i)
+	}
+	stack := v1.StackDetail{Key: "stacks/prod/fleet", Repo: "acme/infra", LastApply: &v1.RunStackRef{RunID: "r1", SHA: headSHA}}
+	title, body := DriftIssue(stack, v1.DriftStatus{CheckedAt: t0, Drifted: true, Summary: &v1.PlanSummary{Changes: len(addrs), Changed: addrs}}, testOpts)
+	assert.Equal(t, DriftIssueTitle(stack.Key), title)
+	assert.LessOrEqual(t, len(body), MaxComment)
+	assert.True(t, strings.HasPrefix(body, "The scheduled drift check on the default branch found that `stacks/prod/fleet`"))
+	assert.Contains(t, body, TruncationNote)
 }
