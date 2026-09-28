@@ -79,6 +79,7 @@ func TestModuleConsumers(t *testing.T) {
 		uses("s/two", b).
 		uses("s/three", gitVPC).uses(b, gitVPC).
 		edge(v1.Edge{From: v1.StackRef("s/three"), To: v1.StackRef("s/one"), Type: v1.EdgeDependsOn}).
+		edge(v1.Edge{From: v1.StackRef("s/three"), To: v1.ModuleRef(c), Type: v1.EdgeDependsOn}).
 		build()
 	tests := []struct {
 		name   string

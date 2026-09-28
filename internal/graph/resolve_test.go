@@ -981,13 +981,15 @@ func TestResolveToleratesMalformedEdges(t *testing.T) {
 	g := newGraph().stacks("stacks/a", "stacks/b").stack(v1.Stack{}).stack(v1.Stack{Key: "stacks/nopath:ws", Path: "../x"}).
 		module(v1.Module{Kind: v1.ModuleLocal, Path: "modules/unnamed"}).
 		module(v1.Module{Key: "nowhere", Kind: v1.ModuleLocal}).
+		local("modules/real").
+		edge(v1.Edge{From: v1.StackRef("stacks/b"), To: v1.ModuleRef(localKey("modules/real")), Type: v1.EdgeReadsState}).
 		edge(v1.Edge{From: v1.StackRef("stacks/b"), To: v1.StackRef("stacks/a"), Type: "bogus"}).
 		edge(v1.Edge{From: v1.ModuleRef("stacks/b"), To: v1.StackRef("stacks/a"), Type: v1.EdgeDependsOn}).
 		edge(v1.Edge{From: v1.StackRef("stacks/b"), To: v1.ModuleRef("missing"), Type: v1.EdgeUsesModule}).
 		edge(v1.Edge{From: v1.StackRef("ghost"), To: v1.StackRef("stacks/a"), Type: v1.EdgeDependsOn}).
 		edge(v1.Edge{From: v1.StackRef("stacks/b"), To: v1.StackRef("stacks/b"), Type: v1.EdgeUsesModule}).
 		build()
-	resp, err := Resolve(g, Input{ChangedPaths: []string{"stacks/a/main.tf", "modules/unnamed/x.tf"}})
+	resp, err := Resolve(g, Input{ChangedPaths: []string{"stacks/a/main.tf", "modules/unnamed/x.tf", "modules/real/x.tf"}})
 	require.NoError(t, err)
 	require.Equal(t, []string{"stacks/a"}, affectedKeys(resp))
 }
