@@ -2,6 +2,7 @@ package gh
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -117,11 +118,14 @@ func (c *Client) DeleteIssueComment(ctx context.Context, repo string, id int64) 
 	return c.call(ctx, http.MethodDelete, "/repos/{owner}/{repo}/issues/comments/{comment_id}", rp+"/issues/comments/"+i64(id), nil, nil)
 }
 
-// UpsertStickyComment keeps exactly one bot comment on the pull request
-// whose body starts with marker. body is prefixed with marker and a newline
-// when it does not already start with it. An existing comment is updated
-// only when its body differs, later duplicates are deleted, and a comment
-// is created when none exists. Comments by non-bot users are never touched.
+// UpsertStickyComment keeps exactly one comment on the pull request whose
+// body starts with marker and whose author is the client's own account: the
+// App's bot user for an installation client, the signed-in user for a token
+// client. body is prefixed with marker and a newline when it does not
+// already start with it. An existing comment is updated only when its body
+// differs, later duplicates are deleted, and a comment is created when none
+// exists. Comments by any other account, other bots included, are never
+// adopted or touched.
 func (c *Client) UpsertStickyComment(ctx context.Context, repo string, number int, marker, body string) (*Comment, error) {
 	if !strings.HasPrefix(body, marker) {
 		body = marker + "\n" + body
@@ -130,11 +134,15 @@ func (c *Client) UpsertStickyComment(ctx context.Context, repo string, number in
 	if err != nil {
 		return nil, err
 	}
+	self, err := c.login(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("gh: sticky comment author: %w", err)
+	}
 	var sticky *Comment
 	var duplicates []int64
 	for i := range comments {
 		cm := &comments[i]
-		if cm.User.Type != "Bot" || !strings.HasPrefix(strings.TrimLeft(cm.Body, " \t\r\n"), marker) {
+		if !strings.EqualFold(cm.User.Login, self) || !strings.HasPrefix(strings.TrimLeft(cm.Body, " \t\r\n"), marker) {
 			continue
 		}
 		if sticky == nil {

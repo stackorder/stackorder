@@ -66,6 +66,7 @@ type App struct {
 	mu       sync.Mutex
 	tokens   map[int64]Token
 	inflight map[int64]*tokenCall
+	login    string
 }
 
 type tokenCall struct {
@@ -214,7 +215,28 @@ func (a *App) Client(ctx context.Context, installationID int64) (*Client, error)
 	if _, err := a.InstallationToken(ctx, installationID); err != nil {
 		return nil, err
 	}
-	return &Client{t: a.t, auth: installationAuth{app: a, id: installationID}, installationID: installationID}, nil
+	return &Client{t: a.t, auth: installationAuth{app: a, id: installationID}, installationID: installationID, app: a}, nil
+}
+
+func (a *App) botLogin(ctx context.Context) (string, error) {
+	a.mu.Lock()
+	login := a.login
+	a.mu.Unlock()
+	if login != "" {
+		return login, nil
+	}
+	info, err := a.AppInfo(ctx)
+	if err != nil {
+		return "", err
+	}
+	if info.Slug == "" {
+		return "", errors.New("gh: app description has no slug")
+	}
+	login = info.Slug + "[bot]"
+	a.mu.Lock()
+	a.login = login
+	a.mu.Unlock()
+	return login, nil
 }
 
 // AppInfo returns the App's own description from GET /app.

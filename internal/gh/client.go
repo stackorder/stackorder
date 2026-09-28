@@ -16,6 +16,7 @@ type Client struct {
 	t              *transport
 	auth           tokenSource
 	installationID int64
+	app            *App
 }
 
 // NewTokenClient returns a client that authenticates with a fixed token,
@@ -35,6 +36,17 @@ func NewTokenClient(cfg Config, token string) (*Client, error) {
 // InstallationID returns the installation the client is scoped to, or 0 for
 // a token client.
 func (c *Client) InstallationID() int64 { return c.installationID }
+
+func (c *Client) login(ctx context.Context) (string, error) {
+	if c.app != nil {
+		return c.app.botLogin(ctx)
+	}
+	u, err := c.AuthenticatedUser(ctx)
+	if err != nil {
+		return "", err
+	}
+	return u.Login, nil
+}
 
 func (c *Client) call(ctx context.Context, method, route, path string, body, out any) error {
 	return c.t.call(ctx, request{method: method, route: route, path: path, body: body, auth: c.auth}, out)

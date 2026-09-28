@@ -442,6 +442,68 @@ func TestUpsertStickyCommentPropagatesErrors(t *testing.T) {
 	assert.Equal(t, 403, apiErr.Status)
 }
 
+func TestUpsertStickyCommentIgnoresOtherBots(t *testing.T) {
+	fake, c := setup(t)
+	ctx := context.Background()
+	const marker = "<!-- stackorder:sticky -->"
+	fake.AddUser(gh.User{Login: "github-actions[bot]", Type: "Bot"})
+	impostor := fake.AddComment(repo, 5, "github-actions[bot]", marker+"\nNo changes. Safe to apply.")
+	later := fake.AddComment(repo, 5, "github-actions[bot]", marker+"\nstill no changes")
+
+	created, err := c.UpsertStickyComment(ctx, repo, 5, marker, "## Plan\n3 to destroy")
+	require.NoError(t, err)
+	assert.NotEqual(t, impostor.ID, created.ID)
+	assert.Equal(t, "stackorder-test[bot]", created.User.Login)
+
+	updated, err := c.UpsertStickyComment(ctx, repo, 5, marker, "## Plan\n4 to destroy")
+	require.NoError(t, err)
+	assert.Equal(t, created.ID, updated.ID)
+
+	comments := fake.Comments(repo, 5)
+	require.Len(t, comments, 3)
+	assert.Equal(t, impostor, comments[0])
+	assert.Equal(t, later, comments[1])
+	assert.Equal(t, marker+"\n## Plan\n4 to destroy", comments[2].Body)
+	assert.Equal(t, 1, countRequests(fake, "GET /app"))
+}
+
+func TestUpsertStickyCommentWithTokenClient(t *testing.T) {
+	fake := ghfake.New(t)
+	const marker = "<!-- m -->"
+	fake.AddComment(repo, 2, "bob", marker+"\nbob's")
+	tc, err := gh.NewTokenClient(gh.Config{BaseURL: fake.URL(), HTTPClient: fake.HTTPClient()}, fake.UserToken("alice"))
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	first, err := tc.UpsertStickyComment(ctx, repo, 2, marker, "one")
+	require.NoError(t, err)
+	second, err := tc.UpsertStickyComment(ctx, repo, 2, marker, "two")
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, second.ID)
+	assert.Equal(t, "alice", second.User.Login)
+	require.Len(t, fake.Comments(repo, 2), 2)
+	assert.Equal(t, marker+"\nbob's", fake.Comments(repo, 2)[0].Body)
+
+	fake.RevokeTokens()
+	_, err = tc.UpsertStickyComment(ctx, repo, 2, marker, "three")
+	require.Error(t, err)
+}
+
+func TestUpsertStickyCommentFailsWithoutAppIdentity(t *testing.T) {
+	fake, c := setup(t)
+	fake.FailNext("GET /app", http.StatusNotFound, 1)
+	_, err := c.UpsertStickyComment(context.Background(), repo, 1, "<!-- m -->", "x")
+	require.ErrorIs(t, err, gh.ErrNotFound)
+	assert.Contains(t, err.Error(), "sticky comment author")
+	assert.Empty(t, fake.Comments(repo, 1))
+
+	fake.SetApp(gh.AppInfo{ID: 1})
+	_, err = c.UpsertStickyComment(context.Background(), repo, 1, "<!-- m -->", "x")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no slug")
+	assert.Empty(t, fake.Comments(repo, 1))
+}
+
 func TestCollaboratorPermission(t *testing.T) {
 	fake, c := setup(t)
 	for login, perm := range map[string]string{"root": "admin", "dev": "write", "lead": "maintain", "tri": "triage", "ro": "read"} {
