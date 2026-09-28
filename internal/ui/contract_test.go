@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -27,6 +28,7 @@ const (
 type goField struct {
 	omitempty bool
 	nullable  bool
+	typ       ast.Expr
 }
 
 type goAPI struct {
@@ -103,7 +105,7 @@ func structFields(st *ast.StructType) map[string]goField {
 		case *ast.Ident:
 			nullable = typ.Name == "any"
 		}
-		fields[name] = goField{omitempty: strings.Contains(opts, "omitempty"), nullable: nullable}
+		fields[name] = goField{omitempty: strings.Contains(opts, "omitempty"), nullable: nullable, typ: f.Type}
 	}
 	return fields
 }
@@ -154,6 +156,56 @@ func goName(tsName string) string {
 	return tsName
 }
 
+func tsName(goName string) string {
+	if goName == "Error" {
+		return "ApiErrorBody"
+	}
+	return goName
+}
+
+func (api goAPI) tsType(expr ast.Expr, unions map[string][]string) string {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		switch e.Name {
+		case "string":
+			return "string"
+		case "int", "int32", "int64", "float64":
+			return "number"
+		case "bool":
+			return "boolean"
+		case "any":
+			return "unknown"
+		}
+		if _, ok := unions[e.Name]; ok {
+			return e.Name
+		}
+		if _, ok := api.structs[e.Name]; ok {
+			return tsName(e.Name)
+		}
+		if _, ok := api.enums[e.Name]; ok {
+			return "string"
+		}
+		return e.Name
+	case *ast.SelectorExpr:
+		if pkg, ok := e.X.(*ast.Ident); ok && pkg.Name == "time" && e.Sel.Name == "Time" {
+			return "string"
+		}
+	case *ast.StarExpr:
+		return api.tsType(e.X, unions)
+	case *ast.ArrayType:
+		return api.tsType(e.Elt, unions) + "[]"
+	case *ast.MapType:
+		key, value := api.tsType(e.Key, unions), api.tsType(e.Value, unions)
+		if _, ok := unions[key]; ok {
+			return "Partial<Record<" + key + ", " + value + ">>"
+		}
+		return "Record<" + key + ", " + value + ">"
+	case *ast.InterfaceType:
+		return "unknown"
+	}
+	return fmt.Sprintf("%T", expr)
+}
+
 func TestTypesMirrorAPI(t *testing.T) {
 	api := parseGoAPI(t)
 	interfaces, unions := parseTS(t)
@@ -186,8 +238,12 @@ func TestTypesMirrorAPI(t *testing.T) {
 				if tf.optional != gf.omitempty {
 					t.Errorf("field %q: optional in types.ts = %v, omitempty in Go = %v", name, tf.optional, gf.omitempty)
 				}
-				if !gf.omitempty && gf.nullable && !strings.HasSuffix(tf.typ, "| null") {
-					t.Errorf("field %q: Go encodes a nil value as null, so types.ts must allow null, got %q", name, tf.typ)
+				want := api.tsType(gf.typ, unions)
+				if !gf.omitempty && gf.nullable {
+					want += " | null"
+				}
+				if tf.typ != want {
+					t.Errorf("field %q: types.ts has %q, the Go type encodes as %q", name, tf.typ, want)
 				}
 			}
 			for name := range fields {
@@ -214,23 +270,11 @@ func TestTypesMirrorAPI(t *testing.T) {
 	}
 }
 
-var enumValues = map[reflect.Type][]string{
-	reflect.TypeFor[v1.NodeKind]():     {"stack", "module"},
-	reflect.TypeFor[v1.ModuleKind]():   {"local", "git", "registry"},
-	reflect.TypeFor[v1.EdgeType]():     {"depends_on", "uses_module", "reads_state"},
-	reflect.TypeFor[v1.Tool]():         {"terraform", "tofu"},
-	reflect.TypeFor[v1.RunMode]():      {"plan", "apply", "drift"},
-	reflect.TypeFor[v1.Trigger]():      {"pull_request", "comment", "push", "schedule", "rerequest", "manual"},
-	reflect.TypeFor[v1.RunStatus]():    {"pending", "planning", "planned", "applying", "applied", "failed", "unconfirmed", "superseded"},
-	reflect.TypeFor[v1.StackStatus]():  {"pending", "planning", "planned", "applying", "applied", "failed", "blocked", "noop", "unconfirmed", "unknown", "skipped"},
-	reflect.TypeFor[v1.CheckStatus]():  {"pass", "fail", "warn"},
-	reflect.TypeFor[v1.Reason]():       {"changed", "module", "dependent", "requested", "reads_state"},
-	reflect.TypeFor[v1.ResultStatus](): {"success", "failure", "error"},
-}
+var v1Package = reflect.TypeFor[v1.Run]().PkgPath()
 
-func checkEnums(t *testing.T, where string, v reflect.Value) {
+func checkEnums(t *testing.T, enums map[string][]string, where string, v reflect.Value) {
 	t.Helper()
-	if allowed, ok := enumValues[v.Type()]; ok {
+	if allowed, ok := enums[v.Type().Name()]; ok && v.Kind() == reflect.String && v.Type().PkgPath() == v1Package {
 		s := v.String()
 		for _, a := range allowed {
 			if s == a {
@@ -243,7 +287,7 @@ func checkEnums(t *testing.T, where string, v reflect.Value) {
 	switch v.Kind() {
 	case reflect.Pointer, reflect.Interface:
 		if !v.IsNil() {
-			checkEnums(t, where, v.Elem())
+			checkEnums(t, enums, where, v.Elem())
 		}
 	case reflect.Struct:
 		for i := range v.NumField() {
@@ -251,23 +295,24 @@ func checkEnums(t *testing.T, where string, v reflect.Value) {
 			if !field.IsExported() || (strings.Contains(field.Tag.Get("json"), "omitempty") && v.Field(i).IsZero()) {
 				continue
 			}
-			checkEnums(t, where+"."+field.Name, v.Field(i))
+			checkEnums(t, enums, where+"."+field.Name, v.Field(i))
 		}
 	case reflect.Slice, reflect.Array:
 		for i := range v.Len() {
-			checkEnums(t, where+"["+strconv.Itoa(i)+"]", v.Index(i))
+			checkEnums(t, enums, where+"["+strconv.Itoa(i)+"]", v.Index(i))
 		}
 	case reflect.Map:
 		iter := v.MapRange()
 		for iter.Next() {
-			checkEnums(t, where+"{key}", iter.Key())
-			checkEnums(t, where+"["+iter.Key().String()+"]", iter.Value())
+			checkEnums(t, enums, where+"{key}", iter.Key())
+			checkEnums(t, enums, where+"["+iter.Key().String()+"]", iter.Value())
 		}
 	default:
 	}
 }
 
 func TestFixturesAreAPIResponses(t *testing.T) {
+	enums := parseGoAPI(t).enums
 	decoders := map[string]func() any{
 		"me.json":          func() any { return new(v1.Whoami) },
 		"overview.json":    func() any { return new(v1.Overview) },
@@ -306,7 +351,7 @@ func TestFixturesAreAPIResponses(t *testing.T) {
 			if err := dec.Decode(value); err != nil {
 				t.Fatalf("decode as %T: %v", value, err)
 			}
-			checkEnums(t, name, reflect.ValueOf(value))
+			checkEnums(t, enums, name, reflect.ValueOf(value))
 
 			encoded, err := json.Marshal(value)
 			if err != nil {
