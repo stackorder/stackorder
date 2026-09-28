@@ -1,0 +1,12 @@
+**Stackorder commands**
+
+Post a command on a line of its own in a pull request comment. Stack keys are repository relative paths such as `stacks/prod/vpc`, with `:workspace` appended for a non-default workspace; without keys a command covers every affected stack.
+
+| Command | What it does |
+| --- | --- |
+| `stackorder plan [stack…]` | Re-plan every affected stack, or only the named ones |
+| `stackorder apply [stack…]` | Apply the planned stacks wave by wave; a named subset still honours dependency order |
+| `stackorder unlock [stack…]` | Release the orchestration locks this pull request holds (write permission required) |
+| `stackorder help` | Show this list of commands |
+
+Lines inside code blocks and quoted replies are ignored.

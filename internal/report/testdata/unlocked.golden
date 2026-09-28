@@ -1,0 +1,6 @@
+Released 2 orchestration locks at the request of @alice:
+
+- `stacks/prod/eks`, held by #42 since 2026-09-28 06:00 UTC
+- `stacks/prod/vpc`, held by #42 since 2026-09-28 06:00 UTC
+
+The S3 state locks are untouched; release them separately if a runner died mid-apply.

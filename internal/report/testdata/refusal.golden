@@ -1,0 +1,8 @@
+**`stackorder apply` was refused.** Nothing was dispatched.
+
+- **Layer 1, authorization** (`stacks/prod/vpc`, `stacks/prod/eks`): @bob is not an active member of `acme/platform-prod`, required by `apply.allowed_teams`.
+- **Layer 2, four eyes**: The apply was requested by the pull request author; `apply.four_eyes` requires someone else.
+- **Layer 3, plans for the head commit** (`stacks/prod/apps:blue`): No plan for the head commit `3f9a2c1`; the last plan is for `0a1b2c3`. Push again or comment `stackorder plan`.
+- **Layer 5, locks** (`stacks/prod/eks`): `stacks/prod/eks` is locked by #17.
+
+The server checks these before anything runs; GitHub environment reviewers and the AWS trust policy still gate the apply job itself. Fix the above and comment `stackorder apply` again, or `stackorder help` for the list of commands.

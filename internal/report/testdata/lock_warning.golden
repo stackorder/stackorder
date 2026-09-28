@@ -1,0 +1,6 @@
+**Orchestration locks kept.** This pull request was closed without merging after it applied changes, so the default branch no longer matches what is deployed. 2 stacks stay locked so no other pull request applies over those changes:
+
+- `stacks/prod/eks` is locked by [#42](https://github.com/acme/infra/pull/42) since 2026-09-28 06:00 UTC ([run](https://stackorder.example.com/runs/5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70))
+- `stacks/prod/vpc` is locked by [#42](https://github.com/acme/infra/pull/42) since 2026-09-28 06:00 UTC ([run](https://stackorder.example.com/runs/5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70)): apply
+
+Bring the default branch in line with what was applied, by merging an equivalent change or reverting the resources, then release the locks by commenting `stackorder unlock` here. Unlocking needs write permission.

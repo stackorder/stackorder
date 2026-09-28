@@ -1,0 +1,5 @@
+**`stackorder apply stacks/prod/vpc` was refused.** Nothing was dispatched.
+
+- No reason was recorded; see the `stackorder/apply` check.
+
+The server checks these before anything runs; GitHub environment reviewers and the AWS trust policy still gate the apply job itself. Fix the above and comment `stackorder apply stacks/prod/vpc` again, or `stackorder help` for the list of commands.

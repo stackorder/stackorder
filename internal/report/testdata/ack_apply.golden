@@ -1,0 +1,1 @@
+Dispatched `stackorder apply stacks/prod/vpc stacks/prod/eks`: applying `stacks/prod/vpc`, `stacks/prod/eks` wave by wave. Pending environment approvals are linked from the Stackorder comment.
