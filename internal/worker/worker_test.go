@@ -114,7 +114,9 @@ func TestDispatchByKind(t *testing.T) {
 
 	samples := metricstest.Scrape(t, m)
 	assert.InDelta(t, 1, samples[`stackorder_events_processed_total{kind="push",result="ok"}`], 0)
-	assert.InDelta(t, 1, samples[`stackorder_events_processed_total{kind="sponsorship",result="ignored"}`], 0)
+	assert.InDelta(t, 1, samples[`stackorder_events_processed_total{kind="other",result="ignored"}`], 0)
+	_, raw := samples[`stackorder_events_processed_total{kind="sponsorship",result="ignored"}`]
+	assert.False(t, raw, "an event name nobody handles never becomes a label value")
 	assert.InDelta(t, 1, samples[`stackorder_jobs_processed_total{kind="reconcile",result="ok"}`], 0)
 	assert.InDelta(t, 1, samples[`stackorder_jobs_processed_total{kind="mystery",result="ignored"}`], 0)
 }

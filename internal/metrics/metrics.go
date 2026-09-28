@@ -22,6 +22,11 @@ import (
 // Namespace prefixes every metric name.
 const Namespace = "stackorder"
 
+// Other is the label value that stands for every value outside a known
+// set, such as an event name no handler is registered for, so input from
+// outside never grows the number of series.
+const Other = "other"
+
 // Queue names reported by the queue_depth gauge.
 const (
 	QueueEvents = "events"

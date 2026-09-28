@@ -376,6 +376,7 @@ func (p *Pool) releaseClaims(worker string) {
 type item struct {
 	queue     string
 	kind      string
+	label     string
 	id        string
 	attempts  int
 	lastError string
@@ -393,6 +394,7 @@ func (p *Pool) eventItem(ev store.Event, waited time.Duration) item {
 	it := item{
 		queue:     "event",
 		kind:      ev.Kind,
+		label:     metrics.Other,
 		id:        ev.ID,
 		attempts:  ev.Attempts,
 		lastError: ev.LastError,
@@ -407,6 +409,7 @@ func (p *Pool) eventItem(ev store.Event, waited time.Duration) item {
 	h, ok := p.events[ev.Kind]
 	p.mu.RUnlock()
 	if ok {
+		it.label = ev.Kind
 		it.run = func(ctx context.Context) error { return h(ctx, ev) }
 	}
 	return it
@@ -416,6 +419,7 @@ func (p *Pool) jobItem(job store.Job) item {
 	it := item{
 		queue:     "job",
 		kind:      job.Kind,
+		label:     job.Kind,
 		id:        job.ID.String(),
 		attempts:  job.Attempts,
 		lastError: job.LastError,
@@ -441,14 +445,14 @@ func (p *Pool) process(handlerCtx context.Context, it item) {
 	if it.run == nil {
 		log.DebugContext(handlerCtx, "no handler registered; completing")
 		p.settle(handlerCtx, log, it.complete)
-		it.record(it.kind, metrics.ResultIgnored)
+		it.record(it.label, metrics.ResultIgnored)
 		return
 	}
 	if it.attempts >= p.opts.MaxAttempts {
 		cause := fmt.Errorf("worker: gave up after %d attempts: %s", it.attempts, it.lastError)
 		log.ErrorContext(handlerCtx, "giving up on queued row", "attempts", it.attempts, "error", it.lastError)
 		p.settle(handlerCtx, log, func(ctx context.Context) error { return it.abandon(ctx, cause) })
-		it.record(it.kind, metrics.ResultDead)
+		it.record(it.label, metrics.ResultDead)
 		return
 	}
 
@@ -460,20 +464,20 @@ func (p *Pool) process(handlerCtx context.Context, it item) {
 	case err == nil:
 		log.DebugContext(handlerCtx, "handled", "attempt", attempt, "duration", elapsed)
 		p.settle(handlerCtx, log, it.complete)
-		it.record(it.kind, metrics.ResultOK)
+		it.record(it.label, metrics.ResultOK)
 	case handlerCtx.Err() != nil:
 		log.WarnContext(handlerCtx, "handler cancelled by shutdown; returned to the queue", "attempt", attempt, "duration", elapsed, "error", err)
 		p.settle(handlerCtx, log, func(ctx context.Context) error { return it.fail(ctx, err, 0) })
-		it.record(it.kind, metrics.ResultError)
+		it.record(it.label, metrics.ResultError)
 	case attempt >= p.opts.MaxAttempts:
 		log.ErrorContext(handlerCtx, "handler failed on its last attempt; giving up", "attempt", attempt, "duration", elapsed, "error", err)
 		p.settle(handlerCtx, log, func(ctx context.Context) error { return it.abandon(ctx, err) })
-		it.record(it.kind, metrics.ResultDead)
+		it.record(it.label, metrics.ResultDead)
 	default:
 		retry := p.opts.Backoff(attempt)
 		log.WarnContext(handlerCtx, "handler failed; will retry", "attempt", attempt, "duration", elapsed, "retry_in", retry, "error", err)
 		p.settle(handlerCtx, log, func(ctx context.Context) error { return it.fail(ctx, err, retry) })
-		it.record(it.kind, metrics.ResultError)
+		it.record(it.label, metrics.ResultError)
 	}
 }
 

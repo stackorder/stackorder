@@ -179,7 +179,7 @@ func TestPGUnknownKindCompletes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, ev.Attempts)
 	assert.Empty(t, ev.LastError)
-	assert.InDelta(t, 2, metricstest.Value(t, m, `stackorder_events_processed_total{kind="sponsorship",result="ignored"}`), 0)
+	assert.InDelta(t, 2, metricstest.Value(t, m, `stackorder_events_processed_total{kind="other",result="ignored"}`), 0)
 	assert.InDelta(t, 1, metricstest.Value(t, m, `stackorder_jobs_processed_total{kind="retired_kind",result="ignored"}`), 0)
 }
 

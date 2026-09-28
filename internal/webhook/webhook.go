@@ -31,7 +31,6 @@ const (
 	MaxBodyBytes = 5 << 20
 
 	insertTimeout = 10 * time.Second
-	otherEvent    = "other"
 )
 
 var knownEvents = append([]string{gh.EventPing, gh.EventInstallation, gh.EventInstallationRepositories}, gh.DefaultEvents...)
@@ -134,7 +133,7 @@ func eventLabel(event string) string {
 	if slices.Contains(knownEvents, event) {
 		return event
 	}
-	return otherEvent
+	return metrics.Other
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
