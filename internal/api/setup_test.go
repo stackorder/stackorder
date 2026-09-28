@@ -110,6 +110,18 @@ func TestSetupPagePostsTheManifest(t *testing.T) {
 	assert.NotEqual(t, state, again.action.Query().Get("state"))
 }
 
+func TestPageNoncesSurviveAttributeEscaping(t *testing.T) {
+	e := newEnv(t)
+	nonceOf := regexp.MustCompile(`style-src 'nonce-([^']+)'`)
+	for range 64 {
+		rec := e.do(newRequest(t, http.MethodGet, "/setup/installed", nil))
+		require.Equal(t, http.StatusOK, rec.Code)
+		m := nonceOf.FindStringSubmatch(rec.Header().Get("Content-Security-Policy"))
+		require.NotNil(t, m, rec.Header().Get("Content-Security-Policy"))
+		require.Contains(t, rec.Body.String(), `<style nonce="`+m[1]+`">`, "the markup carries the header's nonce byte for byte")
+	}
+}
+
 func TestSetupPageOptions(t *testing.T) {
 	e := newSetupEnv(t)
 	f := e.open(t, "/setup?org=acme-corp&name=Stackorder+Acme")

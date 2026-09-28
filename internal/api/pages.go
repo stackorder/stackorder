@@ -57,7 +57,7 @@ type pageData struct {
 func newNonce() string {
 	b := make([]byte, 18)
 	_, _ = rand.Read(b)
-	return base64.RawStdEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 func (s *server) renderPage(w http.ResponseWriter, r *http.Request, status int, name, title string, formAction string, body any) {
