@@ -155,4 +155,7 @@ func TestStickyAppliedSubsetCountsOnlyAppliedStacks(t *testing.T) {
 		stack("stacks/a", "", 0, 0, withStatus(v1.StackApplied), withSummary(1, 0, 0, 0)),
 		stack("stacks/b", "", 1, 0, withStatus(v1.StackSkipped), withSummary(4, 0, 0, 0)))
 	assert.Contains(t, StickyComment(run, Options{}), "\nApplied 1 stack in 3 waves, skipped 1 not in the requested subset: 1 added, 0 changed, 0 destroyed.\n")
+
+	run.Stacks[1].Status = v1.StackPlanned
+	assert.Contains(t, StickyComment(run, Options{}), "\nApplied 1 stack in 3 waves: 1 added, 0 changed, 0 destroyed.\n")
 }

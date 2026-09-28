@@ -296,6 +296,8 @@ func rollupState(run v1.Run, t tally, p phase) CheckOutput {
 		return completed(brokenTitle(run, t), ConclusionFailure)
 	case run.Status == v1.RunFailed:
 		return completed("Run failed", ConclusionFailure)
+	case run.Status == v1.RunApplied && t.running() > 0:
+		return completed("Run ended with "+plural(t.running(), "stack")+" not applied", ConclusionFailure)
 	case t.running() > 0:
 		return inProgress(run, t, p)
 	case run.Status == v1.RunUnconfirmed || t.n(v1.StackUnconfirmed) > 0:

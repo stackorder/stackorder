@@ -129,11 +129,12 @@ func runStatusWord(s v1.RunStatus) string {
 
 func appliedStacks(stacks []v1.RunStack) (done []v1.RunStack, skipped int) {
 	for _, rs := range stacks {
-		if rs.Status == v1.StackSkipped {
+		switch rs.Status {
+		case v1.StackApplied, v1.StackNoop:
+			done = append(done, rs)
+		case v1.StackSkipped:
 			skipped++
-			continue
 		}
-		done = append(done, rs)
 	}
 	return done, skipped
 }

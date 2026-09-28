@@ -223,7 +223,7 @@ func TestRollupConclusion(t *testing.T) {
 		}(), wantStatus: StatusQueued, wantTitle: "Applying wave 0 of 3: 0 of 2 stacks done"},
 		{name: "plan run applying with later waves planned", run: baseRun(v1.RunApplying, st(v1.StackApplied), stack("stacks/later", "", 1, 0)), wantStatus: StatusInProgress, wantTitle: "Applying wave 0 of 3: 1 of 2 stacks done"},
 		{name: "failed apply run does not claim stacks still run", run: applyRun(v1.RunFailed, st(v1.StackFailed), stack("stacks/later", "", 1, 0)), wantStatus: StatusCompleted, wantConcl: ConclusionFailure, wantTitle: "1 failed"},
-		{name: "applied run with a stack left planned is not green", run: applyRun(v1.RunApplied, st(v1.StackApplied), stack("stacks/later", "", 1, 0)), wantStatus: StatusInProgress, wantTitle: "Applying wave 0 of 3: 1 of 2 stacks done"},
+		{name: "applied run with a stack left planned is not green", run: applyRun(v1.RunApplied, st(v1.StackApplied), stack("stacks/later", "", 1, 0)), wantStatus: StatusCompleted, wantConcl: ConclusionFailure, wantTitle: "Run ended with 1 stack not applied"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
