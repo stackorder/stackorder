@@ -240,7 +240,12 @@ func (s *Service) inAnyTeam(ctx context.Context, c *gh.Client, owner string, tea
 
 func (s *Service) gateApprovals(ctx context.Context, in gateInput, cfg *v1.RepoConfig, pull *gh.PullRequest, keys []string) ([]report.GateFailure, error) {
 	var out []report.GateFailure
-	if pull.Mergeable != nil && !*pull.Mergeable || pull.MergeableState == "dirty" {
+	switch {
+	case pull.Merged || pull.MergedAt != nil:
+		out = append(out, report.GateFailure{Layer: report.LayerApprovals, Reason: "the pull request is already merged"})
+	case pull.State != gh.IssueOpen:
+		out = append(out, report.GateFailure{Layer: report.LayerApprovals, Reason: "the pull request is closed; reopen it before applying"})
+	case pull.Mergeable != nil && !*pull.Mergeable || pull.MergeableState == "dirty":
 		out = append(out, report.GateFailure{Layer: report.LayerApprovals, Reason: "the pull request is not mergeable; resolve the conflicts with the base branch first"})
 	}
 	sha := firstNonEmpty(in.reviewSHA, pull.HeadSHA)

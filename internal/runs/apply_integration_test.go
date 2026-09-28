@@ -75,6 +75,22 @@ func TestApplyGateLayers(t *testing.T) {
 			want: []string{"**Layer 2, approvals**", "not mergeable"},
 		},
 		{
+			name: "layer 2 refuses a closed pull request",
+			setup: func(e *env) {
+				e.gh.SetPull(repoName, gh.PullRequest{Number: 7, State: gh.IssueClosed, HeadSHA: headSHA, BaseSHA: baseSHA,
+					User: gh.User{Login: author}, Mergeable: ptr(true), MergeableState: "clean"})
+			},
+			want: []string{"**Layer 2, approvals**", "the pull request is closed"},
+		},
+		{
+			name: "layer 2 refuses a merged pull request",
+			setup: func(e *env) {
+				e.gh.SetPull(repoName, gh.PullRequest{Number: 7, State: gh.IssueClosed, Merged: true, HeadSHA: headSHA, BaseSHA: baseSHA,
+					User: gh.User{Login: author}, MergeableState: "unknown"})
+			},
+			want: []string{"**Layer 2, approvals**", "the pull request is already merged"},
+		},
+		{
 			name: "layer 2 code owner review",
 			cfg:  func(c *v1.RepoConfig) { c.Apply.RequireCodeownerReview = true },
 			setup: func(e *env) {
