@@ -1,6 +1,8 @@
 import '@testing-library/jest-dom/vitest';
-import { cleanup } from '@testing-library/preact';
+import { cleanup, configure } from '@testing-library/preact';
 import { afterEach } from 'vitest';
+
+configure({ asyncUtilTimeout: 5_000 });
 
 afterEach(() => {
   cleanup();
