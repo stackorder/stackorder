@@ -14,9 +14,9 @@ services:
       retries: 10
 
   localstack:
-    image: localstack/localstack:latest
+    image: localstack/localstack:4.0
     environment:
-      SERVICES: s3
+      SERVICES: s3,sts
       DEBUG: "0"
     ports:
       - "4566:4566"
