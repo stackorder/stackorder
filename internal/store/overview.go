@@ -20,9 +20,10 @@ type statusCount struct {
 	Count  int    `db:"count"`
 }
 
-// Overview counts repositories, live stacks, drifted stacks, held locks,
-// runs by status and stacks by the status of their latest run, and lists
-// the most recent runs. When accounts are given only their installations'
+// Overview counts repositories, live stacks, drifted stacks, held locks
+// (including those on stacks marked removed, as RepoSummaries does), runs by
+// status and stacks by the status of their latest run, and lists the most
+// recent runs. When accounts are given only their installations'
 // repositories are counted; an empty account name matches nothing.
 func (s *Store) Overview(ctx context.Context, accounts ...string) (v1.Overview, error) {
 	const op = "overview"
@@ -43,7 +44,8 @@ func (s *Store) Overview(ctx context.Context, accounts ...string) (v1.Overview, 
 				SELECT d.drifted FROM drift d WHERE d.stack_id = l.id
 				ORDER BY d.checked_at DESC, d.id DESC LIMIT 1) ld ON true
 			 WHERE ld.drifted),
-			(SELECT count(*) FROM locks WHERE stack_id IN (SELECT id FROM live))`, all, scope).
+			(SELECT count(*) FROM locks l JOIN stacks s ON s.id = l.stack_id
+			 WHERE s.repo_id IN (SELECT id FROM scope))`, all, scope).
 		Scan(&out.Repos, &out.Stacks, &out.Drifted, &out.LocksHeld)
 	if err != nil {
 		return v1.Overview{}, wrap(op, err)

@@ -42,6 +42,10 @@ func TestOverviewAndRepoSummaries(t *testing.T) {
 	conflicts, err := f.s.TryLockStacks(f.ctx, []uuid.UUID{ids["stacks/a"]}, cur.ID, 1, "apply")
 	require.NoError(t, err)
 	require.Empty(t, conflicts)
+	closedPR := f.run(store.CreateRunParams{SHA: "s3", PRNumber: 3, Status: v1.RunApplied})
+	conflicts, err = f.s.TryLockStacks(f.ctx, []uuid.UUID{ids["stacks/c"]}, closedPR.ID, 3, "apply")
+	require.NoError(t, err)
+	require.Empty(t, conflicts, "a removed stack can still hold a lock that needs an unlock")
 
 	cases := []struct {
 		name     string
@@ -52,11 +56,11 @@ func TestOverviewAndRepoSummaries(t *testing.T) {
 		{
 			name: "everything",
 			want: v1.Overview{
-				Repos: 2, Stacks: 3, Drifted: 2, LocksHeld: 1,
-				RunsByStatus:   map[v1.RunStatus]int{v1.RunApplied: 1, v1.RunPlanning: 1, v1.RunPending: 1},
+				Repos: 2, Stacks: 3, Drifted: 2, LocksHeld: 2,
+				RunsByStatus:   map[v1.RunStatus]int{v1.RunApplied: 2, v1.RunPlanning: 1, v1.RunPending: 1},
 				StacksByStatus: map[v1.StackStatus]int{v1.StackPlanning: 1, v1.StackPlanned: 1, v1.StackPending: 1},
 			},
-			recent: 3,
+			recent: 4,
 		},
 		{
 			name:     "one account",
@@ -97,7 +101,7 @@ func TestOverviewAndRepoSummaries(t *testing.T) {
 
 	recent, err := f.s.Overview(f.ctx)
 	require.NoError(t, err)
-	assert.Equal(t, otherRun.ID.String(), recent.RecentRuns[0].ID, "recent runs are newest first")
+	assert.Equal(t, closedPR.ID.String(), recent.RecentRuns[0].ID, "recent runs are newest first")
 
 	summaries, err := f.s.RepoSummaries(f.ctx)
 	require.NoError(t, err)
@@ -105,9 +109,17 @@ func TestOverviewAndRepoSummaries(t *testing.T) {
 	require.NotNil(t, summaries[0].LastRunAt)
 	summaries[0].LastRunAt, summaries[1].LastRunAt = nil, nil
 	assert.Equal(t, []v1.RepoSummary{
-		{ID: f.repo.ID, FullName: "acme/infra", DefaultBranch: "main", Stacks: 2, Drifted: 1, LocksHeld: 1},
+		{ID: f.repo.ID, FullName: "acme/infra", DefaultBranch: "main", Stacks: 2, Drifted: 1, LocksHeld: 2},
 		{ID: other.ID, FullName: "globex/platform", DefaultBranch: "main", Stacks: 1, Drifted: 1},
 	}, summaries)
+
+	var summed int
+	for _, r := range summaries {
+		summed += r.LocksHeld
+	}
+	everything, err := f.s.Overview(f.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, everything.LocksHeld, summed, "the overview and the repository list agree on held locks")
 
 	scoped, err := f.s.RepoSummaries(f.ctx, "acme")
 	require.NoError(t, err)
