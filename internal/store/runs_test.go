@@ -261,6 +261,7 @@ func TestRunStacks(t *testing.T) {
 	assert.Equal(t, v1.StackSkipped, got[1].Status)
 	assert.Equal(t, v1.ModePlan, got[1].Mode)
 	assert.Empty(t, got[1].Reasons)
+	assert.Equal(t, v1.DefaultEnvironment, got[1].Environment, "no environment mapping runs under the default one")
 
 	a := ids["stacks/a"]
 	planned := v1.StackPlanned
@@ -307,8 +308,11 @@ func TestRunStacks(t *testing.T) {
 
 	applying := v1.StackApplying
 	mode := v1.ModeApply
-	one, err = f.s.UpdateRunStack(f.ctx, r.ID, a, store.RunStackPatch{Status: &applying, Mode: &mode, IfStatus: []v1.StackStatus{v1.StackPlanned}})
+	one, err = f.s.UpdateRunStack(f.ctx, r.ID, a, store.RunStackPatch{
+		Status: &applying, Mode: &mode, Environment: ptr(""), IfStatus: []v1.StackStatus{v1.StackPlanned},
+	})
 	require.NoError(t, err)
+	assert.Equal(t, v1.DefaultEnvironment, one.Environment)
 	assert.NotNil(t, one.StartedAt)
 	assert.Nil(t, one.FinishedAt, "starting a phase clears finished_at")
 	assert.Equal(t, updated.PlanText, one.PlanText, "nil fields are kept")
@@ -457,6 +461,15 @@ func TestDispatches(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list, 3)
 	assert.Equal(t, []string{"production", "staging", "production"}, []string{list[0].Environment, list[1].Environment, list[2].Environment})
+
+	unmapped, created, err := f.s.CreateDispatch(f.ctx, r.ID, 2, "", v1.ModeApply)
+	require.NoError(t, err)
+	assert.True(t, created)
+	assert.Equal(t, v1.DefaultEnvironment, unmapped.Environment, "never an empty environment name")
+	same, created, err := f.s.CreateDispatch(f.ctx, r.ID, 2, v1.DefaultEnvironment, v1.ModeApply)
+	require.NoError(t, err)
+	assert.False(t, created, "empty and default name the same (run, wave, environment)")
+	assert.Equal(t, unmapped.ID, same.ID)
 
 	_, err = f.s.CompleteDispatch(f.ctx, uuid.New(), "x")
 	require.ErrorIs(t, err, store.ErrNotFound)

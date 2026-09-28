@@ -375,9 +375,10 @@ type RunStackPatch struct {
 	Status *v1.StackStatus
 	// IfStatus, when non-empty, applies the patch only if the current status
 	// is one of these; otherwise UpdateRunStack returns ErrConflict.
-	IfStatus     []v1.StackStatus
-	Mode         *v1.RunMode
-	Wave         *int
+	IfStatus []v1.StackStatus
+	Mode     *v1.RunMode
+	Wave     *int
+	// Environment set to "" stores v1.DefaultEnvironment.
 	Environment  *string
 	Summary      *v1.PlanSummary
 	HasChanges   *bool
@@ -405,7 +406,8 @@ const runStackColsNoText = runStackColsHead + `'' AS plan_text` + runStackColsTa
 // UpsertRunStacks records the affected stacks of a run. New rows take the
 // given status (pending by default) and mode (the run's by default);
 // existing rows only have their wave, reasons and environment refreshed, so
-// results already reported are kept.
+// results already reported are kept. An empty environment is
+// v1.DefaultEnvironment.
 func (s *Store) UpsertRunStacks(ctx context.Context, runID uuid.UUID, stacks []RunStack) error {
 	if len(stacks) == 0 {
 		return nil
@@ -425,7 +427,8 @@ func (s *Store) UpsertRunStacks(ctx context.Context, runID uuid.UUID, stacks []R
 					reasons = EXCLUDED.reasons,
 					environment = EXCLUDED.environment,
 					updated_at = now()`,
-				runID, rs.StackID, rs.Wave, string(rs.Mode), string(rs.Status), strs(nonNil(rs.Reasons)), rs.Environment)
+				runID, rs.StackID, rs.Wave, string(rs.Mode), string(rs.Status), strs(nonNil(rs.Reasons)),
+				environmentOrDefault(rs.Environment))
 		}
 		return tx.SendBatch(ctx, b).Close()
 	})
@@ -440,6 +443,10 @@ func (s *Store) UpdateRunStack(ctx context.Context, runID, stackID uuid.UUID, p 
 	var adds, changes, destroys, replaces *int
 	if p.Summary != nil {
 		adds, changes, destroys, replaces = &p.Summary.Adds, &p.Summary.Changes, &p.Summary.Destroys, &p.Summary.Replaces
+	}
+	if p.Environment != nil {
+		env := environmentOrDefault(*p.Environment)
+		p.Environment = &env
 	}
 	truncated := p.PlanTextTruncated
 	var text *string
@@ -488,6 +495,13 @@ func (s *Store) UpdateRunStack(ctx context.Context, runID, stackID uuid.UUID, p 
 		return out, s.guardError(ctx, op, `SELECT 1 FROM run_stacks WHERE run_id = $1 AND stack_id = $2`, runID, stackID)
 	}
 	return out, wrap(op, err)
+}
+
+func environmentOrDefault(env string) string {
+	if env == "" {
+		return v1.DefaultEnvironment
+	}
+	return env
 }
 
 func truncateUTF8(s string, limit int) (string, bool) {

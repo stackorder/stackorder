@@ -35,9 +35,11 @@ const dispatchFromCTE = ` SELECT ` + dispatchCols + ` FROM d JOIN runs r ON r.id
 
 // CreateDispatch records a dispatch for a (run, wave, environment). If one
 // already exists it is returned with created == false, which makes the
-// dispatching handler idempotent.
+// dispatching handler idempotent. An empty environment is
+// v1.DefaultEnvironment.
 func (s *Store) CreateDispatch(ctx context.Context, runID uuid.UUID, wave int, environment string, mode v1.RunMode) (Dispatch, bool, error) {
 	const op = "create dispatch"
+	environment = environmentOrDefault(environment)
 	out, err := queryOne[Dispatch](ctx, s.db, `
 		WITH d AS (
 			INSERT INTO dispatches (run_id, wave, environment, mode)
