@@ -26,6 +26,8 @@ drift:
 3. Exit code 0 means no drift. Exit code 2 marks the stack drifted and records the plan summary.
 4. With `open_issue: true`, the server opens a GitHub issue for a drifted stack, or updates the one it already opened. There is one issue per stack.
 
+Drift jobs run in `stackorder-run.yml` under the stack's GitHub environment and with the same AWS role as its applies. On an environment with required reviewers, each scheduled drift job waits for an approval before it starts.
+
 Only one server instance schedules at a time; the scheduler is elected leader with a Postgres advisory lock, and any instance can execute the work.
 
 ## Where drift shows up {#where}

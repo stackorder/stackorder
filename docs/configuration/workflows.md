@@ -75,7 +75,7 @@ The server dispatches this workflow by its file name, `stackorder-run.yml`, so k
 
 The server dispatches once per wave and environment. In `run.yml` the job for each stack declares `environment: ${{ matrix.environment }}`, so that environment's protection rules gate the job and its OIDC token carries the environment in its subject.
 
-A `stackorder plan` comment dispatches `mode: plan` for the named stacks. The scheduler dispatches `mode: drift` per stack.
+A `stackorder plan` comment dispatches `mode: plan` for the named stacks. The scheduler dispatches `mode: drift` per stack. These jobs run under the stack's environment too, whatever the mode, so an environment with required reviewers also holds a drift check or a comment-requested plan until someone approves it.
 
 ## Reusable workflow inputs {#inputs}
 
