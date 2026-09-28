@@ -3,7 +3,6 @@ package gh
 import (
 	"context"
 	"errors"
-	"net/url"
 )
 
 // Collaborator permission levels returned by CollaboratorPermission.
@@ -31,11 +30,15 @@ func (c *Client) CollaboratorPermission(ctx context.Context, repo, login string)
 	if err != nil {
 		return "", err
 	}
+	user, err := segment("login", login)
+	if err != nil {
+		return "", err
+	}
 	var out struct {
 		Permission string `json:"permission"`
 		RoleName   string `json:"role_name"`
 	}
-	err = c.get(ctx, "/repos/{owner}/{repo}/collaborators/{username}/permission", rp+"/collaborators/"+url.PathEscape(login)+"/permission", &out)
+	err = c.get(ctx, "/repos/{owner}/{repo}/collaborators/{username}/permission", rp+"/collaborators/"+user+"/permission", &out)
 	if isNotFound(err) {
 		return PermissionNone, nil
 	}
@@ -67,11 +70,22 @@ func HasPushPermission(perm string) bool {
 // pending or none. Members of child teams are members of the parent, as
 // GitHub reports them.
 func (c *Client) TeamMembership(ctx context.Context, org, teamSlug, login string) (string, error) {
+	o, err := segment("org", org)
+	if err != nil {
+		return "", err
+	}
+	team, err := segment("team", teamSlug)
+	if err != nil {
+		return "", err
+	}
+	user, err := segment("login", login)
+	if err != nil {
+		return "", err
+	}
 	var out struct {
 		State string `json:"state"`
 	}
-	path := "/orgs/" + url.PathEscape(org) + "/teams/" + url.PathEscape(teamSlug) + "/memberships/" + url.PathEscape(login)
-	err := c.get(ctx, "/orgs/{org}/teams/{team_slug}/memberships/{username}", path, &out)
+	err = c.get(ctx, "/orgs/{org}/teams/{team_slug}/memberships/{username}", "/orgs/"+o+"/teams/"+team+"/memberships/"+user, &out)
 	if isNotFound(err) {
 		return MembershipNone, nil
 	}
@@ -110,11 +124,15 @@ func (c *Client) UserOrgs(ctx context.Context) ([]string, error) {
 // UserOrgMembership returns the authenticated user's membership in an
 // organisation: state active, pending or none, and role admin or member.
 func (c *Client) UserOrgMembership(ctx context.Context, org string) (state, role string, err error) {
+	o, err := segment("org", org)
+	if err != nil {
+		return "", "", err
+	}
 	var out struct {
 		State string `json:"state"`
 		Role  string `json:"role"`
 	}
-	err = c.get(ctx, "/user/memberships/orgs/{org}", "/user/memberships/orgs/"+url.PathEscape(org), &out)
+	err = c.get(ctx, "/user/memberships/orgs/{org}", "/user/memberships/orgs/"+o, &out)
 	if isNotFound(err) {
 		return MembershipNone, "", nil
 	}

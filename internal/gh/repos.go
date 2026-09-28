@@ -61,6 +61,10 @@ func (c *Client) GetContents(ctx context.Context, repo, path, ref string) ([]byt
 	if err != nil {
 		return nil, err
 	}
+	ep, err := escapePath("path", path)
+	if err != nil {
+		return nil, err
+	}
 	q := url.Values{}
 	if ref != "" {
 		q.Set("ref", ref)
@@ -68,7 +72,7 @@ func (c *Client) GetContents(ctx context.Context, repo, path, ref string) ([]byt
 	resp, err := c.t.do(ctx, request{
 		method: http.MethodGet,
 		route:  "/repos/{owner}/{repo}/contents/{path}",
-		path:   rp + "/contents/" + escapePath(path),
+		path:   rp + "/contents/" + ep,
 		query:  q,
 		auth:   c.auth,
 	})
@@ -116,13 +120,17 @@ func (c *Client) GetRef(ctx context.Context, repo, ref string) (string, error) {
 		return "", err
 	}
 	ref = strings.TrimPrefix(ref, "refs/")
+	er, err := escapePath("ref", ref)
+	if err != nil {
+		return "", err
+	}
 	var out struct {
 		Object struct {
 			Type string `json:"type"`
 			SHA  string `json:"sha"`
 		} `json:"object"`
 	}
-	if err := c.get(ctx, "/repos/{owner}/{repo}/git/ref/{ref}", rp+"/git/ref/"+escapePath(ref), &out); err != nil {
+	if err := c.get(ctx, "/repos/{owner}/{repo}/git/ref/{ref}", rp+"/git/ref/"+er, &out); err != nil {
 		return "", err
 	}
 	for range 8 {

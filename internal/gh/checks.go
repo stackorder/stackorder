@@ -164,6 +164,9 @@ func (c *Client) ListCheckRunsForRef(ctx context.Context, repo, ref, checkName s
 	if err != nil {
 		return nil, err
 	}
+	if _, err := checkPath("ref", ref); err != nil {
+		return nil, err
+	}
 	q := url.Values{}
 	if checkName != "" {
 		q.Set("check_name", checkName)

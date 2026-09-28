@@ -62,18 +62,40 @@ func list[T any](ctx context.Context, c *Client, route, path string, query url.V
 
 func repoPath(repo string) (string, error) {
 	owner, name, ok := strings.Cut(repo, "/")
-	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
+	if !ok || !validSegment(owner) || !validSegment(name) || strings.Contains(name, "/") {
 		return "", fmt.Errorf("gh: repository %q must be owner/name", repo)
 	}
 	return "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(name), nil
 }
 
-func escapePath(p string) string {
+func validSegment(s string) bool { return s != "" && s != "." && s != ".." }
+
+func segment(what, v string) (string, error) {
+	if !validSegment(v) || strings.Contains(v, "/") {
+		return "", fmt.Errorf("gh: %s %q is not a valid path segment", what, v)
+	}
+	return url.PathEscape(v), nil
+}
+
+func checkPath(what, p string) ([]string, error) {
 	segs := strings.Split(strings.Trim(p, "/"), "/")
+	for _, s := range segs {
+		if !validSegment(s) {
+			return nil, fmt.Errorf("gh: %s %q has an empty, . or .. segment", what, p)
+		}
+	}
+	return segs, nil
+}
+
+func escapePath(what, p string) (string, error) {
+	segs, err := checkPath(what, p)
+	if err != nil {
+		return "", err
+	}
 	for i, s := range segs {
 		segs[i] = url.PathEscape(s)
 	}
-	return strings.Join(segs, "/")
+	return strings.Join(segs, "/"), nil
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }

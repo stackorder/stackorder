@@ -81,6 +81,50 @@ func TestInvalidRepositoryNameEveryMethod(t *testing.T) {
 	}
 }
 
+func TestPathParametersRejectDotSegments(t *testing.T) {
+	fake, c := setup(t)
+	ctx := context.Background()
+	calls := map[string]func() error{
+		"repo owner":          func() error { _, err := c.GetRepository(ctx, "../infra"); return err },
+		"repo name":           func() error { _, err := c.GetRepository(ctx, "acme/.."); return err },
+		"contents parent":     func() error { _, err := c.GetContents(ctx, repo, "../../../orgs/acme", ""); return err },
+		"contents inner":      func() error { _, err := c.GetContents(ctx, repo, "stacks/../stackorder.yaml", ""); return err },
+		"contents dot":        func() error { _, err := c.GetContents(ctx, repo, "./stackorder.yaml", ""); return err },
+		"contents empty":      func() error { _, err := c.GetContents(ctx, repo, "stacks//vpc", ""); return err },
+		"git ref":             func() error { _, err := c.GetRef(ctx, repo, "heads/../../../x"); return err },
+		"check runs ref":      func() error { _, err := c.ListCheckRunsForRef(ctx, repo, "..", ""); return err },
+		"check runs ref path": func() error { _, err := c.ListCheckRunsForRef(ctx, repo, "heads/../x", ""); return err },
+		"collaborator":        func() error { _, err := c.CollaboratorPermission(ctx, repo, ".."); return err },
+		"team slug":           func() error { _, err := c.TeamMembership(ctx, "acme", "..", "bob"); return err },
+		"team slug slash":     func() error { _, err := c.TeamMembership(ctx, "acme", "platform/../..", "bob"); return err },
+		"team org":            func() error { _, err := c.TeamMembership(ctx, ".", "platform", "bob"); return err },
+		"team login":          func() error { _, err := c.TeamMembership(ctx, "acme", "platform", ".."); return err },
+		"user org":            func() error { _, _, err := c.UserOrgMembership(ctx, ".."); return err },
+		"dispatch workflow":   func() error { return c.DispatchWorkflow(ctx, repo, "../ci.yml", "main", nil) },
+		"runs workflow": func() error {
+			_, err := c.ListWorkflowRuns(ctx, repo, gh.ListWorkflowRunsParams{Workflow: ".."})
+			return err
+		},
+		"manifest code": func() error {
+			_, err := gh.CreateAppFromManifest(ctx, gh.Config{BaseURL: fake.URL(), HTTPClient: fake.HTTPClient()}, "..")
+			return err
+		},
+	}
+	before := len(fake.Requests())
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			require.Error(t, call())
+		})
+	}
+	assert.Len(t, fake.Requests(), before, "no request may leave the client")
+
+	_, err := c.ListCheckRunsForRef(ctx, repo, "heads/feature/vpc", "")
+	require.NoError(t, err)
+	last := fake.Requests()[len(fake.Requests())-1]
+	assert.Equal(t, "GET /repos/{owner}/{repo}/commits/{ref}/check-runs", last.Pattern)
+	assert.Equal(t, "/repos/acme/infra/commits/heads/feature/vpc/check-runs", last.Path)
+}
+
 func TestGetRepository(t *testing.T) {
 	fake, c := setup(t)
 	fake.SetRepo(repo, gh.Repository{ID: 77, DefaultBranch: "trunk", Private: true})

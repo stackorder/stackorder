@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 )
 
@@ -98,6 +97,10 @@ func CreateAppFromManifest(ctx context.Context, cfg Config, code string) (*AppCr
 	if code == "" {
 		return nil, errors.New("gh: manifest code is required")
 	}
+	c, err := segment("manifest code", code)
+	if err != nil {
+		return nil, err
+	}
 	t, err := newTransport(cfg)
 	if err != nil {
 		return nil, err
@@ -106,7 +109,7 @@ func CreateAppFromManifest(ctx context.Context, cfg Config, code string) (*AppCr
 	err = t.call(ctx, request{
 		method:  http.MethodPost,
 		route:   "/app-manifests/{code}/conversions",
-		path:    "/app-manifests/" + url.PathEscape(code) + "/conversions",
+		path:    "/app-manifests/" + c + "/conversions",
 		noRetry: true,
 	}, &creds)
 	if err != nil {

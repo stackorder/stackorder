@@ -146,12 +146,16 @@ func (c *Client) DispatchWorkflow(ctx context.Context, repo, workflowFile, ref s
 	if workflowFile == "" || ref == "" {
 		return errors.New("gh: dispatch: workflow and ref are required")
 	}
+	wf, err := segment("workflow", workflowFile)
+	if err != nil {
+		return err
+	}
 	body := struct {
 		Ref    string            `json:"ref"`
 		Inputs map[string]string `json:"inputs,omitempty"`
 	}{Ref: ref, Inputs: inputs}
 	return c.call(ctx, http.MethodPost, "/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
-		rp+"/actions/workflows/"+url.PathEscape(workflowFile)+"/dispatches", body, nil)
+		rp+"/actions/workflows/"+wf+"/dispatches", body, nil)
 }
 
 // ListWorkflowRuns returns workflow runs matching p, newest first.
@@ -175,8 +179,12 @@ func (c *Client) ListWorkflowRuns(ctx context.Context, repo string, p ListWorkfl
 	}
 	route, path := "/repos/{owner}/{repo}/actions/runs", rp+"/actions/runs"
 	if p.Workflow != "" {
+		wf, err := segment("workflow", p.Workflow)
+		if err != nil {
+			return nil, err
+		}
 		route = "/repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs"
-		path = rp + "/actions/workflows/" + url.PathEscape(p.Workflow) + "/runs"
+		path = rp + "/actions/workflows/" + wf + "/runs"
 	}
 	return list[WorkflowRun](ctx, c, route, path, q, "workflow_runs", p.Limit)
 }
