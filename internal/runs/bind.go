@@ -42,6 +42,9 @@ func checkDispatchRef(c *oidc.Claims, repo store.Repo) error {
 }
 
 func checkPullClaims(c *oidc.Claims, run store.Run) error {
+	if run.Trigger != v1.TriggerPullRequest || run.Mode != v1.ModePlan {
+		return principal.Wrap(principal.ErrForbidden, "run %s is a %s run started by %s; only the jobs the server dispatched for it may use it", run.ID, run.Mode, run.Trigger)
+	}
 	pr, ok := c.PullRequestNumber()
 	if !ok || run.PRNumber == 0 || pr != run.PRNumber {
 		return principal.Wrap(principal.ErrForbidden, "claim ref is %q, want %q", c.Ref, "refs/pull/"+strconv.Itoa(run.PRNumber)+"/merge")
