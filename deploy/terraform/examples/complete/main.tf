@@ -9,8 +9,7 @@ provider "aws" {
 }
 
 resource "aws_sns_topic" "alarms" {
-  name              = "stackorder-alarms"
-  kms_master_key_id = "alias/aws/sns"
+  name = "stackorder-alarms"
 }
 
 module "stackorder" {
