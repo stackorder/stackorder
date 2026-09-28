@@ -11,7 +11,8 @@ import (
 
 // Stack is the stable identity of a stack inside a repository. Its id
 // survives commits; the descriptive fields reflect the most recently saved
-// graph that contained the stack.
+// graph that contained the stack. Environment is never empty: a stack the
+// graph maps to no environment has v1.DefaultEnvironment.
 type Stack struct {
 	ID          uuid.UUID       `db:"id"`
 	RepoID      int64           `db:"repo_id"`

@@ -48,7 +48,8 @@ const graphSelect = `
 // Saving the same repository and SHA again replaces the stored graph. Stacks
 // marked External, or belonging to another repository, are kept with the
 // graph only and get no stack id. The returned map holds the id of every
-// local stack by key.
+// local stack by key. The graph keeps each node as uploaded, while a stack
+// row with no environment gets v1.DefaultEnvironment.
 func (s *Store) SaveGraph(ctx context.Context, repoID int64, g *v1.Graph) (uuid.UUID, map[string]uuid.UUID, error) {
 	const op = "save graph"
 	if g == nil || g.SHA == "" {
@@ -143,7 +144,7 @@ func upsertStacks(ctx context.Context, tx pgx.Tx, repoID int64, stacks []v1.Stac
 	backends, configs := make([]*string, n), make([]*string, n)
 	for i, st := range stacks {
 		keys[i], paths[i], workspaces[i] = st.Key, st.Path, st.Workspace
-		envs[i], tools[i] = st.Environment, string(st.Tool)
+		envs[i], tools[i] = environmentOrDefault(st.Environment), string(st.Tool)
 		var err error
 		if backends[i], err = jsonText(st.Backend); err != nil {
 			return nil, err

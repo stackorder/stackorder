@@ -64,6 +64,8 @@ func TestSaveGraphRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "blue", apps.Workspace)
 	assert.Equal(t, "stacks/prod/apps", apps.Path)
+	assert.Equal(t, v1.DefaultEnvironment, apps.Environment, "a stack with no environment mapping runs under the default one")
+	assert.Equal(t, v1.DefaultEnvironment, apps.Detail().Environment)
 }
 
 func TestSaveGraphIdempotentAndStackIdentityStable(t *testing.T) {
