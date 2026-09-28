@@ -137,6 +137,12 @@ func (s *server) routes() http.Handler {
 	s.handle(mux, "GET /metrics", 0, http.HandlerFunc(s.serveMetrics))
 	s.handle(mux, "POST /webhooks/github", 0, http.HandlerFunc(s.serveWebhook))
 
+	s.handle(mux, "POST /v1/runs", maxBodyBytes, s.with(runnerAuth, s.createRun))
+	s.handle(mux, "POST /v1/runs/{id}/graph", maxGraphBytes, s.with(runnerAuth, s.uploadGraph))
+	s.handle(mux, "POST /v1/runs/{id}/stacks/{key}/result", maxBodyBytes, s.with(runnerAuth, s.recordResult))
+	s.handle(mux, "POST /v1/runs/{id}/stacks/{key}/checks/{name}", maxBodyBytes, s.with(runnerAuth, s.recordCheck))
+	s.handle(mux, "GET /v1/runs/{id}", 0, s.with(anyAuth, s.getRun))
+
 	s.handle(mux, "GET /v1/me", 0, s.with(humanAuth, s.me))
 	s.handle(mux, "/v1/", 0, http.HandlerFunc(s.unknownEndpoint))
 	s.handle(mux, "/auth/", 0, http.HandlerFunc(s.unknownEndpoint))

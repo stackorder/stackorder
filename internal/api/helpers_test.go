@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
+	"github.com/stackorder/stackorder/internal/principal"
 	"github.com/stackorder/stackorder/internal/store"
 )
 
@@ -187,6 +188,7 @@ type testEnv struct {
 	cfg  Config
 	deps Deps
 	db   *fakeStore
+	runs *fakeRuns
 	logs *syncBuffer
 	srv  *server
 	h    http.Handler
@@ -194,9 +196,10 @@ type testEnv struct {
 
 func newEnv(t *testing.T, mutate ...func(*Config, *Deps)) *testEnv {
 	t.Helper()
-	e := &testEnv{t: t, db: newFakeStore(), logs: &syncBuffer{}}
+	e := &testEnv{t: t, db: newFakeStore(), runs: &fakeRuns{}, logs: &syncBuffer{}}
 	e.cfg = Config{BaseURL: testBaseURL, SessionKey: testSessionKey}
 	e.deps = Deps{
+		Runs:   e.runs,
 		Logger: slog.New(slog.NewJSONHandler(e.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		UI: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -250,4 +253,124 @@ func decodeBody[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 func errorOf(t *testing.T, rec *httptest.ResponseRecorder) v1.Error {
 	t.Helper()
 	return decodeBody[v1.Error](t, rec)
+}
+
+type runsCall struct {
+	method   string
+	p        principal.Principal
+	actor    string
+	runID    string
+	stackKey string
+	stackID  string
+	name     string
+	login    string
+	repoID   int64
+	body     any
+}
+
+type fakeRuns struct {
+	mu    sync.Mutex
+	calls []runsCall
+	err   error
+
+	createResp *v1.CreateRunResponse
+	run        *v1.Run
+	canAct     bool
+	canActErr  error
+}
+
+func (f *fakeRuns) record(c runsCall) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, c)
+	return f.err
+}
+
+func (f *fakeRuns) last() runsCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) == 0 {
+		return runsCall{}
+	}
+	return f.calls[len(f.calls)-1]
+}
+
+func (f *fakeRuns) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func (f *fakeRuns) CreateRun(_ context.Context, p principal.Principal, req v1.CreateRunRequest) (*v1.CreateRunResponse, error) {
+	if err := f.record(runsCall{method: "CreateRun", p: p, body: req}); err != nil {
+		return nil, err
+	}
+	if f.createResp != nil {
+		return f.createResp, nil
+	}
+	return &v1.CreateRunResponse{RunID: "7c9e6679-7425-40de-944b-e07fc1f90ae7", Status: v1.RunPending}, nil
+}
+
+func (f *fakeRuns) UploadGraph(_ context.Context, p principal.Principal, runID string, req v1.GraphUploadRequest) (*v1.ResolveResponse, error) {
+	if err := f.record(runsCall{method: "UploadGraph", p: p, runID: runID, body: req}); err != nil {
+		return nil, err
+	}
+	return &v1.ResolveResponse{RunID: runID, Waves: [][]string{{"stacks/prod/vpc"}}}, nil
+}
+
+func (f *fakeRuns) RecordResult(_ context.Context, p principal.Principal, runID, stackKey string, res v1.StackResult) (*v1.RunStack, error) {
+	if err := f.record(runsCall{method: "RecordResult", p: p, runID: runID, stackKey: stackKey, body: res}); err != nil {
+		return nil, err
+	}
+	return &v1.RunStack{Key: stackKey, Status: v1.StackPlanned}, nil
+}
+
+func (f *fakeRuns) RecordCheck(_ context.Context, p principal.Principal, runID, stackKey, name string, verdict v1.CheckVerdict) (*v1.Check, error) {
+	if err := f.record(runsCall{method: "RecordCheck", p: p, runID: runID, stackKey: stackKey, name: name, body: verdict}); err != nil {
+		return nil, err
+	}
+	return &v1.Check{Name: name, Status: verdict.Status}, nil
+}
+
+func (f *fakeRuns) GetRunForPrincipal(_ context.Context, p principal.Principal, runID string) (*v1.Run, error) {
+	if err := f.record(runsCall{method: "GetRunForPrincipal", p: p, runID: runID}); err != nil {
+		return nil, err
+	}
+	if f.run != nil {
+		out := *f.run
+		return &out, nil
+	}
+	return &v1.Run{ID: runID, Repo: "acme/infra", Status: v1.RunPlanning}, nil
+}
+
+func (f *fakeRuns) Unlock(_ context.Context, actor string, stackID string, req v1.UnlockRequest) (*v1.UnlockResponse, error) {
+	if err := f.record(runsCall{method: "Unlock", actor: actor, stackID: stackID, body: req}); err != nil {
+		return nil, err
+	}
+	return &v1.UnlockResponse{Released: []v1.LockInfo{{StackID: stackID, RunID: "r1"}}}, nil
+}
+
+func (f *fakeRuns) UnlockByKey(_ context.Context, actor string, req v1.UnlockRequest) (*v1.UnlockResponse, error) {
+	if err := f.record(runsCall{method: "UnlockByKey", actor: actor, body: req}); err != nil {
+		return nil, err
+	}
+	return &v1.UnlockResponse{Released: []v1.LockInfo{{StackKey: req.StackKey, RunID: "r1"}}}, nil
+}
+
+func (f *fakeRuns) Rerun(_ context.Context, actor string, runID string) (*v1.Run, error) {
+	if err := f.record(runsCall{method: "Rerun", actor: actor, runID: runID}); err != nil {
+		return nil, err
+	}
+	if f.run != nil {
+		out := *f.run
+		return &out, nil
+	}
+	return &v1.Run{ID: "5b8e1f2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b", Repo: "acme/infra", Status: v1.RunPending}, nil
+}
+
+func (f *fakeRuns) CanActOnRepo(_ context.Context, login string, repoID int64) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, runsCall{method: "CanActOnRepo", login: login, repoID: repoID})
+	return f.canAct, f.canActErr
 }
