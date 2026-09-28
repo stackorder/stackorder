@@ -603,7 +603,7 @@ The server verifies a runner token's signature against GitHub's JWKS, cached for
 | `repository`, `repository_id` | The repository belongs to an installation the server knows |
 | `sha` | Matches the run's SHA |
 | `run_id`, `run_attempt` | For dispatched runs, matches the workflow run the server dispatched; for plan runs, recorded |
-| `event_name`, `ref` | Plan runs come from `pull_request` with `ref` `refs/pull/<n>/merge`; dispatched runs come from `workflow_dispatch` |
+| `event_name`, `ref` | Plan runs come from `pull_request` with `ref` `refs/pull/<n>/merge`; dispatched runs come from `workflow_dispatch` on the default branch |
 | `environment` | For dispatched runs, equals the environment the server assigned to the stack, so a result cannot come from a job that ran outside the gate |
 | `job_workflow_ref` | When `STACKORDER_REQUIRED_WORKFLOW_REF` is set, matches it, so only the canonical reusable workflow can post results |
 | `iat` | Within the last 10 minutes |
