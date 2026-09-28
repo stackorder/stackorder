@@ -93,6 +93,7 @@ func TestPlanFlow(t *testing.T) {
 	assert.Equal(t, "1 to add, 0 to change, 0 to destroy", vpcCheck.Output.Title)
 	assert.Contains(t, vpcCheck.Output.Text, "# plan of "+vpc)
 	assert.Len(t, e.checksNamed(report.CheckPlan), 1, "the roll-up is updated, never duplicated")
+	assert.Empty(t, e.checksNamed(report.CheckApply), "only an apply turns stackorder/apply green when stacks are affected")
 
 	sticky := e.sticky(7)
 	assert.Contains(t, sticky, "### Stackorder: planned")
@@ -350,12 +351,21 @@ func TestNothingAffected(t *testing.T) {
 	assert.Equal(t, gh.ConclusionSuccess, rollup.Conclusion)
 	assert.Equal(t, "No stacks affected", rollup.Output.Title)
 	assert.Equal(t, "No stacks affected", e.check(report.CheckResolve).Output.Title)
+	apply := e.check(report.CheckApply)
+	assert.Equal(t, gh.ConclusionSuccess, apply.Conclusion, "branch protection can require stackorder/apply on a pull request that changes no stack")
+	assert.Equal(t, headSHA, apply.HeadSHA)
+	assert.Equal(t, "No stacks affected", apply.Output.Title)
 
 	e.comment(7, applier, "stackorder apply")
 	assert.Contains(t, e.lastComment(7), "there is nothing to apply", "an apply of nothing is answered, not run")
 	cfg := baseConfig()
 	cfg.Apply.Mode = v1.ApplyOnMerge
 	e.setConfig(cfg)
+	e.openPull(8, newHeadSHA)
+	e.startPlan(8, newHeadSHA, "README.md")
+	for _, c := range e.checksNamed(report.CheckApply) {
+		assert.NotEqual(t, newHeadSHA, c.HeadSHA, "on_merge applies after the merge, so its pull requests carry no apply check")
+	}
 	n := len(e.comments(7))
 	merged := e.gh.PullRequestEvent("closed", repoName, gh.PullRequest{
 		Number: 7, State: gh.IssueClosed, Merged: true, MergeCommitSHA: mergeSHA, HeadSHA: headSHA, BaseSHA: baseSHA, User: gh.User{Login: author},

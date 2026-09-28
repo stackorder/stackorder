@@ -133,7 +133,11 @@ func (s *Service) renderRollup(ctx context.Context, w *checkWriter, run store.Ru
 	if len(view.runs) > 0 {
 		owner = view.runs[0]
 	}
-	w.write(ctx, &owner, report.CheckPlan, report.RollupCheck(view.v1(), opts))
+	rollup := report.RollupCheck(view.v1(), opts)
+	w.write(ctx, &owner, report.CheckPlan, rollup)
+	if view.nothingAffected() && repoConfig(w.repo).Apply.Mode != v1.ApplyOnMerge {
+		w.write(ctx, &owner, report.CheckApply, rollup)
+	}
 	return nil
 }
 
@@ -389,6 +393,10 @@ func (v planView) graphID() (uuid.UUID, bool) {
 		}
 	}
 	return uuid.Nil, false
+}
+
+func (v planView) nothingAffected() bool {
+	return len(v.runs) > 0 && len(v.rows) == 0 && v.status() == v1.RunPlanned
 }
 
 func (v planView) keys() []string {
