@@ -1,0 +1,89 @@
+<!-- stackorder:sticky -->
+### Stackorder: unconfirmed
+
+**Mode:** plan · **Commit:** [`3f9a2c1`](https://github.com/acme/infra/commit/3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c) · [Run details](https://stackorder.example.com/runs/5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70)
+
+**Unconfirmed:** the Stackorder server could not confirm this result. It is not a green light: `stackorder apply` is refused until the server confirms a plan for this commit.
+
+3 stacks in 2 waves: 2 to add, 4 to change, 0 to destroy, 1 to replace.
+
+| Wave | Stack | Environment | Add | Change | Destroy | Replace | Status | Job |
+| ---: | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 0 | `stacks/prod/vpc` | production | 2 | 1 | 0 | 0 | unconfirmed |  |
+| 0 | `stacks/staging/vpc` | staging | 0 | 0 | 0 | 0 | unconfirmed |  |
+| 1 | `stacks/prod/eks` | production | 0 | 3 | 0 | 1 | unconfirmed |  |
+
+<details><summary><code>stacks/prod/vpc</code>: unconfirmed, 2 to add, 1 to change, 0 to destroy</summary>
+
+```hcl
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+  ~ update in-place
+  - destroy
+
+Terraform will perform the following actions:
+
+  # aws_vpc.main will be created
+  + resource "aws_vpc" "main" {
+      + id   = (known after apply)
+      + tags = {
+          + "team" = "platform"
+        }
+    }
+
+  # aws_subnet.private will be created
+  + resource "aws_subnet" "private" {
+      + id   = (known after apply)
+      + tags = {
+          + "team" = "platform"
+        }
+    }
+
+Plan: 2 to add, 0 to change, 0 to destroy.
+```
+
+</details>
+
+<details><summary><code>stacks/prod/eks</code>: unconfirmed, 0 to add, 3 to change, 0 to destroy, 1 to replace</summary>
+
+```hcl
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+  ~ update in-place
+  - destroy
+
+Terraform will perform the following actions:
+
+  # aws_eks_cluster.main will be updated in-place
+  ~ resource "aws_eks_cluster" "main" {
+      ~ id   = (known after apply)
+      ~ tags = {
+          ~ "team" = "platform"
+        }
+    }
+
+  # aws_eks_node_group.default will be updated in-place
+  ~ resource "aws_eks_node_group" "default" {
+      ~ id   = (known after apply)
+      ~ tags = {
+          ~ "team" = "platform"
+        }
+    }
+
+  # aws_iam_role.nodes will be updated in-place
+  ~ resource "aws_iam_role" "nodes" {
+      ~ id   = (known after apply)
+      ~ tags = {
+          ~ "team" = "platform"
+        }
+    }
+
+Plan: 0 to add, 3 to change, 0 to destroy.
+```
+
+</details>
+
+---
+<sub>Commands: `stackorder plan [stack…]` · `stackorder apply [stack…]` · `stackorder unlock [stack…]` · `stackorder help`</sub>
