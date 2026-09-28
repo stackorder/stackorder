@@ -59,10 +59,20 @@ func (s *Store) CreateDispatch(ctx context.Context, runID uuid.UUID, wave int, e
 }
 
 // SetDispatchWorkflowRun links a dispatch to the Actions workflow run it
-// started.
+// started. A dispatch starts one workflow run, so linking it again to the
+// same run is a no-op and linking it to a different one is ErrConflict.
 func (s *Store) SetDispatchWorkflowRun(ctx context.Context, id uuid.UUID, workflowRunID int64) error {
-	return s.execOne(ctx, "set dispatch workflow run",
-		`UPDATE dispatches SET workflow_run_id = $2 WHERE id = $1`, id, workflowRunID)
+	const op = "set dispatch workflow run"
+	tag, err := s.db.Exec(ctx, `
+		UPDATE dispatches SET workflow_run_id = $2
+		WHERE id = $1 AND (workflow_run_id IS NULL OR workflow_run_id = $2)`, id, workflowRunID)
+	if err != nil {
+		return wrap(op, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return s.guardError(ctx, op, `SELECT 1 FROM dispatches WHERE id = $1`, id)
+	}
+	return nil
 }
 
 // CompleteDispatch records the conclusion of a dispatch. The first

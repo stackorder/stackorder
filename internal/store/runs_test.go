@@ -444,6 +444,9 @@ func TestDispatches(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, f.s.SetDispatchWorkflowRun(f.ctx, d.ID, 4242))
+	require.NoError(t, f.s.SetDispatchWorkflowRun(f.ctx, d.ID, 4242), "linking the same run again is idempotent")
+	require.ErrorIs(t, f.s.SetDispatchWorkflowRun(f.ctx, d.ID, 9999), store.ErrConflict,
+		"another workflow run cannot claim a linked dispatch")
 	found, err := f.s.FindDispatchByWorkflowRun(f.ctx, 4242)
 	require.NoError(t, err)
 	assert.Equal(t, d.ID, found.ID)
