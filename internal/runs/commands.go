@@ -349,6 +349,11 @@ func planRefusal(resp *v1.ResolveResponse, rerr error, req serverPlan) string {
 }
 
 func (s *Service) commandApply(ctx context.Context, repo store.Repo, c *gh.Client, pr int, cmd *command.Command, login string) (commandOutcome, error) {
+	if repoConfig(repo).Apply.Mode == v1.ApplyOnMerge {
+		reason := "This repository applies on merge (`apply.mode: on_merge`), so the apply starts when the pull request is merged."
+		s.comment(ctx, repo, pr, refusalText(cmd.String(), reason))
+		return commandOutcome{reason: reason}, nil
+	}
 	opts, err := s.reportOptions(ctx, s.st, repo, pr)
 	if err != nil {
 		return commandOutcome{}, err

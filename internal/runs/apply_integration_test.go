@@ -464,6 +464,10 @@ func TestApplyOnMerge(t *testing.T) {
 	cfg.Apply.Mode = v1.ApplyOnMerge
 	e := newEnv(t, cfg, withQueue())
 	e.planned(7, headSHA)
+	e.comment(7, applier, "stackorder apply")
+	assert.Contains(t, e.lastComment(7), "applies on merge", "merge protection is the approval gate of on_merge, so a comment cannot apply first")
+	assert.Empty(t, e.gh.Dispatches())
+	assert.Empty(t, e.locks())
 	merged := e.gh.PullRequestEvent("closed", repoName, gh.PullRequest{
 		Number: 7, State: gh.IssueClosed, Merged: true, MergeCommitSHA: mergeSHA, HeadSHA: headSHA, BaseSHA: baseSHA, User: gh.User{Login: author},
 	})
