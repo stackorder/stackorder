@@ -153,29 +153,27 @@ func spellCycle(scc []string, d deps) []string {
 		member[n] = true
 	}
 	parent := map[string]string{}
-	queue := []string{start}
-	for len(queue) > 0 {
+	last := start
+	for queue := []string{start}; len(queue) > 0; {
 		n := queue[0]
 		queue = queue[1:]
+		if slices.Contains(d[n], start) {
+			last = n
+			break
+		}
 		for _, m := range d[n] {
-			if !member[m] {
-				continue
-			}
-			if m == start {
-				cycle := []string{start}
-				for c := n; c != start; c = parent[c] {
-					cycle = append(cycle, c)
-				}
-				slices.Reverse(cycle[1:])
-				return append(cycle, start)
-			}
-			if _, seen := parent[m]; !seen {
+			if _, seen := parent[m]; member[m] && m != start && !seen {
 				parent[m] = n
 				queue = append(queue, m)
 			}
 		}
 	}
-	return append(slices.Clone(scc), start)
+	cycle := []string{start}
+	for c := last; c != start; c = parent[c] {
+		cycle = append(cycle, c)
+	}
+	slices.Reverse(cycle[1:])
+	return append(cycle, start)
 }
 
 func closure(scheduled []string, member map[string]bool, d deps) deps {
