@@ -3,17 +3,11 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
-	"github.com/stackorder/stackorder/internal/version"
+	"github.com/stackorder/stackorder/internal/cli"
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Println("stackorder", version.String())
-		return
-	}
-	fmt.Fprintln(os.Stderr, "stackorder: commands are not implemented yet; see internal/cli")
-	os.Exit(1)
+	os.Exit(cli.ExitCode(cli.Execute()))
 }
