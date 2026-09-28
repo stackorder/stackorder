@@ -137,3 +137,15 @@ func TestStickyFailedRunWithoutFailedStack(t *testing.T) {
 	out := StickyComment(baseRun(v1.RunFailed, stack("stacks/a", "", 0, 0, withSummary(0, 0, 0, 0))), Options{})
 	assert.Contains(t, out, "1 stack in 3 waves: no changes.\n\nThe run failed although no stack reported a failure; see the run details.\n")
 }
+
+func BenchmarkStickyComment(b *testing.B) {
+	for _, n := range []int{300, 3000, 10000} {
+		run := hugeRun(n, 2<<10)
+		b.Run(fmt.Sprintf("%d stacks", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				_ = StickyComment(run, testOpts)
+			}
+		})
+	}
+}

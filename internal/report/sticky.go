@@ -145,18 +145,21 @@ func detailHeadline(rs v1.RunStack, o Options) string {
 }
 
 func renderDetails(blocks []block, room int) string {
+	over := make([]int, len(blocks)+1)
+	total := make([]int, len(blocks)+1)
+	for i, b := range blocks {
+		over[i+1] = over[i] + b.overhead()
+		total[i+1] = total[i] + len(b.body)
+	}
 	for n := len(blocks); n > 0; n-- {
 		note := omittedNote(len(blocks) - n)
-		over, total := len(note), 0
+		avail := room - over[n] - len(note)
+		if avail < 0 || (total[n] > avail && avail/n < minDetailBody) {
+			continue
+		}
 		sizes := make([]int, n)
 		for i, b := range blocks[:n] {
-			over += b.overhead()
 			sizes[i] = len(b.body)
-			total += sizes[i]
-		}
-		avail := room - over
-		if avail < 0 || (total > avail && avail/n < minDetailBody) {
-			continue
 		}
 		alloc := shareBudget(sizes, avail)
 		var sb strings.Builder
