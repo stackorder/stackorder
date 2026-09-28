@@ -373,11 +373,14 @@ func TestUpsertStickyComment(t *testing.T) {
 	ctx := context.Background()
 	const marker = "<!-- stackorder:sticky -->"
 	human := fake.AddComment(repo, 4, "alice", marker+"\nquoting the bot")
+	mention, err := c.CreateIssueComment(ctx, repo, 4, "The plan lives in the comment marked "+marker)
+	require.NoError(t, err)
 
 	created, err := c.UpsertStickyComment(ctx, repo, 4, marker, "## Plan\n1 stack")
 	require.NoError(t, err)
 	assert.Equal(t, marker+"\n## Plan\n1 stack", created.Body)
 	assert.NotEqual(t, human.ID, created.ID)
+	assert.NotEqual(t, mention.ID, created.ID)
 
 	updated, err := c.UpsertStickyComment(ctx, repo, 4, marker, marker+"\n## Plan\n2 stacks")
 	require.NoError(t, err)
@@ -391,10 +394,11 @@ func TestUpsertStickyComment(t *testing.T) {
 	assert.Equal(t, patches, countRequests(fake, "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}"))
 
 	comments := fake.Comments(repo, 4)
-	require.Len(t, comments, 2)
+	require.Len(t, comments, 3)
 	assert.Equal(t, marker+"\nquoting the bot", comments[0].Body)
-	assert.Equal(t, marker+"\n## Plan\n2 stacks", comments[1].Body)
-	assert.Equal(t, 1, countRequests(fake, "POST /repos/{owner}/{repo}/issues/{issue_number}/comments"))
+	assert.Equal(t, mention.Body, comments[1].Body)
+	assert.Equal(t, marker+"\n## Plan\n2 stacks", comments[2].Body)
+	assert.Equal(t, 2, countRequests(fake, "POST /repos/{owner}/{repo}/issues/{issue_number}/comments"))
 }
 
 func TestUpsertStickyCommentRemovesDuplicates(t *testing.T) {
