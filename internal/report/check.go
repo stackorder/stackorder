@@ -167,7 +167,7 @@ func stackCheckSummary(run v1.Run, rs v1.RunStack, o Options, p phase) string {
 			b.WriteString("Waiting for a reviewer to approve the " + code(a.Environment) + " environment: " + link("review the pending deployment", a.URL) + ".\n\n")
 		}
 	}
-	if l, ok := lockFor(rs.Key, otherLocks(run, o)); ok {
+	if l, ok := lockFor(rs, otherLocks(run, o)); ok {
 		b.WriteString("**Locked:** " + lockLine(l, run.Repo, o) + ". Plans still run, but apply is refused until the lock is released.\n\n")
 	}
 	if rs.Summary != nil {

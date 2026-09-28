@@ -312,3 +312,25 @@ func TestApplyBetweenWaves(t *testing.T) {
 	assert.Contains(t, check.Summary, "The run ended before this stack's wave was dispatched, so nothing was applied for it.")
 	assert.NotContains(t, StickyComment(run, Options{}), "still running")
 }
+
+func TestStackCheckFindsLockByKeyOrID(t *testing.T) {
+	rs := stack("stacks/prod/vpc", "production", 0, 1, withSummary(1, 0, 0, 0))
+	run := baseRun(v1.RunPlanned, rs)
+	tests := map[string]struct {
+		lock v1.LockInfo
+		want bool
+	}{
+		"by key":             {v1.LockInfo{StackKey: rs.Key, RunID: "r", PRNumber: 17}, true},
+		"by id without key":  {v1.LockInfo{StackID: rs.StackID, RunID: "r", PRNumber: 17}, true},
+		"other key, same id": {v1.LockInfo{StackKey: "stacks/other", StackID: rs.StackID, RunID: "r", PRNumber: 17}, false},
+		"other stack":        {v1.LockInfo{StackID: "stk-other", RunID: "r", PRNumber: 17}, false},
+		"own pull request":   {v1.LockInfo{StackKey: rs.Key, RunID: "r", PRNumber: run.PRNumber}, false},
+		"empty lock":         {v1.LockInfo{RunID: "r", PRNumber: 17}, false},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			summary := StackCheck(run, rs, Options{Locks: []v1.LockInfo{tt.lock}}).Summary
+			assert.Equal(t, tt.want, strings.Contains(summary, "**Locked:**"), summary)
+		})
+	}
+}

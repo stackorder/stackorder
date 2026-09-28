@@ -177,9 +177,9 @@ func lockLine(l v1.LockInfo, repo string, o Options) string {
 	return b.String()
 }
 
-func lockFor(key string, locks []v1.LockInfo) (v1.LockInfo, bool) {
+func lockFor(rs v1.RunStack, locks []v1.LockInfo) (v1.LockInfo, bool) {
 	for _, l := range locks {
-		if l.StackKey == key {
+		if l.StackKey != "" && l.StackKey == rs.Key || l.StackKey == "" && l.StackID != "" && l.StackID == rs.StackID {
 			return l, true
 		}
 	}
