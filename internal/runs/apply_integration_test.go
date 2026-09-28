@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -331,6 +332,61 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	n := len(e.comments(7))
 	require.NoError(t, e.svc.HandlePullRequest(e.ctx, merged))
 	assert.Len(t, e.comments(7), n, "a redelivered merge changes nothing")
+}
+
+func TestConcurrentWorkersOnOneRun(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.openPull(7, headSHA)
+	req := v1.CreateRunRequest{Repo: repoName, SHA: headSHA, BaseSHA: baseSHA, PRNumber: 7, Mode: v1.ModePlan}
+	ids := make([]string, 4)
+	var wg sync.WaitGroup
+	for i := range ids {
+		wg.Go(func() {
+			resp, err := e.svc.CreateRun(e.ctx, e.planJob(7).p, req)
+			if assert.NoError(t, err) {
+				ids[i] = resp.RunID
+			}
+		})
+	}
+	wg.Wait()
+	for _, id := range ids {
+		assert.Equal(t, ids[0], id, "jobs registering one head at once share its run")
+	}
+	job := e.planJob(7)
+	resp, err := e.svc.UploadGraph(e.ctx, job.p, ids[0], v1.GraphUploadRequest{Graph: testGraph(headSHA), ChangedPaths: []string{"modules/vpc/main.tf"}})
+	require.NoError(t, err)
+	for _, a := range resp.Affected {
+		wg.Go(func() {
+			_, err := e.svc.RecordResult(e.ctx, job.p, ids[0], a.Key, planResult(a.Key, headSHA, 1))
+			assert.NoError(t, err)
+		})
+	}
+	wg.Wait()
+	assert.Equal(t, v1.RunPlanned, e.run(ids[0]).Status)
+	assert.Len(t, e.checksNamed(report.CheckPlan), 1, "concurrent renders create the roll-up once")
+
+	e.comment(7, applier, "stackorder apply")
+	apply := e.applyRun(7)
+	wave0 := e.gh.Dispatches()
+	require.Len(t, wave0, 2)
+	for _, d := range wave0 {
+		for _, en := range entries(t, d) {
+			for range 3 {
+				wg.Go(func() {
+					_, err := e.svc.RecordResult(e.ctx, e.dispatchJob(d.RunID, en.Environment), apply.ID, en.Key, applyResult(true))
+					assert.NoError(t, err, "a duplicated post of %s is idempotent", en.Key)
+				})
+			}
+		}
+	}
+	wg.Wait()
+	next := e.dispatchesFrom(2)
+	require.Len(t, next, 1, "the last results of a wave arriving together dispatch the next wave once")
+	assert.Equal(t, []string{eks}, entryKeys(entries(t, next[0])))
+	r := e.run(apply.ID)
+	assert.Equal(t, 1, r.CurrentWave)
+	assert.Equal(t, v1.RunApplying, r.Status)
+	assert.Len(t, e.checksNamed(report.CheckApply), 1)
 }
 
 func TestApplyFailureBlocksDependents(t *testing.T) {
