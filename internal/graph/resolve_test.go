@@ -472,6 +472,13 @@ func TestResolveRequested(t *testing.T) {
 			},
 		},
 		{
+			name:        "blank requests are no restriction",
+			paths:       []string{"stacks/prod/eks/main.tf"},
+			requested:   []string{"", "  "},
+			wantWaves:   [][]string{{prodEKS}, {prodApps}},
+			wantReasons: map[string][]v1.Reason{prodEKS: reasons(v1.ReasonChanged), prodApps: reasons(v1.ReasonReadsState)},
+		},
+		{
 			name:         "nothing valid requested schedules nothing",
 			paths:        []string{"modules/vpc/main.tf"},
 			requested:    []string{"stacks/nope"},

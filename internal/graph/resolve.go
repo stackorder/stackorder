@@ -24,8 +24,9 @@ type Input struct {
 	// Config is the root stackorder.yaml; nil means config.Default().
 	Config *v1.RepoConfig
 	// Requested restricts the result to these stack keys, as named by a
-	// "stackorder plan" or "stackorder apply" comment. Empty means no
-	// restriction.
+	// "stackorder plan" or "stackorder apply" comment. Keys are normalised
+	// and may be qualified with the graph's repository; blank entries are
+	// dropped, and no remaining key means no restriction.
 	Requested []string
 	// Locks maps stack keys to the orchestration lock held on them.
 	Locks map[string]v1.LockInfo
@@ -267,16 +268,18 @@ func (r *resolver) propagate() {
 }
 
 func (r *resolver) request() (domain, scheduled []string) {
-	affected := keysOf(r.reasons)
-	if len(r.in.Requested) == 0 {
+	var requested []string
+	for _, raw := range r.in.Requested {
+		if key := r.requestedKey(raw); key != "" {
+			requested = append(requested, key)
+		}
+	}
+	if len(requested) == 0 {
+		affected := keysOf(r.reasons)
 		return affected, affected
 	}
 	var picked []string
-	for _, raw := range r.in.Requested {
-		key := r.requestedKey(raw)
-		if key == "" {
-			continue
-		}
+	for _, key := range uniqueSorted(requested) {
 		s := r.ix.stacks[key]
 		switch {
 		case s == nil:
