@@ -210,6 +210,7 @@ func TestParseModuleSource(t *testing.T) {
 		{name: "http archive", source: "https://example.com/vpc-module.zip"},
 		{name: "plain http archive", source: "http://example.com/vpc-module?archive=zip"},
 		{name: "forced git with unknown scheme", source: "git::file:///tmp/repo"},
+		{name: "forced git with unsupported scheme", source: "git::ftp://example.com/r.git"},
 		{name: "unforced scp-like with another user", source: "deploy@github.com:o/r.git"},
 		{name: "unforced shorthand on unknown host", source: "gitlab.com/o/r//sub?ref=v1"},
 		{name: "github shorthand without repository", source: "github.com/o"},
