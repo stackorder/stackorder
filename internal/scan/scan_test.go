@@ -291,6 +291,52 @@ module "b_long" {
 	}
 }
 
+func TestScanDoesNotReadOutsideTheCheckout(t *testing.T) {
+	outside := t.TempDir()
+	writeFile(t, outside, "leak.tf", "module \"leak\" {\n  source = \"github.com/evil/leak\"\n}\n")
+	writeFile(t, outside, "stack.yaml", "depends_on: [stacks/b]\n")
+	writeFile(t, outside, "root.yaml", "version: 1\nstacks:\n  discover: [\"elsewhere/**\"]\n")
+
+	t.Run("module calls in a symlinked file", func(t *testing.T) {
+		root := t.TempDir()
+		writeFile(t, root, "stacks/a/main.tf", s3Block("b", "a.tfstate"))
+		if err := os.Symlink(filepath.Join(outside, "leak.tf"), filepath.Join(root, "stacks/a/leak.tf")); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Scan(context.Background(), root, Options{Repo: fixtureRepo, SHA: "sha"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := &v1.Graph{
+			Repo: fixtureRepo, SHA: "sha",
+			Stacks:   []v1.Stack{defaultStack("stacks/a", state("b", "a.tfstate"), nil)},
+			Modules:  []v1.Module{},
+			Edges:    []v1.Edge{},
+			Warnings: []string{"stacks/a/leak.tf: path escapes from parent", "stacks/a: Failed to read file"},
+		}
+		if diff := cmp.Diff(want, got, ignoreTreeHash); diff != "" {
+			t.Errorf("Scan mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	for _, tt := range []struct{ name, link, target string }{
+		{name: "symlinked stack configuration", link: "stacks/a/.stackorder.yaml", target: "stack.yaml"},
+		{name: "symlinked root configuration", link: "stackorder.yaml", target: "root.yaml"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeFile(t, root, "stacks/a/main.tf", s3Block("b", "a.tfstate"))
+			if err := os.Symlink(filepath.Join(outside, tt.target), filepath.Join(root, filepath.FromSlash(tt.link))); err != nil {
+				t.Fatal(err)
+			}
+			g, err := Scan(context.Background(), root, Options{Repo: fixtureRepo})
+			if err == nil {
+				t.Fatalf("expected an error for %s pointing outside the checkout, got graph %+v", tt.link, g)
+			}
+		})
+	}
+}
+
 func TestScanFollowsASymlinkedRoot(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "stacks/a/main.tf", s3Block("b", "a.tfstate"))

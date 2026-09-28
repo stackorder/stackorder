@@ -34,8 +34,8 @@ type Options struct {
 	Repo string
 	// SHA is the commit of the checkout, copied into the graph.
 	SHA string
-	// Config is the root configuration. Nil loads stackorder.yaml from the
-	// scan root with config.Load.
+	// Config is the root configuration. Nil reads stackorder.yaml from the
+	// scan root and defaults it as config.Load does.
 	Config *v1.RepoConfig
 	// Logger receives debug output. Nil discards it.
 	Logger *slog.Logger
@@ -111,15 +111,15 @@ func Scan(ctx context.Context, root string, opts Options) (*v1.Graph, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("scan %s: %w", root, ErrNotDirectory)
 	}
-	cfg, err := resolveConfig(abs, opts.Config)
-	if err != nil {
-		return nil, fmt.Errorf("scan %s: %w", root, err)
-	}
 	fsys, err := os.OpenRoot(abs)
 	if err != nil {
 		return nil, fmt.Errorf("scan %s: %w", root, err)
 	}
 	defer func() { _ = fsys.Close() }()
+	cfg, err := resolveConfig(fsys, opts.Config)
+	if err != nil {
+		return nil, fmt.Errorf("scan %s: %w", root, err)
+	}
 	s := &scanner{
 		root:     abs,
 		fsys:     fsys,
@@ -157,9 +157,16 @@ func Scan(ctx context.Context, root string, opts Options) (*v1.Graph, error) {
 	return g, nil
 }
 
-func resolveConfig(root string, cfg *v1.RepoConfig) (*v1.RepoConfig, error) {
+func resolveConfig(fsys *os.Root, cfg *v1.RepoConfig) (*v1.RepoConfig, error) {
 	if cfg == nil {
-		loaded, _, err := config.Load(root)
+		data, err := fsys.ReadFile(config.RootFile)
+		if errors.Is(err, fs.ErrNotExist) {
+			return config.Default(), nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("load config: %w", err)
+		}
+		loaded, err := config.Parse(data)
 		if err != nil {
 			return nil, fmt.Errorf("load config: %w", err)
 		}
@@ -168,6 +175,21 @@ func resolveConfig(root string, cfg *v1.RepoConfig) (*v1.RepoConfig, error) {
 	c := *cfg
 	config.ApplyDefaults(&c)
 	return &c, nil
+}
+
+func (s *scanner) loadStackConfig(dir string) (*v1.StackConfig, bool, error) {
+	data, err := s.fsys.ReadFile(filepath.FromSlash(path.Join(dir, config.StackFile)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return &v1.StackConfig{}, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	cfg, err := config.ParseStack(data)
+	if err != nil {
+		return nil, false, err
+	}
+	return cfg, true, nil
 }
 
 func (s *scanner) warn(format string, args ...any) {
@@ -303,7 +325,7 @@ func displayDir(dir string) string {
 }
 
 func (s *scanner) addStack(dir string, dc dirConfig) error {
-	stackCfg, ok, err := config.LoadStack(filepath.Join(s.root, filepath.FromSlash(dir)))
+	stackCfg, ok, err := s.loadStackConfig(dir)
 	if err != nil {
 		return fmt.Errorf("%s: %w", path.Join(dir, config.StackFile), err)
 	}
@@ -383,13 +405,13 @@ func (s *scanner) moduleCalls(dir string) []*tfconfig.ModuleCall {
 	mod, ok := s.loaded[dir]
 	if !ok {
 		var diags tfconfig.Diagnostics
-		mod, diags = tfconfig.LoadModule(filepath.Join(s.root, filepath.FromSlash(dir)))
+		mod, diags = tfconfig.LoadModuleFromFilesystem(rootFS{s.fsys}, osPath(dir))
 		for _, d := range diags {
 			if d.Severity != tfconfig.DiagError {
 				continue
 			}
 			if d.Pos != nil {
-				s.warn("%s:%d: %s", s.relFile(d.Pos.Filename), d.Pos.Line, d.Summary)
+				s.warn("%s:%d: %s", filepath.ToSlash(d.Pos.Filename), d.Pos.Line, d.Summary)
 			} else {
 				s.warn("%s: %s", displayDir(dir), d.Summary)
 			}
@@ -404,15 +426,31 @@ func (s *scanner) moduleCalls(dir string) []*tfconfig.ModuleCall {
 	return calls
 }
 
-func (s *scanner) relFile(name string) string {
-	if rel, err := filepath.Rel(s.root, name); err == nil {
-		return filepath.ToSlash(rel)
+type rootFS struct{ root *os.Root }
+
+func (r rootFS) Open(name string) (tfconfig.File, error) {
+	f, err := r.root.Open(name)
+	if err != nil {
+		return nil, err
 	}
-	return filepath.ToSlash(name)
+	return f, nil
+}
+
+func (r rootFS) ReadFile(name string) ([]byte, error) { return r.root.ReadFile(name) }
+
+func (r rootFS) ReadDir(name string) ([]os.FileInfo, error) {
+	f, err := r.root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	infos, err := f.Readdir(-1)
+	slices.SortFunc(infos, func(a, b os.FileInfo) int { return cmp.Compare(a.Name(), b.Name()) })
+	return infos, err
 }
 
 func (s *scanner) addModuleCall(c caller, call *tfconfig.ModuleCall) (caller, bool) {
-	loc := fmt.Sprintf("%s:%d", s.relFile(call.Pos.Filename), call.Pos.Line)
+	loc := fmt.Sprintf("%s:%d", filepath.ToSlash(call.Pos.Filename), call.Pos.Line)
 	if strings.TrimSpace(call.Source) == "" {
 		s.warn("%s: module %q has no source; skipped", loc, call.Name)
 		return caller{}, false
