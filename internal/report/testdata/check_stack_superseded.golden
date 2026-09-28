@@ -1,0 +1,43 @@
+title: Superseded by a newer commit
+status: completed
+conclusion: cancelled
+
+--- summary ---
+**Plan** of `stacks/prod/apps:blue` · wave 2 of 3 · environment `production` · [job log](https://github.com/acme/infra/actions/runs/1234567/job/105) · [run details](https://stackorder.example.com/runs/5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70)
+
+Superseded: `3f9a2c1` is no longer the head of this pull request, so these results are informational only.
+
+| Add | Change | Destroy | Replace |
+| ---: | ---: | ---: | ---: |
+| 0 | 0 | 2 | 0 |
+
+Plan artifact: `stackorder-plan-stacks-prod-apps-blue-3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c`
+
+--- text ---
+```hcl
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+  ~ update in-place
+  - destroy
+
+Terraform will perform the following actions:
+
+  # kubernetes_deployment.api will be destroyed
+  - resource "kubernetes_deployment" "api" {
+      - id   = (known after apply)
+      - tags = {
+          - "team" = "platform"
+        }
+    }
+
+  # kubernetes_service.api will be destroyed
+  - resource "kubernetes_service" "api" {
+      - id   = (known after apply)
+      - tags = {
+          - "team" = "platform"
+        }
+    }
+
+Plan: 0 to add, 0 to change, 2 to destroy.
+```

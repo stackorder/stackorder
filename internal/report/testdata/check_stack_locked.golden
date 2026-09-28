@@ -1,0 +1,43 @@
+title: 2 to add, 1 to change, 0 to destroy
+status: completed
+conclusion: success
+
+--- summary ---
+**Plan** of `stacks/prod/vpc` · wave 0 of 3 · environment `production` · [job log](https://github.com/acme/infra/actions/runs/1234567/job/101) · [run details](https://stackorder.example.com/runs/5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70)
+
+**Locked:** `stacks/prod/vpc` is locked by [#17](https://github.com/acme/infra/pull/17) since 2026-09-28 06:00 UTC ([run](https://stackorder.example.com/runs/9d8c7b6a-0000-4000-8000-000000000017)). Plans still run, but apply is refused until the lock is released.
+
+| Add | Change | Destroy | Replace |
+| ---: | ---: | ---: | ---: |
+| 2 | 1 | 0 | 0 |
+
+Plan artifact: `stackorder-plan-stacks-prod-vpc-3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c`
+
+--- text ---
+```hcl
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+  ~ update in-place
+  - destroy
+
+Terraform will perform the following actions:
+
+  # aws_vpc.main will be created
+  + resource "aws_vpc" "main" {
+      + id   = (known after apply)
+      + tags = {
+          + "team" = "platform"
+        }
+    }
+
+  # aws_subnet.private will be created
+  + resource "aws_subnet" "private" {
+      + id   = (known after apply)
+      + tags = {
+          + "team" = "platform"
+        }
+    }
+
+Plan: 2 to add, 0 to change, 0 to destroy.
+```

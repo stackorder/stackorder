@@ -1,0 +1,17 @@
+title: No changes
+status: completed
+conclusion: success
+
+--- summary ---
+**Plan** of `stacks/staging/vpc` · wave 0 of 3 · environment `staging` · [job log](https://github.com/acme/infra/actions/runs/1234567/job/102)
+
+| Add | Change | Destroy | Replace |
+| ---: | ---: | ---: | ---: |
+| 0 | 0 | 0 | 0 |
+
+Plan artifact: `stackorder-plan-stacks-staging-vpc-3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c`
+
+--- text ---
+```hcl
+No changes. Your infrastructure matches the configuration.
+```

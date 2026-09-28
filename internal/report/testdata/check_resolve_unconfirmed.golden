@@ -1,0 +1,22 @@
+title: Unconfirmed: 4 stacks affected in 3 waves
+status: completed
+conclusion: neutral
+
+--- summary ---
+**Unconfirmed:** the Stackorder server could not confirm this result (the affected set was computed on the runner). It is not a green light: `stackorder apply` is refused until the server confirms a plan for this commit.
+
+- Wave 0: `stacks/prod/vpc`, `stacks/staging/vpc`
+- Wave 1: `stacks/prod/eks`
+- Wave 2: `stacks/prod/apps:blue`
+
+**Warnings**
+
+- stacks/legacy: no backend "s3" block, skipped
+
+--- text ---
+| Wave | Stack | Environment | Why | Via | Lock |
+| ---: | --- | --- | --- | --- | --- |
+| 0 | `stacks/prod/vpc` | production | module | `acme/infra//modules/vpc` |  |
+| 0 | `stacks/staging/vpc` | staging | changed |  |  |
+| 1 | `stacks/prod/eks` | production | dependent | `stacks/prod/vpc` | [#17](https://github.com/acme/infra/pull/17) |
+| 2 | `stacks/prod/apps:blue` | production | reads\_state, dependent | `stacks/prod/eks` |  |

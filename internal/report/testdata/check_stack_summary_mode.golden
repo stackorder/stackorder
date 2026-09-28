@@ -1,0 +1,23 @@
+title: 1 to add, 0 to change, 1 to destroy
+status: completed
+conclusion: success
+
+--- summary ---
+**Plan** of `stacks/prod/secrets` · wave 1 of 3 · environment `production` · [job log](https://github.com/acme/infra/actions/runs/1234567/job/104) · [run details](https://stackorder.example.com/runs/5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70)
+
+| Add | Change | Destroy | Replace |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 1 | 0 |
+
+Plan artifact: `stackorder-plan-stacks-prod-secrets-3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c`
+
+--- text ---
+Plan output is set to `summary` for this stack, so only resource addresses are shown. The full plan is in the job log.
+
+**To add (1)**
+
+- `aws_secretsmanager_secret.db["primary"]`
+
+**To destroy (1)**
+
+- `aws_secretsmanager_secret.legacy`

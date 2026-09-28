@@ -1,0 +1,15 @@
+title: Plan failed (exit code 1)
+status: completed
+conclusion: failure
+
+--- summary ---
+**Plan** of `stacks/prod/vpc` · wave 0 of 3 · environment `production` · [job log](https://github.com/acme/infra/actions/runs/1234567/job/101) · [run details](https://stackorder.example.com/runs/5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70)
+
+Apply is refused until every stack plans successfully; push a fix or comment `stackorder plan` to retry.
+
+Plan artifact: `stackorder-plan-stacks-prod-vpc-3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c`
+
+--- text ---
+```text
+Error: No valid credential sources found
+```

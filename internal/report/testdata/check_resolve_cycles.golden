@@ -1,0 +1,15 @@
+title: 2 dependency cycles
+status: completed
+conclusion: failure
+
+--- summary ---
+Waves cannot be ordered because `depends_on` and `reads_state` edges form a cycle. Remove one edge of each cycle, or suppress an inferred edge with `ignore_inferred`.
+
+- `stacks/a → stacks/b → stacks/a`
+- `stacks/x → stacks/y → stacks/z → stacks/x`
+
+**Warnings**
+
+- inferred edge stacks/y -\> stacks/z
+
+--- text ---

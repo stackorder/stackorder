@@ -1,0 +1,13 @@
+title: Resolve failed
+status: completed
+conclusion: failure
+
+--- summary ---
+The dependency graph could not be resolved, so no stack was planned.
+
+```text
+post graph
+invalid: graph: stack key "../x" escapes the repository
+```
+
+--- text ---

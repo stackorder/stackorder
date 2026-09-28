@@ -1,0 +1,1 @@
+**Unconfirmed:** the Stackorder server could not confirm this result (dial tcp 10.0.0.1:443: i/o timeout). It is not a green light: `stackorder apply` is refused until the server confirms a plan for this commit.

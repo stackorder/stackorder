@@ -1,0 +1,28 @@
+title: 4 stacks affected in 3 waves
+status: completed
+conclusion: success
+
+--- summary ---
+The scanned tree matches a stored graph, so the stored resolution was reused.
+
+[Run details](https://stackorder.example.com/runs/5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70)
+
+- Wave 0: `stacks/prod/vpc`, `stacks/staging/vpc`
+- Wave 1: `stacks/prod/eks`
+- Wave 2: `stacks/prod/apps:blue`
+
+**Warnings**
+
+- stacks/legacy: no backend "s3" block, skipped
+
+**External dependents** in other repositories, planned after an apply when `propagate.cross_repo` is `plan`:
+
+- `acme/network-infra//stacks/prod/tgw`
+
+--- text ---
+| Wave | Stack | Environment | Why | Via | Lock |
+| ---: | --- | --- | --- | --- | --- |
+| 0 | `stacks/prod/vpc` | production | module | `acme/infra//modules/vpc` |  |
+| 0 | `stacks/staging/vpc` | staging | changed |  |  |
+| 1 | `stacks/prod/eks` | production | dependent | `stacks/prod/vpc` | [#17](https://github.com/acme/infra/pull/17) |
+| 2 | `stacks/prod/apps:blue` | production | reads\_state, dependent | `stacks/prod/eks` |  |

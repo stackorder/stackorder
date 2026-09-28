@@ -1,0 +1,30 @@
+title: 5 stacks: 3 to add, 4 to change, 3 to destroy, 1 to replace
+status: completed
+conclusion: success
+
+--- summary ---
+**Mode:** plan · **Commit:** [`3f9a2c1`](https://github.com/acme/infra/commit/3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c) · [Run details](https://stackorder.example.com/runs/5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70)
+
+5 stacks in 3 waves.
+
+| Add | Change | Destroy | Replace |
+| ---: | ---: | ---: | ---: |
+| 3 | 4 | 3 | 1 |
+
+**Locked by other pull requests**, so apply is refused until they are released:
+
+- `stacks/prod/eks` is locked by [#17](https://github.com/acme/infra/pull/17) since 2026-09-27 04:00 UTC ([run](https://stackorder.example.com/runs/9d8c7b6a-0000-4000-8000-000000000017)): apply in progress
+
+--- text ---
+| Wave | Stack | Environment | Add | Change | Destroy | Replace | Status | Job |
+| ---: | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 0 | `stacks/prod/vpc` | production | 2 | 1 | 0 | 0 | planned | [log](https://github.com/acme/infra/actions/runs/1234567/job/101) |
+| 0 | `stacks/staging/vpc` | staging | 0 | 0 | 0 | 0 | planned | [log](https://github.com/acme/infra/actions/runs/1234567/job/102) |
+| 1 | `stacks/prod/eks` | production | 0 | 3 | 0 | 1 | planned | [log](https://github.com/acme/infra/actions/runs/1234567/job/103) |
+| 1 | `stacks/prod/secrets` | production | 1 | 0 | 1 | 0 | planned | [log](https://github.com/acme/infra/actions/runs/1234567/job/104) |
+| 2 | `stacks/prod/apps:blue` | production | 0 | 0 | 2 | 0 | planned | [log](https://github.com/acme/infra/actions/runs/1234567/job/105) |
+
+**Warnings**
+
+- stacks/legacy/dns: terraform\_remote\_state reads bucket acme-tfstate key legacy/dns.tfstate, which matches no stack
+- module source git::https://github.com/acme/modules//vpc?ref=main pins a branch, not a tag; cc @​acme/platform
