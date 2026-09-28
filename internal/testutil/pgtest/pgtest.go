@@ -2,7 +2,7 @@
 //
 // When TEST_DATABASE_URL is set it points at a server the tests may create
 // databases on. Otherwise one postgres:17-alpine container is started per
-// test binary with testcontainers, and tests are skipped when Docker is not
+// test binary with testcontainers, and tests fail when Docker is not
 // available. Either way every call creates a uniquely named database that is
 // dropped when the test ends.
 package pgtest
@@ -38,7 +38,6 @@ const opTimeout = 2 * time.Minute
 var (
 	once      sync.Once
 	adminDSN  string
-	skipMsg   string
 	startErr  error
 	container *postgres.PostgresContainer
 )
@@ -104,9 +103,6 @@ func server(t testing.TB) string {
 		return dsn
 	}
 	once.Do(start)
-	if skipMsg != "" {
-		t.Skip(skipMsg)
-	}
 	if startErr != nil {
 		t.Fatalf("pgtest: start %s: %v", Image, startErr)
 	}
@@ -117,7 +113,7 @@ func start() {
 	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
 	defer cancel()
 	if err := dockerHealthy(ctx); err != nil {
-		skipMsg = fmt.Sprintf("pgtest: Docker is unavailable and %s is unset: %v", EnvDSN, err)
+		startErr = fmt.Errorf("docker is unavailable and %s is unset: %w", EnvDSN, err)
 		return
 	}
 	c, err := postgres.Run(ctx, Image,
