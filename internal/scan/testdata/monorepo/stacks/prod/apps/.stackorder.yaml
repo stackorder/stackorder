@@ -1,0 +1,4 @@
+plan_output: summary
+apply:
+  allowed_teams: [platform-prod]
+ignore_inferred: [stacks/legacy/dns]

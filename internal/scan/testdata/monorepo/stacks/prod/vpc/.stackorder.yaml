@@ -1,0 +1,2 @@
+depends_on:
+  - acme/network-infra//stacks/prod/tgw

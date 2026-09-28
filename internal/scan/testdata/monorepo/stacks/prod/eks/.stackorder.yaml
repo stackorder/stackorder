@@ -1,0 +1,4 @@
+depends_on:
+  - stacks/prod/vpc
+tool: terraform
+tool_version: "1.14.0"

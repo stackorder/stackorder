@@ -1,0 +1,18 @@
+version: 1
+
+stacks:
+  discover: ["stacks/**"]
+  include: ["legacy/bootstrap"]
+  ignore: ["**/*.md", "**/README*"]
+
+modules:
+  paths: ["modules/**"]
+
+tool: tofu
+tool_version: "1.9.0"
+
+environments:
+  "stacks/prod/": production
+  "stacks/staging/": staging
+
+plan_output: full
