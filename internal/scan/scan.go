@@ -488,9 +488,16 @@ func (s *scanner) addModuleCall(c caller, call *tfconfig.ModuleCall) (caller, bo
 		m.Path, m.Key = dir, s.localModuleKey(dir)
 		next = caller{ref: v1.ModuleRef(m.Key), dir: dir}
 	}
-	if old, ok := s.modules[m.Key]; !ok {
+	old, ok := s.modules[m.Key]
+	switch {
+	case !ok:
 		s.modules[m.Key] = &m
-	} else if old.Source == "" || m.Source < old.Source {
+	case old.Kind != m.Kind:
+		s.warn("%s: module %q: source %q resolves to %s, which is both a local and a git module; treated as local", loc, call.Name, call.Source, m.Key)
+		if m.Kind == v1.ModuleLocal {
+			*old = m
+		}
+	case old.Source == "" || m.Source < old.Source:
 		old.Source = m.Source
 	}
 	s.addEdge(v1.Edge{

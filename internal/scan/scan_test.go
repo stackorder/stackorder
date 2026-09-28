@@ -206,6 +206,50 @@ module "b_long" {
 			},
 		},
 		{
+			name: "a same-repository git source without a ref stays the local module when seen first",
+			files: map[string]string{
+				"lib/net/main.tf":  "variable \"x\" {}\n",
+				"stacks/a/main.tf": s3Block("b", "a.tfstate") + "module \"net\" {\n  source = \"github.com/acme/infra//lib/net\"\n}\n",
+				"stacks/b/main.tf": s3Block("b", "b.tfstate") + "module \"net\" {\n  source = \"../../lib/net\"\n}\n",
+			},
+			want: &v1.Graph{
+				Stacks: []v1.Stack{
+					defaultStack("stacks/a", state("b", "a.tfstate"), nil),
+					defaultStack("stacks/b", state("b", "b.tfstate"), nil),
+				},
+				Modules: []v1.Module{{Key: fixtureRepo + "//lib/net", Kind: v1.ModuleLocal, Path: "lib/net", Source: "../../lib/net"}},
+				Edges: []v1.Edge{
+					usesModule(v1.StackRef("stacks/a"), fixtureRepo+"//lib/net", "", "github.com/acme/infra//lib/net"),
+					usesModule(v1.StackRef("stacks/b"), fixtureRepo+"//lib/net", "", "../../lib/net"),
+				},
+				Warnings: []string{
+					`stacks/b/main.tf:7: module "net": source "../../lib/net" resolves to acme/infra//lib/net, which is both a local and a git module; treated as local`,
+				},
+			},
+		},
+		{
+			name: "a same-repository git source without a ref stays the local module when seen last",
+			files: map[string]string{
+				"lib/net/main.tf":  "variable \"x\" {}\n",
+				"stacks/a/main.tf": s3Block("b", "a.tfstate") + "module \"net\" {\n  source = \"../../lib/net\"\n}\n",
+				"stacks/b/main.tf": s3Block("b", "b.tfstate") + "module \"net\" {\n  source = \"github.com/acme/infra//lib/net\"\n}\n",
+			},
+			want: &v1.Graph{
+				Stacks: []v1.Stack{
+					defaultStack("stacks/a", state("b", "a.tfstate"), nil),
+					defaultStack("stacks/b", state("b", "b.tfstate"), nil),
+				},
+				Modules: []v1.Module{{Key: fixtureRepo + "//lib/net", Kind: v1.ModuleLocal, Path: "lib/net", Source: "../../lib/net"}},
+				Edges: []v1.Edge{
+					usesModule(v1.StackRef("stacks/a"), fixtureRepo+"//lib/net", "", "../../lib/net"),
+					usesModule(v1.StackRef("stacks/b"), fixtureRepo+"//lib/net", "", "github.com/acme/infra//lib/net"),
+				},
+				Warnings: []string{
+					`stacks/b/main.tf:7: module "net": source "github.com/acme/infra//lib/net" resolves to acme/infra//lib/net, which is both a local and a git module; treated as local`,
+				},
+			},
+		},
+		{
 			name: "self references never become self edges",
 			files: map[string]string{
 				"stacks/a/main.tf":          s3Block("b", "a.tfstate") + "module \"here\" {\n  source = \"./\"\n}\n",
