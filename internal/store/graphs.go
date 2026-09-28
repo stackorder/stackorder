@@ -249,24 +249,6 @@ func (s *Store) LatestGraph(ctx context.Context, repoID int64) (*v1.Graph, uuid.
 		WHERE g.repo_id = $1 ORDER BY g.created_at DESC, g.id DESC LIMIT 1`, repoID)
 }
 
-// SetDefaultGraph records a graph of the repository as its default-branch
-// graph, which is what the repository's graph looks like once a pull request
-// merges. The graph must belong to the repository, or ErrNotFound is
-// returned.
-func (s *Store) SetDefaultGraph(ctx context.Context, repoID int64, graphID uuid.UUID) error {
-	return s.execOne(ctx, "set default graph", `
-		UPDATE repos SET default_graph_id = g.id, updated_at = now()
-		FROM graphs g
-		WHERE repos.id = $1 AND g.id = $2 AND g.repo_id = repos.id`, repoID, graphID)
-}
-
-// GetDefaultGraph returns the repository's default-branch graph and its id,
-// or ErrNotFound when none was recorded with SetDefaultGraph.
-func (s *Store) GetDefaultGraph(ctx context.Context, repoID int64) (*v1.Graph, uuid.UUID, error) {
-	return s.loadGraph(ctx, "get default graph", graphSelect+`
-		JOIN repos d ON d.default_graph_id = g.id WHERE d.id = $1`, repoID)
-}
-
 // FindGraphByTreeHash returns the most recent graph of a repository scanned
 // from the same tree, which lets a resolve on an unchanged tree reuse it.
 func (s *Store) FindGraphByTreeHash(ctx context.Context, repoID int64, treeHash string) (*v1.Graph, uuid.UUID, error) {
