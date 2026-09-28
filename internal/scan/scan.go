@@ -101,6 +101,9 @@ func Scan(ctx context.Context, root string, opts Options) (*v1.Graph, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan %s: %w", root, err)
 	}
+	if abs, err = filepath.EvalSymlinks(abs); err != nil {
+		return nil, fmt.Errorf("scan %s: %w", root, err)
+	}
 	info, err := os.Stat(abs)
 	if err != nil {
 		return nil, fmt.Errorf("scan %s: %w", root, err)

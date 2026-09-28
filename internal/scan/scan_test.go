@@ -291,6 +291,29 @@ module "b_long" {
 	}
 }
 
+func TestScanFollowsASymlinkedRoot(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "stacks/a/main.tf", s3Block("b", "a.tfstate"))
+	link := filepath.Join(t.TempDir(), "checkout")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+	want, err := Scan(context.Background(), root, Options{Repo: fixtureRepo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Scan(context.Background(), link, Options{Repo: fixtureRepo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Stacks) != 1 {
+		t.Fatalf("Scan through a symlinked root found %d stacks, want 1", len(got.Stacks))
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Scan through a symlinked root differs (-direct +symlink):\n%s", diff)
+	}
+}
+
 func TestScanDoesNotMutateOptionsConfig(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "infra/x/main.tf", s3Block("b", "x.tfstate"))
