@@ -1,0 +1,29 @@
+variable "region" {
+  description = "AWS region the server runs in."
+  type        = string
+  default     = "eu-west-1"
+}
+
+variable "domain_name" {
+  description = "Host name of the server."
+  type        = string
+  default     = "stackorder.acme.example"
+}
+
+variable "route53_zone_id" {
+  description = "Hosted zone of domain_name."
+  type        = string
+  default     = "Z0123456789ABCDEFGHIJ"
+}
+
+variable "stackorder_version" {
+  description = "Server release to run. Bumping it in a pull request is how Stackorder upgrades itself."
+  type        = string
+  default     = "1.0.0"
+}
+
+variable "github_app_secret_name" {
+  description = "Secrets Manager secret holding the values printed by /setup, as JSON keyed by environment variable name. Create it with {} before the first apply."
+  type        = string
+  default     = "stackorder/github-app"
+}
