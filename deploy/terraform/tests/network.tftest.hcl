@@ -232,19 +232,3 @@ run "enterprise_server_meta" {
     error_message = "GITHUB_API_URL must follow github_api_url."
   }
 }
-
-run "metrics_allowed" {
-  command = plan
-
-  variables {
-    metrics_allowed_cidrs = ["10.0.0.0/8"]
-  }
-
-  assert {
-    condition = (
-      toset(flatten([for c in aws_lb_listener_rule.metrics_allow[0].condition : [for s in c.source_ip : s.values]])) == toset(["10.0.0.0/8"]) &&
-      aws_lb_listener_rule.metrics_allow[0].priority < aws_lb_listener_rule.metrics_deny.priority
-    )
-    error_message = "metrics_allowed_cidrs must be forwarded before the /metrics block."
-  }
-}

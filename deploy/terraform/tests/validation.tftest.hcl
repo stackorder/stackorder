@@ -141,16 +141,6 @@ run "ingress_cidrs_empty" {
   expect_failures = [var.ingress_cidrs]
 }
 
-run "metrics_allowed_cidrs_over_rule_limit" {
-  command = plan
-
-  variables {
-    metrics_allowed_cidrs = ["10.0.0.0/24", "10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24", "10.0.4.0/24"]
-  }
-
-  expect_failures = [var.metrics_allowed_cidrs]
-}
-
 run "memory_invalid_for_cpu" {
   command = plan
 

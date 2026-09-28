@@ -117,8 +117,11 @@ refused.
   mode runners that post results must egress from `admin_cidrs`, which in
   practice means self-hosted runners or larger runners with static IPs.
   New hook ranges appear as a plan diff.
-- `/metrics` is answered with 404 at the load balancer unless the client is
-  in `metrics_allowed_cidrs`.
+- Every path, `/metrics` included, is reachable through the load balancer.
+  A load balancer path rule is not a reliable way to hide `/metrics`: the
+  server's router decodes percent-escapes before matching, so an escaped
+  spelling of the path can reach the handler without matching a rule on
+  the literal path. Restricting it is left to the server.
 
 ## IAM
 
@@ -251,8 +254,6 @@ No modules.
 | [aws\_lb.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb) | resource |
 | [aws\_lb\_listener.http](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_listener) | resource |
 | [aws\_lb\_listener.https](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_listener) | resource |
-| [aws\_lb\_listener\_rule.metrics\_allow](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_listener_rule) | resource |
-| [aws\_lb\_listener\_rule.metrics\_deny](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_listener_rule) | resource |
 | [aws\_lb\_target\_group.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_target_group) | resource |
 | [aws\_nat\_gateway.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/nat_gateway) | resource |
 | [aws\_rds\_cluster.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/rds_cluster) | resource |
@@ -319,7 +320,6 @@ No modules.
 | <a name="input_ingress_cidrs"></a> [ingress\_cidrs](#input\_ingress\_cidrs) | IPv4 or IPv6 CIDRs allowed to reach the load balancer on ports 80 and 443. GitHub webhooks and GitHub-hosted runners need the default. Ignored when github\_webhook\_ip\_ranges\_only is true. | `list(string)` | `["0.0.0.0/0"]` | no |
 | <a name="input_github_webhook_ip_ranges_only"></a> [github\_webhook\_ip\_ranges\_only](#input\_github\_webhook\_ip\_ranges\_only) | Restrict the load balancer to GitHub's webhook source ranges (the hooks list of the GitHub meta API, read at plan time) plus admin\_cidrs, instead of ingress\_cidrs. | `bool` | `false` | no |
 | <a name="input_admin_cidrs"></a> [admin\_cidrs](#input\_admin\_cidrs) | CIDRs of people and self-hosted runners that need the UI and API when github\_webhook\_ip\_ranges\_only is true. | `list(string)` | `[]` | no |
-| <a name="input_metrics_allowed_cidrs"></a> [metrics\_allowed\_cidrs](#input\_metrics\_allowed\_cidrs) | Source CIDRs allowed to read /metrics through the load balancer. Empty blocks /metrics at the load balancer. | `list(string)` | `[]` | no |
 | <a name="input_image"></a> [image](#input\_image) | Container image repository of the server. | `string` | `"ghcr.io/stackorder/stackorder"` | no |
 | <a name="input_image_tag"></a> [image\_tag](#input\_image\_tag) | Tag or digest (sha256:...) of the server image. Pin a release such as 1.2.3 so upgrades are explicit plans. | `string` | `"latest"` | no |
 | <a name="input_desired_count"></a> [desired\_count](#input\_desired\_count) | Number of server tasks. All coordination goes through Postgres, so a second task adds availability without any other change. | `number` | `1` | no |

@@ -163,17 +163,6 @@ variable "admin_cidrs" {
   }
 }
 
-variable "metrics_allowed_cidrs" {
-  description = "Source CIDRs allowed to read /metrics through the load balancer. Empty blocks /metrics at the load balancer."
-  type        = list(string)
-  default     = []
-
-  validation {
-    condition     = length(var.metrics_allowed_cidrs) <= 4 && alltrue([for c in var.metrics_allowed_cidrs : can(cidrhost(c, 0))])
-    error_message = "metrics_allowed_cidrs must list at most 4 valid CIDRs, the limit of one load balancer rule."
-  }
-}
-
 variable "image" {
   description = "Container image repository of the server."
   type        = string

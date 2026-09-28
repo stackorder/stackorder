@@ -206,11 +206,6 @@ run "defaults" {
   }
 
   assert {
-    condition     = length(aws_lb_listener_rule.metrics_allow) == 0 && aws_lb_listener_rule.metrics_deny.action[0].fixed_response[0].status_code == "404"
-    error_message = "/metrics must be blocked at the load balancer by default."
-  }
-
-  assert {
     condition     = length(aws_cloudwatch_metric_alarm.target_5xx) == 0 && length(aws_cloudwatch_metric_alarm.db_free_storage) == 0
     error_message = "Alarms must be off by default."
   }
