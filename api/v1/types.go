@@ -639,3 +639,15 @@ type Whoami struct {
 	Orgs      []string `json:"orgs"`
 	Admin     bool     `json:"admin,omitempty"`
 }
+
+// AuditEntry is one audited action, such as an unlock or a re-run, as
+// listed by GET /v1/audit.
+type AuditEntry struct {
+	At     time.Time `json:"at"`
+	Actor  string    `json:"actor"`
+	Action string    `json:"action"`
+	// Target names what the action was applied to, such as a stack or a
+	// run.
+	Target  string         `json:"target,omitempty"`
+	Details map[string]any `json:"details,omitempty"`
+}
