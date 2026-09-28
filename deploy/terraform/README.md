@@ -192,8 +192,10 @@ terraform test
 ```
 
 The tests plan against mock providers and need no AWS account. They use
-`override_during = plan`, so they need Terraform 1.11 or later even though
-the module itself works from Terraform 1.9.
+`override_during = plan`, and `terraform init` in this directory reads
+them, so working on the module needs Terraform 1.11 or later. Using it as
+a child module works from Terraform 1.9, which CI checks by validating the
+examples on 1.9.
 
 ## Requirements
 
