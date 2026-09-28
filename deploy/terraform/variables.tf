@@ -169,7 +169,7 @@ variable "image" {
   default     = "ghcr.io/stackorder/stackorder"
 
   validation {
-    condition     = length(var.image) > 0 && !strcontains(var.image, "@")
+    condition     = length(var.image) > 0 && !strcontains(var.image, "@") && !strcontains(reverse(split("/", var.image))[0], ":")
     error_message = "image must be a repository without a tag or digest; set the tag with image_tag."
   }
 }

@@ -296,3 +296,13 @@ run "image_with_digest" {
 
   expect_failures = [var.image]
 }
+
+run "image_with_tag" {
+  command = plan
+
+  variables {
+    image = "ghcr.io/stackorder/stackorder:1.2.3"
+  }
+
+  expect_failures = [var.image]
+}

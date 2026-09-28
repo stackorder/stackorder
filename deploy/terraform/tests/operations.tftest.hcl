@@ -231,6 +231,20 @@ run "image_digest_and_arm64" {
   }
 }
 
+run "image_on_registry_with_port" {
+  command = plan
+
+  variables {
+    image     = "registry.example.com:5000/stackorder/stackorder"
+    image_tag = "1.2.3"
+  }
+
+  assert {
+    condition     = jsondecode(aws_ecs_task_definition.this.container_definitions)[0].image == "registry.example.com:5000/stackorder/stackorder:1.2.3"
+    error_message = "A registry port must not be mistaken for a tag."
+  }
+}
+
 run "secret_rotation_redeploys" {
   command = plan
 
