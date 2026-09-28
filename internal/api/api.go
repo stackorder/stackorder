@@ -136,6 +136,8 @@ func (s *server) routes() http.Handler {
 	}
 	s.handle(mux, "GET /metrics", 0, http.HandlerFunc(s.serveMetrics))
 	s.handle(mux, "POST /webhooks/github", 0, http.HandlerFunc(s.serveWebhook))
+
+	s.handle(mux, "GET /v1/me", 0, s.with(humanAuth, s.me))
 	s.handle(mux, "/v1/", 0, http.HandlerFunc(s.unknownEndpoint))
 	s.handle(mux, "/auth/", 0, http.HandlerFunc(s.unknownEndpoint))
 	s.handle(mux, "/", 0, http.HandlerFunc(s.serveUI))
