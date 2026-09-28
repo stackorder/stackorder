@@ -435,19 +435,17 @@ func (p *Pool) jobItem(job store.Job) item {
 
 func (p *Pool) process(handlerCtx context.Context, it item) {
 	log := p.log.With(it.queue, it.id, "kind", it.kind)
-	settle, cancel := context.WithTimeout(context.WithoutCancel(handlerCtx), settleTimeout)
-	defer cancel()
 
 	if it.run == nil {
-		log.DebugContext(settle, "no handler registered; completing")
-		p.settle(log, it.complete(settle))
+		log.DebugContext(handlerCtx, "no handler registered; completing")
+		p.settle(handlerCtx, log, it.complete)
 		it.record(it.kind, metrics.ResultIgnored)
 		return
 	}
 	if it.attempts >= p.opts.MaxAttempts {
 		cause := fmt.Errorf("worker: gave up after %d attempts: %s", it.attempts, it.lastError)
-		log.ErrorContext(settle, "giving up on queued row", "attempts", it.attempts, "error", it.lastError)
-		p.settle(log, it.abandon(settle, cause))
+		log.ErrorContext(handlerCtx, "giving up on queued row", "attempts", it.attempts, "error", it.lastError)
+		p.settle(handlerCtx, log, func(ctx context.Context) error { return it.abandon(ctx, cause) })
 		it.record(it.kind, metrics.ResultDead)
 		return
 	}
@@ -458,21 +456,21 @@ func (p *Pool) process(handlerCtx context.Context, it item) {
 	elapsed := p.now().Sub(start)
 	switch {
 	case err == nil:
-		log.DebugContext(settle, "handled", "attempt", attempt, "duration", elapsed)
-		p.settle(log, it.complete(settle))
+		log.DebugContext(handlerCtx, "handled", "attempt", attempt, "duration", elapsed)
+		p.settle(handlerCtx, log, it.complete)
 		it.record(it.kind, metrics.ResultOK)
 	case handlerCtx.Err() != nil:
-		log.WarnContext(settle, "handler cancelled by shutdown; returned to the queue", "attempt", attempt, "duration", elapsed, "error", err)
-		p.settle(log, it.fail(settle, err, 0))
+		log.WarnContext(handlerCtx, "handler cancelled by shutdown; returned to the queue", "attempt", attempt, "duration", elapsed, "error", err)
+		p.settle(handlerCtx, log, func(ctx context.Context) error { return it.fail(ctx, err, 0) })
 		it.record(it.kind, metrics.ResultError)
 	case attempt >= p.opts.MaxAttempts:
-		log.ErrorContext(settle, "handler failed on its last attempt; giving up", "attempt", attempt, "duration", elapsed, "error", err)
-		p.settle(log, it.abandon(settle, err))
+		log.ErrorContext(handlerCtx, "handler failed on its last attempt; giving up", "attempt", attempt, "duration", elapsed, "error", err)
+		p.settle(handlerCtx, log, func(ctx context.Context) error { return it.abandon(ctx, err) })
 		it.record(it.kind, metrics.ResultDead)
 	default:
 		retry := p.opts.Backoff(attempt)
-		log.WarnContext(settle, "handler failed; will retry", "attempt", attempt, "duration", elapsed, "retry_in", retry, "error", err)
-		p.settle(log, it.fail(settle, err, retry))
+		log.WarnContext(handlerCtx, "handler failed; will retry", "attempt", attempt, "duration", elapsed, "retry_in", retry, "error", err)
+		p.settle(handlerCtx, log, func(ctx context.Context) error { return it.fail(ctx, err, retry) })
 		it.record(it.kind, metrics.ResultError)
 	}
 }
@@ -489,9 +487,11 @@ func (p *Pool) invoke(parent context.Context, log *slog.Logger, it item) (err er
 	return it.run(ctx)
 }
 
-func (p *Pool) settle(log *slog.Logger, err error) {
-	if err != nil {
-		log.Error("could not record the outcome; the claim will expire and the row run again", "error", err)
+func (p *Pool) settle(handlerCtx context.Context, log *slog.Logger, record func(ctx context.Context) error) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(handlerCtx), settleTimeout)
+	defer cancel()
+	if err := record(ctx); err != nil {
+		log.ErrorContext(ctx, "could not record the outcome; the claim will expire and the row run again", "error", err)
 	}
 }
 

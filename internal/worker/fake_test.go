@@ -21,6 +21,23 @@ type fakeQueue struct {
 	released []string
 	claims   int
 	depths   int
+	budgets  []time.Duration
+}
+
+func (f *fakeQueue) settleBudget(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if dl, ok := ctx.Deadline(); ok {
+		f.budgets = append(f.budgets, time.Until(dl))
+	}
+	return nil
+}
+
+func (f *fakeQueue) settleBudgets() []time.Duration {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]time.Duration(nil), f.budgets...)
 }
 
 func (f *fakeQueue) addEvent(id, kind string, mutate ...func(*store.Event)) {
@@ -121,9 +138,12 @@ func (f *fakeQueue) findEvent(id string) (*store.Event, error) {
 	return nil, fmt.Errorf("event %s: %w", id, store.ErrNotFound)
 }
 
-func (f *fakeQueue) CompleteEvent(_ context.Context, id string) error {
+func (f *fakeQueue) CompleteEvent(ctx context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.settleBudget(ctx); err != nil {
+		return err
+	}
 	ev, err := f.findEvent(id)
 	if err != nil {
 		return err
@@ -211,9 +231,12 @@ func (f *fakeQueue) findJob(id uuid.UUID) (*store.Job, error) {
 	return nil, fmt.Errorf("job %s: %w", id, store.ErrNotFound)
 }
 
-func (f *fakeQueue) CompleteJob(_ context.Context, id uuid.UUID) error {
+func (f *fakeQueue) CompleteJob(ctx context.Context, id uuid.UUID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.settleBudget(ctx); err != nil {
+		return err
+	}
 	j, err := f.findJob(id)
 	if err != nil {
 		return err

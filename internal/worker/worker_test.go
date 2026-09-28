@@ -237,6 +237,24 @@ func TestHandlerTimeout(t *testing.T) {
 	assert.Equal(t, context.DeadlineExceeded.Error(), q.job(jobPrune).LastError)
 }
 
+func TestOutcomeIsSettledAfterTheHandlerReturns(t *testing.T) {
+	q := &fakeQueue{}
+	p := worker.New(q, worker.Options{Workers: 1, PollInterval: 5 * time.Millisecond})
+	const busy = 600 * time.Millisecond
+	p.OnJob(jobDispatchWave, func(context.Context, store.Job) error {
+		time.Sleep(busy)
+		return nil
+	})
+	require.NoError(t, p.Enqueue(t.Context(), jobDispatchWave, nil, time.Time{}, ""))
+	start(t, p)
+	require.Eventually(t, q.allDone, eventually, 5*time.Millisecond)
+
+	budgets := q.settleBudgets()
+	require.Len(t, budgets, 1)
+	assert.Greater(t, budgets[0], worker.SettleTimeout-busy/2,
+		"recording the outcome gets its own timeout, not what is left of one started with the handler")
+}
+
 func TestNotifyWakesBeforePollInterval(t *testing.T) {
 	q := &fakeQueue{}
 	p := worker.New(q, worker.Options{Workers: 3, PollInterval: time.Hour})
