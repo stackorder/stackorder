@@ -15,3 +15,4 @@ ALTER TABLE run_stacks ADD COLUMN dispatch_id uuid REFERENCES dispatches (id) ON
 
 CREATE INDEX run_stacks_dispatch_idx ON run_stacks (dispatch_id) WHERE dispatch_id IS NOT NULL;
 CREATE INDEX audit_action_target_idx ON audit (action, target, at DESC);
+CREATE INDEX runs_workflow_run_idx ON runs (repo_id, workflow_run_id) WHERE workflow_run_id <> 0;

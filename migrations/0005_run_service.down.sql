@@ -1,3 +1,4 @@
+DROP INDEX IF EXISTS runs_workflow_run_idx;
 DROP INDEX IF EXISTS audit_action_target_idx;
 DROP INDEX IF EXISTS run_stacks_dispatch_idx;
 

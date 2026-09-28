@@ -280,6 +280,37 @@ func (s *Store) SetRunWave(ctx context.Context, id uuid.UUID, wave int) error {
 	return s.execOne(ctx, "set run wave", `UPDATE runs SET current_wave = $2 WHERE id = $1`, id, wave)
 }
 
+// AdvanceRunWave moves the run's current wave forward to wave and reports
+// whether it moved; a wave at or behind the current one is left alone, so
+// concurrent callers can never move a run back.
+func (s *Store) AdvanceRunWave(ctx context.Context, id uuid.UUID, wave int) (bool, error) {
+	const op = "advance run wave"
+	tag, err := s.db.Exec(ctx, `UPDATE runs SET current_wave = $2 WHERE id = $1 AND current_wave < $2`, id, wave)
+	if err != nil {
+		return false, wrap(op, err)
+	}
+	if tag.RowsAffected() == 1 {
+		return true, nil
+	}
+	var one int
+	if err := s.db.QueryRow(ctx, `SELECT 1 FROM runs WHERE id = $1`, id).Scan(&one); err != nil {
+		return false, wrap(op, err)
+	}
+	return false, nil
+}
+
+// AddRunWarning appends a warning to a run unless it already carries it.
+func (s *Store) AddRunWarning(ctx context.Context, id uuid.UUID, warning string) error {
+	const op = "add run warning"
+	if warning == "" {
+		return invalid(op, "warning is required")
+	}
+	return s.execOne(ctx, op, `
+		UPDATE runs SET warnings = CASE WHEN warnings @> jsonb_build_array($2::text) THEN warnings
+		                                ELSE warnings || jsonb_build_array($2::text) END
+		WHERE id = $1`, id, warning)
+}
+
 // SetRunWorkflowRun records the Actions workflow run and attempt that
 // reported for a run.
 func (s *Store) SetRunWorkflowRun(ctx context.Context, id uuid.UUID, workflowRunID int64, attempt int) error {
@@ -299,6 +330,19 @@ func (s *Store) SetRunCheckRun(ctx context.Context, id uuid.UUID, name string, c
 	return s.execOne(ctx, op, `
 		UPDATE runs SET check_runs = check_runs || jsonb_build_object($2::text, $3::bigint) WHERE id = $1`,
 		id, name, checkRunID)
+}
+
+// FindRunByWorkflowRun returns the newest run of the repository that
+// recorded workflowRunID as its Actions workflow run, or ErrNotFound.
+func (s *Store) FindRunByWorkflowRun(ctx context.Context, repoID, workflowRunID int64) (Run, error) {
+	const op = "find run by workflow run"
+	if workflowRunID <= 0 {
+		return Run{}, notFound(op)
+	}
+	out, err := queryOne[Run](ctx, s.db, runSelect+`
+		WHERE r.repo_id = $1 AND r.workflow_run_id = $2
+		ORDER BY r.created_at DESC, r.id DESC LIMIT 1`, repoID, workflowRunID)
+	return out, wrap(op, err)
 }
 
 // FindRunForStack returns the newest run of the repository in the given
@@ -589,6 +633,15 @@ func (s *Store) GetRunStacks(ctx context.Context, runID uuid.UUID) ([]RunStack, 
 		SELECT `+runStackColsNoText+` FROM run_stacks rs JOIN stacks s ON s.id = rs.stack_id
 		WHERE rs.run_id = $1 ORDER BY rs.wave, s.key`, runID)
 	return out, wrap("get run stacks", err)
+}
+
+// GetRunStacksWithText returns every stack row of a run ordered by wave
+// and key, plan text included, for rendering the sticky comment.
+func (s *Store) GetRunStacksWithText(ctx context.Context, runID uuid.UUID) ([]RunStack, error) {
+	out, err := queryAll[RunStack](ctx, s.db, `
+		SELECT `+runStackCols+` FROM run_stacks rs JOIN stacks s ON s.id = rs.stack_id
+		WHERE rs.run_id = $1 ORDER BY rs.wave, s.key`, runID)
+	return out, wrap("get run stacks with text", err)
 }
 
 // RunDetail assembles the API view of a run: the run, its stack rows

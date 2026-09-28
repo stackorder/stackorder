@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -95,4 +96,69 @@ func TestExternalDependents(t *testing.T) {
 	assert.Equal(t, []store.ExternalDependent{{
 		RepoID: f.repo.ID, Repo: "acme/infra", FromKey: "stacks/prod/vpc", ToKey: "stacks/prod/tgw", Type: v1.EdgeDependsOn,
 	}}, got, "the default graph is read in preference to the latest")
+}
+
+func TestAdvanceRunWaveAndWarnings(t *testing.T) {
+	f := newFixture(t)
+	r := f.run(store.CreateRunParams{Mode: v1.ModeApply})
+	moved, err := f.s.AdvanceRunWave(f.ctx, r.ID, 2)
+	require.NoError(t, err)
+	assert.True(t, moved)
+	moved, err = f.s.AdvanceRunWave(f.ctx, r.ID, 1)
+	require.NoError(t, err)
+	assert.False(t, moved, "a run never moves back")
+	moved, err = f.s.AdvanceRunWave(f.ctx, r.ID, 2)
+	require.NoError(t, err)
+	assert.False(t, moved)
+	got, err := f.s.GetRun(f.ctx, r.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, got.CurrentWave)
+	_, err = f.s.AdvanceRunWave(f.ctx, uuid.New(), 1)
+	require.ErrorIs(t, err, store.ErrNotFound)
+
+	require.NoError(t, f.s.AddRunWarning(f.ctx, r.ID, "first"))
+	require.NoError(t, f.s.AddRunWarning(f.ctx, r.ID, "second"))
+	require.NoError(t, f.s.AddRunWarning(f.ctx, r.ID, "first"))
+	got, err = f.s.GetRun(f.ctx, r.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"first", "second"}, got.Warnings)
+	require.ErrorIs(t, f.s.AddRunWarning(f.ctx, r.ID, ""), store.ErrInvalid)
+	require.ErrorIs(t, f.s.AddRunWarning(f.ctx, uuid.New(), "x"), store.ErrNotFound)
+}
+
+func TestGetRunStacksWithText(t *testing.T) {
+	f := newFixture(t)
+	ids := f.stacks("stacks/a", "stacks/b")
+	r := f.run(store.CreateRunParams{})
+	require.NoError(t, f.s.UpsertRunStacks(f.ctx, r.ID, []store.RunStack{{StackID: ids["stacks/a"]}, {StackID: ids["stacks/b"], Wave: 1}}))
+	_, err := f.s.UpdateRunStack(f.ctx, r.ID, ids["stacks/b"], store.RunStackPatch{PlanText: ptr("plan b")})
+	require.NoError(t, err)
+	rows, err := f.s.GetRunStacksWithText(f.ctx, r.ID)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	assert.Equal(t, []string{"stacks/a", "stacks/b"}, []string{rows[0].Key, rows[1].Key})
+	assert.Equal(t, []string{"", "plan b"}, []string{rows[0].PlanText, rows[1].PlanText})
+	plain, err := f.s.GetRunStacks(f.ctx, r.ID)
+	require.NoError(t, err)
+	assert.Empty(t, plain[1].PlanText)
+}
+
+func TestFindRunByWorkflowRun(t *testing.T) {
+	f := newFixture(t)
+	other := f.addRepo(2, 200, "other", "other/infra")
+	first := f.run(store.CreateRunParams{WorkflowRunID: 77, WorkflowRunAttempt: 1})
+	f.run(store.CreateRunParams{RepoID: other.ID, WorkflowRunID: 77})
+	got, err := f.s.FindRunByWorkflowRun(f.ctx, f.repo.ID, 77)
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, got.ID)
+
+	second := f.run(store.CreateRunParams{WorkflowRunID: 77, WorkflowRunAttempt: 2})
+	got, err = f.s.FindRunByWorkflowRun(f.ctx, f.repo.ID, 77)
+	require.NoError(t, err)
+	assert.Equal(t, second.ID, got.ID, "the newest attempt wins")
+
+	for _, id := range []int64{0, 78} {
+		_, err = f.s.FindRunByWorkflowRun(f.ctx, f.repo.ID, id)
+		require.ErrorIs(t, err, store.ErrNotFound, "workflow run %d", id)
+	}
 }
