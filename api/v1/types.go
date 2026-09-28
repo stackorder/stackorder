@@ -488,6 +488,9 @@ type RunStack struct {
 	// PlanOutput is the stack's effective plan_output; "summary" means plan
 	// text must never be rendered for it.
 	PlanOutput string `json:"plan_output,omitempty"`
+	// PlanURL links to the full plan text when the server keeps it in its
+	// artifact bucket; PlanText then holds only the beginning.
+	PlanURL string `json:"plan_url,omitempty"`
 }
 
 // StackDetail is the body of GET /v1/stacks/{id}.

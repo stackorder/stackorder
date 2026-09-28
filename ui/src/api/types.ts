@@ -267,6 +267,7 @@ export interface RunStack {
   checks?: Check[];
   blocked_by?: string[];
   plan_output?: string;
+  plan_url?: string;
   started_at?: string;
   finished_at?: string;
 }
