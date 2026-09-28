@@ -50,7 +50,7 @@ func (v ModuleVersion) ToV1() v1.ModuleVersion {
 	return v1.ModuleVersion{Version: v.Version, SHA: v.SHA, TaggedAt: v.TaggedAt.UTC()}
 }
 
-// ModuleConsumer records that a stack, in the latest graph of its
+// ModuleConsumer records that a stack, in the current graph of its
 // repository, reaches a module over uses_module edges and pins it at Ref.
 // Latest is the newest released version of the module family and Behind
 // counts versions tagged after Ref; both are empty when unknown.
@@ -264,8 +264,9 @@ const consumerSelect = `
 	ORDER BY c.repo, c.stack_key, c.module_key, c.ref`
 
 // ModuleConsumers lists the stacks that use a module, directly or through
-// other modules, in the latest graph of every repository. For a family row
-// the consumers of every pinned ref are included.
+// other modules, in the current graph of every repository: its
+// default-branch graph when one is recorded, else its latest graph. For a
+// family row the consumers of every pinned ref are included.
 func (s *Store) ModuleConsumers(ctx context.Context, moduleID uuid.UUID) ([]ModuleConsumer, error) {
 	out, err := queryAll[ModuleConsumer](ctx, s.db, `
 		WITH RECURSIVE
@@ -276,7 +277,12 @@ func (s *Store) ModuleConsumers(ctx context.Context, moduleID uuid.UUID) ([]Modu
 			WHERE m.id = $1
 		),
 		latest AS (
-			SELECT DISTINCT ON (repo_id) id, repo_id FROM graphs ORDER BY repo_id, created_at DESC, id DESC
+			SELECT id, repo_id FROM (
+				SELECT r.id AS repo_id, COALESCE(r.default_graph_id, (
+					SELECT g.id FROM graphs g WHERE g.repo_id = r.id
+					ORDER BY g.created_at DESC, g.id DESC LIMIT 1)) AS id
+				FROM repos r
+			) current WHERE id IS NOT NULL
 		),
 		reach AS (
 			SELECT e.graph_id, e.from_kind, e.from_key, tg.id AS module_id,
@@ -305,7 +311,8 @@ func (s *Store) ModuleConsumers(ctx context.Context, moduleID uuid.UUID) ([]Modu
 }
 
 // StackModules lists the modules a stack uses, directly or through other
-// modules, in the latest graph of its repository, with the ref it pins.
+// modules, in the current graph of its repository (see ModuleConsumers),
+// with the ref it pins.
 func (s *Store) StackModules(ctx context.Context, stackID uuid.UUID) ([]ModuleConsumer, error) {
 	out, err := queryAll[ModuleConsumer](ctx, s.db, `
 		WITH RECURSIVE
@@ -314,8 +321,10 @@ func (s *Store) StackModules(ctx context.Context, stackID uuid.UUID) ([]ModuleCo
 			WHERE s.id = $1
 		),
 		lg AS (
-			SELECT g.id FROM graphs g JOIN st ON st.repo_id = g.repo_id
-			ORDER BY g.created_at DESC, g.id DESC LIMIT 1
+			SELECT COALESCE(p.default_graph_id, (
+				SELECT g.id FROM graphs g WHERE g.repo_id = p.id
+				ORDER BY g.created_at DESC, g.id DESC LIMIT 1)) AS id
+			FROM st JOIN repos p ON p.id = st.repo_id
 		),
 		down AS (
 			SELECT e.graph_id, e.to_key, COALESCE(e.meta->>'ref', '') AS ref

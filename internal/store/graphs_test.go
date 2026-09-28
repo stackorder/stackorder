@@ -154,6 +154,43 @@ func TestGraphLookupsNotFound(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrNotFound)
 }
 
+func TestDefaultGraph(t *testing.T) {
+	f := newFixture(t)
+	other := f.addRepo(2, 200, "globex", "globex/platform")
+	_, _, err := f.s.GetDefaultGraph(f.ctx, f.repo.ID)
+	require.ErrorIs(t, err, store.ErrNotFound, "no default graph before a merge")
+
+	mergedID, _ := f.saveGraph(f.repo.ID, sampleGraph(f.repo.FullName, "merged"))
+	f.saveGraph(f.repo.ID, sampleGraph(f.repo.FullName, "pr-head"))
+	otherID, _ := f.saveGraph(other.ID, &v1.Graph{SHA: "elsewhere"})
+
+	require.NoError(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, mergedID))
+	require.NoError(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, mergedID), "setting it again is a no-op")
+	g, id, err := f.s.GetDefaultGraph(f.ctx, f.repo.ID)
+	require.NoError(t, err)
+	assert.Equal(t, mergedID, id)
+	assert.Equal(t, "merged", g.SHA)
+	assert.Equal(t, f.repo.FullName, g.Repo)
+	latest, _, err := f.s.LatestGraph(f.ctx, f.repo.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "pr-head", latest.SHA, "the latest graph is unaffected")
+
+	require.ErrorIs(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, otherID), store.ErrNotFound, "graph of another repository")
+	require.ErrorIs(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, uuid.New()), store.ErrNotFound)
+	require.ErrorIs(t, f.s.SetDefaultGraph(f.ctx, 404, mergedID), store.ErrNotFound)
+	_, _, err = f.s.GetDefaultGraph(f.ctx, other.ID)
+	require.ErrorIs(t, err, store.ErrNotFound)
+
+	f.exec(`DELETE FROM graphs WHERE id = $1`, mergedID)
+	_, _, err = f.s.GetDefaultGraph(f.ctx, f.repo.ID)
+	require.ErrorIs(t, err, store.ErrNotFound, "deleting the graph clears the default")
+
+	require.NoError(t, f.s.SetDefaultGraph(f.ctx, other.ID, otherID))
+	require.NoError(t, f.s.DeleteRepo(f.ctx, other.ID), "a repository with a default graph can be deleted")
+	_, err = f.s.GetRepo(f.ctx, other.ID)
+	require.ErrorIs(t, err, store.ErrNotFound)
+}
+
 func TestMarkStacksRemoved(t *testing.T) {
 	f := newFixture(t)
 	ids := f.stacks("a", "b", "c")

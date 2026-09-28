@@ -187,4 +187,19 @@ func TestModuleVersionsAndConsumers(t *testing.T) {
 		{ModuleKey: "acme/infra//modules/wrapper"},
 		{ModuleKey: "acme/modules//vpc@v1.1.0", Ref: "v1.1.0", Latest: "v2.0.0", Behind: 2},
 	}, consumed)
+
+	_, oldGraphID, err := f.s.GetGraph(f.ctx, f.repo.ID, "old")
+	require.NoError(t, err)
+	require.NoError(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, oldGraphID))
+	consumers, err = f.s.ModuleConsumers(f.ctx, family.ID)
+	require.NoError(t, err)
+	keys := make([]string, len(consumers))
+	for i, c := range consumers {
+		keys[i] = c.Repo + "//" + c.StackKey + "@" + c.Ref
+	}
+	assert.Equal(t, []string{"acme/apps//stacks/web@v1.0.0", "acme/infra//stacks/legacy@v1.0.0"}, keys,
+		"the default-branch graph wins over newer graphs")
+	used, err = f.s.StackModules(f.ctx, edge.ID)
+	require.NoError(t, err)
+	assert.Empty(t, used, "the stack is not in the default-branch graph")
 }
