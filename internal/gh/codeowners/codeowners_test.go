@@ -222,6 +222,9 @@ func TestRuleMatch(t *testing.T) {
 	assert.True(t, r.Match("stacks/prod/vpc/main.tf"))
 	assert.False(t, r.Match("stacks/staging/vpc/main.tf"))
 	assert.False(t, (&Rule{}).Match("x"))
+
+	unparsed := &File{Rules: []Rule{{Pattern: "*", Owners: []string{"@a"}}}}
+	assert.Nil(t, unparsed.OwnersFor("x"))
 }
 
 func TestTeamOwner(t *testing.T) {

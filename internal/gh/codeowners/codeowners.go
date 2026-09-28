@@ -98,8 +98,8 @@ func (f *File) RuleFor(path string) (*Rule, bool) {
 	}
 	p := normalize(path)
 	for i := len(f.Rules) - 1; i >= 0; i-- {
-		if f.Rules[i].re.MatchString(p) {
-			return &f.Rules[i], true
+		if r := &f.Rules[i]; r.re != nil && r.re.MatchString(p) {
+			return r, true
 		}
 	}
 	return nil, false
