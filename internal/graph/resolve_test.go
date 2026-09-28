@@ -764,12 +764,15 @@ func TestResolveEnvironment(t *testing.T) {
 	cfg.Environments["stacks/prod/eu/"] = "production-eu"
 	g := newGraph().
 		stacks("stacks/prod/vpc", "stacks/prod/eu/vpc", "stacks/tools").
-		stack(v1.Stack{Key: "stacks/prod/pinned", Path: "stacks/prod/pinned", Environment: "prod-special"}).
-		stack(v1.Stack{Key: "stacks/prod/override", Path: "stacks/prod/override", Config: &v1.StackConfig{Environment: "from-file"}}).
+		stack(v1.Stack{Key: "stacks/prod/scanned", Path: "stacks/prod/scanned", Environment: "sandbox"}).
+		stack(v1.Stack{Key: "stacks/ops/scanned", Path: "stacks/ops/scanned", Environment: "ops"}).
+		stack(v1.Stack{Key: "stacks/prod/override", Path: "stacks/prod/override", Environment: "from-file", Config: &v1.StackConfig{Environment: "from-file"}}).
+		stack(v1.Stack{Key: "stacks/prod/file-only", Path: "stacks/prod/file-only", Config: &v1.StackConfig{Environment: "from-file"}}).
 		build()
 	paths := []string{
 		"stacks/prod/vpc/main.tf", "stacks/prod/eu/vpc/main.tf", "stacks/tools/main.tf",
-		"stacks/prod/pinned/main.tf", "stacks/prod/override/main.tf",
+		"stacks/prod/scanned/main.tf", "stacks/ops/scanned/main.tf",
+		"stacks/prod/override/main.tf", "stacks/prod/file-only/main.tf",
 	}
 	resp, err := Resolve(g, Input{ChangedPaths: paths, Config: cfg})
 	require.NoError(t, err)
@@ -778,11 +781,13 @@ func TestResolveEnvironment(t *testing.T) {
 		got[a.Key] = a.Environment
 	}
 	require.Equal(t, map[string]string{
-		"stacks/prod/vpc":      "production",
-		"stacks/prod/eu/vpc":   "production-eu",
-		"stacks/tools":         v1.DefaultEnvironment,
-		"stacks/prod/pinned":   "prod-special",
-		"stacks/prod/override": "from-file",
+		"stacks/prod/vpc":       "production",
+		"stacks/prod/eu/vpc":    "production-eu",
+		"stacks/tools":          v1.DefaultEnvironment,
+		"stacks/prod/scanned":   "production",
+		"stacks/ops/scanned":    "ops",
+		"stacks/prod/override":  "from-file",
+		"stacks/prod/file-only": "from-file",
 	}, got)
 	require.Equal(t, []string{`stack stacks/tools has no environment mapping; it runs under environment "default"`}, resp.Warnings)
 	for _, e := range resp.Matrix.Include {

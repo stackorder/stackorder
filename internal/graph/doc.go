@@ -52,6 +52,14 @@
 // the stack through: the affected modules the stack reaches over uses_module
 // edges, and the affected stacks it has a depends_on or reads_state edge to.
 //
+// # Environments
+//
+// A stack runs under the environment its .stackorder.yaml names, else the
+// longest matching prefix in the environments map of Input.Config, else
+// Stack.Environment, else v1.DefaultEnvironment with a warning. The
+// configuration the caller passes therefore decides, not the environment
+// the runner computed from the change's own stackorder.yaml.
+//
 // # Cycles
 //
 // A cycle is spelled as the keys along it in edge direction, starting and
