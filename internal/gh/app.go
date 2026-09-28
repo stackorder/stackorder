@@ -98,14 +98,15 @@ func NewApp(cfg Config) (*App, error) {
 // ID returns the App id.
 func (a *App) ID() int64 { return a.id }
 
-// JWT returns a fresh App JWT: RS256, issued 60 s in the past to absorb
-// clock drift, expiring 10 minutes from now.
+// JWT returns a fresh App JWT: RS256, valid for 10 minutes from an issue
+// time 60 s in the past, so a clock up to a minute off GitHub's in either
+// direction is tolerated.
 func (a *App) JWT() (string, error) {
-	now := a.t.now()
+	issued := a.t.now().Add(-jwtBackdate)
 	claims := jwt.RegisteredClaims{
 		Issuer:    strconv.FormatInt(a.id, 10),
-		IssuedAt:  jwt.NewNumericDate(now.Add(-jwtBackdate)),
-		ExpiresAt: jwt.NewNumericDate(now.Add(jwtLifetime)),
+		IssuedAt:  jwt.NewNumericDate(issued),
+		ExpiresAt: jwt.NewNumericDate(issued.Add(jwtLifetime)),
 	}
 	signed, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(a.key)
 	if err != nil {

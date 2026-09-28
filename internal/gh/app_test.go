@@ -95,7 +95,23 @@ func TestJWTClaims(t *testing.T) {
 	assert.Equal(t, "RS256", tok.Header["alg"])
 	assert.Equal(t, "12345", claims.Issuer)
 	assert.Equal(t, clock.Now().Add(-60*time.Second), claims.IssuedAt.UTC())
-	assert.Equal(t, clock.Now().Add(10*time.Minute), claims.ExpiresAt.UTC())
+	assert.Equal(t, clock.Now().Add(9*time.Minute), claims.ExpiresAt.UTC())
+}
+
+func TestJWTToleratesClockDrift(t *testing.T) {
+	for _, drift := range []time.Duration{-50 * time.Second, 50 * time.Second} {
+		t.Run(drift.String(), func(t *testing.T) {
+			fake := ghfake.New(t)
+			github := newClock()
+			fake.SetClock(github.Now)
+			cfg := fake.AppConfig()
+			cfg.Clock = func() time.Time { return github.Now().Add(drift) }
+			app, err := gh.NewApp(cfg)
+			require.NoError(t, err)
+			_, err = app.AppInfo(context.Background())
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestInstallationTokenIsCachedAndRefreshedNearExpiry(t *testing.T) {
