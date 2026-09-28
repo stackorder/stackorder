@@ -3,6 +3,8 @@
 package store_test
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -269,4 +271,59 @@ func TestTryLockStacksHeldWhenGrantedUnderChurn(t *testing.T) {
 	require.Nil(t, violation, "a granted lock must be held by the caller on every stack")
 	require.Positive(t, granted)
 	t.Logf("granted %d of %d rounds", granted, rounds)
+}
+
+func TestTryLockStacksInsideTransaction(t *testing.T) {
+	f := newFixture(t)
+	ids := f.stacks("stacks/a", "stacks/b")
+	a, b := ids["stacks/a"], ids["stacks/b"]
+	holder := f.run(store.CreateRunParams{PRNumber: 1})
+	conflicts, err := f.s.TryLockStacks(f.ctx, []uuid.UUID{b}, holder.ID, 1, "apply")
+	require.NoError(t, err)
+	require.Empty(t, conflicts)
+
+	manual := store.CreateRunParams{RepoID: f.repo.ID, SHA: "abc123", Trigger: v1.TriggerManual, Mode: v1.ModeApply}
+	var created store.Run
+	require.NoError(t, f.s.InTx(f.ctx, func(tx *store.Store) error {
+		var err error
+		if created, err = tx.CreateRun(f.ctx, manual); err != nil {
+			return err
+		}
+		conflicts, err := tx.TryLockStacks(f.ctx, []uuid.UUID{a, b}, created.ID, 0, "manual apply")
+		if err != nil {
+			return err
+		}
+		if len(conflicts) != 1 || conflicts[0].StackID != b {
+			return fmt.Errorf("want the lock on b as the only conflict, got %v", conflicts)
+		}
+		if _, err := tx.GetLock(f.ctx, a); !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("a refused call must leave a unlocked inside the transaction, got %v", err)
+		}
+		conflicts, err = tx.TryLockStacks(f.ctx, []uuid.UUID{a}, created.ID, 0, "manual apply")
+		if err != nil {
+			return err
+		}
+		if len(conflicts) != 0 {
+			return fmt.Errorf("want a granted, got conflicts %v", conflicts)
+		}
+		return nil
+	}), "a refused lock rolls back only its own savepoint")
+	assert.Equal(t, map[uuid.UUID]uuid.UUID{a: created.ID, b: holder.ID}, lockedStacks(t, f))
+
+	err = f.s.InTx(f.ctx, func(tx *store.Store) error {
+		run, err := tx.CreateRun(f.ctx, manual)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ReleaseLocksForRun(f.ctx, created.ID); err != nil {
+			return err
+		}
+		if _, err := tx.TryLockStacks(f.ctx, []uuid.UUID{a}, run.ID, 0, "manual apply"); err != nil {
+			return err
+		}
+		return assert.AnError
+	})
+	require.ErrorIs(t, err, assert.AnError)
+	assert.Equal(t, map[uuid.UUID]uuid.UUID{a: created.ID, b: holder.ID}, lockedStacks(t, f),
+		"locks taken in a transaction that rolls back are never held")
 }
