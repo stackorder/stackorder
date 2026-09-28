@@ -15,7 +15,7 @@ No single compromise reaches infrastructure. The server has no cloud access, the
 
 Stackorder reports; GitHub and AWS enforce.
 
-- **Branch protection** requires the `stackorder/plan` and `stackorder/apply` checks and the configured approvals. GitHub enforces the merge.
+- **Branch protection** requires the `stackorder/plan` check, the `stackorder/apply` check in `before_merge` mode, and the configured approvals. GitHub enforces the merge.
 - **GitHub Environments** with required reviewers on the apply job add a human gate the server cannot skip, because the server cannot approve deployments.
 - **The AWS role trust policy** restricts `sub` to `repo:org/repo:environment:prod`, or to the `job_workflow_ref` of the canonical reusable workflow, so only that workflow in that repository can obtain credentials.
 - **Runner OIDC tokens** are short-lived and bound to one run. There is nothing to rotate on the runner side.

@@ -294,7 +294,7 @@ gh variable set STACKORDER_SERVER_URL --org acme --visibility all \
 
 Add a branch protection rule or ruleset on the default branch that requires:
 
-- the status checks `stackorder/plan` and `stackorder/apply`;
+- the status checks `stackorder/plan` and `stackorder/apply` (in `on_merge` mode, only `stackorder/plan`, since the apply runs after the merge);
 - at least the number of approvals set in `apply.require_approvals`;
 - review from code owners, if you use `CODEOWNERS`.
 

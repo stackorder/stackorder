@@ -90,7 +90,7 @@ Commands come from anyone the apply policy allows. They are ignored from users w
 | `stackorder/apply` | Roll-up of the apply; green when the last wave is green |
 | `stackorder/<check-name>: <key>` | A named policy or cost check reported with `stackorder check` |
 
-Require `stackorder/plan` and `stackorder/apply` in branch protection. Stackorder reports; GitHub enforces the merge.
+Require `stackorder/plan` in branch protection, and `stackorder/apply` too in `before_merge` mode. In `on_merge` mode the apply runs after the merge, so a required `stackorder/apply` check would block every merge. Stackorder reports; GitHub enforces the merge.
 
 Each PR has one sticky comment, found by the hidden marker `<!-- stackorder:sticky -->` on its first line. It has a collapsible section per stack, and links to pending environment approvals.
 
