@@ -115,6 +115,14 @@ func TestAuditVisible(t *testing.T) {
 		{store.AuditEntry{Actor: "hubot", Target: "7c9e6679-7425-40de-944b-e07fc1f90ae7", Details: map[string]any{"repo": "globex/platform"}}, false},
 		{store.AuditEntry{Actor: "hubot", Target: "7c9e6679-7425-40de-944b-e07fc1f90ae7"}, false},
 		{store.AuditEntry{Actor: "hubot"}, false},
+		{store.AuditEntry{Actor: "hubot", Target: "pr:acme/infra#7"}, true},
+		{store.AuditEntry{Actor: "", Target: "repo:acme/infra"}, true},
+		{store.AuditEntry{Actor: "", Target: "workflow_run:acme/infra:4242"}, true},
+		{store.AuditEntry{Actor: "hubot", Target: "pr:globex/platform#7"}, false},
+		{store.AuditEntry{Actor: "hubot", Target: "stack:7c9e6679-7425-40de-944b-e07fc1f90ae7", Details: map[string]any{"repo": "acme/infra"}}, true},
+		{store.AuditEntry{Actor: "hubot", Target: "stack:7c9e6679-7425-40de-944b-e07fc1f90ae7"}, false},
+		{store.AuditEntry{Actor: "", Target: "lock:7c9e6679-7425-40de-944b-e07fc1f90ae7:2026-09-28"}, false},
+		{store.AuditEntry{Actor: "hubot", Target: "acme/infra//stacks/prod/apps:blue"}, true},
 	}
 	for _, tc := range cases {
 		assert.Equal(t, tc.want, auditVisible(sess, tc.entry), "%+v", tc.entry)

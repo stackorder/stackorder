@@ -246,6 +246,9 @@ func auditVisible(id identity, e store.AuditEntry) bool {
 	if repo, ok := e.Details["repo"].(string); ok && repo != "" {
 		scope = repo
 	}
+	if kind, rest, ok := strings.Cut(scope, ":"); ok && !strings.Contains(kind, "/") {
+		scope = rest
+	}
 	owner, _, ok := strings.Cut(scope, "/")
 	return ok && owner != "" && id.sees(owner)
 }
