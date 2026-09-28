@@ -255,6 +255,25 @@ func TestOutcomeIsSettledAfterTheHandlerReturns(t *testing.T) {
 		"recording the outcome gets its own timeout, not what is left of one started with the handler")
 }
 
+func TestSlowHandlerDoesNotHoldOtherRows(t *testing.T) {
+	q := &fakeQueue{}
+	p := worker.New(q, worker.Options{Workers: 2, PollInterval: 5 * time.Millisecond})
+	release := make(chan struct{})
+	p.OnEvent("workflow_run", func(context.Context, store.Event) error {
+		<-release
+		return nil
+	})
+	p.OnEvent("issue_comment", func(context.Context, store.Event) error { return nil })
+	q.addEvent("slow", "workflow_run")
+	q.addEvent("comment", "issue_comment")
+	start(t, p)
+	defer close(release)
+
+	require.Eventually(t, func() bool { return q.event("comment").DoneAt != nil }, eventually, 5*time.Millisecond,
+		"an idle worker takes the next row while another is busy")
+	assert.Nil(t, q.event("slow").DoneAt)
+}
+
 func TestNotifyWakesBeforePollInterval(t *testing.T) {
 	q := &fakeQueue{}
 	p := worker.New(q, worker.Options{Workers: 3, PollInterval: time.Hour})
@@ -458,6 +477,24 @@ func TestWebhookLag(t *testing.T) {
 	samples := metricstest.Scrape(t, m)
 	assert.InDelta(t, 1, samples["stackorder_webhook_lag_seconds_count"], 0, "only the first claim measures lag")
 	assert.InDelta(t, 2, samples["stackorder_webhook_lag_seconds_sum"], 0.5)
+}
+
+func TestWebhookLagCountsTheWaitInABatch(t *testing.T) {
+	q := &fakeQueue{}
+	m := metrics.New()
+	p := worker.New(q, worker.Options{Workers: 1, ClaimBatch: 2, PollInterval: 5 * time.Millisecond, Metrics: m})
+	const busy = 300 * time.Millisecond
+	p.OnEvent("workflow_run", func(context.Context, store.Event) error { time.Sleep(busy); return nil })
+	p.OnEvent("issue_comment", func(context.Context, store.Event) error { return nil })
+	q.addEvent("first", "workflow_run")
+	q.addEvent("second", "issue_comment")
+	start(t, p)
+	require.Eventually(t, q.allDone, eventually, 5*time.Millisecond)
+
+	samples := metricstest.Scrape(t, m)
+	assert.InDelta(t, 2, samples["stackorder_webhook_lag_seconds_count"], 0)
+	assert.GreaterOrEqual(t, samples["stackorder_webhook_lag_seconds_sum"], busy.Seconds(),
+		"the second event waited behind the first after being claimed")
 }
 
 func TestNilHandlerPanics(t *testing.T) {

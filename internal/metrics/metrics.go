@@ -126,7 +126,7 @@ func New() *Registry {
 		}),
 		webhookLag: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: Namespace, Name: "webhook_lag_seconds",
-			Help:    "Time from receiving a webhook to a worker first claiming it.",
+			Help:    "Time from receiving a webhook to a worker first starting on it.",
 			Buckets: webhookLagBuckets,
 		}),
 		eventsProcessed: prometheus.NewCounterVec(prometheus.CounterOpts{

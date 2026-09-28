@@ -82,8 +82,8 @@ func (r *Registry) WebhookDuplicate() {
 	r.webhookDuplicates.Inc()
 }
 
-// ObserveWebhookLag records the time between receiving a webhook and its
-// first claim by a worker.
+// ObserveWebhookLag records the time between receiving a webhook and a
+// worker first starting on it.
 func (r *Registry) ObserveWebhookLag(d time.Duration) {
 	if r == nil {
 		return

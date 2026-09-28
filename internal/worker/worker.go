@@ -79,7 +79,9 @@ type Options struct {
 	// again when nobody calls Notify; default 2 s.
 	PollInterval time.Duration
 	// ClaimBatch is how many events, and then how many jobs, a worker
-	// claims at once; default 10.
+	// claims at once; default 1. A worker runs its batch one row after
+	// another, so rows of a larger batch wait behind a slow handler even
+	// while other workers are idle.
 	ClaimBatch int
 	// HandlerTimeout bounds one handler call; default 5 min.
 	HandlerTimeout time.Duration
@@ -142,7 +144,7 @@ func New(q Queue, opts Options) *Pool {
 		opts.PollInterval = 2 * time.Second
 	}
 	if opts.ClaimBatch <= 0 {
-		opts.ClaimBatch = 10
+		opts.ClaimBatch = 1
 	}
 	if opts.HandlerTimeout <= 0 {
 		opts.HandlerTimeout = 5 * time.Minute
@@ -333,7 +335,7 @@ func (p *Pool) claimAndRun(ctx, handlerCtx context.Context, worker string) int {
 			p.releaseClaims(worker)
 			return len(events)
 		}
-		p.process(handlerCtx, p.eventItem(ev))
+		p.process(handlerCtx, p.eventItem(ev, p.now().Sub(claimed)))
 	}
 	claimed = p.now()
 	jobs, err := p.q.ClaimJobs(ctx, worker, p.opts.ClaimBatch)
@@ -384,9 +386,9 @@ type item struct {
 	record    func(kind string, result metrics.Result)
 }
 
-func (p *Pool) eventItem(ev store.Event) item {
+func (p *Pool) eventItem(ev store.Event, waited time.Duration) item {
 	if ev.Attempts == 0 && ev.ClaimedAt != nil {
-		p.metrics.ObserveWebhookLag(ev.ClaimedAt.Sub(ev.ReceivedAt))
+		p.metrics.ObserveWebhookLag(ev.ClaimedAt.Sub(ev.ReceivedAt) + waited)
 	}
 	it := item{
 		queue:     "event",
