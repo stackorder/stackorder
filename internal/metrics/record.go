@@ -6,6 +6,7 @@ import (
 	"time"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
+	"github.com/stackorder/stackorder/internal/command"
 )
 
 // RunStatusChanged counts a run entering status.
@@ -59,9 +60,13 @@ func (r *Registry) SetLocksHeld(n int) {
 }
 
 // CommandReceived counts a PR comment command and whether it was accepted.
+// A verb that is not one of the known commands is counted as Other.
 func (r *Registry) CommandReceived(verb string, accepted bool) {
 	if r == nil {
 		return
+	}
+	if !command.Verb(verb).Valid() {
+		verb = Other
 	}
 	r.commands.WithLabelValues(verb, strconv.FormatBool(accepted)).Inc()
 }

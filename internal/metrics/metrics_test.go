@@ -160,6 +160,12 @@ func TestRecording(t *testing.T) {
 			want:   1,
 		},
 		{
+			name:   "unknown command verb",
+			record: func(r *metrics.Registry) { r.CommandReceived("deploy-everything-now", false) },
+			series: `stackorder_commands_total{accepted="false",verb="other"}`,
+			want:   1,
+		},
+		{
 			name:   "webhook received",
 			record: func(r *metrics.Registry) { r.WebhookReceived("pull_request"); r.WebhookReceived("pull_request") },
 			series: `stackorder_webhook_received_total{event="pull_request"}`,
