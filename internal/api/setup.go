@@ -153,9 +153,9 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		st, ok = s.unseal(setupPurpose, c.Value)
 	}
-	s.clearCookie(w, setupCookie, "/setup")
 	restart := []pageLink{{Href: "/setup?force=1", Text: "Start again"}}
 	if !ok || subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(st.Value)) != 1 {
+		s.clearCookie(w, setupCookie, "/setup")
 		s.renderMessage(w, r, http.StatusBadRequest, "Setup failed", message{
 			Heading: "This App creation cannot be completed here",
 			Lines:   []string{"It expired, was already completed, or was started from another browser. Start again from /setup."},
@@ -165,6 +165,7 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	code := q.Get("code")
 	if code == "" {
+		s.clearCookie(w, setupCookie, "/setup")
 		s.renderMessage(w, r, http.StatusBadRequest, "Setup failed", message{
 			Heading: "GitHub did not send a code",
 			Lines:   []string{"The App was not created. Start again from /setup."},
@@ -175,6 +176,7 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 	creds, err := gh.CreateAppFromManifest(r.Context(), gh.Config{BaseURL: s.apiURL, HTTPClient: s.hc}, code)
 	if err != nil {
 		if errors.Is(err, gh.ErrNotFound) {
+			s.clearCookie(w, setupCookie, "/setup")
 			s.renderMessage(w, r, http.StatusBadRequest, "Setup failed", message{
 				Heading: "GitHub no longer accepts this code",
 				Lines:   []string{"A manifest code works once and only for an hour. If the App was created, its credentials were already shown; otherwise start again."},
@@ -189,6 +191,7 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	s.clearCookie(w, setupCookie, "/setup")
 	s.log.InfoContext(r.Context(), "github app created from manifest", "request_id", requestIDOf(r), "app_id", creds.ID, "slug", creds.Slug)
 
 	name := creds.Name

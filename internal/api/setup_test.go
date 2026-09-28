@@ -207,6 +207,13 @@ func TestSetupCallbackRefusals(t *testing.T) {
 	e.gh.FailNext("POST /app-manifests/{code}/conversions", http.StatusBadGateway, 1)
 	rec := e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-1&state="+url.QueryEscape(state), nil), f.cookie))
 	assert.Equal(t, http.StatusBadGateway, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Reload this page")
+	assert.Nil(t, cookieNamed(rec.Result(), setupCookie), "the state survives a GitHub outage")
+
+	rec = e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-1&state="+url.QueryEscape(state), nil), f.cookie))
+	require.Equal(t, http.StatusOK, rec.Code, "reloading converts the same code")
+	assert.Contains(t, rec.Body.String(), "GITHUB_APP_ID=1")
+	assert.True(t, clearedCookie(t, rec.Result(), setupCookie))
 }
 
 func TestSetupCallbackOnGHES(t *testing.T) {
