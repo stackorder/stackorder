@@ -326,6 +326,11 @@ func TestRunStacks(t *testing.T) {
 	_, err = f.s.GetRunStack(f.ctx, r.ID, uuid.New())
 	require.ErrorIs(t, err, store.ErrNotFound)
 
+	_, err = f.s.UpdateRunStack(f.ctx, r.ID, a, store.RunStackPatch{PlanText: ptr("a\x00b")})
+	require.ErrorIs(t, err, store.ErrInvalid, "Postgres text cannot hold NUL")
+	_, err = f.s.UpdateRunStack(f.ctx, r.ID, a, store.RunStackPatch{ErrorText: ptr("bad \xff byte")})
+	require.ErrorIs(t, err, store.ErrInvalid, "nor invalid UTF-8")
+
 	err = f.s.UpsertRunStacks(f.ctx, r.ID, []store.RunStack{{StackID: uuid.New()}})
 	require.ErrorIs(t, err, store.ErrNotFound)
 	err = f.s.UpsertRunStacks(f.ctx, uuid.New(), []store.RunStack{{StackID: a}})

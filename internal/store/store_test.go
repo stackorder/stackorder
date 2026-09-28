@@ -323,6 +323,7 @@ func TestWrap(t *testing.T) {
 		{"check", &pgconn.PgError{Code: "23514"}, ErrInvalid},
 		{"bad text", fmt.Errorf("encode: %w", &pgconn.PgError{Code: "22P02"}), ErrInvalid},
 		{"bad json escape", &pgconn.PgError{Code: "22P05"}, ErrInvalid},
+		{"nul or invalid utf-8 in text", &pgconn.PgError{Code: "22021"}, ErrInvalid},
 		{"other", cause, cause},
 	}
 	for _, tc := range cases {

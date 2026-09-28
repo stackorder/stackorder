@@ -142,7 +142,7 @@ func wrap(op string, err error) error {
 			return fmt.Errorf("store: %s: %w: %w", op, ErrNotFound, err)
 		case "23505", "23P01":
 			return fmt.Errorf("store: %s: %w: %w", op, ErrConflict, err)
-		case "22P02", "22P05", "23514", "22023":
+		case "22P02", "22P05", "22021", "23514", "22023":
 			return fmt.Errorf("store: %s: %w: %w", op, ErrInvalid, err)
 		}
 	}
