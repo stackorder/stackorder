@@ -126,6 +126,25 @@ func TestUIWebhookAndUnknownEndpoints(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+func TestWebhookBodyIsNotCappedByTheAPI(t *testing.T) {
+	var read int
+	e := newEnv(t, func(_ *Config, d *Deps) {
+		d.Webhook = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			n, err := io.Copy(io.Discard, r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+				return
+			}
+			read = int(n)
+			w.WriteHeader(http.StatusAccepted)
+		})
+	})
+	body := strings.Repeat("x", 3*maxBodyBytes)
+	rec := e.do(newRequest(t, http.MethodPost, "/webhooks/github", body))
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	assert.Equal(t, len(body), read, "GitHub payloads reach the receiver whole; it applies its own limit")
+}
+
 func TestGHESImageSources(t *testing.T) {
 	e := newEnv(t, func(c *Config, _ *Deps) { c.GitHubWebURL = "https://ghe.example.com/" })
 	csp := e.do(newRequest(t, http.MethodGet, "/", nil)).Header().Get("Content-Security-Policy")
