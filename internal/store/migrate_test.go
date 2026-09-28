@@ -4,8 +4,10 @@ package store_test
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,6 +74,37 @@ func TestMigrateConcurrentServers(t *testing.T) {
 		require.NoError(t, err)
 	}
 	assert.Equal(t, 21, tableCount(t, stores[0]))
+}
+
+func TestMigrateWithSingleConnectionPool(t *testing.T) {
+	dsn := pgtest.DSN(t)
+	switch {
+	case !strings.Contains(dsn, "://"):
+		dsn += " pool_max_conns=1"
+	case strings.Contains(dsn, "?"):
+		dsn += "&pool_max_conns=1"
+	default:
+		dsn += "?pool_max_conns=1"
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	s, err := store.Open(ctx, dsn)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), s.Pool().Config().MaxConns)
+
+	done := make(chan error, 1)
+	go func() { done <- s.Migrate(ctx) }()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("migrate did not finish with a pool of one connection")
+	}
+	t.Cleanup(s.Close)
+	ver, dirty, err := s.SchemaVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint(4), ver)
+	assert.False(t, dirty)
 }
 
 func TestPingAndInTx(t *testing.T) {

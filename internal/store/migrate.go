@@ -8,14 +8,16 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/stackorder/stackorder/migrations"
 )
 
 // Migrate applies every pending up migration. It holds the session-level
-// advisory lock MigrationLockKey for the duration, so servers starting at
-// the same time run the migrations one after the other.
+// advisory lock MigrationLockKey on a dedicated connection outside the pool
+// for the duration, so servers starting at the same time run the migrations
+// one after the other and a pool of one connection is enough.
 func (s *Store) Migrate(ctx context.Context) error {
 	return s.withMigrator(ctx, "migrate up", func(m *migrate.Migrate) error {
 		return m.Up()
@@ -45,11 +47,15 @@ func (s *Store) SchemaVersion(ctx context.Context) (version uint, dirty bool, er
 }
 
 func (s *Store) withMigrator(ctx context.Context, op string, fn func(*migrate.Migrate) error) (err error) {
-	conn, err := s.pool.Acquire(ctx)
+	conn, err := pgx.ConnectConfig(ctx, s.pool.Config().ConnConfig.Copy())
 	if err != nil {
-		return wrap(op, err)
+		return wrap(op+": connect", err)
 	}
-	defer conn.Release()
+	defer func() {
+		if cerr := closeConn(conn); cerr != nil {
+			err = errors.Join(err, wrap(op+": close lock connection", cerr))
+		}
+	}()
 	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, MigrationLockKey); err != nil {
 		return wrap(op+": lock", err)
 	}
