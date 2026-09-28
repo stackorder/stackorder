@@ -80,3 +80,15 @@ func closeConn(conn *pgx.Conn) error {
 	defer cancel()
 	return conn.Close(ctx)
 }
+
+// LockKey takes the transaction-level advisory lock named by key, waiting
+// for it, so concurrent transactions that lock the same key run one after
+// the other. The lock is released when the transaction ends; it is only
+// meaningful on a Store handed to an InTx callback.
+func (s *Store) LockKey(ctx context.Context, key string) error {
+	if key == "" {
+		return invalid("lock key", "key is required")
+	}
+	_, err := s.db.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, key)
+	return wrap("lock key", err)
+}

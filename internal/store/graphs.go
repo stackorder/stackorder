@@ -343,3 +343,47 @@ func jsonText[T any](v *T) (*string, error) {
 	s := string(b)
 	return &s, nil
 }
+
+// ExternalDependent is an ordering edge from a stack in another repository
+// to a stack of the repository asked about.
+type ExternalDependent struct {
+	// RepoID and Repo identify the dependent stack's repository.
+	RepoID int64  `db:"repo_id"`
+	Repo   string `db:"repo"`
+	// FromKey is the dependent stack's key inside Repo.
+	FromKey string `db:"from_key"`
+	// ToKey is the key, inside the repository asked about, of the stack it
+	// depends on.
+	ToKey string      `db:"to_key"`
+	Type  v1.EdgeType `db:"type"`
+}
+
+// ExternalDependents lists the depends_on and reads_state edges that stacks
+// in other repositories of the same installation have to stacks of
+// repoID, read from each such repository's default-branch graph, or its
+// latest graph when no default is known. They are ordered by repository,
+// dependent key and target key.
+func (s *Store) ExternalDependents(ctx context.Context, repoID int64) ([]ExternalDependent, error) {
+	out, err := queryAll[ExternalDependent](ctx, s.db, `
+		WITH target AS (
+			SELECT full_name, installation_id FROM repos WHERE id = $1
+		),
+		current AS (
+			SELECT r.id AS repo_id, r.full_name,
+			       COALESCE(r.default_graph_id, (
+			           SELECT g.id FROM graphs g WHERE g.repo_id = r.id
+			           ORDER BY g.created_at DESC, g.id DESC LIMIT 1)) AS graph_id
+			FROM repos r JOIN target t ON t.installation_id = r.installation_id
+			WHERE r.id <> $1
+		)
+		SELECT c.repo_id, c.full_name AS repo, e.from_key,
+		       substr(e.to_key, length(t.full_name) + 3) AS to_key, e.type
+		FROM current c
+		CROSS JOIN target t
+		JOIN edges e ON e.graph_id = c.graph_id
+		WHERE e.from_kind = 'stack' AND e.to_kind = 'stack'
+		  AND e.type IN ('depends_on', 'reads_state')
+		  AND lower(left(e.to_key, length(t.full_name) + 2)) = lower(t.full_name || '//')
+		ORDER BY c.full_name, e.from_key, to_key`, repoID)
+	return out, wrap("external dependents", err)
+}

@@ -69,3 +69,13 @@ func (s *Store) ListAudit(ctx context.Context, f AuditFilter) ([]AuditEntry, str
 	}
 	return out, next, nil
 }
+
+// CountAudit counts the entries with an action and target recorded at or
+// after since, which is how per-target rate limits are enforced.
+func (s *Store) CountAudit(ctx context.Context, action, target string, since time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRow(ctx, `
+		SELECT count(*) FROM audit WHERE action = $1 AND target = $2 AND at >= $3`,
+		action, target, since).Scan(&n)
+	return n, wrap("count audit", err)
+}
