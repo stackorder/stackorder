@@ -70,9 +70,10 @@ type App struct {
 }
 
 type tokenCall struct {
-	done chan struct{}
-	tok  Token
-	err  error
+	done      chan struct{}
+	tok       Token
+	err       error
+	abandoned bool
 }
 
 // NewApp validates cfg and returns an App.
@@ -141,7 +142,7 @@ func (a *App) InstallationToken(ctx context.Context, installationID int64) (Toke
 				return Token{}, fmt.Errorf("gh: installation %d token: %w", installationID, ctx.Err())
 			case <-c.done:
 			}
-			if c.err != nil && ctx.Err() == nil && isContextError(c.err) {
+			if c.abandoned && ctx.Err() == nil {
 				continue
 			}
 			return c.tok, c.err
@@ -151,6 +152,7 @@ func (a *App) InstallationToken(ctx context.Context, installationID int64) (Toke
 		a.mu.Unlock()
 
 		c.tok, c.err = a.exchange(ctx, installationID)
+		c.abandoned = c.err != nil && ctx.Err() != nil
 
 		a.mu.Lock()
 		delete(a.inflight, installationID)
@@ -161,10 +163,6 @@ func (a *App) InstallationToken(ctx context.Context, installationID int64) (Toke
 		close(c.done)
 		return c.tok, c.err
 	}
-}
-
-func isContextError(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func (a *App) exchange(ctx context.Context, installationID int64) (Token, error) {

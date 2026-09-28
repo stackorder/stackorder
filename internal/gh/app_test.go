@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -200,6 +201,33 @@ func TestInstallationTokenFollowerSurvivesCancelledLeader(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(tok.Token, "ghs_fake_1_"))
 	require.ErrorIs(t, <-leaderErr, context.DeadlineExceeded)
+}
+
+func TestInstallationTokenFollowersShareAClientTimeout(t *testing.T) {
+	fake := ghfake.New(t)
+	fake.AddInstallation(1, "acme")
+	fake.SetLatency(300 * time.Millisecond)
+	cfg := fake.AppConfig()
+	cfg.HTTPClient = &http.Client{Timeout: 100 * time.Millisecond, Transport: fake.HTTPClient().Transport}
+	cfg.MaxAttempts = 1
+	app, err := gh.NewApp(cfg)
+	require.NoError(t, err)
+
+	const callers = 4
+	errs := make([]error, callers)
+	var wg sync.WaitGroup
+	wg.Go(func() { _, errs[0] = app.InstallationToken(context.Background(), 1) })
+	time.Sleep(20 * time.Millisecond)
+	for i := 1; i < callers; i++ {
+		wg.Go(func() { _, errs[i] = app.InstallationToken(context.Background(), 1) })
+	}
+	wg.Wait()
+	for i := range callers {
+		require.ErrorIs(t, errs[i], context.DeadlineExceeded, "caller %d", i)
+	}
+	require.Eventually(t, func() bool { return countRequests(fake, tokenRoute) > 0 }, time.Second, 10*time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	assert.Equal(t, 1, countRequests(fake, tokenRoute), "waiters must share the failed exchange, not repeat it")
 }
 
 func TestInstallationTokenFollowerContextCancelled(t *testing.T) {
