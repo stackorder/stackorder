@@ -97,7 +97,7 @@ A PR that edits `modules/vpc` affects both VPC stacks through their module edges
 
 Given a graph at a commit and the list of changed paths, the server resolves the affected set in five steps.
 
-1. **Directly changed stacks.** Any changed path under a stack directory, after the `stacks.ignore` globs. The defaults ignore `**/*.md` and `**/README*`; `.terraform.lock.hcl` is ignored only when `stacks.ignore_lockfile` is set.
+1. **Directly changed stacks.** Any changed path under a stack directory, after the `stacks.ignore` globs. A path belongs to the deepest stack directory that contains it, so a change inside a nested stack does not affect the stack around it; every workspace of that directory is affected. The defaults ignore `**/*.md` and `**/README*`; `.terraform.lock.hcl` is ignored only when `stacks.ignore_lockfile` is set.
 2. **Module-affected stacks.** For every changed path under a local module directory, every stack with a path to that module over `uses_module` edges. Git-pinned modules never match here: a change in the module repository does not change consumers until they bump `ref`.
 3. **Propagation.** Dependents of the set above over `depends_on` and `reads_state`, transitively, when `propagate.dependents` is true (the default). These stacks are planned so reviewers see the downstream effect. At apply time a propagated stack whose plan is a no-op is recorded as `noop` and skipped.
 4. **Ordering.** A topological sort of the affected set over `depends_on` and `reads_state`. Edges to unaffected stacks are dropped. Waves are assigned by longest path from a root. A cycle fails the resolve check with the cycle spelled out.

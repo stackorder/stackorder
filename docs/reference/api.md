@@ -214,7 +214,7 @@ The request may also carry the parsed `config` and a `stacks` list that restrict
       "tool": "tofu",
       "tool_version": "1.10.0",
       "plan_output": "full",
-      "via": ["acme/infra//modules/vpc", "stacks/prod/vpc"]
+      "via": ["stacks/prod/vpc"]
     }
   ],
   "waves": [["stacks/prod/vpc"], ["stacks/prod/apps"]],
