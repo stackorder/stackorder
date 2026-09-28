@@ -199,6 +199,10 @@ function unlockedMessage(res: UnlockResponse | undefined): string {
 
 /** One stack: its latest apply, plan and drift, its lock, neighbours, modules and history. */
 export function StackPage({ id }: { id: string }) {
+  return <StackView key={id} id={id} />;
+}
+
+function StackView({ id }: { id: string }) {
   const api = useApi();
   const stack = useResource((signal) => api.stack(id, { signal }), [id]);
   const history = useResource((signal) => api.stackRuns(id, { signal }), [id]);

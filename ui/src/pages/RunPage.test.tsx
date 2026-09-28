@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/preact';
 import { describe, expect, it, vi } from 'vitest';
 
+import { Routes } from '../app';
 import type { Run } from '../api/types';
 import { clone, ids, run } from '../fixtures';
 import { json, renderWithApp } from '../test/render';
@@ -182,6 +183,28 @@ describe('RunPage', () => {
     });
     expect(screen.queryByText('Refreshing every 10 s')).not.toBeInTheDocument();
     expect(refreshes()).toHaveLength(1);
+  });
+
+  it('starts clean on the next run after going back in history', async () => {
+    renderWithApp(<Routes />, {
+      url: `/runs/${ids.planRun}`,
+      handler: (c) => (c.method === 'POST' ? new Response(null, { status: 202 }) : undefined),
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Re-run' }));
+    expect(await screen.findByText('Re-run requested.')).toBeInTheDocument();
+    window.history.pushState(null, '', url);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(await screen.findByRole('heading', { level: 1, name: /^Run 7d9f1b3c/ })).toHaveTextContent('failed');
+    fireEvent.click(screen.getByRole('button', { name: 'Details of stacks/prod/eks' }));
+    expect(screen.getByRole('dialog', { name: 'stacks/prod/eks' })).toBeInTheDocument();
+    expect(screen.queryByText('Re-run requested.')).not.toBeInTheDocument();
+
+    window.history.back();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe(`/runs/${ids.planRun}`);
+    });
+    expect(await screen.findByRole('heading', { level: 1, name: /^Run 2c4e6a80/ })).toHaveTextContent('planned');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('shows not found for an unknown run', async () => {

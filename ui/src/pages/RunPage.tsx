@@ -199,6 +199,10 @@ function StackCard({ stack, onDetails }: { stack: RunStack; onDetails: () => voi
 
 /** One run: its status, waves with per-stack results, plan details, and re-run. */
 export function RunPage({ id }: { id: string }) {
+  return <RunView key={id} id={id} />;
+}
+
+function RunView({ id }: { id: string }) {
   const api = useApi();
   const { route } = useLocation();
   const res = useResource((signal) => api.run(id, { signal }), [id]);

@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/preact';
 import { describe, expect, it } from 'vitest';
 
 import type { StackDetail } from '../api/types';
+import { Routes } from '../app';
 import { clone, ids, stack } from '../fixtures';
 import { type Handler, json, nth, renderWithApp } from '../test/render';
 import { StackPage } from './StackPage';
@@ -150,6 +151,28 @@ describe('StackPage', () => {
     expect(await card('Lock').findByText('Not locked.')).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(calls.filter((c) => c.path === `/v1/stacks/${ids.stack}`)).toHaveLength(2);
+  });
+
+  it('does not carry the unlock message over to the next stack', async () => {
+    const vpcId = ids.stacks['stacks/prod/vpc'] ?? '';
+    const vpc: StackDetail = { id: vpcId, repo: 'acme/infra', key: 'stacks/prod/vpc', path: 'stacks/prod/vpc' };
+    const handler: Handler = (c) => {
+      if (c.method === 'POST') return json({ released: [stack.lock] });
+      if (c.path === `/v1/stacks/${vpcId}`) return json(vpc);
+      if (c.path === `/v1/stacks/${vpcId}/runs`) return json({ items: [] });
+      return undefined;
+    };
+    renderWithApp(<Routes />, { url, handler });
+    fireEvent.click(await screen.findByRole('button', { name: 'Unlock…' }));
+    fireEvent.input(screen.getByLabelText('Reason'), { target: { value: 'stale lock' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+    expect(await screen.findByText('Released 1 lock held by PR #42.')).toBeInTheDocument();
+
+    fireEvent.click(await card('Depends on').findByRole('link', { name: 'stacks/prod/vpc' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'stacks/prod/vpc' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe(`/stacks/${vpcId}`);
+    expect(screen.queryByText('Released 1 lock held by PR #42.')).not.toBeInTheDocument();
+    expect(card('Lock').getByText('Not locked.')).toBeInTheDocument();
   });
 
   it('confirms an unlock the server answers without a body', async () => {
