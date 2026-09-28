@@ -178,6 +178,25 @@ describe('StackPage', () => {
     expect(card('Lock').getByText('locked')).toBeInTheDocument();
   });
 
+  it('never turns an API URL with another scheme into a link', async () => {
+    const hostile: StackDetail = clone(stack);
+    if (hostile.last_apply) hostile.last_apply.job_url = 'javascript:alert(1)';
+    if (hostile.drift) hostile.drift.issue_url = 'data:text/html,<script>alert(2)</script>';
+    const history = { items: [{ run_id: ids.run, sha: 'abc', status: 'failed', job_url: 'vbscript:msgbox(3)' }] };
+    renderWithApp(page, {
+      url,
+      handler: (c) =>
+        c.path === `/v1/stacks/${ids.stack}` ? json(hostile) : c.path === `/v1/stacks/${ids.stack}/runs` ? json(history) : undefined,
+    });
+    await screen.findByRole('table', { name: 'Run history of stacks/prod/eks' });
+    expect(card('Last apply').queryByRole('link', { name: 'Job log' })).not.toBeInTheDocument();
+    expect(card('Drift').getByRole('link', { name: '#57' })).toHaveAttribute('href', 'https://github.com/acme/infra/issues/57');
+    expect(screen.queryByRole('link', { name: 'log' })).not.toBeInTheDocument();
+    for (const a of document.querySelectorAll('a[href]')) {
+      expect(a.getAttribute('href')).toMatch(/^(\/|https?:\/\/)/);
+    }
+  });
+
   it('renders a stack without a lock, drift, plans or modules', async () => {
     const bare: StackDetail = { id: ids.stack, repo: 'acme/infra', key: 'stacks/dev/sandbox:blue', path: 'stacks/dev/sandbox', workspace: 'blue' };
     renderWithApp(page, { url, handler: (c) => (c.path === `/v1/stacks/${ids.stack}` ? json(bare) : undefined) });

@@ -103,6 +103,24 @@ describe('RunPage', () => {
     expect(screen.getByRole('link', { name: 'The job log has the full plan.' })).toBeInTheDocument();
   });
 
+  it('never turns a runner-reported URL with another scheme into a link', async () => {
+    const hostile = clone(run);
+    hostile.html_url = 'javascript:alert(1)';
+    for (const s of hostile.stacks ?? []) {
+      s.job_url = 'javascript:alert(2)';
+      for (const c of s.checks ?? []) if (c.details_url) c.details_url = ' javascript:alert(document.cookie)';
+    }
+    renderWithApp(page, { url, handler: (c) => (c.path === `/v1/runs/${ids.run}` ? json(hostile) : undefined) });
+    fireEvent.click(await screen.findByRole('button', { name: 'Details of stacks/prod/eks' }));
+    const drawer = screen.getByRole('dialog', { name: 'stacks/prod/eks' });
+    expect(within(drawer).getByText('+$62.40/month')).not.toHaveAttribute('href');
+    expect(screen.queryByRole('link', { name: 'Open on GitHub' })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('link', { name: 'Job log' })).toHaveLength(0);
+    for (const a of document.querySelectorAll('a[href]')) {
+      expect(a.getAttribute('href')).toMatch(/^(\/|https?:\/\/)/);
+    }
+  });
+
   it('re-runs and moves to the new run', async () => {
     const created = '0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6';
     const { calls } = renderWithApp(page, {

@@ -20,6 +20,7 @@ import {
   pullUrl,
   repoPath,
   s3ConsoleUrl,
+  safeUrl,
   shortId,
   shortSha,
   splitRepo,
@@ -35,6 +36,7 @@ interface Links {
 
 function RefCard({ title, stackRef, links, empty }: { title: string; stackRef?: RunStackRef; links: Links; empty: string }) {
   const id = `card-${title.toLowerCase().replace(/\W+/g, '-')}`;
+  const jobUrl = safeUrl(stackRef?.job_url);
   return (
     <section class="card" aria-labelledby={id}>
       <h2 id={id}>{title}</h2>
@@ -69,8 +71,8 @@ function RefCard({ title, stackRef, links, empty }: { title: string; stackRef?: 
               <TimeAgo value={stackRef.finished_at} />
             </dd>
           </dl>
-          {stackRef.job_url && (
-            <a class="card__link" href={stackRef.job_url}>
+          {jobUrl && (
+            <a class="card__link" href={jobUrl}>
               Job log
             </a>
           )}
@@ -82,6 +84,8 @@ function RefCard({ title, stackRef, links, empty }: { title: string; stackRef?: 
 
 function DriftCard({ stack, links }: { stack: StackDetail; links: Links }) {
   const drift = stack.drift;
+  const issueHref =
+    safeUrl(drift?.issue_url) ?? (drift?.issue_number ? issueUrl(links.repo, drift.issue_number, links.origin) : undefined);
   return (
     <section class="card" aria-labelledby="card-drift">
       <h2 id="card-drift">Drift</h2>
@@ -98,11 +102,11 @@ function DriftCard({ stack, links }: { stack: StackDetail; links: Links }) {
             <dd>
               <TimeAgo value={drift.checked_at} />
             </dd>
-            {drift.issue_number || drift.issue_url ? (
+            {issueHref ? (
               <>
                 <dt>Issue</dt>
                 <dd>
-                  <a href={drift.issue_url ?? issueUrl(links.repo, drift.issue_number ?? 0, links.origin)}>
+                  <a href={issueHref}>
                     {drift.issue_number ? `#${String(drift.issue_number)}` : 'Drift issue'}
                   </a>
                 </dd>
@@ -218,7 +222,7 @@ export function StackPage({ id }: { id: string }) {
   const ids = new Map((siblings.data?.items ?? []).map((st) => [st.key, st.id]));
   const links: Links = {
     repo: s.repo,
-    origin: githubOrigin(s.last_plan?.job_url ?? s.last_apply?.job_url ?? s.drift?.issue_url),
+    origin: githubOrigin([s.last_plan?.job_url, s.last_apply?.job_url, s.drift?.issue_url].find((u) => safeUrl(u))),
     stackHref: (key) => {
       const q = splitQualifiedStackKey(key);
       if (q.repo && q.repo !== s.repo) return repoPath(q.repo);
@@ -353,7 +357,10 @@ export function StackPage({ id }: { id: string }) {
               {
                 key: 'job',
                 header: 'Job',
-                render: (r) => (r.job_url ? <a href={r.job_url}>log</a> : <span class="muted">—</span>),
+                render: (r) => {
+                  const jobUrl = safeUrl(r.job_url);
+                  return jobUrl ? <a href={jobUrl}>log</a> : <span class="muted">—</span>;
+                },
               },
             ]}
           />

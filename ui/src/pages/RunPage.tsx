@@ -12,7 +12,7 @@ import { Badge, StatusBadge, statusTone } from '../components/StatusBadge';
 import { SummaryCounts } from '../components/SummaryCounts';
 import { Table } from '../components/Table';
 import { formatDuration, TimeAgo } from '../components/TimeAgo';
-import { commitUrl, githubOrigin, humanize, pullUrl, repoPath, shortId, shortSha } from '../format';
+import { commitUrl, githubOrigin, humanize, pullUrl, repoPath, safeUrl, shortId, shortSha } from '../format';
 import { usePageTitle } from '../usePageTitle';
 
 /** How often a run that is still in flight is refreshed. */
@@ -64,6 +64,7 @@ function AddressList({ summary }: { summary: PlanSummary | undefined }) {
 }
 
 function StackDetails({ stack, onClose }: { stack: RunStack; onClose: () => void }) {
+  const jobUrl = safeUrl(stack.job_url);
   return (
     <div class="drawer__body">
       <div class="drawer__header">
@@ -113,9 +114,9 @@ function StackDetails({ stack, onClose }: { stack: RunStack; onClose: () => void
           </>
         )}
       </dl>
-      {stack.job_url && (
+      {jobUrl && (
         <p>
-          <a href={stack.job_url}>Open the job log</a>
+          <a href={jobUrl}>Open the job log</a>
         </p>
       )}
       <AddressList summary={stack.summary} />
@@ -132,7 +133,10 @@ function StackDetails({ stack, onClose }: { stack: RunStack; onClose: () => void
               {
                 key: 'summary',
                 header: 'Summary',
-                render: (c) => (c.details_url ? <a href={c.details_url}>{c.summary ?? 'details'}</a> : c.summary),
+                render: (c) => {
+                  const href = safeUrl(c.details_url);
+                  return href ? <a href={href}>{c.summary ?? 'details'}</a> : c.summary;
+                },
               },
             ]}
           />
@@ -145,7 +149,7 @@ function StackDetails({ stack, onClose }: { stack: RunStack; onClose: () => void
             {stack.truncated && (
               <p class="text-warning">
                 The plan text was truncated at 256 KB.{' '}
-                {stack.job_url ? <a href={stack.job_url}>The job log has the full plan.</a> : 'The job log has the full plan.'}
+                {jobUrl ? <a href={jobUrl}>The job log has the full plan.</a> : 'The job log has the full plan.'}
               </p>
             )}
             <pre class="plan" tabindex={0} aria-label={`Plan output of ${stack.key}`}>
@@ -164,6 +168,7 @@ function StackDetails({ stack, onClose }: { stack: RunStack; onClose: () => void
 }
 
 function StackCard({ stack, onDetails }: { stack: RunStack; onDetails: () => void }) {
+  const jobUrl = safeUrl(stack.job_url);
   return (
     <article class={`stack-card tone-border-${statusTone(stack.status)}`} aria-labelledby={`stack-${stack.stack_id}`}>
       <h3 id={`stack-${stack.stack_id}`} class="stack-card__title">
@@ -177,7 +182,7 @@ function StackCard({ stack, onDetails }: { stack: RunStack; onDetails: () => voi
         {stack.reasons?.length ? ` · ${stack.reasons.map(humanize).join(', ')}` : ''}
       </p>
       <div class="stack-card__actions">
-        {stack.job_url && <a href={stack.job_url}>Job log</a>}
+        {jobUrl && <a href={jobUrl}>Job log</a>}
         <button
           type="button"
           class="button button--small"
@@ -215,7 +220,8 @@ export function RunPage({ id }: { id: string }) {
   if (res.error && !run) return <ErrorState error={res.error} onRetry={res.reload} what="run" />;
   if (!run) return <Loading />;
 
-  const origin = githubOrigin(run.html_url ?? run.stacks?.find((s) => s.job_url)?.job_url);
+  const htmlUrl = safeUrl(run.html_url);
+  const origin = githubOrigin(htmlUrl ?? run.stacks?.find((s) => safeUrl(s.job_url))?.job_url);
   const waves = runWaves(run);
   const selectedStack = run.stacks?.find((s) => s.key === selected);
 
@@ -297,8 +303,8 @@ export function RunPage({ id }: { id: string }) {
           <a class="button" href={repoPath(run.repo, { run: run.id })}>
             View in graph
           </a>
-          {run.html_url && (
-            <a class="button" href={run.html_url}>
+          {htmlUrl && (
+            <a class="button" href={htmlUrl}>
               Open on GitHub
             </a>
           )}

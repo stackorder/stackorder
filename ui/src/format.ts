@@ -13,14 +13,21 @@ export function shortId(id: string): string {
   return id.split('-')[0] ?? id;
 }
 
+/** Returns an absolute http or https URL from API data, or undefined for anything else, such as javascript: or data:. */
+export function safeUrl(link: string | undefined): string | undefined {
+  if (!link) return undefined;
+  try {
+    const url = new URL(link);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Returns the web origin of a GitHub link, so GitHub Enterprise links stay on their host. */
 export function githubOrigin(link: string | undefined): string {
-  if (!link) return GITHUB_ORIGIN;
-  try {
-    return new URL(link).origin;
-  } catch {
-    return GITHUB_ORIGIN;
-  }
+  const safe = safeUrl(link);
+  return safe ? new URL(safe).origin : GITHUB_ORIGIN;
 }
 
 /** Link to a pull request. */
