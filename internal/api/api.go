@@ -157,6 +157,10 @@ func (s *server) routes() http.Handler {
 	s.handle(mux, "GET /v1/modules", 0, s.with(humanAuth, s.modules))
 	s.handle(mux, "GET /v1/modules/{id}", 0, s.with(humanAuth, s.module))
 	s.handle(mux, "GET /v1/audit", 0, s.with(humanAuth, s.audit))
+	s.handle(mux, "GET /auth/login", 0, http.HandlerFunc(s.login))
+	s.handle(mux, "GET /auth/callback", 0, http.HandlerFunc(s.callback))
+	s.handle(mux, "POST /auth/logout", maxBodyBytes, http.HandlerFunc(s.logout))
+
 	s.handle(mux, "/v1/", 0, http.HandlerFunc(s.unknownEndpoint))
 	s.handle(mux, "/auth/", 0, http.HandlerFunc(s.unknownEndpoint))
 	s.handle(mux, "/", 0, http.HandlerFunc(s.serveUI))

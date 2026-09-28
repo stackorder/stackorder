@@ -1,0 +1,11 @@
+{{define "content"}}
+<h1>{{.Body.Heading}}</h1>
+{{range .Body.Lines}}<p>{{.}}</p>
+{{end}}
+{{- with .Body.Items}}<ul>
+{{range .}}<li><code>{{.}}</code></li>
+{{end}}</ul>
+{{end}}
+{{- with .Body.Links}}<p>{{range $i, $l := .}}{{if $i}} · {{end}}<a href="{{$l.Href}}">{{$l.Text}}</a>{{end}}</p>
+{{end}}
+{{end}}
