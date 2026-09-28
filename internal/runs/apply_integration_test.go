@@ -224,6 +224,10 @@ func TestEvaluateApplyGatePasses(t *testing.T) {
 	failures, err := e.svc.EvaluateApplyGate(e.ctx, &run, applier, nil)
 	require.NoError(t, err)
 	assert.Empty(t, failures)
+	failures, err = e.svc.EvaluateApplyGate(e.ctx, &run, "", nil)
+	require.NoError(t, err)
+	require.Len(t, failures, 1, "an apply nobody requested is not authorized")
+	assert.Equal(t, report.LayerAuthorization, failures[0].Layer)
 	cfg := baseConfig()
 	cfg.Apply.RequireApprovals = 1
 	e.setConfig(cfg)

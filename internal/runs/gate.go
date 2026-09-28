@@ -163,8 +163,12 @@ func splitTeam(owner, team string) (string, string) {
 }
 
 func (s *Service) gateAuthorization(ctx context.Context, in gateInput, cfg *v1.RepoConfig, defaults map[string]*v1.StackConfig, keys []string) ([]report.GateFailure, error) {
-	if in.requester == "" || strings.HasPrefix(in.requester, "apikey:") {
+	switch {
+	case strings.HasPrefix(in.requester, "apikey:"):
 		return nil, nil
+	case in.requester == "":
+		return []report.GateFailure{{Layer: report.LayerAuthorization, Stacks: keys,
+			Reason: "the apply has no requester, so nobody can be authorized to run it"}}, nil
 	}
 	owner, _, _ := strings.Cut(in.repo.FullName, "/")
 	groups := map[string][]string{}
