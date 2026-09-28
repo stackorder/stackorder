@@ -167,6 +167,7 @@ func (t *transport) do(ctx context.Context, r request) (*response, error) {
 		}
 		resp, err := t.once(ctx, r, target, token, payload, contentType)
 		if err != nil {
+			err = withoutURL(err)
 			if ctx.Err() != nil {
 				return nil, fmt.Errorf("gh: %s %s: %w", r.method, r.route, ctx.Err())
 			}
@@ -194,6 +195,14 @@ func (t *transport) do(ctx context.Context, r request) (*response, error) {
 			return nil, fmt.Errorf("gh: %s %s: %w", r.method, r.route, err)
 		}
 	}
+}
+
+func withoutURL(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return urlErr.Err
+	}
+	return err
 }
 
 func (t *transport) once(ctx context.Context, r request, target, token string, payload []byte, contentType string) (*response, error) {

@@ -111,3 +111,15 @@ func TestCreateAppFromManifest(t *testing.T) {
 	}
 	assert.Equal(t, 1, attempts)
 }
+
+func TestCreateAppFromManifestNetworkErrorOmitsCode(t *testing.T) {
+	fake := ghfake.New(t)
+	const code = "single-use-manifest-code"
+	fake.SetManifestConversion(code, gh.AppCredentials{ID: 1})
+	fake.FailNext("POST /app-manifests/{code}/conversions", 0, 1)
+
+	_, err := gh.CreateAppFromManifest(context.Background(), gh.Config{BaseURL: fake.URL(), HTTPClient: fake.HTTPClient()}, code)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "POST /app-manifests/{code}/conversions")
+	assert.NotContains(t, err.Error(), code)
+}
