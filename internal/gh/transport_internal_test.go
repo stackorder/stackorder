@@ -419,20 +419,6 @@ func TestRequestHeadersAndBody(t *testing.T) {
 	assert.Equal(t, map[string]any{"a": "b"}, body)
 }
 
-func TestFormBody(t *testing.T) {
-	var ct, value string
-	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ct = r.Header.Get("Content-Type")
-		_ = r.ParseForm()
-		value = r.PostForm.Get("k")
-		_, _ = w.Write([]byte(`{}`))
-	})
-	tr, _, _ := testTransport(t, h)
-	require.NoError(t, tr.call(context.Background(), request{method: http.MethodPost, route: "/f", path: "/f", form: map[string][]string{"k": {"v"}}}, nil))
-	assert.Equal(t, "application/x-www-form-urlencoded", ct)
-	assert.Equal(t, "v", value)
-}
-
 func TestUnencodableBody(t *testing.T) {
 	h, _ := sequence(t)
 	tr, _, _ := testTransport(t, h)

@@ -40,8 +40,6 @@ type request struct {
 	rawURL  string
 	query   url.Values
 	body    any
-	form    url.Values
-	accept  string
 	auth    tokenSource
 	noRetry bool
 }
@@ -138,11 +136,7 @@ func (t *transport) target(r request) string {
 func (t *transport) do(ctx context.Context, r request) (*response, error) {
 	var payload []byte
 	contentType := ""
-	switch {
-	case r.form != nil:
-		payload = []byte(r.form.Encode())
-		contentType = "application/x-www-form-urlencoded"
-	case r.body != nil:
+	if r.body != nil {
 		b, err := json.Marshal(r.body)
 		if err != nil {
 			return nil, fmt.Errorf("gh: %s %s: encode body: %w", r.method, r.route, err)
@@ -214,11 +208,7 @@ func (t *transport) once(ctx context.Context, r request, target, token string, p
 	if err != nil {
 		return nil, err
 	}
-	accept := r.accept
-	if accept == "" {
-		accept = MediaType
-	}
-	req.Header.Set("Accept", accept)
+	req.Header.Set("Accept", MediaType)
 	req.Header.Set("X-GitHub-Api-Version", APIVersion)
 	req.Header.Set("User-Agent", t.userAgent)
 	if contentType != "" {
