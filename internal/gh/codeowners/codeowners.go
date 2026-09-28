@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -220,6 +221,7 @@ func compile(pattern string) (*regexp.Regexp, error) {
 	if len(segs) > 1 && segs[len(segs)-1] == "" {
 		segs[len(segs)-1] = "**"
 	}
+	segs = slices.CompactFunc(segs, func(a, b string) bool { return a == "**" && b == "**" })
 
 	var re strings.Builder
 	re.WriteString(`\A`)
