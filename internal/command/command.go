@@ -110,6 +110,7 @@ func Parse(body string) (cmd *Command, ok bool) {
 			continue
 		}
 		if f, opened := openFence(trimmed); opened {
+			f.indent = indentation(line)
 			fence = f
 			continue
 		}
@@ -159,9 +160,10 @@ func stackKeys(tokens []string) []string {
 }
 
 type fenceState struct {
-	open  bool
-	char  byte
-	width int
+	open   bool
+	char   byte
+	width  int
+	indent int
 }
 
 func openFence(trimmed string) (fenceState, bool) {
@@ -180,6 +182,9 @@ func openFence(trimmed string) (fenceState, bool) {
 }
 
 func (f fenceState) closes(line string) bool {
+	if in := indentation(line); in >= 4 && in > f.indent {
+		return false
+	}
 	t := strings.TrimSpace(line)
 	n := runLength(t, f.char)
 	return n >= f.width && n == len(t)
