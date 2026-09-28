@@ -49,6 +49,7 @@ const repoSelect = `
 // UpsertRepo creates the repository or refreshes its GitHub fields, keeping
 // the stored configuration. GitHub ids are stable across renames, so a
 // different stale row holding the same full name is renamed out of the way.
+// Concurrent upserts of one full name run one after the other.
 func (s *Store) UpsertRepo(ctx context.Context, p RepoParams) (Repo, error) {
 	const op = "upsert repo"
 	if p.ID == 0 || p.FullName == "" {
@@ -56,6 +57,9 @@ func (s *Store) UpsertRepo(ctx context.Context, p RepoParams) (Repo, error) {
 	}
 	var out Repo
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('repo:' || lower($1), 0))`, p.FullName); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE repos SET full_name = full_name || '~' || id::text, updated_at = now()
 			WHERE lower(full_name) = lower($2) AND id <> $1`, p.ID, p.FullName); err != nil {

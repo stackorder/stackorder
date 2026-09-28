@@ -3,6 +3,8 @@
 package store_test
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -149,4 +151,27 @@ func TestRepos(t *testing.T) {
 	require.NoError(t, f.s.DeleteRepo(f.ctx, 300))
 	_, err = f.s.GetRepo(f.ctx, 300)
 	require.ErrorIs(t, err, store.ErrNotFound)
+}
+
+func TestUpsertRepoConcurrently(t *testing.T) {
+	f := newFixture(t)
+	const writers = 8
+	for round := range 3 {
+		id := int64(500 + round)
+		name := fmt.Sprintf("acme/concurrent-%d", round)
+		var wg sync.WaitGroup
+		errs := make([]error, writers)
+		for i := range writers {
+			wg.Go(func() {
+				_, errs[i] = f.s.UpsertRepo(f.ctx, store.RepoParams{ID: id, InstallationID: 1, FullName: name, DefaultBranch: "main"})
+			})
+		}
+		wg.Wait()
+		for _, err := range errs {
+			require.NoError(t, err, "concurrent upserts of a new repository all succeed")
+		}
+		got, err := f.s.GetRepo(f.ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, name, got.FullName)
+	}
 }
