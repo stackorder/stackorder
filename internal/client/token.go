@@ -10,10 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
-
-	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
@@ -22,9 +19,6 @@ const (
 	// EnvOIDCRequestToken is the runner variable holding the bearer token for
 	// the ID token endpoint.
 	EnvOIDCRequestToken = "ACTIONS_ID_TOKEN_REQUEST_TOKEN"
-	// OIDCRefreshMargin is how long before its exp claim a cached OIDC token
-	// is replaced.
-	OIDCRefreshMargin = 2 * time.Minute
 
 	tokenRequestTimeout = 30 * time.Second
 )
@@ -45,63 +39,25 @@ type TokenSource interface {
 	Token(ctx context.Context) (string, error)
 }
 
-type invalidator interface {
-	Invalidate()
-}
-
 type oidcSource struct {
 	audience string
 	http     *http.Client
-	now      func() time.Time
-
-	mu        sync.Mutex
-	token     string
-	refreshAt time.Time
 }
 
-// OIDCTokenSource returns a TokenSource that requests a GitHub Actions ID
+// OIDCTokenSource returns a TokenSource that requests a new GitHub Actions ID
 // token for audience from ACTIONS_ID_TOKEN_REQUEST_URL, authenticated with
-// ACTIONS_ID_TOKEN_REQUEST_TOKEN, both read on each fetch. A token is cached
-// until OIDCRefreshMargin before its exp claim, read without verifying the
-// signature; a token without a readable exp is not cached. The client drops
-// the cached token and fetches a new one once when the server answers 401,
-// which covers a server that accepts each token only once. Endpoint network
-// failures and 5xx answers match ErrUnreachable; missing variables return
-// ErrNoOIDC.
+// ACTIONS_ID_TOKEN_REQUEST_TOKEN, on every call: the server accepts each
+// token's jti only once, so every request attempt carries a fresh token.
+// Endpoint network failures and 5xx answers match ErrUnreachable; missing
+// variables return ErrNoOIDC.
 func OIDCTokenSource(audience string) TokenSource {
 	return &oidcSource{
 		audience: audience,
 		http:     &http.Client{Timeout: tokenRequestTimeout},
-		now:      time.Now,
 	}
 }
 
 func (s *oidcSource) Token(ctx context.Context) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.token != "" && s.now().Before(s.refreshAt) {
-		return s.token, nil
-	}
-	s.token = ""
-	tok, err := s.fetch(ctx)
-	if err != nil {
-		return "", err
-	}
-	if exp := expiry(tok); !exp.IsZero() {
-		if refreshAt := exp.Add(-OIDCRefreshMargin); s.now().Before(refreshAt) {
-			s.token, s.refreshAt = tok, refreshAt
-		}
-	}
-	return tok, nil
-}
-
-func (s *oidcSource) Invalidate() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.token = ""
-}
-
-func (s *oidcSource) fetch(ctx context.Context) (string, error) {
 	endpoint, bearer := os.Getenv(EnvOIDCRequestURL), os.Getenv(EnvOIDCRequestToken)
 	if endpoint == "" || bearer == "" {
 		return "", ErrNoOIDC
@@ -144,14 +100,6 @@ func (s *oidcSource) fetch(ctx context.Context) (string, error) {
 		return "", errors.New("client: OIDC token endpoint returned no token")
 	}
 	return out.Value, nil
-}
-
-func expiry(tok string) time.Time {
-	var claims jwt.RegisteredClaims
-	if _, _, err := jwt.NewParser().ParseUnverified(tok, &claims); err != nil || claims.ExpiresAt == nil {
-		return time.Time{}
-	}
-	return claims.ExpiresAt.Time
 }
 
 type apiKeySource string

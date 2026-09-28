@@ -406,11 +406,12 @@ func TestCallerCancellationIsNotUnreachable(t *testing.T) {
 	assert.Len(t, s.requests(), 1)
 }
 
-func TestSingleUseOIDCTokens(t *testing.T) {
-	tokens := newFakeTokenServer(t)
+func singleUseServer(t *testing.T, failFirst int) *apiServer {
+	t.Helper()
 	var mu sync.Mutex
 	seen := map[string]bool{}
-	s := newAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
+	accepted := 0
+	return newAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
 		var claims jwt.MapClaims
 		_, _, err := jwt.NewParser().ParseUnverified(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), &claims)
 		if err != nil {
@@ -421,31 +422,60 @@ func TestSingleUseOIDCTokens(t *testing.T) {
 		mu.Lock()
 		replay := seen[id]
 		seen[id] = true
+		accepted++
+		n := accepted
 		mu.Unlock()
-		if replay {
+		switch {
+		case replay:
 			writeJSON(w, http.StatusUnauthorized, v1.Error{Code: CodeUnauthorized, Message: "jti already used"})
-			return
+		case n <= failFirst:
+			writeJSON(w, http.StatusServiceUnavailable, v1.Error{Code: CodeInternal, Message: "database unavailable"})
+		default:
+			writeJSON(w, http.StatusOK, v1.Whoami{Login: "runner"})
 		}
-		writeJSON(w, http.StatusOK, v1.Whoami{Login: "runner"})
 	})
-	c := fastClient(s.srv.URL, OIDCTokenSource(testAudience))
-	for range 3 {
-		got, err := c.Whoami(context.Background())
-		require.NoError(t, err)
-		assert.Equal(t, "runner", got.Login)
-	}
-	assert.Equal(t, int32(3), tokens.fetches.Load())
-	assert.Len(t, s.requests(), 5)
 }
 
-func TestUnauthorizedRetriedOnceWithFreshToken(t *testing.T) {
+func TestSingleUseOIDCTokens(t *testing.T) {
+	t.Run("every call carries a fresh token", func(t *testing.T) {
+		tokens := newFakeTokenServer(t)
+		s := singleUseServer(t, 0)
+		c := fastClient(s.srv.URL, OIDCTokenSource(testAudience))
+		for range 3 {
+			got, err := c.Whoami(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, "runner", got.Login)
+		}
+		assert.Equal(t, int32(3), tokens.fetches.Load())
+		assert.Len(t, s.requests(), 3)
+	})
+	t.Run("retries after a 5xx carry a fresh token", func(t *testing.T) {
+		tokens := newFakeTokenServer(t)
+		s := singleUseServer(t, 2)
+		got, err := fastClient(s.srv.URL, OIDCTokenSource(testAudience)).Whoami(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, "runner", got.Login)
+		assert.Equal(t, int32(3), tokens.fetches.Load())
+		assert.Len(t, s.requests(), 3)
+	})
+	t.Run("a 5xx on every attempt stays unreachable", func(t *testing.T) {
+		newFakeTokenServer(t)
+		s := singleUseServer(t, 100)
+		_, err := fastClient(s.srv.URL, OIDCTokenSource(testAudience)).Whoami(context.Background())
+		require.Error(t, err)
+		assert.True(t, IsUnreachable(err), "%v", err)
+		assert.NotErrorIs(t, err, ErrUnauthorized)
+		assert.Len(t, s.requests(), DefaultRetries+1)
+	})
+}
+
+func TestUnauthorizedIsNotRetried(t *testing.T) {
 	tests := []struct {
-		name         string
-		ts           func(t *testing.T) TokenSource
-		wantRequests int
+		name string
+		ts   func(t *testing.T) TokenSource
 	}{
-		{name: "oidc source is refreshed once", ts: func(t *testing.T) TokenSource { newFakeTokenServer(t); return OIDCTokenSource(testAudience) }, wantRequests: 2},
-		{name: "api key is not retried", ts: func(*testing.T) TokenSource { return APIKeyTokenSource("sk_test") }, wantRequests: 1},
+		{name: "oidc", ts: func(t *testing.T) TokenSource { newFakeTokenServer(t); return OIDCTokenSource(testAudience) }},
+		{name: "api key", ts: func(*testing.T) TokenSource { return APIKeyTokenSource("sk_test") }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -454,7 +484,8 @@ func TestUnauthorizedRetriedOnceWithFreshToken(t *testing.T) {
 			})
 			_, err := fastClient(s.srv.URL, tt.ts(t)).Whoami(context.Background())
 			require.ErrorIs(t, err, ErrUnauthorized)
-			assert.Len(t, s.requests(), tt.wantRequests)
+			assert.False(t, IsUnreachable(err))
+			assert.Len(t, s.requests(), 1)
 		})
 	}
 }

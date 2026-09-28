@@ -28,13 +28,12 @@ type fakeTokenServer struct {
 	mu      sync.Mutex
 	status  int
 	body    string
-	exp     func(n int) time.Time
 	lastURL string
 }
 
 func newFakeTokenServer(t *testing.T) *fakeTokenServer {
 	t.Helper()
-	f := &fakeTokenServer{t: t, status: http.StatusOK, exp: func(int) time.Time { return time.Now().Add(time.Hour) }}
+	f := &fakeTokenServer{t: t, status: http.StatusOK}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	t.Setenv(EnvOIDCRequestURL, f.srv.URL+"/idtoken?api-version=2.0")
@@ -64,9 +63,7 @@ func (f *fakeTokenServer) serve(w http.ResponseWriter, r *http.Request) {
 		"aud": r.URL.Query().Get("audience"),
 		"iss": "https://token.actions.githubusercontent.com",
 		"jti": "jti-" + strconv.Itoa(n),
-	}
-	if exp := f.exp(n); !exp.IsZero() {
-		claims["exp"] = exp.Unix()
+		"exp": time.Now().Add(time.Hour).Unix(),
 	}
 	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte("test-key"))
 	if err != nil {
@@ -111,66 +108,17 @@ func TestOIDCTokenSourceURLWithoutQuery(t *testing.T) {
 	assert.Equal(t, "/idtoken?audience=https%3A%2F%2Fstackorder.example", f.lastURL)
 }
 
-func TestOIDCTokenSourceCaching(t *testing.T) {
-	tests := []struct {
-		name        string
-		exp         func(n int) time.Time
-		calls       int
-		wantFetches int32
-	}{
-		{name: "cached until near expiry", exp: func(int) time.Time { return time.Now().Add(time.Hour) }, calls: 3, wantFetches: 1},
-		{name: "inside refresh margin", exp: func(int) time.Time { return time.Now().Add(90 * time.Second) }, calls: 3, wantFetches: 3},
-		{name: "no exp claim", exp: func(int) time.Time { return time.Time{} }, calls: 2, wantFetches: 2},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newFakeTokenServer(t)
-			f.exp = tt.exp
-			ts := OIDCTokenSource(testAudience)
-			for range tt.calls {
-				_, err := ts.Token(context.Background())
-				require.NoError(t, err)
-			}
-			assert.Equal(t, tt.wantFetches, f.fetches.Load())
-		})
-	}
-}
-
-func TestOIDCTokenSourceRefreshesBeforeExpiry(t *testing.T) {
-	f := newFakeTokenServer(t)
-	start := time.Now()
-	f.exp = func(int) time.Time { return start.Add(10 * time.Minute) }
-	clock := start
-	ts := OIDCTokenSource(testAudience).(*oidcSource)
-	ts.now = func() time.Time { return clock }
-
-	steps := []struct {
-		at      time.Duration
-		wantJTI string
-	}{
-		{at: 0, wantJTI: "jti-1"},
-		{at: 7 * time.Minute, wantJTI: "jti-1"},
-		{at: 8*time.Minute - time.Second, wantJTI: "jti-1"},
-		{at: 8*time.Minute + time.Second, wantJTI: "jti-2"},
-	}
-	for _, step := range steps {
-		clock = start.Add(step.at)
-		tok, err := ts.Token(context.Background())
-		require.NoError(t, err)
-		assert.Equal(t, step.wantJTI, jti(t, tok), "at %s", step.at)
-	}
-}
-
-func TestOIDCTokenSourceInvalidate(t *testing.T) {
+func TestOIDCTokenSourceFetchesEveryCall(t *testing.T) {
 	f := newFakeTokenServer(t)
 	ts := OIDCTokenSource(testAudience)
-	first, err := ts.Token(context.Background())
-	require.NoError(t, err)
-	ts.(invalidator).Invalidate()
-	second, err := ts.Token(context.Background())
-	require.NoError(t, err)
-	assert.NotEqual(t, jti(t, first), jti(t, second))
-	assert.Equal(t, int32(2), f.fetches.Load())
+	got := make([]string, 0, 3)
+	for range 3 {
+		tok, err := ts.Token(context.Background())
+		require.NoError(t, err)
+		got = append(got, jti(t, tok))
+	}
+	assert.Equal(t, []string{"jti-1", "jti-2", "jti-3"}, got)
+	assert.Equal(t, int32(3), f.fetches.Load())
 }
 
 func TestOIDCTokenSourceErrors(t *testing.T) {

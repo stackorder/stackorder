@@ -242,7 +242,6 @@ func (c *Client) do(ctx context.Context, method, path string, auth bool, in, out
 		}
 		body = b
 	}
-	reauthenticated := false
 	attempts := 0
 	for {
 		attempts++
@@ -252,14 +251,6 @@ func (c *Client) do(ctx context.Context, method, path string, auth bool, in, out
 		}
 		if ctx.Err() != nil {
 			return fmt.Errorf("client: %s %s: %w", method, path, ctx.Err())
-		}
-		if auth && !reauthenticated && errors.Is(err, ErrUnauthorized) {
-			if inv, ok := c.ts.(invalidator); ok {
-				inv.Invalidate()
-				reauthenticated = true
-				attempts--
-				continue
-			}
 		}
 		if !IsUnreachable(err) {
 			return fmt.Errorf("client: %s %s: %w", method, path, err)
