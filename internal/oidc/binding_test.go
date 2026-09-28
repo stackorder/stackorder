@@ -34,6 +34,7 @@ func dispatchClaims() *Claims {
 		Ref:            "refs/heads/main",
 		SHA:            headSHA,
 		RunID:          "2002",
+		RunAttempt:     "1",
 		Environment:    "production",
 		JobWorkflowRef: "stackorder/actions/.github/workflows/run.yml@refs/tags/v1.3.0",
 	}
@@ -42,7 +43,7 @@ func dispatchClaims() *Claims {
 var planBinding = PlanBinding{Repository: "acme/infra", RepositoryID: "42", SHA: headSHA, PRNumber: 7}
 
 var dispatchBinding = DispatchBinding{
-	Repository: "acme/infra", RepositoryID: "42", RunID: 2002, Environment: "production", DefaultBranch: "main", SHA: headSHA,
+	Repository: "acme/infra", RepositoryID: "42", RunID: 2002, RunAttempt: 1, Environment: "production", DefaultBranch: "main", SHA: headSHA,
 }
 
 func TestBindPlan(t *testing.T) {
@@ -108,12 +109,17 @@ func TestBindDispatch(t *testing.T) {
 		{name: "environment case differs", mutate: func(c *Claims) { c.Environment = "Production" }},
 		{name: "no environment expected", binding: func(b *DispatchBinding) { b.Environment = "" }, mutate: func(c *Claims) { c.Environment = "" }},
 		{name: "no sha expected", binding: func(b *DispatchBinding) { b.SHA = "" }, mutate: func(c *Claims) { c.SHA = otherSHA }},
+		{name: "no run_attempt expected", binding: func(b *DispatchBinding) { b.RunAttempt = 0 }, mutate: func(c *Claims) { c.RunAttempt = "3" }},
 		{name: "repository", mutate: func(c *Claims) { c.Repository = "evil/infra" }, wantReason: "repository", wantGot: "evil/infra"},
 		{name: "repository_id", mutate: func(c *Claims) { c.RepositoryID = "7" }, wantReason: "repository_id", wantGot: "7"},
 		{name: "event_name", mutate: func(c *Claims) { c.EventName = "pull_request" }, wantReason: "event_name", wantGot: "pull_request"},
 		{name: "run_id", mutate: func(c *Claims) { c.RunID = "2003" }, wantReason: "run_id", wantGot: "2003"},
 		{name: "run_id not canonical", mutate: func(c *Claims) { c.RunID = "02002" }, wantReason: "run_id", wantGot: "02002"},
 		{name: "run_id missing", mutate: func(c *Claims) { c.RunID = "" }, wantReason: "run_id", wantGot: ""},
+		{name: "run_attempt of a re-run", mutate: func(c *Claims) { c.RunAttempt = "2" }, wantReason: "run_attempt", wantGot: "2"},
+		{name: "run_attempt missing", mutate: func(c *Claims) { c.RunAttempt = "" }, wantReason: "run_attempt", wantGot: ""},
+		{name: "binding for a re-run", binding: func(b *DispatchBinding) { b.RunAttempt = 2 }, wantReason: "run_attempt", wantGot: "1"},
+		{name: "run_id checked before run_attempt", mutate: func(c *Claims) { c.RunID = "2003"; c.RunAttempt = "2" }, wantReason: "run_id", wantGot: "2003"},
 		{name: "ref of a feature branch", mutate: func(c *Claims) { c.Ref = "refs/heads/feature" }, wantReason: "ref", wantGot: "refs/heads/feature"},
 		{name: "ref of a PR", mutate: func(c *Claims) { c.Ref = "refs/pull/7/merge" }, wantReason: "ref", wantGot: "refs/pull/7/merge"},
 		{name: "ref of a tag", mutate: func(c *Claims) { c.Ref = "refs/tags/main" }, wantReason: "ref", wantGot: "refs/tags/main"},

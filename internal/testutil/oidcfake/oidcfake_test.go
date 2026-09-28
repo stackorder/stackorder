@@ -222,7 +222,7 @@ func TestTokensVerify(t *testing.T) {
 	got, err = v.Verify(t.Context(), iss.Token(dispatch))
 	require.NoError(t, err)
 	require.NoError(t, oidc.BindDispatch(got, oidc.DispatchBinding{
-		Repository: "acme/infra", RepositoryID: "42", RunID: 555, Environment: "production", DefaultBranch: "main", SHA: sha,
+		Repository: "acme/infra", RepositoryID: "42", RunID: 555, RunAttempt: 1, Environment: "production", DefaultBranch: "main", SHA: sha,
 	}))
 	require.NoError(t, oidc.BindWorkflowRef(got, oidc.DefaultWorkflowRefPattern))
 	assert.Equal(t, "repo:acme/infra:environment:production", got.Subject)

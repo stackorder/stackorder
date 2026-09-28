@@ -84,6 +84,9 @@ type DispatchBinding struct {
 	RepositoryID string
 	// RunID is the Actions workflow run the server dispatched.
 	RunID int64
+	// RunAttempt is the attempt of RunID the server expects; zero skips
+	// the check.
+	RunAttempt int
 	// Environment is the GitHub environment the server assigned to the
 	// stack; empty skips the check.
 	Environment string
@@ -97,8 +100,9 @@ type DispatchBinding struct {
 // BindDispatch checks that c was issued to the workflow_dispatch run the
 // server started: repository (case insensitive), repository_id, event_name
 // "workflow_dispatch", run_id, ref "refs/heads/<DefaultBranch>", then
-// environment (case insensitive, as GitHub treats environment names) when
-// b.Environment is set and sha when b.SHA is set. The first mismatch is
+// run_attempt when b.RunAttempt is set, environment (case insensitive, as
+// GitHub treats environment names) when b.Environment is set and sha when
+// b.SHA is set. The first mismatch is
 // returned as an *ErrBinding. Repository, RepositoryID, RunID and
 // DefaultBranch are required; a missing one is an error that is not an
 // *ErrBinding.
@@ -118,6 +122,9 @@ func BindDispatch(c *Claims, b DispatchBinding) error {
 		{"event_name", c.EventName, eventWorkflowDispatch, false},
 		{"run_id", c.RunID, strconv.FormatInt(b.RunID, 10), false},
 		{"ref", c.Ref, "refs/heads/" + branch, false},
+	}
+	if b.RunAttempt != 0 {
+		checks = append(checks, claimCheck{"run_attempt", c.RunAttempt, strconv.Itoa(b.RunAttempt), false})
 	}
 	if b.Environment != "" {
 		checks = append(checks, claimCheck{"environment", c.Environment, b.Environment, true})
