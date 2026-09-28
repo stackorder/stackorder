@@ -77,7 +77,9 @@ type Request struct {
 	Login          string
 	Header         http.Header
 	Body           []byte
-	Status         int
+	// Status is the response status, or 0 when FailNext dropped the
+	// connection.
+	Status int
 }
 
 // Server is the fake GitHub API. It is safe for concurrent use.

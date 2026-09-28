@@ -159,7 +159,7 @@ func (s *Server) rateHeaders(w http.ResponseWriter) {
 	h.Set("X-RateLimit-Resource", "core")
 }
 
-func (s *Server) injectFailure(w http.ResponseWriter, r *http.Request) bool {
+func (s *Server) injectFailure(w *statusWriter, r *http.Request) bool {
 	s.mu.Lock()
 	var hit *failure
 	for i := range s.failures {
@@ -179,6 +179,7 @@ func (s *Server) injectFailure(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	if hit.status == 0 {
+		w.status = 0
 		panic(http.ErrAbortHandler)
 	}
 	for k, v := range hit.header {

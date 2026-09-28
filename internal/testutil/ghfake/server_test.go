@@ -263,6 +263,7 @@ func TestFailureInjection(t *testing.T) {
 	last := reqs[len(reqs)-1]
 	assert.Equal(t, "GET /repos/{owner}/{repo}", last.Pattern)
 	assert.Equal(t, "none", last.Auth)
+	assert.Zero(t, last.Status)
 }
 
 func TestLatency(t *testing.T) {
