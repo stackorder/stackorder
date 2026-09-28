@@ -221,7 +221,11 @@ codes `unauthorized` (401), `forbidden` (403), `not_found` (404), `invalid`
 `locked` (423, `details.conflicts`), `superseded` (409), `unconfirmed`,
 `internal` (500), `unavailable` (503, JWKS or database unreachable). The CLI
 exits 3 on `forbidden`, `conflict`, `refused`, `locked`, `superseded` and
-`unconfirmed`.
+`unconfirmed`. `invalid` carries `details.field` and `details.reason` when a
+field is at fault. A body over its route's limit (8 MB for graph uploads,
+1 MB for every other POST under `/v1` and `/auth`) is 413 with code
+`invalid`; `POST /webhooks/github` has no API limit, `internal/webhook`
+bounds it.
 
 ## Human and automation endpoints
 
@@ -230,11 +234,11 @@ with `next_cursor`.
 
 | Method and path | Response |
 | --- | --- |
-| `GET /v1/me` | `v1.Whoami` |
+| `GET /v1/me` | `v1.Whoami`; for an API key `login` is `apikey:<name>` and `admin` is true |
 | `GET /v1/overview` | `v1.Overview` |
 | `GET /v1/repos` | `v1.Page[v1.RepoSummary]` |
 | `GET /v1/repos/{owner}/{repo}/graph?ref=&run=` | `v1.GraphView`; without `ref` the repo's default-branch graph when known, else the latest |
-| `GET /v1/repos/{owner}/{repo}/runs?status=&pr=` | `v1.Page[v1.Run]`, newest first |
+| `GET /v1/repos/{owner}/{repo}/runs?status=&pr=&mode=` | `v1.Page[v1.Run]`, newest first |
 | `GET /v1/repos/{owner}/{repo}/stacks` | `v1.Page[v1.StackDetail]` |
 | `GET /v1/stacks/{id}` | `v1.StackDetail` |
 | `GET /v1/stacks/{id}/runs` | `v1.Page[v1.RunStackRef]`, newest first |
@@ -252,10 +256,16 @@ with `next_cursor`.
 
 A session user sees only repos whose installation account is one of the
 user's organisations (or the user's own login); API keys see everything.
-State-changing human endpoints require the session cookie plus a same-origin
-`Origin` or `Sec-Fetch-Site` check. Unknown `/v1/*` and `/auth/*` paths
-return a JSON 404, not the UI. Everything else under `/` serves the embedded
-UI with SPA fallback to `index.html`. `GET /metrics` is open unless
+A session records the organisations at sign-in, so a membership change
+takes effect at the next sign-in. For a person, `GET /v1/audit` keeps the
+entries they made and those whose `details.repo`, or `target` (`owner/repo…`
+or `kind:owner/repo…`), names a repository they see, so a page may hold
+fewer than `limit` items and still carry `next_cursor`; `GET /v1/modules`
+sets `total` only for API keys. State-changing human endpoints require the
+session cookie plus a same-origin `Origin` or `Sec-Fetch-Site` check.
+Unknown `/v1/*` and `/auth/*` paths return a JSON 404, not the UI.
+Everything else under `/` serves the embedded UI with SPA fallback to
+`index.html`. `GET /metrics` is open unless
 `STACKORDER_METRICS_TOKEN` is set, in which case it requires
 `Authorization: Bearer <token>`. `GET /readyz` returns 200 when the database
 answers, in setup mode too.
@@ -385,6 +395,10 @@ characters with the sha256 stored and a 10 character display prefix. Edges
 store `from_key` and `to_key` text so they can point at external stacks;
 backends are a `backend` jsonb column. Job `dedupe_key` stays taken until the
 job is pruned, so recurring jobs put a time slot in the key.
+`store.SetDefaultGraph` records `repos.default_graph_id` (the runs service
+calls it when a PR merges) and `store.GetDefaultGraph` reads it back;
+`ModuleConsumers` and `StackModules` read each repository's default-branch
+graph, falling back to its latest graph.
 
 ## CLI environment
 
