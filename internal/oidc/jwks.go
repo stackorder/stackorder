@@ -44,7 +44,7 @@ func (v *Verifier) fetch(ctx context.Context) (map[string]*rsa.PublicKey, error)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrJWKSUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%w: GET %s: status %d", ErrJWKSUnavailable, v.cfg.JWKSURL, resp.StatusCode)
 	}

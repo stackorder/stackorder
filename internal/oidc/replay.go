@@ -19,10 +19,10 @@ type JTIStore interface {
 }
 
 // VerifyOnce is Verify followed by a replay check: a token without a jti is
-// rejected with ErrMalformed, and one whose jti store has already seen is
-// rejected with ErrReplay. The jti is retained until the last instant at
-// which Verify would still accept the token, so a runner must request a
-// fresh token for every call it makes.
+// rejected with ErrMalformed, and one whose jti the store has already seen
+// is rejected with ErrReplay. Each token is thus accepted once, so a runner
+// must request a fresh token for every call it makes. The jti is retained
+// until the last instant at which Verify would still accept the token.
 func (v *Verifier) VerifyOnce(ctx context.Context, raw string, store JTIStore) (*Claims, error) {
 	c, err := v.Verify(ctx, raw)
 	if err != nil {

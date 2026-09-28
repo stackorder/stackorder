@@ -20,11 +20,6 @@ const (
 	maxTokenBytes      = 64 << 10
 )
 
-// ErrJWKSUnavailable reports that the issuer's key set could not be fetched,
-// so the token could be neither accepted nor rejected. It does not match
-// ErrInvalidToken; callers should answer with a server error.
-var ErrJWKSUnavailable = errors.New("oidc: JWKS unavailable")
-
 // Config configures a Verifier. Only Audience is required.
 type Config struct {
 	// Issuer is the expected iss claim. Default DefaultIssuer.
@@ -124,8 +119,10 @@ func New(cfg Config) (*Verifier, error) {
 //
 // The JWKS is fetched on first use and cached for CacheTTL. A kid missing
 // from the cache triggers a refresh, at most once per MinRefresh; a stale
-// cache is kept when a refresh fails. Verify does not check claims that
-// depend on the run; see BindPlan, BindDispatch and BindWorkflowRef.
+// cache is kept when a refresh fails. When no usable key set can be fetched
+// the error wraps ErrJWKSUnavailable instead of ErrInvalidToken. Verify
+// does not check claims that depend on the run; see BindPlan, BindDispatch
+// and BindWorkflowRef.
 func (v *Verifier) Verify(ctx context.Context, rawToken string) (*Claims, error) {
 	if len(rawToken) > maxTokenBytes {
 		return nil, fmt.Errorf("%w: token is %d bytes", ErrMalformed, len(rawToken))

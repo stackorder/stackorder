@@ -13,7 +13,10 @@
 // not match the run is reported as an *ErrBinding naming the claim.
 package oidc
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 const (
 	// DefaultIssuer is the issuer of GitHub.com Actions OIDC tokens.
@@ -64,3 +67,8 @@ var (
 	// ErrReplay reports a token whose jti was already used.
 	ErrReplay error = tokenError("oidc: token replayed")
 )
+
+// ErrJWKSUnavailable reports that the issuer's key set could not be fetched,
+// so the token could be neither accepted nor rejected. It does not match
+// ErrInvalidToken; callers should answer with a server error.
+var ErrJWKSUnavailable = errors.New("oidc: JWKS unavailable")
