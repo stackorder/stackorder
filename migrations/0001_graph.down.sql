@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS module_versions;
+DROP TABLE IF EXISTS edges;
+DROP TABLE IF EXISTS graph_modules;
+DROP TABLE IF EXISTS modules;
+DROP TABLE IF EXISTS graph_stacks;
+DROP TABLE IF EXISTS stacks;
+DROP TABLE IF EXISTS graphs;
+DROP TABLE IF EXISTS repos;
+DROP TABLE IF EXISTS installations;
