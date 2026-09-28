@@ -265,6 +265,8 @@ export interface RunStack {
   plan_text?: string;
   truncated?: boolean;
   checks?: Check[];
+  blocked_by?: string[];
+  plan_output?: string;
   started_at?: string;
   finished_at?: string;
 }
