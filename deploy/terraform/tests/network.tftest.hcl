@@ -232,3 +232,41 @@ run "enterprise_server_meta" {
     error_message = "GITHUB_API_URL must follow github_api_url."
   }
 }
+
+run "webhook_ranges_only_without_hooks" {
+  command = plan
+
+  variables {
+    github_webhook_ip_ranges_only = true
+    admin_cidrs                   = ["198.51.100.0/24"]
+  }
+
+  override_data {
+    target = data.http.github_meta[0]
+    values = {
+      status_code   = 200
+      response_body = "{\"web\":[\"192.30.252.0/22\"]}"
+    }
+  }
+
+  expect_failures = [data.http.github_meta]
+}
+
+run "webhook_ranges_only_meta_error" {
+  command = plan
+
+  variables {
+    github_webhook_ip_ranges_only = true
+    admin_cidrs                   = ["198.51.100.0/24"]
+  }
+
+  override_data {
+    target = data.http.github_meta[0]
+    values = {
+      status_code   = 503
+      response_body = "{\"hooks\":[\"192.30.252.0/22\"]}"
+    }
+  }
+
+  expect_failures = [data.http.github_meta]
+}
