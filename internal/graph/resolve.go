@@ -320,7 +320,7 @@ func (r *resolver) requestedKey(raw string) string {
 		return ""
 	}
 	repo, key := v1.SplitQualifiedStackKey(raw)
-	if repo != "" && repo != r.g.Repo {
+	if repo != "" && !strings.EqualFold(repo, r.g.Repo) {
 		return raw
 	}
 	return config.NormalizePath(key)

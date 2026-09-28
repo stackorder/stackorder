@@ -455,7 +455,7 @@ func TestResolveRequested(t *testing.T) {
 		{
 			name:        "requested keys are normalised and may be qualified with this repository",
 			paths:       []string{"modules/vpc/main.tf"},
-			requested:   []string{"./stacks/prod/vpc/", " acme/infra//stacks/prod/eks ", "", prodVPC},
+			requested:   []string{"./stacks/prod/vpc/", " Acme/Infra//stacks/prod/eks ", "", prodVPC},
 			wantWaves:   [][]string{{prodVPC}, {prodEKS}},
 			wantReasons: map[string][]v1.Reason{prodVPC: reasons(v1.ReasonModule), prodEKS: reasons(v1.ReasonDependent)},
 		},
