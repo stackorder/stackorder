@@ -148,6 +148,7 @@ export function Graph({ layout, label, onActivate }: GraphProps) {
         ref={svgRef}
         class="graph__svg"
         viewBox={`0 0 ${String(layout.width)} ${String(layout.height)}`}
+        style={{ aspectRatio: `${String(layout.width)} / ${String(layout.height)}` }}
         role="group"
         aria-label={label}
         onWheel={onWheel}

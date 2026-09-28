@@ -271,6 +271,16 @@ main:focus {
   outline: none;
 }
 
+@media (max-width: 600px) {
+  main {
+    padding: 1rem;
+  }
+
+  .app-header {
+    padding: 0.6rem 1rem;
+  }
+}
+
 .page {
   display: flex;
   flex-direction: column;
@@ -828,7 +838,9 @@ label {
 .graph__svg {
   display: block;
   width: 100%;
-  height: clamp(320px, 62vh, 760px);
+  height: auto;
+  min-height: 280px;
+  max-height: 72vh;
   cursor: grab;
   touch-action: none;
   user-select: none;
