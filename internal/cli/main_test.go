@@ -33,7 +33,7 @@ func runTests(m *testing.M) int {
 		return 1
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	fakeTFBin = filepath.Join(dir, "faketf")
+	fakeTFBin = filepath.Join(dir, "terraform")
 	if runtime.GOOS == "windows" {
 		fakeTFBin += ".exe"
 	}

@@ -295,7 +295,7 @@ func (a *app) printError(err error) {
 	if errors.As(err, &exitErr) && exitErr.Err == nil {
 		return
 	}
-	msg := err.Error()
+	msg := redactMessage(err.Error())
 	if errors.Is(err, context.Canceled) {
 		msg = "interrupted: " + msg
 	}

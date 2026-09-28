@@ -42,6 +42,7 @@ func firstNonEmpty(values ...string) string {
 func isUnreachable(err error) bool { return client.IsUnreachable(err) }
 
 func (a *app) warn(msg string) {
+	msg = redactMessage(msg)
 	if inActions() {
 		a.annotate("warning", msg)
 		return

@@ -546,3 +546,21 @@ func TestInterruptedCommand(t *testing.T) {
 	assert.Equal(t, ExitFailure, ExitCode(err))
 	assert.Contains(t, stderr.String(), "stackorder: interrupted: ")
 }
+
+func TestPlanErrorsAreRedacted(t *testing.T) {
+	h := newHarness(t)
+	fs := newFakeServer(t)
+	h.ci(fs, "pull_request", prPayload())
+	t.Setenv("TF_VAR_api_token", "tok-4f9a2c7e")
+	h.tf.PlanExit = 1
+	h.tf.FailOutput = `Invalid value: password = "hunter2hunter2", token tok-4f9a2c7e`
+	fs.failWith("result", 404, "not_found")
+
+	r := h.run("plan", "--stack", "stacks/app", "--run-id", "run-1")
+	require.Equal(t, ExitFailure, r.code, r.stderr)
+	assert.Contains(t, r.stderr, `::error::plan of stacks/app failed: terraform plan exited with code 1: Error: Invalid value: password = "***", token ***`)
+	assert.Contains(t, r.stderr, "::warning::reporting the plan result")
+	assert.Contains(t, r.stderr, "::add-mask::hunter2hunter2\n")
+	assert.NotContains(t, stripMaskCommands(r.stderr), "hunter2hunter2")
+	assert.NotContains(t, stripMaskCommands(r.stdout+r.stderr), "tok-4f9a2c7e")
+}

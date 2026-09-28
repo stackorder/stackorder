@@ -175,3 +175,7 @@ func (m *maskWriter) emit(secrets []string, line string) error {
 	_, err := io.WriteString(m.w, line)
 	return err
 }
+
+func redactMessage(msg string) string {
+	return tf.NewRedactor(envSecrets()).Redact(msg)
+}
