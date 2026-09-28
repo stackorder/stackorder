@@ -148,7 +148,7 @@ The first token must be exactly `stackorder`, case insensitive, at the start of 
 
 **Why.** With `apply.from_plan: true`, the CLI applies the saved plan file. When the artifact has expired it re-plans, and refuses unless the new plan touches the same resource addresses as the recorded one.
 
-**Fix.** Re-plan the PR (push or comment `stackorder plan`), review the new plan, and apply again. Longer artifact retention in the repository settings avoids this for slow reviews.
+**Fix.** Re-plan the PR (push or comment `stackorder plan`), review the new plan, and apply again. The reusable `plan.yml` keeps plan artifacts for 5 days, so an apply requested later than that always meets an expired artifact; the repository's artifact retention setting cannot extend it.
 
 ## OIDC rejected {#oidc}
 
