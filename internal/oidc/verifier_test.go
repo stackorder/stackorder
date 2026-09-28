@@ -306,14 +306,19 @@ func TestVerifyKeepsStaleKeysWhenRefreshFails(t *testing.T) {
 	require.NoError(t, verify(), "a stale key is used when the refresh fails")
 	assert.Equal(t, 2, iss.JWKSRequests())
 
-	require.ErrorIs(t, verify(oidcfake.WithKID("kid-9")), oidc.ErrUnknownKey, "throttled right after the failed attempt")
+	err := verify(oidcfake.WithKID("kid-9"))
+	require.ErrorIs(t, err, oidc.ErrJWKSUnavailable, "throttled right after the failed attempt, an unknown kid still cannot be judged")
+	assert.NotErrorIs(t, err, oidc.ErrInvalidToken)
+	assert.ErrorContains(t, err, "status 500")
 	assert.Equal(t, 2, iss.JWKSRequests())
 
 	iss.Advance(oidc.DefaultMinRefresh)
-	err := verify(oidcfake.WithKID("kid-9"))
+	err = verify(oidcfake.WithKID("kid-9"))
 	require.ErrorIs(t, err, oidc.ErrJWKSUnavailable, "an unknown kid cannot be judged while the JWKS is down")
 	assert.NotErrorIs(t, err, oidc.ErrInvalidToken)
 	assert.ErrorContains(t, err, "status 500")
+	assert.Equal(t, 3, iss.JWKSRequests())
+	require.NoError(t, verify(), "the stale key still verifies while throttled")
 	assert.Equal(t, 3, iss.JWKSRequests())
 
 	iss.FailJWKS(0)

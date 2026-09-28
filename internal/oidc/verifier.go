@@ -119,8 +119,9 @@ func New(cfg Config) (*Verifier, error) {
 //
 // The JWKS is fetched on first use and cached for CacheTTL. A kid missing
 // from the cache triggers a refresh, at most once per MinRefresh; a stale
-// cache is kept when a refresh fails. When no usable key set can be fetched
-// the error wraps ErrJWKSUnavailable instead of ErrInvalidToken. Verify
+// cache is kept when a refresh fails. When the kid cannot be found because
+// the last fetch attempt failed, throttled or not, the error wraps
+// ErrJWKSUnavailable instead of ErrInvalidToken. Verify
 // does not check claims that depend on the run; see BindPlan, BindDispatch
 // and BindWorkflowRef.
 func (v *Verifier) Verify(ctx context.Context, rawToken string) (*Claims, error) {
@@ -209,15 +210,12 @@ func (v *Verifier) refresh(ctx context.Context, now time.Time) error {
 
 	v.mu.Lock()
 	throttled := !v.attemptedAt.IsZero() && now.Sub(v.attemptedAt) < v.cfg.MinRefresh
-	everFetched, lastErr := !v.fetchedAt.IsZero(), v.lastErr
+	lastErr := v.lastErr
 	if !throttled {
 		v.attemptedAt = now
 	}
 	v.mu.Unlock()
 	if throttled {
-		if everFetched {
-			return nil
-		}
 		return lastErr
 	}
 
