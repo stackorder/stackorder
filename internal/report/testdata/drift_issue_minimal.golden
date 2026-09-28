@@ -1,0 +1,5 @@
+title: Drift detected in stacks/dev/app:green
+
+The scheduled drift check on the default branch found that `stacks/dev/app:green` no longer matches its configuration.
+
+Reconcile by applying the configuration through a pull request, or by changing the configuration to match what is deployed. Stackorder updates this issue after every drift check.

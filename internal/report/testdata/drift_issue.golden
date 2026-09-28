@@ -1,0 +1,24 @@
+title: Drift detected in stacks/prod/vpc
+
+The scheduled drift check on the default branch found that `stacks/prod/vpc` in `acme/infra` no longer matches its configuration.
+
+**Checked:** 2026-09-28 06:00 UTC · **Environment:** `production` · **State:** `s3://acme-tfstate/prod/vpc.tfstate` · [Stack details](https://stackorder.example.com/stacks/stk-prod-vpc)
+
+0 to add, 2 to change, 1 to destroy.
+
+| Add | Change | Destroy | Replace |
+| ---: | ---: | ---: | ---: |
+| 0 | 2 | 1 | 0 |
+
+**To change (2)**
+
+- `aws_security_group.web`
+- `aws_route_table.private`
+
+**To destroy (1)**
+
+- `aws_route.legacy`
+
+Last [apply](https://stackorder.example.com/runs/8e7d6c5b-0000-4000-8000-000000000031) at [`0a1b2c3`](https://github.com/acme/infra/commit/0a1b2c3d4e5f60718293a4b5c6d7e8f901234567) from [#31](https://github.com/acme/infra/pull/31) on 2026-09-25 06:00 UTC.
+
+Reconcile by applying the configuration through a pull request, or by changing the configuration to match what is deployed. Stackorder updates this issue after every drift check.
