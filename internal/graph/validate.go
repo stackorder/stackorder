@@ -13,7 +13,8 @@ import (
 // their type, self edges and dangling edge endpoints; the error also wraps
 // ErrCycle when depends_on and reads_state edges form a cycle anywhere in the
 // graph. A depends_on edge to an unknown stack, a stack key that does not
-// match its path and workspace, a local module without a path and a cycle of
+// match its path and workspace, a local stack without a canonical directory
+// inside the repository, a local module without a path and a cycle of
 // modules are only warnings. Warnings are sorted.
 func Validate(g *v1.Graph) (warnings []string, err error) {
 	if g == nil {
@@ -32,6 +33,9 @@ func Validate(g *v1.Graph) (warnings []string, err error) {
 		}
 		if !s.External && s.Path != "" && s.Key != v1.StackKey(s.Path, s.Workspace) {
 			warn("stack %s: key does not match path %q and workspace %q", s.Key, s.Path, s.Workspace)
+		}
+		if !s.External && !schedulable(s) {
+			warn("stack %s: no canonical directory inside the repository, so it is never scheduled", s.Key)
 		}
 	}
 	for _, k := range ix.dupStacks {

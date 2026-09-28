@@ -145,6 +145,21 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		{
+			name: "local stack outside the repository",
+			graph: newGraph().
+				stack(v1.Stack{Key: "../../etc"}).
+				stack(v1.Stack{Key: "s/escape", Path: "../s/escape"}).
+				stack(v1.Stack{Key: "./s/dot"}).
+				external("acme/net//s/tgw", "acme/net").
+				build(),
+			wantWarnings: []string{
+				`stack ../../etc: no canonical directory inside the repository, so it is never scheduled`,
+				`stack ./s/dot: no canonical directory inside the repository, so it is never scheduled`,
+				`stack s/escape: key does not match path "../s/escape" and workspace ""`,
+				`stack s/escape: no canonical directory inside the repository, so it is never scheduled`,
+			},
+		},
+		{
 			name: "local module without a path",
 			graph: newGraph().
 				module(v1.Module{Key: "acme/infra//modules/np", Kind: v1.ModuleLocal}).
