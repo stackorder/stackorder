@@ -40,9 +40,14 @@ Every non-2xx response has this body:
 | `not_found` | The run, stack, module or repository does not exist or is not visible to the caller. |
 | `conflict` | The request conflicts with the current state, such as a result for a run that has already finished. |
 | `invalid` | The body or parameters failed validation. |
-| `locked` | A stack is locked by another pull request or run. |
+| `refused` | The apply gate refused the request; `details.failures` lists each failing layer with its reason. |
+| `locked` | A stack is locked by another pull request or run; `details.conflicts` lists the locks. |
+| `superseded` | A newer commit replaced the run. |
 | `unconfirmed` | The request depends on a result the server never confirmed. |
 | `internal` | A server error. |
+| `unavailable` | GitHub's signing keys, GitHub itself or the database cannot be reached, or the server is in setup mode. |
+
+`invalid` carries `details.field` and `details.reason` when a field is at fault. A body larger than the route allows, 8 MB for a graph upload and 1 MB otherwise, is refused with status 413 and code `invalid`.
 
 ## Endpoints {#endpoints}
 
@@ -53,24 +58,26 @@ Every non-2xx response has this body:
 | [`POST /v1/runs/{id}/stacks/{key}/result`](#stack-result) | Runner | `StackResult` | `RunStack` |
 | [`POST /v1/runs/{id}/stacks/{key}/checks/{name}`](#check-verdict) | Runner | `CheckVerdict` | `Check` |
 | [`GET /v1/runs/{id}`](#get-run) | Runner, person, automation | | `Run` |
-| [`POST /v1/runs/{id}/rerun`](#rerun) | Person, automation | | `Run` |
-| [`POST /v1/unlock`](#unlock-by-key) | Automation | `UnlockRequest` | `UnlockResponse` |
+| [`POST /v1/runs/{id}/rerun`](#rerun) | Person with write permission, automation | | `CreateRunResponse` |
+| [`POST /v1/unlock`](#unlock-by-key) | Person with write permission, automation | `UnlockRequest` | `UnlockResponse` |
 | [`POST /v1/stacks/{id}/unlock`](#unlock-by-id) | Person with write permission, automation | `UnlockRequest` | `UnlockResponse` |
-| [`GET /v1/me`](#me) | Person | | `Whoami` |
+| [`GET /v1/me`](#me) | Person, automation | | `Whoami` |
 | [`GET /v1/overview`](#overview) | Person, automation | | `Overview` |
 | [`GET /v1/repos`](#repos) | Person, automation | | `Page` of `RepoSummary` |
 | [`GET /v1/repos/{owner}/{repo}/graph`](#repo-graph) | Person, automation | `?ref=&run=` | `GraphView` |
-| [`GET /v1/repos/{owner}/{repo}/runs`](#repo-runs) | Person, automation | | `Page` of `Run` |
+| [`GET /v1/repos/{owner}/{repo}/runs`](#repo-runs) | Person, automation | `?status=&pr=&mode=` | `Page` of `Run` |
 | [`GET /v1/repos/{owner}/{repo}/stacks`](#repo-stacks) | Person, automation | | `Page` of `StackDetail` |
 | [`GET /v1/stacks/{id}`](#stack) | Person, automation | | `StackDetail` |
 | [`GET /v1/stacks/{id}/runs`](#stack-runs) | Person, automation | | `Page` of `RunStackRef` |
 | [`GET /v1/modules`](#modules) | Person, automation | | `Page` of `ModuleDetail` |
 | [`GET /v1/modules/{id}`](#modules) | Person, automation | | `ModuleDetail` |
+| [`GET /v1/audit`](#audit) | Person, automation | | `Page` of `AuditEntry` |
 | [`GET /auth/login`](#sign-in) | Browser | | Redirect to GitHub |
 | [`GET /auth/callback`](#sign-in) | Browser | | Sets the session cookie |
 | [`POST /auth/logout`](#sign-in) | Person | | Clears the session |
 | [`GET /setup`](#setup) | Browser | | The App manifest page |
 | [`GET /setup/callback`](#setup) | Browser, from GitHub | | The App credentials, once |
+| [`GET /setup/installed`](#setup) | Browser, from GitHub | | Confirms the installation |
 | [`POST /webhooks/github`](#webhooks) | GitHub | Webhook payload | `202 Accepted` |
 | [`GET /healthz`](#health) | Load balancer | | Liveness |
 | [`GET /readyz`](#health) | Load balancer | | Readiness: the database is reachable |
@@ -415,7 +422,7 @@ Releases a stack's orchestration lock, addressed by repository and key. This is 
 
 ### `POST /v1/runs/{id}/rerun` {#rerun}
 
-Re-runs a run, from the UI or automation. Audited.
+Plans the stacks of a plan run again, in a new run, from the UI or automation, and answers `201` with a `CreateRunResponse` for the new run. A person needs write permission on the repository. Audited.
 
 ### `POST /v1/stacks/{id}/unlock` {#unlock-by-id}
 
@@ -431,7 +438,7 @@ Releases a stack's lock by stack id; the body carries `reason` and `force_state`
 }
 ```
 
-`admin` is present and `true` for Stackorder administrators.
+`admin` is present and `true` for Stackorder administrators. Called with an API key, the response is `{"login": "apikey:<key name>", "orgs": [], "admin": true}`.
 
 ### `GET /v1/overview` {#overview}
 
@@ -494,7 +501,7 @@ The repository's graph as JSON, for tooling. `ref` selects the commit. `run` rep
 
 ### `GET /v1/repos/{owner}/{repo}/runs` {#repo-runs}
 
-A page of the repository's runs, each in the `Run` shape.
+A page of the repository's runs, newest first, each in the `Run` shape. `status`, `pr` and `mode` filter the list.
 
 ### `GET /v1/repos/{owner}/{repo}/stacks` {#repo-stacks}
 
@@ -535,7 +542,7 @@ Stack detail: last plan and apply, drift, lock, dependencies both ways and pinne
   "depends_on": [],
   "dependents": ["stacks/prod/apps"],
   "modules": [
-    { "module_key": "acme/modules//tags@v1.2.0", "ref": "v1.2.0", "latest": "v1.4.1", "behind": 2 }
+    { "module_key": "acme/modules//tags", "ref": "v1.2.0", "latest": "v1.4.1", "behind": 2 }
   ]
 }
 ```
@@ -548,12 +555,12 @@ A page of the stack's history, each item in the `RunStackRef` shape used by `las
 
 ### `GET /v1/modules` and `GET /v1/modules/{id}` {#modules}
 
-A page of modules, and one module with its released versions and its consumers across repositories.
+A page of modules, and one module with its released versions and its consumers across repositories. A git or registry module is listed once, under its family `key` without `@ref`; each consumer carries the `ref` it pins and how many released versions it is `behind`. `?q=` keeps the modules whose key contains the text.
 
 ```json
 {
   "id": "0f1e2d3c-4b5a-4968-8776-655443322110",
-  "key": "acme/modules//tags@v1.2.0",
+  "key": "acme/modules//tags",
   "kind": "git",
   "source": "git::https://github.com/acme/modules.git//tags?ref=v1.2.0",
   "versions": [
@@ -572,13 +579,34 @@ A page of modules, and one module with its released versions and its consumers a
 }
 ```
 
+### `GET /v1/audit` {#audit}
+
+A page of audited actions, newest first: unlocks, re-runs and the other changes people and automation make through the server.
+
+```json
+{
+  "items": [
+    {
+      "at": "2026-09-28T09:31:00Z",
+      "actor": "octocat",
+      "action": "unlock",
+      "target": "stack:3d6f0a2e-1b4c-4d8e-9f10-2a3b4c5d6e7f",
+      "details": { "repo": "acme/infra", "stack": "stacks/prod/vpc", "reason": "PR 41 closed" }
+    }
+  ],
+  "next_cursor": "MTIz"
+}
+```
+
+A person sees the entries they made and those about repositories they can see, so a page may hold fewer than `limit` items, or none, and still carry a `next_cursor`.
+
 ## Sign-in {#sign-in}
 
-`GET /auth/login` redirects to GitHub's user-authorization flow for the App, with `login` and `read:org` scope only. `GET /auth/callback` completes it and sets the `stackorder_session` cookie. A session is issued only to a member of an org where the App is installed. `POST /auth/logout` ends the session. Sessions are stored in Postgres.
+`GET /auth/login` redirects to GitHub's user-authorization flow for the App, with `login` and `read:org` scope only. `GET /auth/callback` completes it and sets the `stackorder_session` cookie. A session is issued only to a member of an org where the App is installed. `POST /auth/logout` ends the session. Sessions are stored in Postgres and record the user's organisations at sign-in, so a membership change takes effect at the next sign-in. Unlock, re-run and sign-out requests made with the session cookie must come from the server's own origin: `Origin` must match `STACKORDER_BASE_URL`, or, without `Origin`, `Sec-Fetch-Site` must be `same-origin`.
 
 ## Setup {#setup}
 
-`GET /setup` renders a GitHub App manifest with the right webhook URL, permissions and events, and posts it to GitHub's manifest-creation endpoint. GitHub redirects back to `GET /setup/callback`, which exchanges the code for the App id, private key, webhook secret and OAuth client id and secret, and prints them once as environment variables. In setup mode, when the App variables are not set, the server serves only `/setup`, `/healthz` and `/readyz`.
+`GET /setup` renders a GitHub App manifest with the right webhook URL, permissions and events, and posts it to GitHub's manifest-creation endpoint. GitHub redirects back to `GET /setup/callback`, which exchanges the code for the App id, private key, webhook secret and OAuth client id and secret, and prints them once as environment variables. GitHub sends the browser to `GET /setup/installed` after the App is installed. In setup mode, when the App variables are not set, the server serves only `/setup`, `/setup/callback`, `/setup/installed`, `/healthz` and `/readyz`, and answers `503` with code `unavailable` everywhere else.
 
 ## Webhooks {#webhooks}
 
