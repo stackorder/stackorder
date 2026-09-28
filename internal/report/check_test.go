@@ -157,6 +157,13 @@ func TestStackCheckStates(t *testing.T) {
 		{name: "unknown status word", run: baseRun(v1.RunPlanning), status: "mystery", wantStatus: StatusQueued, wantTitle: "Queued"},
 		{name: "drift found", run: func() v1.Run { r := baseRun(v1.RunPlanned); r.Mode = v1.ModeDrift; return r }(), status: v1.StackPlanned, wantStatus: StatusCompleted, wantConcl: ConclusionSuccess, wantTitle: "Drifted: 1 to add, 0 to change, 0 to destroy"},
 		{name: "no drift", run: func() v1.Run { r := baseRun(v1.RunPlanned); r.Mode = v1.ModeDrift; return r }(), status: v1.StackPlanned, mutate: func(rs *v1.RunStack) { rs.Summary = &v1.PlanSummary{} }, wantStatus: StatusCompleted, wantConcl: ConclusionSuccess, wantTitle: "No drift"},
+		{name: "planned stack waits for its apply wave", run: applyRun(v1.RunApplying), status: v1.StackPlanned, wave: 1, wantStatus: StatusQueued, wantTitle: "Waiting for wave 1"},
+		{name: "planned stack in the current apply wave is queued", run: applyRun(v1.RunApplying), status: v1.StackPlanned, wantStatus: StatusQueued, wantTitle: "Queued"},
+		{name: "planned stack of a plan run applying elsewhere", run: baseRun(v1.RunApplying), status: v1.StackPlanned, wave: 2, wantStatus: StatusQueued, wantTitle: "Waiting for wave 2"},
+		{name: "planned stack never applied in a failed run", run: applyRun(v1.RunFailed), status: v1.StackPlanned, wave: 2, wantStatus: StatusCompleted, wantConcl: ConclusionCancelled, wantTitle: "Not run: the run ended before this stack's turn"},
+		{name: "pending stack never applied in a failed run", run: applyRun(v1.RunFailed), status: v1.StackPending, wave: 2, wantStatus: StatusCompleted, wantConcl: ConclusionCancelled, wantTitle: "Not run: the run ended before this stack's turn"},
+		{name: "superseded stack with empty status", run: baseRun(v1.RunSuperseded), status: "", wantStatus: StatusCompleted, wantConcl: ConclusionCancelled, wantTitle: "Superseded by a newer commit"},
+		{name: "superseded apply of a planned stack", run: applyRun(v1.RunSuperseded), status: v1.StackPlanned, wave: 1, wantStatus: StatusCompleted, wantConcl: ConclusionCancelled, wantTitle: "Superseded by a newer commit"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -200,6 +207,18 @@ func TestRollupConclusion(t *testing.T) {
 		{name: "drift clean", run: drift(v1.RunPlanned, st(v1.StackPlanned)), wantStatus: StatusCompleted, wantConcl: ConclusionSuccess, wantTitle: "No drift in 1 stack"},
 		{name: "drift found", run: drift(v1.RunPlanned, stack("stacks/a", "", 0, 0, withSummary(0, 2, 0, 0))), wantStatus: StatusCompleted, wantConcl: ConclusionSuccess, wantTitle: "Drift in 1 stack: 0 to add, 2 to change, 0 to destroy"},
 		{name: "drift running", run: drift(v1.RunPlanning, st(v1.StackPlanning)), wantStatus: StatusInProgress, wantTitle: "Checking drift: 0 of 1 stacks done"},
+		{name: "apply between waves is not green", run: func() v1.Run {
+			r := applyRun(v1.RunApplying, st(v1.StackApplied), stack("stacks/later", "", 1, 0, withSummary(1, 0, 0, 0)))
+			return r
+		}(), wantStatus: StatusInProgress, wantTitle: "Applying wave 0 of 3: 1 of 2 stacks done"},
+		{name: "apply requested before any dispatch is queued", run: func() v1.Run {
+			r := baseRun(v1.RunPending, st(v1.StackPlanned), st(v1.StackPlanned))
+			r.Mode = v1.ModeApply
+			return r
+		}(), wantStatus: StatusQueued, wantTitle: "Applying wave 0 of 3: 0 of 2 stacks done"},
+		{name: "plan run applying with later waves planned", run: baseRun(v1.RunApplying, st(v1.StackApplied), stack("stacks/later", "", 1, 0)), wantStatus: StatusInProgress, wantTitle: "Applying wave 0 of 3: 1 of 2 stacks done"},
+		{name: "failed apply run does not claim stacks still run", run: applyRun(v1.RunFailed, st(v1.StackFailed), stack("stacks/later", "", 1, 0)), wantStatus: StatusCompleted, wantConcl: ConclusionFailure, wantTitle: "1 failed"},
+		{name: "applied run with a stack left planned is not green", run: applyRun(v1.RunApplied, st(v1.StackApplied), stack("stacks/later", "", 1, 0)), wantStatus: StatusInProgress, wantTitle: "Applying wave 0 of 3: 1 of 2 stacks done"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -274,4 +293,22 @@ func TestCheckTitleIsOneBoundedLine(t *testing.T) {
 func checkDump(c CheckOutput) string {
 	return "title: " + c.Title + "\nstatus: " + c.Status + "\nconclusion: " + c.Conclusion +
 		"\n\n--- summary ---\n" + c.Summary + "\n--- text ---\n" + c.Text
+}
+
+func TestApplyBetweenWaves(t *testing.T) {
+	done := stack("stacks/prod/vpc", "production", 0, 1, withSummary(1, 0, 0, 0), withStatus(v1.StackApplied))
+	next := stack("stacks/prod/eks", "production", 1, 2, withSummary(0, 1, 0, 0))
+	run := applyRun(v1.RunApplying, done, next)
+
+	assert.Contains(t, StickyComment(run, Options{}), "\nApplying wave 0 of 3: 1 of 2 stacks done.\n")
+	assert.NotEqual(t, ConclusionSuccess, RollupCheck(run, Options{}).Conclusion)
+	assert.Equal(t, StatusQueued, StackCheck(run, next, Options{}).Status)
+
+	failed := done
+	failed.Status = v1.StackFailed
+	run = applyRun(v1.RunFailed, failed, next)
+	check := StackCheck(run, next, Options{})
+	assert.Equal(t, ConclusionCancelled, check.Conclusion)
+	assert.Contains(t, check.Summary, "The run ended before this stack's wave was dispatched, so nothing was applied for it.")
+	assert.NotContains(t, StickyComment(run, Options{}), "still running")
 }

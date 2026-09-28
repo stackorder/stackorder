@@ -45,8 +45,11 @@ func StackCheck(run v1.Run, rs v1.RunStack, o Options) CheckOutput {
 }
 
 func stackCheckState(run v1.Run, rs v1.RunStack, o Options, p phase) CheckOutput {
-	if run.Status == v1.RunSuperseded && running(rs.Status) {
+	if run.Status == v1.RunSuperseded && unfinished(rs.Status, p) {
 		return completed("Superseded by a newer commit", ConclusionCancelled)
+	}
+	if neverRan(run, rs, p) {
+		return completed("Not run: the run ended before this stack's turn", ConclusionCancelled)
 	}
 	switch rs.Status {
 	case v1.StackPlanning:
@@ -57,7 +60,9 @@ func stackCheckState(run v1.Run, rs v1.RunStack, o Options, p phase) CheckOutput
 		}
 		return CheckOutput{Title: "Applying", Status: StatusInProgress}
 	case v1.StackPlanned:
-		return completed(plannedTitle(rs.Summary, p), ConclusionSuccess)
+		if p != phaseApply {
+			return completed(plannedTitle(rs.Summary, p), ConclusionSuccess)
+		}
 	case v1.StackApplied:
 		if rs.Summary == nil {
 			return completed("Applied", ConclusionSuccess)
@@ -144,6 +149,8 @@ func stackCheckSummary(run v1.Run, rs v1.RunStack, o Options, p phase) string {
 
 	if run.Status == v1.RunSuperseded {
 		b.WriteString(supersededNote(run) + "\n\n")
+	} else if neverRan(run, rs, p) {
+		b.WriteString("The run ended before this stack's wave was dispatched, so nothing was " + p.pastTense() + " for it.\n\n")
 	}
 	switch rs.Status {
 	case v1.StackBlocked:
@@ -231,11 +238,12 @@ const summaryModeNote = "Plan output is set to `summary` for this stack, so only
 
 type tally struct {
 	total    int
+	phase    phase
 	byStatus map[v1.StackStatus]int
 }
 
-func tallyOf(stacks []v1.RunStack) tally {
-	t := tally{total: len(stacks), byStatus: map[v1.StackStatus]int{}}
+func tallyOf(stacks []v1.RunStack, p phase) tally {
+	t := tally{total: len(stacks), phase: p, byStatus: map[v1.StackStatus]int{}}
 	for _, rs := range stacks {
 		t.byStatus[rs.Status]++
 	}
@@ -250,17 +258,27 @@ func (t tally) n(statuses ...v1.StackStatus) int {
 	return n
 }
 
-func (t tally) running() int { return t.n(v1.StackPending, v1.StackPlanning, v1.StackApplying, "") }
+func (t tally) running() int { return t.idle() + t.n(v1.StackPlanning, v1.StackApplying) }
+
+func (t tally) idle() int {
+	n := t.n(v1.StackPending, "")
+	if t.phase == phaseApply {
+		n += t.n(v1.StackPlanned)
+	}
+	return n
+}
 
 func (t tally) broken() int { return t.n(v1.StackFailed, v1.StackBlocked, v1.StackUnknown) }
 
 // RollupCheck renders the roll-up check run, "stackorder/plan" or
 // "stackorder/apply", for a whole run. It fails when any stack failed, was
 // blocked or vanished, is neutral when any result is unconfirmed, succeeds
-// when every stack is planned or applied, and is in progress otherwise.
+// when every stack is planned (plan phase) or applied, noop or skipped
+// (apply phase), and is in progress otherwise; during an apply a planned
+// stack is still waiting for its wave.
 func RollupCheck(run v1.Run, o Options) CheckOutput {
 	p := phaseOf(run)
-	t := tallyOf(run.Stacks)
+	t := tallyOf(run.Stacks, p)
 	out := rollupState(run, t, p)
 	out.Summary = rollupSummary(run, t, p, o)
 	if len(run.Stacks) > 0 {
@@ -275,7 +293,7 @@ func rollupState(run v1.Run, t tally, p phase) CheckOutput {
 	case run.Status == v1.RunSuperseded:
 		return completed("Superseded by a newer commit", ConclusionCancelled)
 	case t.broken() > 0:
-		return completed(brokenTitle(t), ConclusionFailure)
+		return completed(brokenTitle(run, t), ConclusionFailure)
 	case run.Status == v1.RunFailed:
 		return completed("Run failed", ConclusionFailure)
 	case t.running() > 0:
@@ -288,7 +306,7 @@ func rollupState(run v1.Run, t tally, p phase) CheckOutput {
 	return completed(successTitle(run, p), ConclusionSuccess)
 }
 
-func brokenTitle(t tally) string {
+func brokenTitle(run v1.Run, t tally) string {
 	var parts []string
 	for _, s := range []struct {
 		status v1.StackStatus
@@ -298,7 +316,7 @@ func brokenTitle(t tally) string {
 			parts = append(parts, fmt.Sprintf("%d %s", n, s.word))
 		}
 	}
-	if r := t.running(); r > 0 {
+	if r := t.running(); r > 0 && !run.Status.Terminal() {
 		parts = append(parts, fmt.Sprintf("%d still running", r))
 	}
 	return capitalize(strings.Join(parts, ", "))
@@ -307,7 +325,7 @@ func brokenTitle(t tally) string {
 func inProgress(run v1.Run, t tally, p phase) CheckOutput {
 	done := t.total - t.running()
 	status := StatusInProgress
-	if t.n(v1.StackPending, "") == t.total && (run.Status == v1.RunPending || run.Status == "") {
+	if t.idle() == t.total && (run.Status == v1.RunPending || run.Status == "") {
 		status = StatusQueued
 	}
 	if p == phaseApply {

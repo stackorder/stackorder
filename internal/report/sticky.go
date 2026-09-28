@@ -50,7 +50,7 @@ func stickyHead(run v1.Run, stacks []v1.RunStack, o Options) string {
 	b.WriteString("### " + Escape(o.name()) + ": " + runStatusWord(run.Status) + "\n\n")
 	b.WriteString(runMetaLine(run, o) + "\n\n")
 	p := phaseOf(run)
-	t := tallyOf(stacks)
+	t := tallyOf(stacks, p)
 	switch run.Status {
 	case v1.RunSuperseded:
 		b.WriteString(supersededNote(run) + "\n\n")
@@ -67,7 +67,7 @@ func stickyHead(run v1.Run, stacks []v1.RunStack, o Options) string {
 		case t.broken() == 0:
 			b.WriteString(aggregateLine(run, stacks, p) + "\n\nThe run failed although no stack reported a failure; see the run details.\n\n")
 		default:
-			b.WriteString(aggregateLine(run, stacks, p) + "\n\n" + brokenTitle(t) + ". " + failedNote(p) + "\n\n")
+			b.WriteString(aggregateLine(run, stacks, p) + "\n\n" + brokenTitle(run, t) + ". " + failedNote(p) + "\n\n")
 		}
 	case v1.RunUnconfirmed:
 		b.WriteString(UnconfirmedNote("") + "\n\n")

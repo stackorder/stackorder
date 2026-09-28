@@ -75,6 +75,16 @@ func (p phase) noun() string {
 	return "plan"
 }
 
+func (p phase) pastTense() string {
+	switch p {
+	case phaseApply:
+		return "applied"
+	case phaseDrift:
+		return "checked"
+	}
+	return "planned"
+}
+
 func (p phase) gerund() string {
 	if p == phaseDrift {
 		return "Checking drift"
@@ -82,8 +92,18 @@ func (p phase) gerund() string {
 	return "Planning"
 }
 
-func running(s v1.StackStatus) bool {
-	return s == v1.StackPending || s == v1.StackPlanning || s == v1.StackApplying
+func unfinished(s v1.StackStatus, p phase) bool {
+	switch s {
+	case v1.StackPending, v1.StackPlanning, v1.StackApplying, "":
+		return true
+	case v1.StackPlanned:
+		return p == phaseApply
+	}
+	return false
+}
+
+func neverRan(run v1.Run, rs v1.RunStack, p phase) bool {
+	return unfinished(rs.Status, p) && (run.Status == v1.RunFailed || run.Status == v1.RunApplied)
 }
 
 func stackStatusWord(rs v1.RunStack, o Options) string {
