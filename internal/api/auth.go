@@ -60,7 +60,8 @@ func (s *server) with(mode authMode, h handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, err := s.authenticate(r, mode)
 		if err != nil {
-			if _, cerr := r.Cookie(sessionCookie); cerr == nil && mode&viaSession != 0 && statusOf(err) == http.StatusUnauthorized {
+			viaCookie := mode&viaSession != 0 && len(r.Header.Values("Authorization")) == 0
+			if _, cerr := r.Cookie(sessionCookie); cerr == nil && viaCookie && statusOf(err) == http.StatusUnauthorized {
 				s.clearCookie(w, sessionCookie, "/")
 			}
 			s.writeError(w, r, err)

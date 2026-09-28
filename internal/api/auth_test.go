@@ -155,9 +155,14 @@ func TestAuthenticationFailures(t *testing.T) {
 		})
 	}
 
+	valid := e.session("octocat", "acme")
+	rec := e.do(withCookie(bearer(newRequest(t, http.MethodGet, "/v1/me", nil), "sk_revoked"), valid))
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Nil(t, cookieNamed(rec.Result(), sessionCookie), "a bad API key leaves the session alone")
+
 	key := e.apiKey("ci")
 	r := withCookie(bearer(newRequest(t, http.MethodGet, "/v1/me", nil), key), &http.Cookie{Name: sessionCookie, Value: "forged"})
-	rec := e.do(r)
+	rec = e.do(r)
 	require.Equal(t, http.StatusOK, rec.Code, "the Authorization header wins over a cookie")
 	assert.Equal(t, "apikey:ci", decodeBody[v1.Whoami](t, rec).Login)
 }
