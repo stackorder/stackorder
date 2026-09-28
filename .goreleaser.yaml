@@ -1,0 +1,63 @@
+version: 2
+
+project_name: stackorder
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: stackorder
+    main: ./cmd/stackorder
+    binary: stackorder
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/stackorder/stackorder/internal/version.Version={{ .Version }}
+      - -X github.com/stackorder/stackorder/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/stackorder/stackorder/internal/version.Date={{ .Date }}
+
+archives:
+  - id: stackorder
+    ids: [stackorder]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^feat(\([^)]*\))?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\([^)]*\))?:'
+      order: 1
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - '^chore\(deps\)'
+      - '^ci:'
+      - '^test'
+
+release:
+  github:
+    owner: stackorder
+    name: stackorder
+  draft: false
+  prerelease: auto
