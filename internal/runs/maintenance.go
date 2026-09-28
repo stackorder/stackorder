@@ -178,6 +178,51 @@ func (s *Service) timeOut(ctx context.Context, d store.Dispatch) error {
 	return s.markVanished(ctx, d, "workflow run not found; check that .github/workflows/"+s.cfg.WorkflowFile+" exists on the default branch")
 }
 
+// SyncInstallations reconciles the stored installations and repositories
+// with the App's installations on GitHub. Every installation is recorded
+// with its suspension state, and the repositories of the active ones are
+// recorded as HandleInstallation records them, loading stackorder.yaml for
+// repositories it has not seen. It learns installations made while the
+// server ran in setup mode and repairs installation webhooks lost during
+// downtime. It never forgets an installation or a repository; only their
+// deletion webhooks do. An installation that fails does not stop the
+// others, and every failure is returned.
+func (s *Service) SyncInstallations(ctx context.Context) error {
+	insts, err := s.gh.ListInstallations(ctx)
+	if err != nil {
+		return fmt.Errorf("runs: list installations: %w", err)
+	}
+	var errs []error
+	for _, inst := range insts {
+		if err := s.syncInstallation(ctx, inst); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	s.log.InfoContext(ctx, "installations synced", "installations", len(insts), "failed", len(errs))
+	return errors.Join(errs...)
+}
+
+func (s *Service) syncInstallation(ctx context.Context, inst gh.Installation) error {
+	if inst.ID == 0 {
+		return nil
+	}
+	if _, err := s.st.UpsertInstallation(ctx, store.Installation{ID: inst.ID, Account: inst.Account.Login, AccountType: inst.Account.Type}); err != nil {
+		return storeErr(err, "record installation %d", inst.ID)
+	}
+	suspended := inst.SuspendedAt != nil
+	if err := s.st.SuspendInstallation(ctx, inst.ID, suspended); err != nil {
+		return storeErr(err, "record suspension of installation %d", inst.ID)
+	}
+	if suspended {
+		return nil
+	}
+	repos, err := s.gh.InstallationRepos(ctx, inst.ID)
+	if err != nil {
+		return fmt.Errorf("runs: repositories of installation %d: %w", inst.ID, err)
+	}
+	return s.addRepos(ctx, inst.ID, repos)
+}
+
 // RemindStaleLocks posts a reminder on closed pull requests that still
 // hold orchestration locks taken more than a day ago, at most once a day
 // per lock.

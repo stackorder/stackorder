@@ -31,13 +31,14 @@ const (
 
 // Job kinds the service enqueues and executes.
 const (
-	JobDispatchWave  = "dispatch_wave"
-	JobDrift         = "drift_stack"
-	JobScheduleDrift = "schedule_drift"
-	JobCrossRepoPlan = "cross_repo_plan"
-	JobReconcile     = "reconcile"
-	JobPrune         = "prune"
-	JobStaleLocks    = "stale_locks"
+	JobDispatchWave      = "dispatch_wave"
+	JobDrift             = "drift_stack"
+	JobScheduleDrift     = "schedule_drift"
+	JobCrossRepoPlan     = "cross_repo_plan"
+	JobReconcile         = "reconcile"
+	JobPrune             = "prune"
+	JobStaleLocks        = "stale_locks"
+	JobSyncInstallations = "sync_installations"
 )
 
 const (
@@ -69,9 +70,12 @@ type Config struct {
 	Clock func() time.Time
 }
 
-// GitHub hands out installation clients. *gh.App satisfies it.
+// GitHub hands out installation clients and lists the App's
+// installations. *gh.App satisfies it.
 type GitHub interface {
 	Client(ctx context.Context, installationID int64) (*gh.Client, error)
+	ListInstallations(ctx context.Context) ([]gh.Installation, error)
+	InstallationRepos(ctx context.Context, installationID int64) ([]gh.Repository, error)
 }
 
 // Metrics receives the service's observations. Implementations must be

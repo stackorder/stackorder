@@ -49,6 +49,9 @@ type PruneJob struct {
 // StaleLocksJob is the payload of JobStaleLocks.
 type StaleLocksJob struct{}
 
+// SyncInstallationsJob is the payload of JobSyncInstallations.
+type SyncInstallationsJob struct{}
+
 // HandleJob decodes a queued job by kind and runs it.
 func (s *Service) HandleJob(ctx context.Context, kind string, payload json.RawMessage) error {
 	decode := func(v any) error {
@@ -108,6 +111,8 @@ func (s *Service) HandleJob(ctx context.Context, kind string, payload json.RawMe
 		return s.Prune(ctx, r.PlanText, r.Events, r.Drift)
 	case JobStaleLocks:
 		return s.RemindStaleLocks(ctx)
+	case JobSyncInstallations:
+		return s.SyncInstallations(ctx)
 	}
 	return principal.Wrap(principal.ErrInvalid, "unknown job kind %q", kind)
 }

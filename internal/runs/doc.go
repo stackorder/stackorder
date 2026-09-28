@@ -3,7 +3,8 @@
 // gate, takes and releases orchestration locks, dispatches
 // stackorder-run.yml wave by wave, supersedes stale plans, executes pull
 // request comment commands, schedules drift checks, reconciles lost
-// workflow_run webhooks and plans cross-repository dependents.
+// workflow_run webhooks, re-learns the App's installations and plans
+// cross-repository dependents.
 //
 // # Runs
 //
