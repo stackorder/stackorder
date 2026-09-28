@@ -154,7 +154,7 @@ func TestGraphLookupsNotFound(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrNotFound)
 }
 
-func TestDefaultGraph(t *testing.T) {
+func TestDefaultGraphAccessors(t *testing.T) {
 	f := newFixture(t)
 	other := f.addRepo(2, 200, "globex", "globex/platform")
 	_, _, err := f.s.GetDefaultGraph(f.ctx, f.repo.ID)

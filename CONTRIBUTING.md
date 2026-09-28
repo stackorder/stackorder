@@ -39,6 +39,14 @@ from the README.
 - No code comments explaining rationale; put it in the commit body.
 - CI must be green: `make lint test` locally reproduces it.
 
+## Documentation site
+
+`make docs` builds the VitePress site and CI checks the build on every pull
+request. Publishing to GitHub Pages runs from `.github/workflows/docs.yml`
+only when the repository variable `DOCS_DEPLOY` is `true`; set it once Pages
+is enabled for the repository (GitHub offers Pages on private repositories
+only on paid plans, so this stays off until the repository is public).
+
 ## Releasing
 
 Tags `vX.Y.Z` on this repository release the CLI binaries through
