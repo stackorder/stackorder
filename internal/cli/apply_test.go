@@ -29,15 +29,16 @@ func (h *harness) savedPlan(sha string) string {
 func newApplyHarness(t *testing.T) (*harness, *fakeServer) {
 	t.Helper()
 	h := newHarness(t)
+	h.sha = initGit(t, h.root)
 	fs := newFakeServer(t)
-	h.ci(fs, "workflow_dispatch", dispatchPayload("run-1", headSHA))
-	fs.setRun(applyRun(headSHA, v1.RunApplying, plannedRow()))
+	h.ci(fs, "workflow_dispatch", dispatchPayload("run-1", h.sha))
+	fs.setRun(applyRun(h.sha, v1.RunApplying, plannedRow()))
 	return h, fs
 }
 
 func TestApplySavedPlan(t *testing.T) {
 	h, fs := newApplyHarness(t)
-	planFile := h.savedPlan(headSHA)
+	planFile := h.savedPlan(h.sha)
 
 	r := h.run("apply", "--stack", "stacks/app")
 	require.Equal(t, 0, r.code, r.stderr)
@@ -55,7 +56,7 @@ func TestApplySavedPlan(t *testing.T) {
 	assert.Equal(t, 0, got.ExitCode)
 	assert.True(t, got.HasChanges)
 	assert.Equal(t, changesSummary(), *got.Summary)
-	assert.Equal(t, v1.PlanArtifactName("stacks/app", headSHA), got.Artifact)
+	assert.Equal(t, v1.PlanArtifactName("stacks/app", h.sha), got.Artifact)
 	assert.Equal(t, "https://github.example/acme/infra/actions/runs/4242", got.JobURL)
 	assert.Empty(t, got.ErrorText)
 	assert.Contains(t, h.outputs()["summary"], `"added":["aws_s3_bucket.logs"]`)
@@ -92,26 +93,26 @@ func TestApplyRefusals(t *testing.T) {
 		},
 		{
 			name: "run not applying",
-			setup: func(_ *testing.T, _ *harness, fs *fakeServer) {
-				fs.setRun(applyRun(headSHA, v1.RunFailed, plannedRow()))
+			setup: func(_ *testing.T, h *harness, fs *fakeServer) {
+				fs.setRun(applyRun(h.sha, v1.RunFailed, plannedRow()))
 			},
 			want: "run run-1 is failed",
 		},
 		{
 			name: "stack not in the run",
-			setup: func(_ *testing.T, _ *harness, fs *fakeServer) {
+			setup: func(_ *testing.T, h *harness, fs *fakeServer) {
 				row := plannedRow()
 				row.Key = "stacks/other"
-				fs.setRun(applyRun(headSHA, v1.RunApplying, row))
+				fs.setRun(applyRun(h.sha, v1.RunApplying, row))
 			},
 			want: "stack stacks/app is not part of run run-1",
 		},
 		{
 			name: "stack blocked",
-			setup: func(_ *testing.T, _ *harness, fs *fakeServer) {
+			setup: func(_ *testing.T, h *harness, fs *fakeServer) {
 				row := plannedRow()
 				row.Status = v1.StackBlocked
-				fs.setRun(applyRun(headSHA, v1.RunApplying, row))
+				fs.setRun(applyRun(h.sha, v1.RunApplying, row))
 			},
 			want: "stack stacks/app is blocked in run run-1",
 		},
@@ -125,15 +126,22 @@ func TestApplyRefusals(t *testing.T) {
 		{
 			name: "checkout at another commit",
 			setup: func(t *testing.T, h *harness, _ *fakeServer) {
-				initGit(t, h.root)
+				gitRun(t, h.root, "commit", "-q", "--allow-empty", "-m", "moved on")
 			},
 			want: "but the checkout is at",
+		},
+		{
+			name: "checkout without git",
+			setup: func(t *testing.T, h *harness, _ *fakeServer) {
+				require.NoError(t, os.RemoveAll(filepath.Join(h.root, ".git")))
+			},
+			want: "cannot read the commit of the checkout",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h, fs := newApplyHarness(t)
-			h.savedPlan(headSHA)
+			h.savedPlan(h.sha)
 			tt.setup(t, h, fs)
 			r := h.run("apply", "--stack", "stacks/app", "--run-id", "run-1")
 			assert.Equal(t, ExitRefused, r.code, r.stderr)
@@ -223,12 +231,12 @@ func TestApplyReplansAMissingPlan(t *testing.T) {
 			h.tf.ShowJSON = filepath.Join(filepath.Dir(h.tf.ShowJSON), tt.showJSON)
 			row := plannedRow()
 			row.Summary = tt.recorded
-			fs.setRun(applyRun(headSHA, v1.RunApplying, row))
+			fs.setRun(applyRun(h.sha, v1.RunApplying, row))
 			if tt.fromPlan != "" {
 				writeFile(t, filepath.Join(h.root, "stackorder.yaml"), "version: 1\napply:\n  from_plan: "+tt.fromPlan+"\n")
 			}
 			if tt.saved {
-				h.savedPlan(headSHA)
+				h.savedPlan(h.sha)
 			}
 			r := h.run("apply", "--stack", "stacks/app")
 			require.Equal(t, tt.wantCode, r.code, r.stderr)
@@ -284,7 +292,7 @@ func TestApplyFromPlanDisabledIgnoresTheDownloadedPlan(t *testing.T) {
 func TestApplyFailures(t *testing.T) {
 	t.Run("apply fails", func(t *testing.T) {
 		h, fs := newApplyHarness(t)
-		h.savedPlan(headSHA)
+		h.savedPlan(h.sha)
 		h.tf.ApplyExit = 1
 		h.tf.FailOutput = "creating S3 bucket: AccessDenied"
 		r := h.run("apply", "--stack", "stacks/app")
@@ -328,7 +336,7 @@ func TestApplyFailures(t *testing.T) {
 	})
 	t.Run("reporting fails after the apply", func(t *testing.T) {
 		h, fs := newApplyHarness(t)
-		h.savedPlan(headSHA)
+		h.savedPlan(h.sha)
 		fs.failWith("result", 503, "internal")
 		r := h.run("apply", "--stack", "stacks/app")
 		require.Equal(t, ExitFailure, r.code, r.stderr)
@@ -422,7 +430,7 @@ func TestApplyKeepsThePlanDirectoryOverride(t *testing.T) {
 	h, fs := newApplyHarness(t)
 	dir := t.TempDir()
 	t.Setenv(EnvPlanDir, dir)
-	writeFile(t, filepath.Join(dir, v1.PlanArtifactName("stacks/app", headSHA)+".tfplan"), "saved")
+	writeFile(t, filepath.Join(dir, v1.PlanArtifactName("stacks/app", h.sha)+".tfplan"), "saved")
 	r := h.run("apply", "--stack", "stacks/app")
 	require.Equal(t, 0, r.code, r.stderr)
 	assert.NotContains(t, h.tfCommands(), "plan")

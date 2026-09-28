@@ -70,6 +70,7 @@ type tfCall struct {
 type harness struct {
 	t       *testing.T
 	root    string
+	sha     string
 	tf      fakeTFConfig
 	tfCfg   string
 	output  string

@@ -100,7 +100,7 @@ func TestPlanRunsHooks(t *testing.T) {
 
 func TestApplyRunsHooks(t *testing.T) {
 	h, fs := newApplyHarness(t)
-	planFile := h.savedPlan(headSHA)
+	planFile := h.savedPlan(h.sha)
 	log := installHooks(t, h.root, 0o755, "pre-apply", "post-apply")
 
 	r := h.run("apply", "--stack", "stacks/app")
@@ -134,7 +134,7 @@ func TestHookFailures(t *testing.T) {
 	})
 	t.Run("pre-apply stops the apply", func(t *testing.T) {
 		h, fs := newApplyHarness(t)
-		h.savedPlan(headSHA)
+		h.savedPlan(h.sha)
 		installHooks(t, h.root, 0o755, "pre-apply")
 		t.Setenv("HOOK_EXIT", "1")
 		r := h.run("apply", "--stack", "stacks/app")
@@ -144,7 +144,7 @@ func TestHookFailures(t *testing.T) {
 	})
 	t.Run("post-apply failure after a successful apply", func(t *testing.T) {
 		h, fs := newApplyHarness(t)
-		h.savedPlan(headSHA)
+		h.savedPlan(h.sha)
 		installHooks(t, h.root, 0o755, "post-apply")
 		t.Setenv("HOOK_EXIT", "2")
 		r := h.run("apply", "--stack", "stacks/app")

@@ -43,9 +43,12 @@ func TestRealToolPlanApplyAndDrift(t *testing.T) {
 				t.Skipf("%s is not on PATH", tool)
 			}
 			fs := newFakeServer(t)
-			h.ci(fs, "pull_request", prPayload())
 			writeFile(t, filepath.Join(h.root, "stackorder.yaml"), "version: 1\ntool: "+string(tool)+"\n")
 			writeFile(t, filepath.Join(h.root, "stacks", "app", "main.tf"), realStack)
+			sha := initGit(t, h.root)
+			pr := prPayload()
+			pr["pull_request"].(map[string]any)["head"].(map[string]any)["sha"] = sha
+			h.ci(fs, "pull_request", pr)
 			t.Setenv("TF_VAR_db_password", "hunter2hunter2")
 
 			r := h.run("plan", "--stack", "stacks/app", "--run-id", "run-1")
@@ -71,13 +74,14 @@ func TestRealToolPlanApplyAndDrift(t *testing.T) {
 			require.NoError(t, json.Unmarshal(data, &planJSON))
 			assert.Contains(t, planJSON, "resource_changes")
 
-			h.ci(fs, "workflow_dispatch", dispatchPayload("run-1", headSHA))
-			fs.setRun(v1.Run{SHA: headSHA, Status: v1.RunApplying, Stacks: []v1.RunStack{{Key: "stacks/app", Status: v1.StackApplying, Summary: planned.Summary}}})
+			h.ci(fs, "workflow_dispatch", dispatchPayload("run-1", sha))
+			fs.setRun(v1.Run{SHA: sha, Status: v1.RunApplying, Stacks: []v1.RunStack{{Key: "stacks/app", Status: v1.StackApplying, Summary: planned.Summary}}})
 			r = h.run("apply", "--stack", "stacks/app")
 			require.Equal(t, 0, r.code, r.stdout+r.stderr)
 			applied := fs.lastResult().Result
 			assert.Equal(t, v1.ModeApply, applied.Mode)
 			assert.Equal(t, v1.ResultSuccess, applied.Status)
+			assert.NotContains(t, r.stderr, "not available", "the saved plan must be applied, not a new one")
 			assert.Contains(t, r.stdout, "Apply complete!")
 			assert.FileExists(t, filepath.Join(h.root, "stacks", "app", "terraform.tfstate"))
 

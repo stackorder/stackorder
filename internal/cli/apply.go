@@ -148,7 +148,11 @@ func (s *session) confirmRun(ctx context.Context) (*v1.Run, *v1.RunStack, error)
 	if run.SHA == "" || run.SHA != s.gh.SHA {
 		return nil, nil, refused("run %s is for commit %q but this job is for %q; refusing to apply", s.runID, run.SHA, s.gh.SHA)
 	}
-	if head, err := gitOutput(ctx, s.root, "rev-parse", "HEAD"); err == nil && head != run.SHA {
+	head, err := gitOutput(ctx, s.root, "rev-parse", "HEAD")
+	if err != nil {
+		return nil, nil, refused("cannot read the commit of the checkout at %s to compare with run %s, refusing to apply (fail closed): %w", s.root, s.runID, err)
+	}
+	if head != run.SHA {
 		return nil, nil, refused("run %s is for commit %s but the checkout is at %s; refusing to apply", s.runID, run.SHA, head)
 	}
 	return run, row, nil
