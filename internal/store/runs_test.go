@@ -494,6 +494,12 @@ func TestDispatches(t *testing.T) {
 	assert.True(t, created, "a plan dispatch of the wave must not stand in for its apply dispatch")
 	assert.NotEqual(t, unmapped.ID, replan.ID)
 	assert.Equal(t, v1.ModePlan, replan.Mode)
+	f.exec(`UPDATE dispatches SET dispatched_at = dispatched_at - interval '1 hour' WHERE id = $1`, replan.ID)
+	list, err = f.s.ListDispatches(f.ctx, r.ID)
+	require.NoError(t, err)
+	require.Len(t, list, 5)
+	assert.Equal(t, []uuid.UUID{replan.ID, unmapped.ID}, []uuid.UUID{list[3].ID, list[4].ID},
+		"dispatches of one wave and environment come in dispatch order")
 
 	_, err = f.s.CompleteDispatch(f.ctx, uuid.New(), "x")
 	require.ErrorIs(t, err, store.ErrNotFound)

@@ -89,11 +89,11 @@ func (s *Store) CompleteDispatch(ctx context.Context, id uuid.UUID, conclusion s
 	return out, wrap("complete dispatch", err)
 }
 
-// ListDispatches returns the dispatches of a run ordered by wave and
-// environment.
+// ListDispatches returns the dispatches of a run ordered by wave,
+// environment and dispatch time.
 func (s *Store) ListDispatches(ctx context.Context, runID uuid.UUID) ([]Dispatch, error) {
 	out, err := queryAll[Dispatch](ctx, s.db, dispatchSelect+`
-		WHERE d.run_id = $1 ORDER BY d.wave, d.environment`, runID)
+		WHERE d.run_id = $1 ORDER BY d.wave, d.environment, d.dispatched_at, d.id`, runID)
 	return out, wrap("list dispatches", err)
 }
 
