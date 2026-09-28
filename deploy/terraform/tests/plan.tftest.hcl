@@ -463,3 +463,38 @@ run "desired_count_two" {
     error_message = "desired_count must reach the service."
   }
 }
+
+run "audience_defaults_to_base_url" {
+  command = plan
+
+  variables {
+    base_url = "https://ci.example.com"
+  }
+
+  assert {
+    condition = {
+      for e in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].environment : e.name => e.value
+      if contains(["STACKORDER_BASE_URL", "STACKORDER_OIDC_AUDIENCE"], e.name)
+      } == {
+      STACKORDER_BASE_URL      = "https://ci.example.com"
+      STACKORDER_OIDC_AUDIENCE = "https://ci.example.com"
+    }
+    error_message = "STACKORDER_OIDC_AUDIENCE must default to the base URL, not to https://<domain_name>."
+  }
+}
+
+run "oauth_without_app_stays_in_setup_mode" {
+  command = plan
+
+  variables {
+    github_oauth_client_id     = "Iv23liABCDEF"
+    github_oauth_client_secret = "oauth-secret"
+  }
+
+  assert {
+    condition = sort([for s in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].secrets : s.name]) == tolist([
+      "DATABASE_URL", "GITHUB_OAUTH_CLIENT_ID", "GITHUB_OAUTH_CLIENT_SECRET", "STACKORDER_SESSION_KEY",
+    ])
+    error_message = "OAuth values alone must not inject any GITHUB_APP_* variable, so the server stays in setup mode."
+  }
+}
