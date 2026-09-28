@@ -1,0 +1,31 @@
+{
+  "items": [
+    {
+      "id": 745120331,
+      "full_name": "acme/infra",
+      "default_branch": "main",
+      "stacks": 5,
+      "drifted": 1,
+      "locks_held": 5,
+      "last_run_at": "2026-09-28T08:49:51Z"
+    },
+    {
+      "id": 745120478,
+      "full_name": "acme/network-infra",
+      "default_branch": "main",
+      "stacks": 6,
+      "drifted": 1,
+      "locks_held": 0,
+      "last_run_at": "2026-09-28T09:10:22Z"
+    },
+    {
+      "id": 745121902,
+      "full_name": "acme/platform-infra",
+      "default_branch": "trunk",
+      "stacks": 3,
+      "drifted": 0,
+      "locks_held": 0
+    }
+  ],
+  "total": 3
+}

@@ -1,0 +1,50 @@
+{
+  "id": "6b8d0f2a-4c6e-4a8b-9d0f-2a4c6e8b0dcc",
+  "key": "acme/terraform-modules//eks-addons",
+  "kind": "git",
+  "source": "git::https://github.com/acme/terraform-modules.git//eks-addons",
+  "versions": [
+    {
+      "version": "v0.10.0",
+      "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4",
+      "tagged_at": "2026-09-19T10:14:00Z"
+    },
+    {
+      "version": "v0.9.0",
+      "sha": "a54d88e06612d820bc3be72877c74f257b561b19",
+      "tagged_at": "2026-08-30T16:02:41Z"
+    },
+    {
+      "version": "v0.8.0",
+      "sha": "5d41402abc4b2a76b9719d911017c592ae71c1d8",
+      "tagged_at": "2026-07-11T09:27:13Z"
+    },
+    {
+      "version": "v0.7.2",
+      "sha": "7c4a8d09ca3762af61e59520943dc26494f8941b",
+      "tagged_at": "2026-06-02T12:45:30Z"
+    }
+  ],
+  "consumers": [
+    {
+      "stack_id": "c4d6e8f0-3a5b-4c7d-9e1f-2a4b6c8d0e44",
+      "repo": "acme/infra",
+      "stack_key": "stacks/prod/eks",
+      "ref": "v0.8.0",
+      "behind": 2
+    },
+    {
+      "stack_id": "5b7e9c01-2d4f-4a6b-8c0e-1f3a5b7d9e33",
+      "repo": "acme/infra",
+      "stack_key": "stacks/staging/eks",
+      "ref": "v0.8.0",
+      "behind": 2
+    },
+    {
+      "stack_id": "0c2e4a6c-8e0a-4c2e-a6c8-e0a2c4e6a8dd",
+      "repo": "acme/platform-infra",
+      "stack_key": "stacks/shared/eks",
+      "ref": "v0.10.0"
+    }
+  ]
+}

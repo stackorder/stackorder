@@ -1,0 +1,88 @@
+{
+  "id": "c4d6e8f0-3a5b-4c7d-9e1f-2a4b6c8d0e44",
+  "repo": "acme/infra",
+  "key": "stacks/prod/eks",
+  "path": "stacks/prod/eks",
+  "environment": "production",
+  "backend": {
+    "type": "s3",
+    "bucket": "acme-tfstate",
+    "key": "stacks/prod/eks/terraform.tfstate",
+    "region": "eu-west-1",
+    "use_lockfile": true
+  },
+  "tool": "tofu",
+  "last_apply": {
+    "run_id": "9e1a3c5e-7b9d-4f1a-a3c5-e7b9d1f3a588",
+    "sha": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+    "pr_number": 38,
+    "status": "applied",
+    "summary": {
+      "adds": 2,
+      "changes": 0,
+      "destroys": 0,
+      "replaces": 0,
+      "added": [
+        "module.eks.aws_eks_addon.coredns",
+        "module.eks.aws_eks_addon.kube_proxy"
+      ]
+    },
+    "finished_at": "2026-09-21T14:12:03Z",
+    "job_url": "https://github.com/acme/infra/actions/runs/17311207/job/48533127"
+  },
+  "last_plan": {
+    "run_id": "2c4e6a80-9b1d-4f3a-8e5c-7d9f1b3a5c77",
+    "sha": "4f9c2d1e8b7a6c5d3e2f1a0b9c8d7e6f5a4b3c2d",
+    "pr_number": 42,
+    "status": "planned",
+    "summary": {
+      "adds": 0,
+      "changes": 1,
+      "destroys": 0,
+      "replaces": 1
+    },
+    "finished_at": "2026-09-28T08:38:12Z",
+    "job_url": "https://github.com/acme/infra/actions/runs/17437911/job/48902117"
+  },
+  "drift": {
+    "checked_at": "2026-09-28T06:05:44Z",
+    "drifted": true,
+    "summary": {
+      "adds": 0,
+      "changes": 1,
+      "destroys": 0,
+      "replaces": 0,
+      "changed": [
+        "module.eks.aws_eks_node_group.default"
+      ]
+    },
+    "issue_number": 57,
+    "issue_url": "https://github.com/acme/infra/issues/57"
+  },
+  "lock": {
+    "stack_id": "c4d6e8f0-3a5b-4c7d-9e1f-2a4b6c8d0e44",
+    "stack_key": "stacks/prod/eks",
+    "run_id": "7d9f1b3c-5e7a-4b9c-8d1e-3f5a7b9c1d66",
+    "pr_number": 42,
+    "taken_at": "2026-09-28T08:49:58Z",
+    "reason": "apply of PR #42"
+  },
+  "depends_on": [
+    "stacks/prod/vpc"
+  ],
+  "dependents": [
+    "stacks/prod/apps",
+    "acme/platform-infra//stacks/prod/observability"
+  ],
+  "modules": [
+    {
+      "module_key": "acme/infra//modules/eks"
+    },
+    {
+      "module_key": "acme/terraform-modules//eks-addons",
+      "ref": "v0.8.0",
+      "latest": "v0.10.0",
+      "behind": 2
+    }
+  ]
+}

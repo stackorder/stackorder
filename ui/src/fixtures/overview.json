@@ -1,0 +1,103 @@
+{
+  "repos": 3,
+  "stacks": 14,
+  "drifted": 2,
+  "locks_held": 5,
+  "runs_by_status": {
+    "planning": 1,
+    "planned": 6,
+    "applied": 31,
+    "failed": 2,
+    "superseded": 9
+  },
+  "stacks_by_status": {
+    "applied": 9,
+    "planned": 1,
+    "failed": 1,
+    "blocked": 1,
+    "noop": 1,
+    "unknown": 1
+  },
+  "recent_runs": [
+    {
+      "id": "a1c3e5f7-9b1d-4a3c-b5e7-f9a1c3e5f7bb",
+      "repo": "acme/network-infra",
+      "sha": "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00",
+      "base_sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      "pr_number": 7,
+      "trigger": "pull_request",
+      "mode": "plan",
+      "status": "planning",
+      "requested_by": "monalisa",
+      "created_at": "2026-09-28T09:10:22Z",
+      "started_at": "2026-09-28T09:10:25Z",
+      "waves": 1,
+      "current_wave": 0,
+      "html_url": "https://github.com/acme/network-infra/pull/7"
+    },
+    {
+      "id": "7d9f1b3c-5e7a-4b9c-8d1e-3f5a7b9c1d66",
+      "repo": "acme/infra",
+      "sha": "4f9c2d1e8b7a6c5d3e2f1a0b9c8d7e6f5a4b3c2d",
+      "base_sha": "9b8a7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b",
+      "pr_number": 42,
+      "trigger": "comment",
+      "mode": "apply",
+      "status": "failed",
+      "requested_by": "octocat",
+      "created_at": "2026-09-28T08:49:51Z",
+      "started_at": "2026-09-28T08:50:00Z",
+      "finished_at": "2026-09-28T09:05:02Z",
+      "waves": 3,
+      "current_wave": 1,
+      "html_url": "https://github.com/acme/infra/pull/42"
+    },
+    {
+      "id": "2c4e6a80-9b1d-4f3a-8e5c-7d9f1b3a5c77",
+      "repo": "acme/infra",
+      "sha": "4f9c2d1e8b7a6c5d3e2f1a0b9c8d7e6f5a4b3c2d",
+      "base_sha": "9b8a7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b",
+      "pr_number": 42,
+      "trigger": "pull_request",
+      "mode": "plan",
+      "status": "planned",
+      "requested_by": "octocat",
+      "created_at": "2026-09-28T08:31:17Z",
+      "started_at": "2026-09-28T08:31:20Z",
+      "finished_at": "2026-09-28T08:40:55Z",
+      "waves": 3,
+      "current_wave": 2,
+      "html_url": "https://github.com/acme/infra/pull/42"
+    },
+    {
+      "id": "d2f4a6c8-e0b2-4d4f-96a8-cae0b2d4f699",
+      "repo": "acme/infra",
+      "sha": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+      "trigger": "schedule",
+      "mode": "drift",
+      "status": "planned",
+      "created_at": "2026-09-28T06:00:03Z",
+      "started_at": "2026-09-28T06:00:05Z",
+      "finished_at": "2026-09-28T06:07:31Z",
+      "waves": 1,
+      "current_wave": 0
+    },
+    {
+      "id": "9e1a3c5e-7b9d-4f1a-a3c5-e7b9d1f3a588",
+      "repo": "acme/infra",
+      "sha": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+      "base_sha": "0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e",
+      "pr_number": 38,
+      "trigger": "comment",
+      "mode": "apply",
+      "status": "applied",
+      "requested_by": "hubot",
+      "created_at": "2026-09-21T14:02:09Z",
+      "started_at": "2026-09-21T14:02:12Z",
+      "finished_at": "2026-09-21T14:19:44Z",
+      "waves": 2,
+      "current_wave": 1,
+      "html_url": "https://github.com/acme/infra/pull/38"
+    }
+  ]
+}
