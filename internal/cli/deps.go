@@ -51,12 +51,6 @@ func Bind(d Deps) {
 	}
 }
 
-// scanRepo, changedPaths, resolveLocal and renderDOT are internal/scan and
-// internal/graph as the commands see them. cmd/stackorder/main.go binds them
-// with Bind once those packages are merged; until then scanning fails with
-// ErrScanNotLinked, resolution with ErrGraphNotLinked, and renderDOT returns
-// an empty string, which the graph and affected commands report as
-// ErrGraphNotLinked.
 var (
 	scanRepo = func(context.Context, string, string, string, *v1.RepoConfig) (*v1.Graph, error) {
 		return nil, ErrScanNotLinked
