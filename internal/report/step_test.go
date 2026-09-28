@@ -40,7 +40,12 @@ func TestStepSummaryHeadlines(t *testing.T) {
 		{"default mode and status", v1.StackResult{Summary: &v1.PlanSummary{Adds: 1}}, "**Result:** success · **Exit code:** 0\n\n1 to add, 0 to change, 0 to destroy."},
 		{"apply error", v1.StackResult{Mode: v1.ModeApply, Status: v1.ResultError}, "\n\nApply failed."},
 		{"drift failure", v1.StackResult{Mode: v1.ModeDrift, Status: v1.ResultFailure}, "\n\nDrift check failed."},
-		{"applied without summary", v1.StackResult{Mode: v1.ModeApply}, "Applied: no changes."},
+		{"applied without summary", v1.StackResult{Mode: v1.ModeApply}, "\n\nApplied.\n"},
+		{"applied with an empty summary", v1.StackResult{Mode: v1.ModeApply, Summary: &v1.PlanSummary{}}, "\n\nApplied: no changes.\n"},
+		{"plan with changes but no summary", v1.StackResult{ExitCode: 2, HasChanges: true}, "\n\nThe plan has changes; no summary was reported.\n"},
+		{"plan without changes or summary", v1.StackResult{}, "\n\nNo changes.\n"},
+		{"drift with changes but no summary", v1.StackResult{Mode: v1.ModeDrift, ExitCode: 2, HasChanges: true}, "\n\nDrift detected; no summary was reported.\n"},
+		{"drift without changes or summary", v1.StackResult{Mode: v1.ModeDrift}, "\n\nNo drift: the stack matches its configuration.\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

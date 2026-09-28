@@ -76,10 +76,10 @@ func stepHeadline(res v1.StackResult, mode v1.RunMode) string {
 	if res.Status == v1.ResultFailure || res.Status == v1.ResultError {
 		return capitalize(modePhase(mode).noun()) + " failed."
 	}
-	s := v1.PlanSummary{}
-	if res.Summary != nil {
-		s = *res.Summary
+	if res.Summary == nil {
+		return unsummarisedHeadline(res, mode)
 	}
+	s := *res.Summary
 	switch mode {
 	case v1.ModeApply:
 		return "Applied: " + lowerFirst(appliedLong(s)) + "."
@@ -90,6 +90,20 @@ func stepHeadline(res v1.StackResult, mode v1.RunMode) string {
 		return "Drift detected: " + lowerFirst(SummaryLong(s)) + "."
 	}
 	return SummaryLong(s) + "."
+}
+
+func unsummarisedHeadline(res v1.StackResult, mode v1.RunMode) string {
+	switch {
+	case mode == v1.ModeApply:
+		return "Applied."
+	case mode == v1.ModeDrift && res.HasChanges:
+		return "Drift detected; no summary was reported."
+	case mode == v1.ModeDrift:
+		return "No drift: the stack matches its configuration."
+	case res.HasChanges:
+		return "The plan has changes; no summary was reported."
+	}
+	return "No changes."
 }
 
 func formatDuration(ms int64) string {
