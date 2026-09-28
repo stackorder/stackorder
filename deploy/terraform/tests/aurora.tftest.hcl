@@ -42,8 +42,8 @@ run "serverless_cluster" {
   }
 
   assert {
-    condition     = data.aws_rds_engine_version.aurora[0].version == "17" && data.aws_rds_engine_version.aurora[0].latest
-    error_message = "The engine version must resolve the latest minor of engine_version."
+    condition     = data.aws_rds_engine_version.aurora[0].version == "17" && data.aws_rds_engine_version.aurora[0].default_only
+    error_message = "A major-only engine_version must resolve to the default minor of that major."
   }
 
   assert {
@@ -126,6 +126,24 @@ run "serverless_multi_az" {
       [for a in aws_cloudwatch_metric_alarm.db_capacity : a.dimensions.DBInstanceIdentifier] == ["stackorder-1", "stackorder-2"]
     )
     error_message = "Each Aurora instance must get an ACU utilization alarm instead of a free storage alarm."
+  }
+}
+
+run "serverless_pinned_minor" {
+  command = plan
+
+  variables {
+    engine_version = "16.6"
+  }
+
+  assert {
+    condition     = length(data.aws_rds_engine_version.aurora) == 0 && aws_rds_cluster.this[0].engine_version == "16.6"
+    error_message = "A major.minor engine_version must be used as is."
+  }
+
+  assert {
+    condition     = aws_rds_cluster_parameter_group.this[0].family == "aurora-postgresql16"
+    error_message = "The parameter group family must follow the major version."
   }
 }
 

@@ -74,11 +74,11 @@ resource "aws_db_instance" "this" {
 }
 
 data "aws_rds_engine_version" "aurora" {
-  count = var.use_aurora_serverless ? 1 : 0
+  count = var.use_aurora_serverless && !strcontains(var.engine_version, ".") ? 1 : 0
 
-  engine  = "aurora-postgresql"
-  version = var.engine_version
-  latest  = true
+  engine       = "aurora-postgresql"
+  version      = var.engine_version
+  default_only = true
 }
 
 resource "aws_rds_cluster_parameter_group" "this" {
@@ -107,7 +107,7 @@ resource "aws_rds_cluster" "this" {
   cluster_identifier = var.name
   engine             = "aurora-postgresql"
   engine_mode        = "provisioned"
-  engine_version     = data.aws_rds_engine_version.aurora[0].version_actual
+  engine_version     = strcontains(var.engine_version, ".") ? var.engine_version : one(data.aws_rds_engine_version.aurora[*].version_actual)
 
   database_name   = local.db_name
   master_username = local.db_username

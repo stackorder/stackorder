@@ -310,7 +310,7 @@ variable "extra_environment" {
 }
 
 variable "engine_version" {
-  description = "PostgreSQL major version, or major.minor. For Aurora the latest minor of the major is resolved at plan time."
+  description = "PostgreSQL major version, or major.minor. For Aurora a major version resolves to the AWS default minor of that major at plan time."
   type        = string
   default     = "17"
 

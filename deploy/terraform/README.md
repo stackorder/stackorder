@@ -172,9 +172,12 @@ The default is an encrypted `db.t4g.micro` PostgreSQL 17 instance with gp3
 storage autoscaling from 20 to 100 GiB, 7 days of point-in-time recovery,
 deletion protection and a final snapshot. `use_aurora_serverless = true`
 switches to an Aurora PostgreSQL Serverless v2 cluster (0.5 to 2 ACU by
-default, a reader in another zone with `multi_az`); the latest minor of
-`engine_version` is resolved at plan time and a newer minor is applied in
-the maintenance window. Switching between the two replaces the database.
+default, a reader in another zone with `multi_az`). A major-only
+`engine_version` resolves to the AWS default minor of that major at plan
+time, since Aurora does not document accepting a bare major; when AWS
+moves the default, the plan shows the minor upgrade and RDS applies it in
+the maintenance window. Set `major.minor` to pin it instead. Switching
+between RDS and Aurora replaces the database.
 
 ## Alarms
 
@@ -329,7 +332,7 @@ No modules.
 | <a name="input_log_retention_days"></a> [log\_retention\_days](#input\_log\_retention\_days) | Retention of the server log group in days. | `number` | `30` | no |
 | <a name="input_log_level"></a> [log\_level](#input\_log\_level) | Server log level (STACKORDER\_LOG\_LEVEL). | `string` | `"info"` | no |
 | <a name="input_extra_environment"></a> [extra\_environment](#input\_extra\_environment) | Additional environment variables for the server, such as STACKORDER\_WORKERS or OTEL\_EXPORTER\_OTLP\_ENDPOINT. Variables the module sets itself are rejected. | `map(string)` | `{}` | no |
-| <a name="input_engine_version"></a> [engine\_version](#input\_engine\_version) | PostgreSQL major version, or major.minor. For Aurora the latest minor of the major is resolved at plan time. | `string` | `"17"` | no |
+| <a name="input_engine_version"></a> [engine\_version](#input\_engine\_version) | PostgreSQL major version, or major.minor. For Aurora a major version resolves to the AWS default minor of that major at plan time. | `string` | `"17"` | no |
 | <a name="input_instance_class"></a> [instance\_class](#input\_instance\_class) | RDS instance class. Ignored when use\_aurora\_serverless is true. | `string` | `"db.t4g.micro"` | no |
 | <a name="input_allocated_storage"></a> [allocated\_storage](#input\_allocated\_storage) | Initial RDS storage in GiB. Ignored when use\_aurora\_serverless is true. | `number` | `20` | no |
 | <a name="input_max_allocated_storage"></a> [max\_allocated\_storage](#input\_max\_allocated\_storage) | Upper bound for RDS storage autoscaling in GiB; 0 disables autoscaling. Ignored when use\_aurora\_serverless is true. | `number` | `100` | no |
