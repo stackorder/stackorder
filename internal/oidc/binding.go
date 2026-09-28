@@ -93,7 +93,10 @@ type DispatchBinding struct {
 	// DefaultBranch is the branch the dispatch ran on, with or without the
 	// refs/heads/ prefix.
 	DefaultBranch string
-	// SHA is the commit the job was dispatched for; empty skips the check.
+	// SHA is the value the sha claim must equal. For workflow_dispatch
+	// GitHub sets that claim to the head of DefaultBranch when the run was
+	// created, not to the sha input the job checks out; empty skips the
+	// check.
 	SHA string
 }
 
