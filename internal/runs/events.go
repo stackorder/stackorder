@@ -851,11 +851,17 @@ func (s *Service) HandleDeploymentProtectionRule(ctx context.Context, ev *gh.Dep
 	if err != nil {
 		return storeErr(err, "run %s", d.RunID)
 	}
-	if run.Mode != v1.ModeApply {
-		return decide(gh.DeploymentApproved, "Stackorder "+string(run.Mode)+" dispatch of run "+run.ID.String()+": read-only, nothing is applied.")
-	}
 	if !strings.EqualFold(d.Environment, ev.Environment) {
 		return decide(gh.DeploymentRejected, fmt.Sprintf("Stackorder dispatched this workflow run for environment %s, not %s.", d.Environment, ev.Environment))
+	}
+	switch {
+	case d.CompletedAt != nil:
+		return decide(gh.DeploymentRejected, fmt.Sprintf("Workflow run %d already completed its Stackorder dispatch, so a re-run of it is not vouched for; start a new apply instead.", runID))
+	case run.Status.Terminal():
+		return decide(gh.DeploymentRejected, fmt.Sprintf("Stackorder run %s is already %s, so it deploys nothing more; start a new apply instead.", run.ID, run.Status))
+	}
+	if run.Mode != v1.ModeApply {
+		return decide(gh.DeploymentApproved, "Stackorder "+string(run.Mode)+" dispatch of run "+run.ID.String()+": read-only, nothing is applied.")
 	}
 	rows, err := s.st.GetRunStacks(ctx, run.ID)
 	if err != nil {

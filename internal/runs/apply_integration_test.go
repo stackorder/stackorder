@@ -19,6 +19,7 @@ import (
 	"github.com/stackorder/stackorder/internal/report"
 	"github.com/stackorder/stackorder/internal/runs"
 	"github.com/stackorder/stackorder/internal/store"
+	"github.com/stackorder/stackorder/internal/testutil/ghfake"
 )
 
 func TestApplyGateLayers(t *testing.T) {
@@ -530,6 +531,49 @@ func TestDeploymentProtectionRule(t *testing.T) {
 	require.Len(t, decisions, 3)
 	assert.Equal(t, gh.DeploymentRejected, decisions[2].State)
 	assert.Contains(t, decisions[2].Comment, "did not dispatch")
+}
+
+func TestDeploymentProtectionRuleRefusesFinishedWork(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.planned(7, headSHA)
+	decide := func(runID int64, env string) ghfake.ProtectionRuleDecision {
+		t.Helper()
+		n := len(e.gh.ProtectionRuleDecisions())
+		require.NoError(t, e.svc.HandleDeploymentProtectionRule(e.ctx, e.gh.DeploymentProtectionRuleEvent(repoName, runID, env, mainSHA)))
+		ds := e.gh.ProtectionRuleDecisions()
+		require.Len(t, ds, n+1)
+		return ds[n]
+	}
+
+	e.comment(7, applier, "stackorder plan "+eks)
+	plan := e.gh.Dispatches()[0]
+	assert.Equal(t, gh.DeploymentApproved, decide(plan.RunID, v1.DefaultEnvironment).State)
+	assert.Equal(t, gh.DeploymentRejected, decide(plan.RunID, "production").State,
+		"a plan dispatch deploys to the default environment only, even once it is bound")
+	_, err := e.svc.RecordResult(e.ctx, e.dispatchJob(plan.RunID, v1.DefaultEnvironment), plan.Inputs["run_id"], eks, planResult(eks, headSHA, 1))
+	require.NoError(t, err)
+
+	e.comment(7, applier, "stackorder apply")
+	apply := e.applyRun(7)
+	ds := e.dispatchesFrom(1)
+	require.Len(t, ds, 2)
+	prod, stage := ds[0], ds[1]
+	if entries(t, prod)[0].Environment != "production" {
+		prod, stage = stage, prod
+	}
+	e.reportAll(stage, nil)
+	e.gh.CompleteWorkflowRun(repoName, stage.RunID, gh.ConclusionSuccess)
+	require.NoError(t, e.svc.HandleWorkflowRun(e.ctx, e.gh.WorkflowRunEvent("completed", repoName, gh.WorkflowRun{ID: stage.RunID})))
+	rerun := decide(stage.RunID, "staging")
+	assert.Equal(t, gh.DeploymentRejected, rerun.State, "a re-run of a completed dispatch is not vouched for")
+	assert.Contains(t, rerun.Comment, "already completed")
+
+	_, err = e.svc.RecordResult(e.ctx, e.dispatchJob(prod.RunID, "production"), apply.ID, vpc, applyResult(false))
+	require.NoError(t, err)
+	require.Equal(t, v1.RunFailed, e.run(apply.ID).Status)
+	late := decide(prod.RunID, "production")
+	assert.Equal(t, gh.DeploymentRejected, late.State, "a finished run deploys nothing more")
+	assert.Contains(t, late.Comment, "already failed")
 }
 
 func TestUnlock(t *testing.T) {
