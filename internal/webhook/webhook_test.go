@@ -129,6 +129,18 @@ func TestServeHTTP(t *testing.T) {
 			wantBody:   `{"ok":true}`,
 		},
 		{
+			name:       "unsigned ping is refused like any delivery",
+			delivery:   delivery{event: "ping", id: "d-3b", body: `{"zen":"z"}`, unsigned: true},
+			wantStatus: http.StatusUnauthorized,
+			wantBody:   `{"code":"unauthorized","message":"missing or invalid X-Hub-Signature-256"}`,
+		},
+		{
+			name:       "signature is checked before the headers",
+			delivery:   delivery{body: `{}`, unsigned: true},
+			wantStatus: http.StatusUnauthorized,
+			wantBody:   `{"code":"unauthorized","message":"missing or invalid X-Hub-Signature-256"}`,
+		},
+		{
 			name:       "missing signature",
 			delivery:   delivery{event: "push", id: "d-4", body: `{}`, unsigned: true},
 			wantStatus: http.StatusUnauthorized,
