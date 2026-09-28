@@ -10,7 +10,7 @@ Three things carry versions: the server image, the CLI, and the actions. Postgre
 | CLI | Release assets on `stackorder/stackorder` | `stackorder_X.Y.Z_<os>_<arch>.tar.gz` with a SHA-256 checksum file |
 | Actions and reusable workflows | `stackorder/actions` | `v1` and `v1.x.y`; the `v1` tag moves independently of server releases |
 
-Workflows reference the reusable workflows at `@v1`. The `stackorder-version` input pins the CLI release that `setup` installs.
+Workflows reference the reusable workflows at `@v1`. The `stackorder-version` input pins the CLI release that `setup` installs; it defaults to `latest`.
 
 The API between the CLI and the server is `v1`. Fields are only ever added and both sides ignore fields they do not know, so the server and the CLI can be upgraded independently within `v1`.
 
@@ -30,8 +30,8 @@ To go back, deploy the previous image. If the new version ran migrations the pre
 
 ## Upgrading the CLI and actions {#cli}
 
-- Bump `stackorder-version` in the calling workflows to move the CLI.
-- The `v1` tag of `stackorder/actions` moves on its own; pin `@v1.x.y` instead of `@v1` to control it.
+- Set `stackorder-version` in the calling workflows to pin the CLI, and bump it to move. Left at `latest`, every run installs the newest release.
+- The `v1` tag of `stackorder/actions` moves on its own. Calling `plan.yml@v1.x.y` instead of `@v1` pins the workflow file, but the reusable workflows still call the actions at `@v1`.
 - If the server sets `STACKORDER_REQUIRED_WORKFLOW_REF` or the AWS roles pin `job_workflow_ref`, keep the pinned pattern in step with the tags you use. `refs/tags/v1*` covers every `v1` release.
 
 ## Backups {#backups}
