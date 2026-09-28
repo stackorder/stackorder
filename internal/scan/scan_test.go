@@ -537,3 +537,57 @@ func TestScanErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestRootFS(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"c.tf", "a.tf", "b.tf.json"} {
+		writeFile(t, root, "stack/"+name, "# "+name+"\n")
+	}
+	outside := t.TempDir()
+	writeFile(t, outside, "outside.tf", "# outside\n")
+	if err := os.Symlink(filepath.Join(outside, "outside.tf"), filepath.Join(root, "stack", "escape.tf")); err != nil {
+		t.Fatal(err)
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+	fsys := rootFS{r}
+
+	infos, err := fsys.ReadDir("stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, info := range infos {
+		names = append(names, info.Name())
+	}
+	if diff := cmp.Diff([]string{"a.tf", "b.tf.json", "c.tf", "escape.tf"}, names); diff != "" {
+		t.Errorf("ReadDir is not sorted by name (-want +got):\n%s", diff)
+	}
+	if _, err := fsys.ReadDir("missing"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("ReadDir(missing) error = %v, want os.ErrNotExist", err)
+	}
+
+	f, err := fsys.Open(filepath.Join("stack", "a.tf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := f.Stat(); err != nil || info.Name() != "a.tf" {
+		t.Errorf("Open(a.tf).Stat() = %v, %v", info, err)
+	}
+	if err := f.Close(); err != nil {
+		t.Error(err)
+	}
+	if f, err := fsys.Open("missing.tf"); err == nil || f != nil {
+		t.Errorf("Open(missing.tf) = %v, %v; want a nil File and an error", f, err)
+	}
+
+	if data, err := fsys.ReadFile(filepath.Join("stack", "c.tf")); err != nil || string(data) != "# c.tf\n" {
+		t.Errorf("ReadFile(c.tf) = %q, %v", data, err)
+	}
+	if data, err := fsys.ReadFile(filepath.Join("stack", "escape.tf")); err == nil {
+		t.Errorf("ReadFile followed a symlink out of the root and read %q", data)
+	}
+}
