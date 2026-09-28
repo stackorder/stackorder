@@ -86,6 +86,7 @@ func (s *Service) UploadGraph(ctx context.Context, p principal.Principal, runID 
 		s.renderQuiet(ctx, run.ID, renderOpts{resolveErr: rerr})
 		return nil, &principal.InvalidError{Field: "graph", Reason: rerr.Error()}
 	}
+	s.enforcePlanOutput(ctx, repo, resp.Affected)
 	rows := make([]store.RunStack, 0, len(resp.Affected))
 	var ids []uuid.UUID
 	for _, a := range resp.Affected {
@@ -120,6 +121,20 @@ func (s *Service) UploadGraph(ctx context.Context, p principal.Principal, runID 
 	resp.Matrix = graph.BuildMatrix(resp.Affected, run.SHA)
 	s.renderQuiet(ctx, run.ID, renderOpts{resolve: resp, stacks: ids})
 	return resp, nil
+}
+
+func (s *Service) enforcePlanOutput(ctx context.Context, repo store.Repo, affected []v1.AffectedStack) {
+	cfg := repoConfig(repo)
+	defaults := s.defaultStackConfigs(ctx, repo)
+	for i := range affected {
+		want := cfg.PlanOutput
+		if sc := defaults[affected[i].Key]; sc != nil && sc.PlanOutput != "" {
+			want = sc.PlanOutput
+		}
+		if want == v1.PlanOutputSummary {
+			affected[i].PlanOutput = string(v1.PlanOutputSummary)
+		}
+	}
 }
 
 func resolutionConfig(uploaded *v1.RepoConfig, repo store.Repo) (*v1.RepoConfig, error) {

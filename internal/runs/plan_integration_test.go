@@ -135,6 +135,58 @@ func TestPolicyCheckNamesLeaveServerChecksAlone(t *testing.T) {
 	assert.Equal(t, gh.ConclusionSuccess, e.check(report.PolicyCheckName("plan-cost", vpc)).Conclusion)
 }
 
+func TestPlanOutputSummaryComesFromTheDefaultBranch(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	onMain := testGraph(mainSHA)
+	for i := range onMain.Stacks {
+		if onMain.Stacks[i].Key == vpc {
+			onMain.Stacks[i].Config = &v1.StackConfig{PlanOutput: v1.PlanOutputSummary}
+		}
+	}
+	id, _, err := e.st.SaveGraph(e.ctx, repoID, &onMain)
+	require.NoError(t, err)
+	require.NoError(t, e.st.SetDefaultGraph(e.ctx, repoID, id))
+
+	e.openPull(7, headSHA)
+	job, runID, resp := e.startPlan(7, headSHA)
+	outputs := map[string]string{}
+	for _, m := range resp.Matrix.Include {
+		outputs[m.Key] = m.PlanOutput
+	}
+	assert.Equal(t, map[string]string{vpc: "summary", staging: "full", eks: "full", apps: "full"}, outputs,
+		"the pull request's copy of the stack no longer says summary, the default branch's does")
+	for _, key := range []string{vpc, staging} {
+		_, err := e.svc.RecordResult(e.ctx, job.p, runID, key, planResult(key, headSHA, 1))
+		require.NoError(t, err)
+	}
+	rows, err := e.st.GetRunStacksWithText(e.ctx, uuid.MustParse(runID))
+	require.NoError(t, err)
+	text := map[string]string{}
+	for _, rs := range rows {
+		text[rs.Key] = rs.PlanText
+	}
+	assert.Empty(t, text[vpc], "no plan text of a summary stack is kept")
+	assert.Equal(t, "# plan of "+staging, text[staging])
+	assert.NotContains(t, e.sticky(7), "# plan of "+vpc)
+	assert.NotContains(t, e.check(report.StackCheckName(report.CheckPlan, vpc)).Output.Text, "# plan of "+vpc)
+
+	cfg := baseConfig()
+	cfg.PlanOutput = v1.PlanOutputSummary
+	e.setConfig(cfg)
+	full := &v1.RepoConfig{Version: 1, PlanOutput: v1.PlanOutputFull}
+	e.openPull(8, newHeadSHA)
+	planJob := e.planJob(8)
+	created, err := e.svc.CreateRun(e.ctx, planJob.p, v1.CreateRunRequest{Repo: repoName, SHA: newHeadSHA, PRNumber: 8, Mode: v1.ModePlan})
+	require.NoError(t, err)
+	resp, err = e.svc.UploadGraph(e.ctx, planJob.p, created.RunID, v1.GraphUploadRequest{
+		Graph: testGraph(newHeadSHA), ChangedPaths: []string{"modules/vpc/main.tf"}, Config: full,
+	})
+	require.NoError(t, err)
+	for _, m := range resp.Matrix.Include {
+		assert.Equal(t, "summary", m.PlanOutput, "a pull request's stackorder.yaml cannot lift the default branch's summary for %s", m.Key)
+	}
+}
+
 func TestCreateRunBinding(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.openPull(7, headSHA)

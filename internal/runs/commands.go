@@ -286,6 +286,7 @@ func (s *Service) startServerPlan(ctx context.Context, req serverPlan) (store.Ru
 	if refusal := planRefusal(resp, rerr, req); refusal != "" {
 		return store.Run{}, refusal, nil
 	}
+	s.enforcePlanOutput(ctx, req.repo, resp.Affected)
 	var rows []store.RunStack
 	for _, a := range resp.Affected {
 		st, err := s.st.GetStackByKey(ctx, req.repo.ID, a.Key)
