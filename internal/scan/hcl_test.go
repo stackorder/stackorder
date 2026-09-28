@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"slices"
 	"testing"
 
@@ -263,7 +264,16 @@ data "terraform_remote_state" "no_key" {
 			}
 			slices.Sort(names)
 			var warnings []string
-			r := &hclReader{root: root, parser: hclparse.NewParser(), warn: func(format string, args ...any) {
+			fsys, err := os.OpenRoot(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := fsys.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			r := &hclReader{fsys: fsys, parser: hclparse.NewParser(), warn: func(format string, args ...any) {
 				warnings = append(warnings, fmt.Sprintf(format, args...))
 			}}
 			got := r.readDir("stack", names)

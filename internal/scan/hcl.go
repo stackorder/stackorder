@@ -75,7 +75,7 @@ func stateObjectKey(prefix, workspace, key string) string {
 }
 
 type hclReader struct {
-	root   string
+	fsys   *os.Root
 	parser *hclparse.Parser
 	warn   func(format string, args ...any)
 }
@@ -118,7 +118,7 @@ func splitOverrides(names []string) (primaries, overrides []string) {
 }
 
 func (r *hclReader) parseFile(rel string) (hcl.Body, bool) {
-	src, err := os.ReadFile(filepath.Join(r.root, filepath.FromSlash(rel)))
+	src, err := r.fsys.ReadFile(filepath.FromSlash(rel))
 	if err != nil {
 		r.warn("%s: %v", rel, pathError(err))
 		return nil, false
