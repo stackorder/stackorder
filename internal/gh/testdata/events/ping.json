@@ -1,0 +1,13 @@
+{
+  "zen": "Keep it logically awesome.",
+  "hook_id": 109948940,
+  "hook": {
+    "type": "App",
+    "id": 109948940,
+    "name": "web",
+    "active": true,
+    "events": ["pull_request", "push"],
+    "config": {"content_type": "json", "insecure_ssl": "0", "url": "https://stackorder.example.com/webhooks/github"},
+    "app_id": 385163
+  }
+}

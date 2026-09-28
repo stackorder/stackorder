@@ -1,0 +1,15 @@
+{
+  "ref": "refs/tags/v1.3.0",
+  "before": "0000000000000000000000000000000000000000",
+  "after": "5f1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6",
+  "repository": {"id": 700003, "name": "modules", "full_name": "acme/modules", "private": false, "default_branch": "main"},
+  "pusher": {"name": "release-bot", "email": "release-bot@acme.example"},
+  "sender": {"login": "release-bot", "id": 1099, "type": "User"},
+  "installation": {"id": 51234567},
+  "created": true,
+  "deleted": false,
+  "forced": false,
+  "base_ref": "refs/heads/main",
+  "commits": [],
+  "head_commit": {"id": "5f1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6", "message": "Release v1.3.0", "timestamp": "2026-09-28T10:00:00Z", "added": [], "removed": [], "modified": []}
+}

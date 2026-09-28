@@ -1,0 +1,45 @@
+{
+  "ref": "refs/heads/main",
+  "before": "9049f1265b7d61be4a8904a9a27120d2064dab3b",
+  "after": "e5bd3914e2e596debea16f433f57875b5b90bcd6",
+  "repository": {"id": 700001, "name": "infra", "full_name": "acme/infra", "private": true, "owner": {"login": "acme", "id": 1234567, "type": "Organization"}, "default_branch": "main", "master_branch": "main"},
+  "pusher": {"name": "alice", "email": "alice@acme.example"},
+  "organization": {"login": "acme", "id": 1234567},
+  "sender": {"login": "alice", "id": 1001, "type": "User"},
+  "installation": {"id": 51234567},
+  "created": false,
+  "deleted": false,
+  "forced": false,
+  "base_ref": null,
+  "compare": "https://github.com/acme/infra/compare/9049f1265b7d...e5bd3914e2e5",
+  "commits": [
+    {
+      "id": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
+      "tree_id": "a1b2c3",
+      "distinct": true,
+      "message": "Widen the prod VPC CIDR",
+      "timestamp": "2026-09-28T09:14:00+02:00",
+      "author": {"name": "Alice", "email": "alice@acme.example", "username": "alice"},
+      "added": ["stacks/prod/vpc/subnets.tf"],
+      "removed": [],
+      "modified": ["stacks/prod/vpc/main.tf", "stackorder.yaml"]
+    },
+    {
+      "id": "e5bd3914e2e596debea16f433f57875b5b90bcd6",
+      "distinct": true,
+      "message": "Merge pull request #42 from acme/widen-vpc",
+      "timestamp": "2026-09-28T09:15:00+02:00",
+      "added": [],
+      "removed": ["stacks/prod/legacy/main.tf"],
+      "modified": ["stacks/prod/vpc/main.tf"]
+    }
+  ],
+  "head_commit": {
+    "id": "e5bd3914e2e596debea16f433f57875b5b90bcd6",
+    "message": "Merge pull request #42 from acme/widen-vpc",
+    "timestamp": "2026-09-28T09:15:00+02:00",
+    "added": [],
+    "removed": ["stacks/prod/legacy/main.tf"],
+    "modified": ["stacks/prod/vpc/main.tf"]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "action": "requested_action",
+  "check_run": {
+    "id": 128620228,
+    "name": "stackorder/plan: stacks/prod/vpc",
+    "node_id": "MDg6Q2hlY2tSdW4xMjg2MjAyMjg=",
+    "head_sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
+    "external_id": "8b0f0a3e-3c5e-4bd2-9f5e-2a1c9a4e7d11",
+    "url": "https://api.github.com/repos/acme/infra/check-runs/128620228",
+    "html_url": "https://github.com/acme/infra/runs/128620228",
+    "details_url": "https://stackorder.example.com/runs/8b0f0a3e-3c5e-4bd2-9f5e-2a1c9a4e7d11",
+    "status": "completed",
+    "conclusion": "success",
+    "started_at": "2026-09-28T07:45:00Z",
+    "completed_at": "2026-09-28T07:47:31Z",
+    "output": {"title": "1 to add, 1 to change", "summary": "Plan: 1 to add, 1 to change, 0 to destroy.", "text": null, "annotations_count": 0},
+    "check_suite": {"id": 118578147, "head_branch": "widen-vpc", "head_sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e", "status": "completed", "conclusion": "success"},
+    "app": {"id": 385163, "slug": "stackorder", "name": "Stackorder"},
+    "pull_requests": [
+      {"url": "https://api.github.com/repos/acme/infra/pulls/42", "id": 2045678901, "number": 42,
+       "head": {"ref": "widen-vpc", "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e", "repo": {"id": 700001, "name": "infra"}},
+       "base": {"ref": "main", "sha": "9049f1265b7d61be4a8904a9a27120d2064dab3b", "repo": {"id": 700001, "name": "infra"}}}
+    ]
+  },
+  "requested_action": {"identifier": "apply"},
+  "repository": {"id": 700001, "name": "infra", "full_name": "acme/infra", "private": true, "default_branch": "main"},
+  "sender": {"login": "bob", "id": 1002, "type": "User"},
+  "installation": {"id": 51234567}
+}

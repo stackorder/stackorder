@@ -1,0 +1,37 @@
+{
+  "action": "completed",
+  "workflow_run": {
+    "id": 11223344556,
+    "name": "stackorder run",
+    "node_id": "WFR_kwLOAAq-4c8AAAACnPsKbA",
+    "head_branch": "main",
+    "head_sha": "e5bd3914e2e596debea16f433f57875b5b90bcd6",
+    "path": ".github/workflows/stackorder-run.yml",
+    "display_title": "stackorder apply 8b0f0a3e wave 0",
+    "run_number": 118,
+    "event": "workflow_dispatch",
+    "status": "completed",
+    "conclusion": "failure",
+    "workflow_id": 99887766,
+    "check_suite_id": 118579999,
+    "url": "https://api.github.com/repos/acme/infra/actions/runs/11223344556",
+    "html_url": "https://github.com/acme/infra/actions/runs/11223344556",
+    "pull_requests": [],
+    "created_at": "2026-09-28T09:20:00Z",
+    "updated_at": "2026-09-28T09:26:42Z",
+    "actor": {"login": "stackorder[bot]", "id": 41898282, "type": "Bot"},
+    "run_attempt": 2,
+    "run_started_at": "2026-09-28T09:24:00Z",
+    "triggering_actor": {"login": "stackorder[bot]", "type": "Bot"}
+  },
+  "workflow": {
+    "id": 99887766,
+    "node_id": "W_kwDOAAq-4c4F9Q3W",
+    "name": "stackorder run",
+    "path": ".github/workflows/stackorder-run.yml",
+    "state": "active"
+  },
+  "repository": {"id": 700001, "name": "infra", "full_name": "acme/infra", "private": true, "default_branch": "main"},
+  "sender": {"login": "stackorder[bot]", "id": 41898282, "type": "Bot"},
+  "installation": {"id": 51234567}
+}

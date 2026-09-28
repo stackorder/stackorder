@@ -1,0 +1,27 @@
+{
+  "action": "submitted",
+  "review": {
+    "id": 2233445566,
+    "node_id": "PRR_kwDOAAq-4c6FAb1c",
+    "user": {"login": "bob", "id": 1002, "type": "User"},
+    "body": "LGTM for prod.",
+    "commit_id": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
+    "submitted_at": "2026-09-28T08:05:44Z",
+    "state": "approved",
+    "html_url": "https://github.com/acme/infra/pull/42#pullrequestreview-2233445566",
+    "pull_request_url": "https://api.github.com/repos/acme/infra/pulls/42",
+    "author_association": "MEMBER"
+  },
+  "pull_request": {
+    "number": 42,
+    "state": "open",
+    "title": "Widen the prod VPC CIDR",
+    "user": {"login": "alice", "id": 1001, "type": "User"},
+    "labels": [],
+    "head": {"ref": "widen-vpc", "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e", "repo": {"id": 700001, "full_name": "acme/infra", "fork": false}},
+    "base": {"ref": "main", "sha": "9049f1265b7d61be4a8904a9a27120d2064dab3b", "repo": {"id": 700001, "full_name": "acme/infra", "fork": false}}
+  },
+  "repository": {"id": 700001, "name": "infra", "full_name": "acme/infra", "private": true, "default_branch": "main"},
+  "sender": {"login": "bob", "id": 1002, "type": "User"},
+  "installation": {"id": 51234567}
+}

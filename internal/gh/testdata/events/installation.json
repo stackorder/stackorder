@@ -1,0 +1,36 @@
+{
+  "action": "created",
+  "installation": {
+    "id": 51234567,
+    "account": {
+      "login": "acme",
+      "id": 1234567,
+      "node_id": "O_kgDOABLjhw",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1234567?v=4",
+      "html_url": "https://github.com/acme",
+      "type": "Organization",
+      "site_admin": false
+    },
+    "repository_selection": "selected",
+    "access_tokens_url": "https://api.github.com/app/installations/51234567/access_tokens",
+    "repositories_url": "https://api.github.com/installation/repositories",
+    "html_url": "https://github.com/organizations/acme/settings/installations/51234567",
+    "app_id": 385163,
+    "app_slug": "stackorder",
+    "target_id": 1234567,
+    "target_type": "Organization",
+    "permissions": {"actions": "write", "checks": "write", "contents": "read", "issues": "write", "members": "read", "metadata": "read", "pull_requests": "write", "deployments": "write"},
+    "events": ["check_run", "check_suite", "issue_comment", "pull_request", "pull_request_review", "push", "workflow_job", "workflow_run", "deployment_protection_rule"],
+    "created_at": "2026-09-28T07:31:02.000Z",
+    "updated_at": "2026-09-28T07:31:03.000Z",
+    "single_file_name": null,
+    "suspended_by": null,
+    "suspended_at": null
+  },
+  "repositories": [
+    {"id": 700001, "node_id": "R_kgDOAAq-4Q", "name": "infra", "full_name": "acme/infra", "private": true},
+    {"id": 700002, "node_id": "R_kgDOAAq-4g", "name": "network-infra", "full_name": "acme/network-infra", "private": true}
+  ],
+  "requester": null,
+  "sender": {"login": "octocat", "id": 583231, "type": "User", "site_admin": false}
+}

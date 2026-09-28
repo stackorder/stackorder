@@ -1,0 +1,43 @@
+{
+  "action": "created",
+  "issue": {
+    "url": "https://api.github.com/repos/acme/infra/issues/42",
+    "html_url": "https://github.com/acme/infra/pull/42",
+    "id": 1998877665,
+    "number": 42,
+    "title": "Widen the prod VPC CIDR",
+    "user": {"login": "alice", "id": 1001, "type": "User"},
+    "labels": [{"id": 208045946, "name": "infra", "color": "f29513"}],
+    "state": "open",
+    "locked": false,
+    "comments": 2,
+    "created_at": "2026-09-27T15:02:11Z",
+    "updated_at": "2026-09-28T08:10:00Z",
+    "closed_at": null,
+    "author_association": "MEMBER",
+    "pull_request": {
+      "url": "https://api.github.com/repos/acme/infra/pulls/42",
+      "html_url": "https://github.com/acme/infra/pull/42",
+      "diff_url": "https://github.com/acme/infra/pull/42.diff",
+      "patch_url": "https://github.com/acme/infra/pull/42.patch",
+      "merged_at": null
+    },
+    "body": "Needed for the new EKS node groups."
+  },
+  "comment": {
+    "url": "https://api.github.com/repos/acme/infra/issues/comments/2378901234",
+    "html_url": "https://github.com/acme/infra/pull/42#issuecomment-2378901234",
+    "id": 2378901234,
+    "node_id": "IC_kwDOAAq-4c6Nyp8y",
+    "user": {"login": "bob", "id": 1002, "type": "User"},
+    "created_at": "2026-09-28T08:10:00Z",
+    "updated_at": "2026-09-28T08:10:00Z",
+    "author_association": "MEMBER",
+    "body": "stackorder apply stacks/prod/vpc",
+    "reactions": {"total_count": 0}
+  },
+  "repository": {"id": 700001, "name": "infra", "full_name": "acme/infra", "private": true, "default_branch": "main"},
+  "organization": {"login": "acme", "id": 1234567},
+  "sender": {"login": "bob", "id": 1002, "type": "User"},
+  "installation": {"id": 51234567}
+}

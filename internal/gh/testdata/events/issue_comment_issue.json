@@ -1,0 +1,8 @@
+{
+  "action": "created",
+  "issue": {"number": 7, "title": "Drift in stacks/prod/vpc", "state": "open", "labels": [{"name": "stackorder:drift"}], "user": {"login": "stackorder[bot]", "type": "Bot"}},
+  "comment": {"id": 2378901299, "body": "stackorder help", "user": {"login": "carol", "id": 1003, "type": "User"}, "author_association": "NONE"},
+  "repository": {"id": 700001, "name": "infra", "full_name": "acme/infra", "private": true, "default_branch": "main"},
+  "sender": {"login": "carol", "id": 1003, "type": "User"},
+  "installation": {"id": 51234567}
+}

@@ -1,0 +1,20 @@
+{
+  "action": "closed",
+  "number": 42,
+  "pull_request": {
+    "number": 42,
+    "state": "closed",
+    "title": "Widen the prod VPC CIDR",
+    "user": {"login": "alice", "id": 1001, "type": "User"},
+    "labels": [],
+    "merged": true,
+    "merged_at": "2026-09-28T09:15:00Z",
+    "merge_commit_sha": "e5bd3914e2e596debea16f433f57875b5b90bcd6",
+    "mergeable": null,
+    "head": {"ref": "widen-vpc", "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e", "repo": {"id": 700001, "full_name": "acme/infra", "fork": false}},
+    "base": {"ref": "main", "sha": "9049f1265b7d61be4a8904a9a27120d2064dab3b", "repo": {"id": 700001, "full_name": "acme/infra", "fork": false}}
+  },
+  "repository": {"id": 700001, "name": "infra", "full_name": "acme/infra", "private": true, "default_branch": "main"},
+  "sender": {"login": "bob", "id": 1002, "type": "User"},
+  "installation": {"id": 51234567}
+}

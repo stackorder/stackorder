@@ -1,0 +1,20 @@
+{
+  "action": "opened",
+  "number": 43,
+  "pull_request": {
+    "number": 43,
+    "state": "open",
+    "title": "Fix typo",
+    "user": {"login": "mallory", "id": 6666, "type": "User"},
+    "labels": [],
+    "draft": false,
+    "merged": false,
+    "mergeable": true,
+    "mergeable_state": "clean",
+    "head": {"ref": "patch-1", "sha": "f00dbabe0000000000000000000000000000beef", "repo": {"id": 900001, "name": "infra", "full_name": "mallory/infra", "private": false, "fork": true}},
+    "base": {"ref": "main", "sha": "9049f1265b7d61be4a8904a9a27120d2064dab3b", "repo": {"id": 700001, "name": "infra", "full_name": "acme/infra", "private": false, "fork": false}}
+  },
+  "repository": {"id": 700001, "name": "infra", "full_name": "acme/infra", "private": false, "fork": false, "default_branch": "main"},
+  "sender": {"login": "mallory", "id": 6666, "type": "User"},
+  "installation": {"id": 51234567}
+}

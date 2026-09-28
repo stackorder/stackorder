@@ -1,0 +1,11 @@
+{
+  "action": "added",
+  "installation": {"id": 51234567, "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNTEyMzQ1Njc="},
+  "repository_selection": "selected",
+  "repositories_added": [
+    {"id": 700003, "node_id": "R_kgDOAAq-4w", "name": "modules", "full_name": "acme/modules", "private": false}
+  ],
+  "repositories_removed": [],
+  "requester": null,
+  "sender": {"login": "octocat", "id": 583231, "type": "User"}
+}
