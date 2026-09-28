@@ -1,0 +1,27 @@
+digraph stackorder {
+  rankdir=BT;
+  fontname="Helvetica";
+  node [fontname="Helvetica", fontsize=11];
+  edge [fontname="Helvetica", fontsize=9];
+  label="acme/infra abc123";
+  labelloc=t;
+  "stack:acme/edge//stacks/prod/cdn" [label="acme/edge//stacks/prod/cdn", shape=box, style="dashed"];
+  "stack:stacks/prod/apps" [label="stacks/prod/apps\nwave 2", shape=box, fillcolor="#fff1c2", style="filled"];
+  "stack:stacks/prod/eks" [label="stacks/prod/eks\nwave 1", shape=box, fillcolor="#d4f5d4", style="filled"];
+  "stack:stacks/prod/vpc" [label="stacks/prod/vpc\nwave 0", shape=box, fillcolor="#cfe8ff", style="filled"];
+  "stack:stacks/staging/apps" [label="stacks/staging/apps\nwave 1", shape=box, fillcolor="#d4f5d4", style="filled"];
+  "stack:stacks/staging/vpc" [label="stacks/staging/vpc\nwave 0", shape=box, fillcolor="#cfe8ff", style="filled"];
+  "module:acme/infra//modules/eks" [label="acme/infra//modules/eks", shape=component];
+  "module:acme/infra//modules/vpc" [label="acme/infra//modules/vpc", shape=component];
+  "module:acme/modules//app@v2.1.0" [label="acme/modules//app@v2.1.0", shape=component];
+  "stack:stacks/staging/missing" [label="stacks/staging/missing", shape=box, style=dotted];
+  "stack:acme/edge//stacks/prod/cdn" -> "stack:stacks/prod/apps" [label="depends_on"];
+  "stack:stacks/prod/apps" -> "module:acme/modules//app@v2.1.0" [label="uses_module", color=gray50, fontcolor=gray50];
+  "stack:stacks/prod/apps" -> "stack:stacks/prod/eks" [label="reads_state", style=dashed];
+  "stack:stacks/prod/eks" -> "module:acme/infra//modules/eks" [label="uses_module", color=gray50, fontcolor=gray50];
+  "stack:stacks/prod/eks" -> "stack:stacks/prod/vpc" [label="depends_on"];
+  "stack:stacks/prod/vpc" -> "module:acme/infra//modules/vpc" [label="uses_module", color=gray50, fontcolor=gray50];
+  "stack:stacks/staging/apps" -> "stack:stacks/staging/missing" [label="depends_on"];
+  "stack:stacks/staging/apps" -> "stack:stacks/staging/vpc" [label="depends_on"];
+  "stack:stacks/staging/vpc" -> "module:acme/infra//modules/vpc" [label="uses_module", color=gray50, fontcolor=gray50];
+}
