@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import type { StackDetail } from '../src/api/types';
-import { clone, ids, stack } from '../src/fixtures';
+import { clone, graph, ids, stack } from '../src/fixtures';
 import { mockApi } from './mock-api';
 
 test.describe('signed in', () => {
@@ -65,6 +65,25 @@ test.describe('signed in', () => {
     await expect(graph.locator('.node[data-key="stacks/prod/apps"]')).toHaveClass(/node--tone-warning/);
     await expect(graph.locator('.node[data-key="acme/infra//modules/eks"]')).toHaveClass(/node--dimmed/);
     expect(calls.some((c) => c.path === '/v1/repos/acme/infra/graph' && c.search === `?run=${ids.run}`)).toBe(true);
+  });
+
+  test('draws inferred edges dashed and explicit edges solid', async ({ page }) => {
+    const view = clone(graph);
+    const edges = view.graph.edges ?? [];
+    const promoted = clone(edges.find((e) => e.type === 'reads_state' && e.inferred));
+    if (!promoted) throw new Error('fixture graph has no inferred reads_state edge');
+    promoted.inferred = false;
+    promoted.from = { kind: 'stack', key: 'stacks/staging/eks' };
+    promoted.to = { kind: 'stack', key: 'stacks/prod/vpc' };
+    view.graph.edges = [...edges, promoted];
+    await mockApi(page, (c) => (c.path === '/v1/repos/acme/infra/graph' ? { body: view } : undefined));
+    await page.goto('/repos/acme/infra');
+    const svg = page.getByRole('group', { name: 'Dependency graph of acme/infra' });
+    const dash = (selector: string) => svg.locator(selector).evaluate((el) => getComputedStyle(el).strokeDasharray);
+    await expect(svg.locator('path.edge--reads_state')).toHaveCount(2);
+    expect(await dash('path.edge--reads_state.edge--inferred')).not.toBe('none');
+    expect(await dash('path.edge--reads_state:not(.edge--inferred)')).toBe('none');
+    expect(await dash('path.edge--depends_on >> nth=0')).toBe('none');
   });
 
   test('pans with a drag and zooms with the wheel', async ({ page }) => {

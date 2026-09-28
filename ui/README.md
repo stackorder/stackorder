@@ -25,8 +25,10 @@ link to `/auth/login`, and "Sign out" posts to `/auth/logout`.
 
 ### Reading the graph
 
-Stacks are rounded rectangles and modules are hexagons. `depends_on` edges
-are solid, `reads_state` and every other inferred edge is dashed, and
+Stacks are rounded rectangles and modules are hexagons. Edges that carry
+`inferred: true`, such as the `reads_state` edges found from
+`terraform_remote_state`, are dashed; `depends_on` edges and a
+`reads_state` edge a stack config made explicit are solid, and
 `uses_module` edges are dotted grey. Arrows point from a dependency to what
 depends on it, which is the direction a change propagates and applies run,
 so the graph reads left to right like the waves.

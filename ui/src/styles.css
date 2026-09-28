@@ -867,7 +867,6 @@ label {
   marker-end: url(#so-arrow-reads_state);
 }
 
-.edge--reads_state,
 .edge--inferred {
   stroke-dasharray: 7 5;
 }
