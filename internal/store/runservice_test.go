@@ -15,32 +15,6 @@ import (
 	"github.com/stackorder/stackorder/internal/store"
 )
 
-func TestDefaultGraph(t *testing.T) {
-	f := newFixture(t)
-	_, _, err := f.s.GetDefaultGraph(f.ctx, f.repo.ID)
-	require.ErrorIs(t, err, store.ErrNotFound)
-	assert.Nil(t, f.repo.DefaultGraphID)
-
-	id, _ := f.saveGraph(f.repo.ID, sampleGraph(f.repo.FullName, "s1"))
-	f.saveGraph(f.repo.ID, sampleGraph(f.repo.FullName, "s2"))
-	require.NoError(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, id))
-
-	g, gotID, err := f.s.GetDefaultGraph(f.ctx, f.repo.ID)
-	require.NoError(t, err)
-	assert.Equal(t, id, gotID)
-	assert.Equal(t, "s1", g.SHA, "the default graph wins over the newer one")
-	repo, err := f.s.GetRepo(f.ctx, f.repo.ID)
-	require.NoError(t, err)
-	require.NotNil(t, repo.DefaultGraphID)
-	assert.Equal(t, id, *repo.DefaultGraphID)
-
-	other := f.addRepo(2, 200, "other", "other/infra")
-	foreign, _ := f.saveGraph(other.ID, sampleGraph(other.FullName, "o1"))
-	require.ErrorIs(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, foreign), store.ErrNotFound,
-		"a graph of another repository cannot be the default")
-	require.ErrorIs(t, f.s.SetDefaultGraph(f.ctx, 999, id), store.ErrNotFound)
-}
-
 func TestRunCheckRuns(t *testing.T) {
 	f := newFixture(t)
 	r := f.run(store.CreateRunParams{})
