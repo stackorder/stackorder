@@ -193,6 +193,7 @@ func (a *app) commands() []*cobra.Command {
 		a.versionCommand(),
 		a.planCommand(),
 		a.applyCommand(),
+		a.driftCommand(),
 	}
 }
 
