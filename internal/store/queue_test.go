@@ -272,3 +272,70 @@ func TestPruneQueue(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, inserted, "a pruned job frees its dedupe key")
 }
+
+func TestReleaseClaims(t *testing.T) {
+	f := newFixture(t)
+	for _, id := range []string{"mine-open", "mine-done", "theirs"} {
+		_, err := f.s.InsertEvent(f.ctx, id, "push", nil)
+		require.NoError(t, err)
+	}
+	mine, _, err := f.s.EnqueueJob(f.ctx, "reconcile", nil, time.Time{}, "")
+	require.NoError(t, err)
+	f.exec(`UPDATE events SET claimed_by = 'w1', claimed_at = now() WHERE id LIKE 'mine-%'`)
+	f.exec(`UPDATE events SET claimed_by = 'w2', claimed_at = now() WHERE id = 'theirs'`)
+	f.exec(`UPDATE jobs SET claimed_by = 'w1', claimed_at = now() WHERE id = $1`, mine.ID)
+	require.NoError(t, f.s.CompleteEvent(f.ctx, "mine-done"))
+
+	n, err := f.s.ReleaseClaims(f.ctx, "w1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), n, "the open event and the job of w1")
+
+	e, err := f.s.GetEvent(f.ctx, "mine-open")
+	require.NoError(t, err)
+	assert.Empty(t, e.ClaimedBy)
+	assert.Nil(t, e.ClaimedAt)
+	assert.Zero(t, e.Attempts, "a released claim is not an attempt")
+	assert.Empty(t, e.LastError)
+
+	done, err := f.s.GetEvent(f.ctx, "mine-done")
+	require.NoError(t, err)
+	assert.Equal(t, "w1", done.ClaimedBy, "finished rows keep their claim")
+	theirs, err := f.s.GetEvent(f.ctx, "theirs")
+	require.NoError(t, err)
+	assert.Equal(t, "w2", theirs.ClaimedBy, "other workers keep their claims")
+	j, err := f.s.GetJob(f.ctx, mine.ID)
+	require.NoError(t, err)
+	assert.Empty(t, j.ClaimedBy)
+	assert.Zero(t, j.Attempts)
+
+	n, err = f.s.ReleaseClaims(f.ctx, "w1")
+	require.NoError(t, err)
+	assert.Zero(t, n, "releasing again finds nothing")
+	_, err = f.s.ReleaseClaims(f.ctx, "")
+	require.ErrorIs(t, err, store.ErrInvalid)
+}
+
+func TestQueueDepth(t *testing.T) {
+	f := newFixture(t)
+	d, err := f.s.QueueDepth(f.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, store.QueueDepth{}, d)
+
+	for _, id := range []string{"due", "claimed", "done", "later"} {
+		_, err := f.s.InsertEvent(f.ctx, id, "push", nil)
+		require.NoError(t, err)
+	}
+	f.exec(`UPDATE events SET claimed_by = 'w', claimed_at = now() WHERE id = 'claimed'`)
+	require.NoError(t, f.s.CompleteEvent(f.ctx, "done"))
+	f.exec(`UPDATE events SET run_after = now() + interval '1 hour' WHERE id = 'later'`)
+	for range 3 {
+		_, _, err := f.s.EnqueueJob(f.ctx, "reconcile", nil, time.Time{}, "")
+		require.NoError(t, err)
+	}
+	_, _, err = f.s.EnqueueJob(f.ctx, "drift_stack", nil, time.Now().Add(time.Hour), "")
+	require.NoError(t, err)
+
+	d, err = f.s.QueueDepth(f.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, store.QueueDepth{Events: 1, Jobs: 3}, d)
+}

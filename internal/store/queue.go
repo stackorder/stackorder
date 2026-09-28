@@ -234,6 +234,52 @@ func (s *Store) ReleaseStaleClaims(ctx context.Context, olderThan time.Duration)
 	return total, wrap("release stale claims", err)
 }
 
+// ReleaseClaims returns every unfinished event and job claimed by worker to
+// the queue at once, without counting an attempt, and reports how many rows
+// were released. A worker calls it when it stops before starting the work
+// it claimed.
+func (s *Store) ReleaseClaims(ctx context.Context, worker string) (int64, error) {
+	const op = "release claims"
+	if worker == "" {
+		return 0, invalid(op, "worker is required")
+	}
+	var total int64
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		for _, q := range []string{
+			`UPDATE events SET claimed_by = '', claimed_at = NULL
+			 WHERE claimed_by = $1 AND claimed_at IS NOT NULL AND done_at IS NULL`,
+			`UPDATE jobs SET claimed_by = '', claimed_at = NULL
+			 WHERE claimed_by = $1 AND claimed_at IS NOT NULL AND done_at IS NULL`,
+		} {
+			tag, err := tx.Exec(ctx, q, worker)
+			if err != nil {
+				return err
+			}
+			total += tag.RowsAffected()
+		}
+		return nil
+	})
+	return total, wrap(op, err)
+}
+
+// QueueDepth counts the rows of each queue that are due, unclaimed and not
+// done: the backlog no worker has picked up yet.
+type QueueDepth struct {
+	Events int64
+	Jobs   int64
+}
+
+// QueueDepth returns the current backlog of the events and jobs queues.
+func (s *Store) QueueDepth(ctx context.Context) (QueueDepth, error) {
+	var d QueueDepth
+	err := s.db.QueryRow(ctx, `
+		SELECT
+			(SELECT count(*) FROM events WHERE done_at IS NULL AND claimed_at IS NULL AND run_after <= now()),
+			(SELECT count(*) FROM jobs WHERE done_at IS NULL AND claimed_at IS NULL AND run_after <= now())`,
+	).Scan(&d.Events, &d.Jobs)
+	return d, wrap("queue depth", err)
+}
+
 // PruneEvents deletes events received more than olderThan ago that are done
 // or not currently claimed, and returns how many were deleted.
 func (s *Store) PruneEvents(ctx context.Context, olderThan time.Duration) (int64, error) {
