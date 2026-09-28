@@ -1,0 +1,41 @@
+### Stackorder plan: `stacks/prod/vpc`
+
+**Result:** success · **Tool:** tofu 1.12.0 · **Duration:** 42s · **Exit code:** 2 · **Artifact:** `stackorder-plan-stacks-prod-vpc-3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c` · [Job](https://github.com/acme/infra/actions/runs/1234567/job/101)
+
+2 to add, 1 to change, 0 to destroy, 1 to replace, 1 to import.
+
+| Add | Change | Destroy | Replace | Import |
+| ---: | ---: | ---: | ---: | ---: |
+| 2 | 1 | 0 | 1 | 1 |
+
+<details><summary>Plan output</summary>
+
+```hcl
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+  ~ update in-place
+  - destroy
+
+Terraform will perform the following actions:
+
+  # aws_vpc.main will be created
+  + resource "aws_vpc" "main" {
+      + id   = (known after apply)
+      + tags = {
+          + "team" = "platform"
+        }
+    }
+
+  # aws_subnet.a will be created
+  + resource "aws_subnet" "a" {
+      + id   = (known after apply)
+      + tags = {
+          + "team" = "platform"
+        }
+    }
+
+Plan: 2 to add, 0 to change, 0 to destroy.
+```
+
+</details>

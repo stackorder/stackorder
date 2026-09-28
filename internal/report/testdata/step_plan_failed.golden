@@ -1,0 +1,14 @@
+### Stackorder plan: `stacks/prod/vpc`
+
+**Result:** failure · **Tool:** terraform 1.14.0 · **Duration:** 850ms · **Exit code:** 1
+
+**Unconfirmed:** the Stackorder server could not confirm this result (the CLI could not reach the server during this run). It is not a green light: `stackorder apply` is refused until the server confirms a plan for this commit.
+
+Plan failed.
+
+**Error**
+
+```text
+Error: Failed to get existing workspaces: S3 bucket does not exist.
+```
+

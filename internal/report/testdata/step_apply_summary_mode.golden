@@ -1,0 +1,22 @@
+### Stackorder apply: `stacks/prod/secrets`
+
+**Result:** success · **Exit code:** 0
+
+Applied: 2 added, 1 changed, 0 destroyed, 1 replaced, 1 imported.
+
+| Add | Change | Destroy | Replace | Import |
+| ---: | ---: | ---: | ---: | ---: |
+| 2 | 1 | 0 | 1 | 1 |
+
+**Added (2)**
+
+- `aws_vpc.main`
+- `aws_subnet.a`
+
+**Changed (1)**
+
+- `aws_route_table.main`
+
+**Replaced (1)**
+
+- `aws_instance.nat`

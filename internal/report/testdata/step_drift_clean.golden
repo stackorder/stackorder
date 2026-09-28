@@ -1,0 +1,6 @@
+### Stackorder drift: `stacks/prod/vpc`
+
+**Result:** success · **Exit code:** 0
+
+No drift: the stack matches its configuration.
+
