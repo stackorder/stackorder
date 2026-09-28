@@ -125,11 +125,10 @@ func truncateUTF8(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	s = s[:n]
-	for len(s) > 0 && !utf8.ValidString(s) {
-		s = s[:len(s)-1]
+	for i := 0; i < utf8.UTFMax-1 && n > 0 && !utf8.RuneStart(s[n]); i++ {
+		n--
 	}
-	return s
+	return s[:n]
 }
 
 // CreateCheckRun creates a check run on a commit.
