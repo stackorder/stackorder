@@ -339,3 +339,27 @@ func TestStackCheckFindsLockByKeyOrID(t *testing.T) {
 		})
 	}
 }
+
+func TestStacksLeftBehindByAnEndedRun(t *testing.T) {
+	tests := []struct {
+		name string
+		mode v1.RunMode
+		stat v1.StackStatus
+		want string
+	}{
+		{"plan", v1.ModePlan, v1.StackPending, "nothing was planned for it"},
+		{"apply", v1.ModeApply, v1.StackPlanned, "nothing was applied for it"},
+		{"drift", v1.ModeDrift, v1.StackPlanning, "nothing was checked for it"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			left := stack("stacks/b", "", 1, 0, withStatus(tt.stat))
+			run := baseRun(v1.RunFailed, stack("stacks/a", "", 0, 0, withStatus(v1.StackFailed)), left)
+			run.Mode = tt.mode
+			got := StackCheck(run, left, Options{})
+			assert.Equal(t, StatusCompleted, got.Status)
+			assert.Equal(t, ConclusionCancelled, got.Conclusion)
+			assert.Contains(t, got.Summary, tt.want)
+		})
+	}
+}
