@@ -244,4 +244,18 @@ func TestNewValidatesDependencies(t *testing.T) {
 	assert.False(t, e.srv.secure)
 	assert.Equal(t, "HTTP://Stackorder.Test:8080", e.srv.cfg.BaseURL)
 	assert.Equal(t, time.Hour, e.srv.cfg.SessionTTL)
+
+	for base, origin := range map[string]string{
+		"https://stackorder.test:443/":  "https://stackorder.test",
+		"http://stackorder.test:80":     "http://stackorder.test",
+		"https://stackorder.test:80":    "https://stackorder.test:80",
+		"https://[::1]:443":             "https://[::1]",
+		"https://stackorder.test/sub/p": "https://stackorder.test",
+	} {
+		e = newEnv(t, func(c *Config, _ *Deps) { c.BaseURL = base })
+		assert.Equal(t, origin, e.srv.origin, base)
+		r := newRequest(t, http.MethodPost, "/auth/logout", nil)
+		r.Header.Set("Origin", origin)
+		assert.NoError(t, e.srv.checkSameOrigin(r), "a browser omits the default port from Origin")
+	}
 }

@@ -75,7 +75,7 @@ func newServer(cfg Config, d Deps, db dataStore) *server {
 		instrument: d.Instrument,
 		log:        d.Logger,
 		now:        d.Clock,
-		origin:     base.Scheme + "://" + strings.ToLower(base.Host),
+		origin:     originOf(base),
 		secure:     base.Scheme == "https",
 		webURL:     strings.TrimRight(cfg.GitHubWebURL, "/"),
 		apiURL:     strings.TrimRight(cfg.GitHubAPIURL, "/"),
@@ -105,6 +105,14 @@ func newServer(cfg Config, d Deps, db dataStore) *server {
 	}
 	s.csp = s.defaultCSP()
 	return s
+}
+
+func originOf(u *url.URL) string {
+	host := strings.ToLower(u.Host)
+	if port := u.Port(); (u.Scheme == "https" && port == "443") || (u.Scheme == "http" && port == "80") {
+		host = strings.TrimSuffix(host, ":"+port)
+	}
+	return u.Scheme + "://" + host
 }
 
 func (s *server) defaultCSP() string {
