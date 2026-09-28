@@ -63,7 +63,7 @@ jobs:
     secrets: inherit
 ```
 
-The server dispatches this workflow by its file name, `stackorder-run.yml`, so keep that name. It has no `concurrency` group and is never cancelled in progress.
+The server dispatches this workflow by its file name, `stackorder-run.yml`, so keep that name. The file has no `concurrency` group and is never cancelled in progress. Inside `run.yml`, each stack's job joins the concurrency group `stackorder-stack-<key>` without `cancel-in-progress`, so two jobs never run on the same stack at once; keep your own concurrency groups clear of that prefix.
 
 | Dispatch input | Meaning |
 | --- | --- |
