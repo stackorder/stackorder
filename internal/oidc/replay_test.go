@@ -3,6 +3,8 @@ package oidc_test
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -49,6 +51,33 @@ func TestVerifyOnceRejectsReplay(t *testing.T) {
 	_, err = v.VerifyOnce(t.Context(), token, store)
 	require.ErrorIs(t, err, oidc.ErrInvalidToken, "a token outlives its jti record only in a state Verify refuses")
 	assert.NotErrorIs(t, err, oidc.ErrReplay)
+}
+
+func TestVerifyOnceConcurrentReplay(t *testing.T) {
+	iss := oidcfake.New(t)
+	v := newVerifier(t, iss)
+	store := oidc.NewMemoryJTIStore(iss.Now)
+	token := iss.Token(iss.DispatchClaims("acme/infra", "42", 555, "production", "main", sha))
+	const callers = 32
+	var accepted, replayed atomic.Int32
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Go(func() {
+			_, err := v.VerifyOnce(t.Context(), token, store)
+			switch {
+			case err == nil:
+				accepted.Add(1)
+			case errors.Is(err, oidc.ErrReplay):
+				replayed.Add(1)
+			default:
+				assert.NoError(t, err)
+			}
+		})
+	}
+	wg.Wait()
+	assert.Equal(t, int32(1), accepted.Load(), "exactly one concurrent caller may use the token")
+	assert.Equal(t, int32(callers-1), replayed.Load())
+	assert.Equal(t, 1, iss.JWKSRequests())
 }
 
 func TestVerifyOnceRetainsJTIUntilTokenIsRefused(t *testing.T) {
