@@ -58,8 +58,8 @@ run "defaults" {
   }
 
   assert {
-    condition     = jsondecode(aws_ecs_task_definition.this.container_definitions)[0].healthCheck.command == ["CMD", "/stackorder-server", "healthcheck"]
-    error_message = "The container health check must call the server's healthcheck command."
+    condition     = !contains(keys(jsondecode(aws_ecs_task_definition.this.container_definitions)[0]), "healthCheck")
+    error_message = "The distroless image has no health check command, so by default the load balancer's /readyz check alone decides task health."
   }
 
   assert {

@@ -242,9 +242,9 @@ variable "enable_execute_command" {
 }
 
 variable "health_check_command" {
-  description = "Container health check command, which must request /healthz from inside the distroless image. Empty disables the container health check; the load balancer check on /readyz always applies."
+  description = "Container health check command, starting with CMD or CMD-SHELL. The distroless image has no shell or curl, so it must be a command the image itself provides. Empty, the default, leaves task health to the load balancer check on /readyz."
   type        = list(string)
-  default     = ["CMD", "/stackorder-server", "healthcheck"]
+  default     = []
 
   validation {
     condition     = length(var.health_check_command) == 0 || contains(["CMD", "CMD-SHELL"], try(var.health_check_command[0], ""))

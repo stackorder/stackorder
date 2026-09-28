@@ -156,11 +156,11 @@ fail in that case. Deregistration waits 30 seconds for in-flight requests.
 
 ## Container health check
 
-The image is distroless, with no shell or curl, so the container health
-check runs `/stackorder-server healthcheck`, which requests `/healthz` on
-the listen address and exits non-zero on failure. Set
-`health_check_command = []` to rely on the load balancer's `/readyz` check
-alone.
+The image is distroless, with no shell or curl, and the server binary has
+no health check subcommand, so by default the task has no container health
+check. The load balancer's `/readyz` check decides task health, gates
+deployments and drives the circuit breaker. Set `health_check_command`
+only to a command the image provides.
 
 ## ECS Exec
 
@@ -327,7 +327,7 @@ No modules.
 | <a name="input_memory"></a> [memory](#input\_memory) | Fargate task memory in MiB; must be a valid combination with cpu. | `number` | `512` | no |
 | <a name="input_cpu_architecture"></a> [cpu\_architecture](#input\_cpu\_architecture) | CPU architecture of the task, X86\_64 or ARM64. | `string` | `"X86_64"` | no |
 | <a name="input_enable_execute_command"></a> [enable\_execute\_command](#input\_enable\_execute\_command) | Enable ECS Exec. The SSM agent needs a writable root file system, so this also turns readonlyRootFilesystem off and grants the task role the ssmmessages permissions. | `bool` | `false` | no |
-| <a name="input_health_check_command"></a> [health\_check\_command](#input\_health\_check\_command) | Container health check command, which must request /healthz from inside the distroless image. Empty disables the container health check; the load balancer check on /readyz always applies. | `list(string)` | `["CMD", "/stackorder-server", "healthcheck"]` | no |
+| <a name="input_health_check_command"></a> [health\_check\_command](#input\_health\_check\_command) | Container health check command, starting with CMD or CMD-SHELL. The distroless image has no shell or curl, so it must be a command the image itself provides. Empty, the default, leaves task health to the load balancer check on /readyz. | `list(string)` | `[]` | no |
 | <a name="input_wait_for_steady_state"></a> [wait\_for\_steady\_state](#input\_wait\_for\_steady\_state) | Make terraform apply wait until the new tasks pass /readyz, so an apply of an upgrade fails when the deployment rolls back. | `bool` | `true` | no |
 | <a name="input_log_retention_days"></a> [log\_retention\_days](#input\_log\_retention\_days) | Retention of the server log group in days. | `number` | `30` | no |
 | <a name="input_log_level"></a> [log\_level](#input\_log\_level) | Server log level (STACKORDER\_LOG\_LEVEL). | `string` | `"info"` | no |

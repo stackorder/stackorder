@@ -177,17 +177,33 @@ run "execution_role_scope" {
   }
 }
 
-run "health_check_disabled" {
+run "health_check_command" {
   command = plan
 
   variables {
-    health_check_command = []
+    health_check_command = ["CMD", "/stackorder-server", "healthcheck"]
   }
 
   assert {
-    condition     = !contains(keys(jsondecode(aws_ecs_task_definition.this.container_definitions)[0]), "healthCheck")
-    error_message = "An empty health_check_command must drop the container health check."
+    condition = jsondecode(aws_ecs_task_definition.this.container_definitions)[0].healthCheck == {
+      command     = ["CMD", "/stackorder-server", "healthcheck"]
+      interval    = 30
+      timeout     = 5
+      retries     = 3
+      startPeriod = 30
+    }
+    error_message = "A health_check_command must become the container health check."
   }
+}
+
+run "health_check_command_not_exec_form" {
+  command = plan
+
+  variables {
+    health_check_command = ["/stackorder-server", "healthcheck"]
+  }
+
+  expect_failures = [var.health_check_command]
 }
 
 run "image_digest_and_arm64" {
