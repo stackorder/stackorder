@@ -89,11 +89,12 @@ func (s *Store) GetRepoByName(ctx context.Context, fullName string) (Repo, error
 }
 
 // ListRepos returns repositories ordered by full name. When accounts are
-// given, only repositories of installations on those accounts are listed.
+// given, only repositories of installations on those accounts are listed;
+// an empty account name matches nothing.
 func (s *Store) ListRepos(ctx context.Context, accounts ...string) ([]Repo, error) {
 	out, err := queryAll[Repo](ctx, s.db, repoSelect+`
-		WHERE cardinality($1::text[]) = 0 OR lower(i.account) = ANY($1::text[])
-		ORDER BY r.full_name`, lowerAll(accounts))
+		WHERE $1::boolean OR lower(i.account) = ANY($2::text[])
+		ORDER BY r.full_name`, len(accounts) == 0, lowerAll(accounts))
 	return out, wrap("list repos", err)
 }
 

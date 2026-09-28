@@ -76,6 +76,14 @@ func TestOverviewAndRepoSummaries(t *testing.T) {
 				StacksByStatus: map[v1.StackStatus]int{},
 			},
 		},
+		{
+			name:     "empty account name",
+			accounts: []string{""},
+			want: v1.Overview{
+				RunsByStatus:   map[v1.RunStatus]int{},
+				StacksByStatus: map[v1.StackStatus]int{},
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -105,4 +113,8 @@ func TestOverviewAndRepoSummaries(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, scoped, 1)
 	assert.Equal(t, "acme/infra", scoped[0].FullName)
+
+	none, err := f.s.RepoSummaries(f.ctx, "")
+	require.NoError(t, err)
+	assert.Empty(t, none, "an empty account name must not widen the scope to every repository")
 }

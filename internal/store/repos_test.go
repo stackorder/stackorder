@@ -73,6 +73,7 @@ func TestRepos(t *testing.T) {
 		{"one account", []string{"ACME"}, []string{"acme/infra"}},
 		{"two accounts", []string{"acme", "globex"}, []string{"acme/infra", "globex/platform"}},
 		{"unknown account", []string{"initech"}, nil},
+		{"empty account name matches nothing", []string{""}, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

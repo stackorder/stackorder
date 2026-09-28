@@ -13,7 +13,7 @@ const recentRuns = 10
 
 const scopedRepos = `
 	SELECT r.id FROM repos r JOIN installations i ON i.id = r.installation_id
-	WHERE cardinality($1::text[]) = 0 OR lower(i.account) = ANY($1::text[])`
+	WHERE $1::boolean OR lower(i.account) = ANY($2::text[])`
 
 type statusCount struct {
 	Status string `db:"status"`
@@ -23,10 +23,10 @@ type statusCount struct {
 // Overview counts repositories, live stacks, drifted stacks, held locks,
 // runs by status and stacks by the status of their latest run, and lists
 // the most recent runs. When accounts are given only their installations'
-// repositories are counted.
+// repositories are counted; an empty account name matches nothing.
 func (s *Store) Overview(ctx context.Context, accounts ...string) (v1.Overview, error) {
 	const op = "overview"
-	scope := lowerAll(accounts)
+	all, scope := len(accounts) == 0, lowerAll(accounts)
 	out := v1.Overview{
 		RunsByStatus:   map[v1.RunStatus]int{},
 		StacksByStatus: map[v1.StackStatus]int{},
@@ -43,14 +43,14 @@ func (s *Store) Overview(ctx context.Context, accounts ...string) (v1.Overview, 
 				SELECT d.drifted FROM drift d WHERE d.stack_id = l.id
 				ORDER BY d.checked_at DESC, d.id DESC LIMIT 1) ld ON true
 			 WHERE ld.drifted),
-			(SELECT count(*) FROM locks WHERE stack_id IN (SELECT id FROM live))`, scope).
+			(SELECT count(*) FROM locks WHERE stack_id IN (SELECT id FROM live))`, all, scope).
 		Scan(&out.Repos, &out.Stacks, &out.Drifted, &out.LocksHeld)
 	if err != nil {
 		return v1.Overview{}, wrap(op, err)
 	}
 	runCounts, err := queryAll[statusCount](ctx, s.db, `
 		SELECT status, count(*) AS count FROM runs
-		WHERE repo_id IN (`+scopedRepos+`) GROUP BY status`, scope)
+		WHERE repo_id IN (`+scopedRepos+`) GROUP BY status`, all, scope)
 	if err != nil {
 		return v1.Overview{}, wrap(op, err)
 	}
@@ -65,7 +65,7 @@ func (s *Store) Overview(ctx context.Context, accounts ...string) (v1.Overview, 
 			JOIN stacks s ON s.id = rs.stack_id
 			WHERE s.removed_at IS NULL AND s.repo_id IN (`+scopedRepos+`)
 			ORDER BY rs.stack_id, r.created_at DESC, r.id DESC
-		) latest GROUP BY status`, scope)
+		) latest GROUP BY status`, all, scope)
 	if err != nil {
 		return v1.Overview{}, wrap(op, err)
 	}
@@ -74,7 +74,7 @@ func (s *Store) Overview(ctx context.Context, accounts ...string) (v1.Overview, 
 	}
 	runs, err := queryAll[Run](ctx, s.db, runSelect+`
 		WHERE r.repo_id IN (`+scopedRepos+`)
-		ORDER BY r.created_at DESC, r.id DESC LIMIT $2`, scope, recentRuns)
+		ORDER BY r.created_at DESC, r.id DESC LIMIT $3`, all, scope, recentRuns)
 	if err != nil {
 		return v1.Overview{}, wrap(op, err)
 	}
@@ -97,7 +97,7 @@ type repoSummaryRow struct {
 // RepoSummaries returns one row per repository ordered by full name, with
 // live stack, drifted stack and held lock counts and the time of the last
 // run. When accounts are given only their installations' repositories are
-// listed.
+// listed; an empty account name matches nothing.
 func (s *Store) RepoSummaries(ctx context.Context, accounts ...string) ([]v1.RepoSummary, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT r.id, r.full_name, r.default_branch,
@@ -110,8 +110,8 @@ func (s *Store) RepoSummaries(ctx context.Context, accounts ...string) ([]v1.Rep
 		        WHERE s.repo_id = r.id) AS locks_held,
 		       (SELECT max(created_at) FROM runs WHERE repo_id = r.id) AS last_run_at
 		FROM repos r JOIN installations i ON i.id = r.installation_id
-		WHERE cardinality($1::text[]) = 0 OR lower(i.account) = ANY($1::text[])
-		ORDER BY r.full_name`, lowerAll(accounts))
+		WHERE $1::boolean OR lower(i.account) = ANY($2::text[])
+		ORDER BY r.full_name`, len(accounts) == 0, lowerAll(accounts))
 	if err != nil {
 		return nil, wrap("repo summaries", err)
 	}
