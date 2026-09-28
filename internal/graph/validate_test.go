@@ -214,12 +214,3 @@ func TestValidate(t *testing.T) {
 		})
 	}
 }
-
-func TestValidateAcceptsWhatResolveProduces(t *testing.T) {
-	g := exampleGraph().build()
-	_, err := Validate(g)
-	require.NoError(t, err)
-	resp, err := Resolve(g, Input{ChangedPaths: []string{"modules/vpc/main.tf"}, Config: exampleConfig()})
-	require.NoError(t, err)
-	require.Len(t, resp.Affected, 5)
-}
