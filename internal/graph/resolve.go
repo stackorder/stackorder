@@ -221,18 +221,18 @@ func (r *resolver) moduleConsumers(changed []string) {
 
 func (r *resolver) reachedModules(stack string) []string {
 	seen := map[v1.NodeRef]bool{}
-	stack0 := []v1.NodeRef{v1.StackRef(stack)}
+	todo := []v1.NodeRef{v1.StackRef(stack)}
 	var found []string
-	for len(stack0) > 0 {
-		n := stack0[len(stack0)-1]
-		stack0 = stack0[:len(stack0)-1]
+	for len(todo) > 0 {
+		n := todo[len(todo)-1]
+		todo = todo[:len(todo)-1]
 		for _, e := range r.ix.out[n] {
 			if !isModuleUse(e) || !r.modules[e.To.Key] || seen[e.To] {
 				continue
 			}
 			seen[e.To] = true
 			found = append(found, e.To.Key)
-			stack0 = append(stack0, e.To)
+			todo = append(todo, e.To)
 		}
 	}
 	return found

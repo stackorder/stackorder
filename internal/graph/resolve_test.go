@@ -825,7 +825,7 @@ func TestResolveWorkspaces(t *testing.T) {
 		"stacks/web:blue":  reasons(v1.ReasonDependent),
 	}, reasonsByKey(resp))
 	type entry struct{ Stack, Key, Workspace string }
-	var got []entry
+	got := make([]entry, 0, len(resp.Matrix.Include))
 	for _, e := range resp.Matrix.Include {
 		got = append(got, entry{e.Stack, e.Key, e.Workspace})
 	}

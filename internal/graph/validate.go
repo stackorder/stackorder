@@ -118,15 +118,12 @@ func Validate(g *v1.Graph) (warnings []string, err error) {
 }
 
 func (ix *index) exists(ref v1.NodeRef) bool {
-	switch ref.Kind {
-	case v1.NodeStack:
+	if ref.Kind == v1.NodeStack {
 		_, ok := ix.stacks[ref.Key]
 		return ok
-	case v1.NodeModule:
-		_, ok := ix.modules[ref.Key]
-		return ok
 	}
-	return false
+	_, ok := ix.modules[ref.Key]
+	return ok
 }
 
 func describe(ref v1.NodeRef) string {
