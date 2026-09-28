@@ -472,7 +472,9 @@ func TestContentsDirectoryAndRefs(t *testing.T) {
 	require.Equal(t, 200, r.status)
 	var entries []map[string]any
 	require.NoError(t, json.Unmarshal(r.body, &entries))
-	assert.Len(t, entries, 2)
+	require.Len(t, entries, 2)
+	assert.Equal(t, "stacks/a/main.tf", entries[0]["path"])
+	assert.Equal(t, "stacks/b/main.tf", entries[1]["path"])
 	assert.Equal(t, 404, call(t, fake, "GET", "/repos/acme/infra/contents/", tok, "").status)
 	assert.Equal(t, 404, call(t, fake, "GET", "/repos/acme/infra/contents/stacks/a/main.tf?ref=unknown", tok, "").status)
 

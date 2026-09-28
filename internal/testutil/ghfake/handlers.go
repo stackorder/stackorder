@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1194,7 +1196,7 @@ func (s *Server) getContents(w http.ResponseWriter, r *http.Request, c *caller) 
 		return
 	}
 	var entries []map[string]any
-	for fp := range files {
+	for _, fp := range slices.Sorted(maps.Keys(files)) {
 		if rest, ok := strings.CutPrefix(fp, p+"/"); ok && p != "" {
 			entries = append(entries, map[string]any{"type": "file", "name": rest, "path": fp})
 		}
@@ -1216,8 +1218,8 @@ func (s *Server) contentsAt(rs *repoState, ref string) map[string][]byte {
 	if files, ok := rs.contents[s.resolveRef(rs, ref)]; ok {
 		return files
 	}
-	for name, sha := range rs.refs {
-		if sha != ref {
+	for _, name := range slices.Sorted(maps.Keys(rs.refs)) {
+		if rs.refs[name] != ref {
 			continue
 		}
 		short := name[strings.Index(name, "/")+1:]
