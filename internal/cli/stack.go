@@ -363,6 +363,8 @@ func (s *session) report(ctx context.Context, res v1.StackResult) (unconfirmed b
 		return true, "no server is configured", nil
 	case s.runID == "":
 		return true, "no run id was given, so the result was not reported", nil
+	case !s.gh.CI && strings.TrimSpace(os.Getenv(EnvAPIKey)) == "":
+		return true, "outside GitHub Actions the server needs " + EnvAPIKey, nil
 	}
 	err = s.post(ctx, res)
 	switch {

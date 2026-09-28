@@ -468,6 +468,20 @@ func TestPlanOutsideActions(t *testing.T) {
 		assert.Equal(t, filepath.Join(h.root, ".stackorder", "plans", out.Result.Artifact+".tfplan"), out.PlanFile)
 		assert.Contains(t, r.stderr, "Terraform has been successfully initialized!")
 	})
+	t.Run("server and run id without an api key stay local", func(t *testing.T) {
+		h := newHarness(t)
+		fs := newFakeServer(t)
+		t.Setenv(EnvServerURL, fs.url())
+		t.Setenv(EnvRunID, "run-9")
+		r := h.run("--format", "json", "plan", "--stack", "stacks/app")
+		require.Equal(t, 0, r.code, r.stderr)
+		assert.Zero(t, fs.hitCount("result"))
+		var out stackOutput
+		require.NoError(t, json.Unmarshal([]byte(r.stdout), &out), r.stdout)
+		assert.True(t, out.Unconfirmed)
+		assert.Equal(t, v1.ResultSuccess, out.Result.Status)
+		assert.NotContains(t, r.stderr, "stackorder:")
+	})
 	t.Run("api key and run id report the result", func(t *testing.T) {
 		h := newHarness(t)
 		fs := newFakeServer(t)

@@ -93,6 +93,14 @@ func TestDriftDegrades(t *testing.T) {
 		assert.Equal(t, ExitFailure, r.code, r.stderr)
 		assert.Contains(t, r.stderr, "injected not_found")
 	})
+	t.Run("local run with a server but no api key keeps the drift exit code", func(t *testing.T) {
+		h := newHarness(t)
+		fs := newFakeServer(t)
+		r := h.run("--server", fs.url(), "drift", "--stack", "stacks/app", "--run-id", "run-drift")
+		assert.Equal(t, ExitChanges, r.code, r.stderr)
+		assert.Zero(t, fs.hitCount("result"))
+		assert.Contains(t, r.stdout, "stacks/app: drifted: 1 to add")
+	})
 	t.Run("local json output", func(t *testing.T) {
 		h := newHarness(t)
 		h.tf.PlanExit = 0
