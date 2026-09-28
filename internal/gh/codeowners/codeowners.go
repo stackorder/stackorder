@@ -229,7 +229,7 @@ func compile(pattern string) (*regexp.Regexp, error) {
 		switch seg {
 		case "**":
 			switch {
-			case i == 0 && i == last:
+			case last == 0:
 				re.WriteString(`.+`)
 			case i == 0:
 				re.WriteString(`(?:.+/)?`)
