@@ -19,8 +19,9 @@
 // Errors are wrapped with the operation that failed. Callers match them with
 // errors.Is against ErrNotFound, ErrConflict and ErrInvalid.
 //
-// A Store is safe for concurrent use. InTx runs a function against a Store
-// bound to a single transaction, so callers can compose several methods
-// atomically; methods that open their own transaction use a savepoint when
-// called inside InTx.
+// A Store returned by Open is safe for concurrent use. InTx runs a function
+// against a Store bound to a single transaction, so callers can compose
+// several methods atomically; that Store is not safe for concurrent use.
+// Methods that open their own transaction use a savepoint when called
+// inside InTx.
 package store

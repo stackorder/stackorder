@@ -102,7 +102,8 @@ func (s *Store) Pool() *pgxpool.Pool {
 // otherwise. Calls nest: inside fn, InTx and methods that need their own
 // transaction use savepoints. Ping, Migrate, MigrateDown, SchemaVersion and
 // TryAdvisoryLock always use connections of their own and are not part of
-// the transaction.
+// the transaction. The Store passed to fn is bound to one connection: it
+// must not be used from several goroutines at once, nor after fn returns.
 func (s *Store) InTx(ctx context.Context, fn func(tx *Store) error) error {
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		return fn(&Store{pool: s.pool, db: tx})
