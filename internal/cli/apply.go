@@ -212,14 +212,21 @@ func (s *session) apply(ctx context.Context, sha, planFlag string, fresh bool, r
 	if err := s.init(ctx, r); err != nil {
 		return err
 	}
-	usePlan := !fresh && fileExists(oc.planFile) && (planFlag != "" || s.st.cfg.Apply.FromPlanEnabled())
+	saved := !fresh && fileExists(oc.planFile)
 	var p *tfjson.Plan
-	if usePlan {
+	switch {
+	case saved && s.st.cfg.Apply.FromPlanEnabled():
 		if p, err = s.writePlanJSON(ctx, r, oc.planFile, jsonFile); err != nil {
 			return err
 		}
-	} else {
-		if p, err = s.replan(ctx, r, oc.planFile, jsonFile, fresh, recorded); err != nil {
+	case saved:
+		why := fmt.Sprintf("apply.from_plan is false, so %s is planned again instead of applying %s; the new plan must match the recorded one", s.key, oc.planFile)
+		if p, err = s.replan(ctx, r, oc.planFile, jsonFile, fresh, recorded, why); err != nil {
+			return err
+		}
+	default:
+		why := fmt.Sprintf("the plan file for %s is not available; planning again and comparing with the recorded plan", s.key)
+		if p, err = s.replan(ctx, r, oc.planFile, jsonFile, fresh, recorded, why); err != nil {
 			return err
 		}
 	}
@@ -239,12 +246,12 @@ func (s *session) apply(ctx context.Context, sha, planFlag string, fresh bool, r
 	return nil
 }
 
-func (s *session) replan(ctx context.Context, r *tf.Runner, planFile, jsonFile string, fresh bool, recorded *v1.PlanSummary) (*tfjson.Plan, error) {
+func (s *session) replan(ctx context.Context, r *tf.Runner, planFile, jsonFile string, fresh bool, recorded *v1.PlanSummary, why string) (*tfjson.Plan, error) {
 	if !fresh && recorded == nil {
-		return nil, refused("the plan file %s is missing and run %s recorded no plan summary for %s to compare a new plan with; refusing to apply", planFile, s.runID, s.key)
+		return nil, refused("run %s recorded no plan summary for %s to compare a new plan with, and %s cannot be applied as saved; refusing to apply", s.runID, s.key, planFile)
 	}
 	if !fresh {
-		s.a.warn(fmt.Sprintf("the plan file for %s is not available; planning again and comparing with the recorded plan", s.key))
+		s.a.warn(why)
 	}
 	if _, err := r.Plan(ctx, tf.PlanOptions{Out: planFile, DetailedExitCode: true}); err != nil {
 		return nil, err

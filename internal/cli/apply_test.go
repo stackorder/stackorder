@@ -250,6 +250,37 @@ func TestApplyReplansAMissingPlan(t *testing.T) {
 
 func ptr[T any](v T) *T { return &v }
 
+func TestApplyFromPlanDisabledIgnoresTheDownloadedPlan(t *testing.T) {
+	tests := []struct {
+		name     string
+		showJSON string
+		wantCode int
+	}{
+		{name: "new plan matches the recorded one", showJSON: "plan_changes.json", wantCode: 0},
+		{name: "new plan differs", showJSON: "plan_other.json", wantCode: ExitRefused},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, fs := newApplyHarness(t)
+			writeFile(t, filepath.Join(h.root, "stackorder.yaml"), "version: 1\napply:\n  from_plan: false\n")
+			h.tf.ShowJSON = filepath.Join(filepath.Dir(h.tf.ShowJSON), tt.showJSON)
+			planFile := writeFile(t, filepath.Join(t.TempDir(), "downloaded.tfplan"), "downloaded plan")
+			r := h.run("apply", "--stack", "stacks/app", "--plan-file", planFile)
+			require.Equal(t, tt.wantCode, r.code, r.stderr)
+			cmds := h.tfCommands()
+			assert.Contains(t, cmds, "plan")
+			assert.Contains(t, r.stderr, "::warning::apply.from_plan is false, so stacks/app is planned again")
+			if tt.wantCode != 0 {
+				assert.NotContains(t, cmds, "apply")
+				assert.Equal(t, ExitRefused, fs.lastResult().Result.ExitCode)
+				return
+			}
+			assert.Equal(t, []string{"version", "init", "plan", "show", "apply"}, cmds)
+			assert.Equal(t, v1.ResultSuccess, fs.lastResult().Result.Status)
+		})
+	}
+}
+
 func TestApplyFailures(t *testing.T) {
 	t.Run("apply fails", func(t *testing.T) {
 		h, fs := newApplyHarness(t)
