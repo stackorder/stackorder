@@ -218,12 +218,32 @@ module "b_long" {
 			},
 		},
 		{
-			name:  "the repository root can be included",
+			name:  "the repository root is never an included stack",
 			files: map[string]string{"stackorder.yaml": "version: 1\nstacks:\n  include: [\".\"]\n"},
 			want: &v1.Graph{
-				Stacks:   []v1.Stack{defaultStack("", nil, nil)},
-				Warnings: []string{".: listed in stacks.include but has no s3 backend"},
+				Warnings: []string{".: the repository root cannot be a stack; move its configuration into a directory"},
 			},
+		},
+		{
+			name: "the repository root is never a discovered stack",
+			files: map[string]string{
+				"main.tf":          s3Block("b", "root.tfstate"),
+				"stacks/a/main.tf": s3Block("b", "a.tfstate"),
+			},
+			config: &v1.RepoConfig{Stacks: v1.StacksConfig{Discover: []string{"**"}}},
+			want: &v1.Graph{
+				Stacks:   []v1.Stack{defaultStack("stacks/a", state("b", "a.tfstate"), nil)},
+				Warnings: []string{".: the repository root cannot be a stack; move its configuration into a directory"},
+			},
+		},
+		{
+			name: "a root without an s3 backend is not reported",
+			files: map[string]string{
+				"main.tf":          "variable \"x\" {}\n",
+				"stacks/a/main.tf": s3Block("b", "a.tfstate"),
+			},
+			config: &v1.RepoConfig{Stacks: v1.StacksConfig{Discover: []string{"**"}}},
+			want:   &v1.Graph{Stacks: []v1.Stack{defaultStack("stacks/a", state("b", "a.tfstate"), nil)}},
 		},
 		{
 			name:  "unreadable configuration files are reported",

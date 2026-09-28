@@ -293,6 +293,12 @@ func (s *scanner) discoverStacks() error {
 			continue
 		}
 		dc := s.hcl.readDir(dir, s.dirs[dir])
+		if dir == "" {
+			if included[dir] || dc.backendType == backendS3 {
+				s.warn(".: the repository root cannot be a stack; move its configuration into a directory")
+			}
+			continue
+		}
 		switch {
 		case dc.backendType == backendS3:
 		case included[dir]:
