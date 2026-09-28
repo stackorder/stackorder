@@ -204,6 +204,8 @@ func TestRollupConclusion(t *testing.T) {
 		{name: "no stacks yet", run: baseRun(v1.RunPlanning), wantStatus: StatusQueued, wantTitle: "Waiting for the affected stacks"},
 		{name: "planned no changes", run: baseRun(v1.RunPlanned, st(v1.StackPlanned), st(v1.StackSkipped)), wantStatus: StatusCompleted, wantConcl: ConclusionSuccess, wantTitle: "No changes in 2 stacks"},
 		{name: "applied no changes", run: applyRun(v1.RunApplied, st(v1.StackNoop)), wantStatus: StatusCompleted, wantConcl: ConclusionSuccess, wantTitle: "Applied 1 stack, no changes"},
+		{name: "unconfirmed apply fails closed", run: applyRun(v1.RunApplying, st(v1.StackApplied), st(v1.StackUnconfirmed)), wantStatus: StatusCompleted, wantConcl: ConclusionFailure, wantTitle: "Unconfirmed: the server could not confirm the apply of 1 stack"},
+		{name: "unconfirmed apply run fails closed", run: applyRun(v1.RunUnconfirmed, st(v1.StackApplied)), wantStatus: StatusCompleted, wantConcl: ConclusionFailure, wantTitle: "Unconfirmed: the server could not confirm the apply of 1 stack"},
 		{name: "applied subset counts only applied stacks", run: applyRun(v1.RunApplied,
 			stack("stacks/a", "", 0, 0, withStatus(v1.StackApplied), withSummary(1, 0, 0, 0)),
 			stack("stacks/b", "", 0, 0, withStatus(v1.StackSkipped), withSummary(4, 0, 0, 0)),

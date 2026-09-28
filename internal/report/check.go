@@ -272,10 +272,10 @@ func (t tally) broken() int { return t.n(v1.StackFailed, v1.StackBlocked, v1.Sta
 
 // RollupCheck renders the roll-up check run, "stackorder/plan" or
 // "stackorder/apply", for a whole run. It fails when any stack failed, was
-// blocked or vanished, is neutral when any result is unconfirmed, succeeds
-// when every stack is planned (plan phase) or applied, noop or skipped
-// (apply phase), and is in progress otherwise; during an apply a planned
-// stack is still waiting for its wave.
+// blocked or vanished, or when an apply is unconfirmed; it is neutral when
+// a plan is unconfirmed, succeeds when every stack is planned (plan phase)
+// or applied, noop or skipped (apply phase), and is in progress otherwise.
+// During an apply a planned stack is still waiting for its wave.
 func RollupCheck(run v1.Run, o Options) CheckOutput {
 	p := phaseOf(run)
 	t := tallyOf(run.Stacks, p)
@@ -300,6 +300,8 @@ func rollupState(run v1.Run, t tally, p phase) CheckOutput {
 		return completed("Run ended with "+plural(t.running(), "stack")+" not applied", ConclusionFailure)
 	case t.running() > 0:
 		return inProgress(run, t, p)
+	case p == phaseApply && (run.Status == v1.RunUnconfirmed || t.n(v1.StackUnconfirmed) > 0):
+		return completed("Unconfirmed: the server could not confirm the apply of "+plural(max(t.n(v1.StackUnconfirmed), 1), "stack"), ConclusionFailure)
 	case run.Status == v1.RunUnconfirmed || t.n(v1.StackUnconfirmed) > 0:
 		return completed("Unconfirmed: "+plural(t.total, "stack")+" checked without the server", ConclusionNeutral)
 	case t.total == 0 && !run.Status.Terminal() && run.Status != v1.RunPlanned:
