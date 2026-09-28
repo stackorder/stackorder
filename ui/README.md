@@ -88,7 +88,9 @@ When `api/v1` changes, update `types.ts` in the same commit; the Go test in
 `index.html` plus content-hashed files under `assets/`. The server embeds
 that directory with `//go:embed`, so rebuild the server after rebuilding the
 UI; from the repository root, `make ui` does the npm part. `internal/ui`
-serves `assets/` with `Cache-Control: immutable`, `index.html` with
-`no-cache`, and `index.html` for any path that is not a static file, so
-client routes survive a reload. A binary built without the UI answers with
-a short plain-text page pointing at `make ui`.
+serves `assets/` with `Cache-Control: immutable` and other files with
+`no-cache`. A missing file under `assets/`, or a missing top-level file
+such as `/robots.txt`, is 404; any other path that is not a file of the
+build gets `index.html`, so client routes survive a reload, including
+repositories whose names end in `.js` or `.json`. A binary built without
+the UI answers with a short plain-text page pointing at `make ui`.
