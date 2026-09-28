@@ -1,0 +1,69 @@
+name: terraform
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - deploy/terraform/**
+      - .github/workflows/terraform.yml
+  pull_request:
+    paths:
+      - deploy/terraform/**
+      - .github/workflows/terraform.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/terraform
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.x
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive -diff
+
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        terraform: [1.9.x, 1.14.x]
+        dir: [., examples/complete, examples/existing-vpc, examples/self-hosted]
+        exclude:
+          - terraform: 1.9.x
+            dir: examples/self-hosted
+    defaults:
+      run:
+        working-directory: deploy/terraform/${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ matrix.terraform }}
+          terraform_wrapper: false
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/terraform
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.x
+          terraform_wrapper: false
+      - run: terraform init -backend=false -input=false
+      - run: terraform test
