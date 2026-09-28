@@ -32,6 +32,10 @@ func TestResolveDesignExample(t *testing.T) {
 	gitApps := "acme/modules//app@v2.1.0"
 	withGit := exampleGraph().git(gitApps, "v2.1.0").uses(prodApps, gitApps).uses(stagingApps, gitApps)
 	withGit.g.Modules[len(withGit.g.Modules)-1].Path = "app"
+	registryIAM := "registry:terraform-aws-modules/iam/aws@5.1"
+	withRegistry := exampleGraph().
+		module(v1.Module{Key: registryIAM, Kind: v1.ModuleRegistry, Source: "terraform-aws-modules/iam/aws", Path: "vendor/iam", Ref: "5.1"}).
+		uses(prodApps, registryIAM)
 
 	tests := []struct {
 		name         string
@@ -109,6 +113,14 @@ func TestResolveDesignExample(t *testing.T) {
 			wantAffected: []v1.AffectedStack{},
 			wantWaves:    [][]string{},
 			wantWarnings: []string{"changed path app/main.tf is inside no stack or module"},
+		},
+		{
+			name:         "registry module never matches a path in this repository",
+			graph:        withRegistry.build(),
+			paths:        []string{"vendor/iam/main.tf"},
+			wantAffected: []v1.AffectedStack{},
+			wantWaves:    [][]string{},
+			wantWarnings: []string{"changed path vendor/iam/main.tf is inside no stack or module"},
 		},
 	}
 	for _, tt := range tests {
