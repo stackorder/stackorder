@@ -30,7 +30,8 @@ var skippedDirs = map[string]bool{".git": true, ".terraform": true, "node_module
 // Options configures one Scan.
 type Options struct {
 	// Repo is the "owner/repo" of the checkout. It prefixes local module keys
-	// and tells same-repository depends_on entries from cross-repository ones.
+	// and tells same-repository depends_on entries from cross-repository ones,
+	// comparing owner and name case-insensitively as GitHub does.
 	Repo string
 	// SHA is the commit of the checkout, copied into the graph.
 	SHA string
@@ -523,7 +524,7 @@ func (s *scanner) addDependsOn() map[string]map[string]bool {
 				s.warn("%s: depends_on: %v", key, err)
 				continue
 			}
-			if repo == "" || repo == s.opts.Repo {
+			if repo == "" || strings.EqualFold(repo, s.opts.Repo) {
 				if target == key {
 					s.warn("%s: depends_on names the stack itself; ignored", key)
 					continue
@@ -652,15 +653,16 @@ func StackDirs(g *v1.Graph) []string {
 
 // FindStack returns the stack with the given key, or nil. The key is
 // normalised first, so "./stacks/prod/vpc/" finds "stacks/prod/vpc"; a key
-// qualified with the graph's own repository finds the local stack, and one
-// qualified with another repository finds the external stack.
+// qualified with the graph's own repository, in any letter case, finds the
+// local stack, and one qualified with another repository finds the external
+// stack.
 func FindStack(g *v1.Graph, key string) *v1.Stack {
 	if g == nil {
 		return nil
 	}
 	repo, k := v1.SplitQualifiedStackKey(key)
 	k = config.NormalizePath(k)
-	if repo != "" && repo != g.Repo {
+	if repo != "" && !strings.EqualFold(repo, g.Repo) {
 		k = v1.QualifiedStackKey(repo, k)
 	}
 	for i := range g.Stacks {

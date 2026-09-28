@@ -295,6 +295,7 @@ func TestFindStack(t *testing.T) {
 		{key: "stacks/prod/vpc", want: "stacks/prod/vpc"},
 		{key: "./stacks/prod/vpc/", want: "stacks/prod/vpc"},
 		{key: "acme/infra//stacks/prod/vpc", want: "stacks/prod/vpc"},
+		{key: "ACME/Infra//stacks/prod/vpc", want: "stacks/prod/vpc"},
 		{key: "stacks/prod/network:blue", want: "stacks/prod/network:blue"},
 		{key: "acme/network-infra//stacks/prod/tgw", want: "acme/network-infra//stacks/prod/tgw"},
 		{key: "stacks/prod/tgw"},

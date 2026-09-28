@@ -187,7 +187,7 @@ module "b_long" {
 			name: "depends_on spellings and cross-repository workspaces",
 			files: map[string]string{
 				"stacks/a/main.tf":          s3Block("b", "a.tfstate") + remoteStateBlock("b", "b", "b.tfstate"),
-				"stacks/a/.stackorder.yaml": "depends_on:\n  - acme/infra//stacks/b\n  - ./stacks/b/\n  - other/repo//stacks/x:blue\n  - other/repo//stacks/x:blue\n",
+				"stacks/a/.stackorder.yaml": "depends_on:\n  - acme/infra//stacks/b\n  - ./stacks/b/\n  - ACME/Infra//stacks/b\n  - other/repo//stacks/x:blue\n  - other/repo//stacks/x:blue\n",
 				"stacks/b/main.tf":          s3Block("b", "b.tfstate"),
 				"stacks/b/.stackorder.yaml": "workspace: default\n",
 			},
@@ -195,7 +195,7 @@ module "b_long" {
 				Stacks: []v1.Stack{
 					{Key: "other/repo//stacks/x:blue", Path: "stacks/x", Workspace: "blue", Repo: "other/repo", External: true},
 					defaultStack("stacks/a", state("b", "a.tfstate"), &v1.StackConfig{
-						DependsOn: []string{"acme/infra//stacks/b", "./stacks/b/", "other/repo//stacks/x:blue", "other/repo//stacks/x:blue"},
+						DependsOn: []string{"acme/infra//stacks/b", "./stacks/b/", "ACME/Infra//stacks/b", "other/repo//stacks/x:blue", "other/repo//stacks/x:blue"},
 					}),
 					defaultStack("stacks/b", state("b", "b.tfstate"), &v1.StackConfig{Workspace: "default"}),
 				},
