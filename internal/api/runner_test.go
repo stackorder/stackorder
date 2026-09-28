@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/oidc"
 	"github.com/stackorder/stackorder/internal/principal"
+	"github.com/stackorder/stackorder/internal/store"
 	"github.com/stackorder/stackorder/internal/testutil/oidcfake"
 )
 
@@ -227,6 +229,7 @@ func TestRunnerEndpointsRefuseSessions(t *testing.T) {
 func TestRunnerEndpointsDelegate(t *testing.T) {
 	e := newRunnerEnv(t)
 	runID := uuid.NewString()
+	e.db.runs[uuid.MustParse(runID)] = store.Run{ID: uuid.MustParse(runID), RepoID: 100, Repo: "acme/infra"}
 	key := "stacks/prod/apps:blue"
 	escaped := url.PathEscape(key)
 	require.Equal(t, "stacks%2Fprod%2Fapps:blue", escaped)
@@ -274,9 +277,13 @@ func TestRunnerEndpointsDelegate(t *testing.T) {
 	assert.Equal(t, "GetRunForPrincipal", call.method)
 	assert.Equal(t, principal.OIDC, call.p.Kind)
 
-	e.runs.run = &v1.Run{ID: runID, Repo: "globex/platform"}
-	rec = e.do(bearer(newRequest(t, http.MethodGet, "/v1/runs/"+runID, nil), e.planToken()))
+	e.db.addRepo(200, 2, "globex", "globex/platform")
+	globexRun := uuid.New()
+	e.db.runs[globexRun] = store.Run{ID: globexRun, RepoID: 200, Repo: "globex/platform"}
+	calls := e.runs.count()
+	rec = e.do(bearer(newRequest(t, http.MethodGet, "/v1/runs/"+globexRun.String(), nil), e.planToken()))
 	assert.Equal(t, http.StatusNotFound, rec.Code, "a runner token only reads runs of its own repository")
+	assert.Equal(t, calls, e.runs.count(), "the run service, which binds dispatched jobs, is never reached")
 }
 
 func TestCreateRunStatus(t *testing.T) {
@@ -344,28 +351,40 @@ func TestRunnerErrorsAreMapped(t *testing.T) {
 func TestGetRunVisibility(t *testing.T) {
 	e := newRunnerEnv(t)
 	e.db.addRepo(200, 2, "globex", "globex/platform")
-	runID := uuid.NewString()
+	acmeRun, globexRun, orphanRun := uuid.New(), uuid.New(), uuid.New()
+	e.db.runs[acmeRun] = store.Run{ID: acmeRun, RepoID: 100, Repo: "acme/infra"}
+	e.db.runs[globexRun] = store.Run{ID: globexRun, RepoID: 200, Repo: "globex/platform"}
+	e.db.runs[orphanRun] = store.Run{ID: orphanRun, RepoID: 404, Repo: "gone/repo"}
+	get := func(run uuid.UUID, credential func(*http.Request) *http.Request) *httptest.ResponseRecorder {
+		return e.do(credential(newRequest(t, http.MethodGet, "/v1/runs/"+run.String(), nil)))
+	}
+	asSession := func(login string, orgs ...string) func(*http.Request) *http.Request {
+		return func(r *http.Request) *http.Request { return withCookie(r, e.session(login, orgs...)) }
+	}
 
-	rec := e.do(withCookie(newRequest(t, http.MethodGet, "/v1/runs/"+runID, nil), e.session("octocat", "acme")))
+	rec := get(acmeRun, asSession("octocat", "acme"))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, principal.Session, e.runs.last().p.Kind)
 	assert.Equal(t, "octocat", e.runs.last().p.Login)
 
-	e.runs.run = &v1.Run{ID: runID, Repo: "globex/platform"}
-	rec = e.do(withCookie(newRequest(t, http.MethodGet, "/v1/runs/"+runID, nil), e.session("octocat", "acme")))
-	assert.Equal(t, http.StatusNotFound, rec.Code, "a run in another organisation is invisible")
+	calls := e.runs.count()
+	hidden := get(globexRun, asSession("octocat", "acme"))
+	require.Equal(t, http.StatusNotFound, hidden.Code, "a run in another organisation is invisible")
+	assert.Equal(t, `run "`+globexRun.String()+`" not found`, errorOf(t, hidden).Message, "answered as if it did not exist")
+	absent := uuid.New()
+	missing := get(absent, asSession("octocat", "acme"))
+	require.Equal(t, http.StatusNotFound, missing.Code)
+	assert.Equal(t, `run "`+absent.String()+`" not found`, errorOf(t, missing).Message)
+	assert.Equal(t, calls, e.runs.count(), "the run service is not asked about runs the caller cannot see")
 
-	rec = e.do(withCookie(newRequest(t, http.MethodGet, "/v1/runs/"+runID, nil), e.session("globex")))
+	rec = get(globexRun, asSession("globex"))
 	assert.Equal(t, http.StatusOK, rec.Code, "an account installed on the user's own login is visible")
-
-	rec = e.do(bearer(newRequest(t, http.MethodGet, "/v1/runs/"+runID, nil), e.apiKey("ci")))
+	rec = get(globexRun, func(r *http.Request) *http.Request { return bearer(r, e.apiKey("ci")) })
 	assert.Equal(t, http.StatusOK, rec.Code, "API keys see everything")
+	rec = get(orphanRun, asSession("octocat", "acme", "gone"))
+	assert.Equal(t, http.StatusNotFound, rec.Code, "a run whose repository is gone is not found")
 
-	e.runs.run = &v1.Run{ID: runID, Repo: "gone/repo"}
-	rec = e.do(withCookie(newRequest(t, http.MethodGet, "/v1/runs/"+runID, nil), e.session("octocat", "acme", "gone")))
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = e.do(newRequest(t, http.MethodGet, "/v1/runs/"+runID, nil))
+	rec = e.do(newRequest(t, http.MethodGet, "/v1/runs/"+acmeRun.String(), nil))
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	assert.Equal(t, "a runner OIDC token, an API key or a session is required", errorOf(t, rec).Message)
 }

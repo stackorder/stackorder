@@ -76,27 +76,9 @@ func (s *server) unlockByKey(w http.ResponseWriter, r *http.Request, id identity
 }
 
 func (s *server) rerun(w http.ResponseWriter, r *http.Request, id identity) error {
-	runID, err := parseID(r.PathValue("id"), "run")
+	run, repo, err := s.visibleRun(r, id)
 	if err != nil {
 		return err
-	}
-	missing := notFound("run " + r.PathValue("id") + " not found")
-	run, err := s.db.GetRun(r.Context(), runID)
-	if errors.Is(err, store.ErrNotFound) {
-		return missing
-	}
-	if err != nil {
-		return fmt.Errorf("get run: %w", err)
-	}
-	repo, err := s.db.GetRepo(r.Context(), run.RepoID)
-	if errors.Is(err, store.ErrNotFound) {
-		return missing
-	}
-	if err != nil {
-		return fmt.Errorf("get repository: %w", err)
-	}
-	if !id.sees(repo.Account) {
-		return missing
 	}
 	var body struct{}
 	if err := decodeJSON(r, &body, false); err != nil {
@@ -105,14 +87,14 @@ func (s *server) rerun(w http.ResponseWriter, r *http.Request, id identity) erro
 	if err := s.requirePush(r, id, repo); err != nil {
 		return err
 	}
-	out, err := s.runs.Rerun(r.Context(), id.Actor(), runID.String())
+	out, err := s.runs.Rerun(r.Context(), id.Actor(), run.ID.String())
 	if err != nil {
 		return err
 	}
 	if out.HTMLURL == "" {
 		out.HTMLURL = s.runURL(out.ID)
 	}
-	resp := v1.CreateRunResponse{RunID: out.ID, Status: out.Status, Existing: out.ID == runID.String(), Run: out}
+	resp := v1.CreateRunResponse{RunID: out.ID, Status: out.Status, Existing: out.ID == run.ID.String(), Run: out}
 	status := http.StatusCreated
 	if resp.Existing {
 		status = http.StatusOK

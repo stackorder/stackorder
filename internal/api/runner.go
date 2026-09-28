@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
+	"strconv"
 
 	"github.com/google/uuid"
 
@@ -95,23 +95,13 @@ func (s *server) recordCheck(w http.ResponseWriter, r *http.Request, id identity
 }
 
 func (s *server) getRun(w http.ResponseWriter, r *http.Request, id identity) error {
-	runID, err := parseID(r.PathValue("id"), "run")
+	stored, _, err := s.visibleRun(r, id)
 	if err != nil {
 		return err
 	}
-	run, err := s.runs.GetRunForPrincipal(r.Context(), id.Principal, runID.String())
+	run, err := s.runs.GetRunForPrincipal(r.Context(), id.Principal, stored.ID.String())
 	if err != nil {
 		return err
-	}
-	switch id.Kind {
-	case principal.Session:
-		if err := s.checkRepoVisible(r, id, run.Repo); err != nil {
-			return err
-		}
-	case principal.OIDC:
-		if !strings.EqualFold(run.Repo, id.Claims.Repository) {
-			return notFound(fmt.Sprintf("run %q not found in %s", runID.String(), id.Claims.Repository))
-		}
 	}
 	if run.HTMLURL == "" {
 		run.HTMLURL = s.runURL(run.ID)
@@ -120,13 +110,32 @@ func (s *server) getRun(w http.ResponseWriter, r *http.Request, id identity) err
 	return nil
 }
 
-func (s *server) checkRepoVisible(r *http.Request, id identity, fullName string) error {
-	repo, err := s.db.GetRepoByName(r.Context(), fullName)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return fmt.Errorf("look up repository: %w", err)
+func (s *server) visibleRun(r *http.Request, id identity) (store.Run, store.Repo, error) {
+	runID, err := parseID(r.PathValue("id"), "run")
+	if err != nil {
+		return store.Run{}, store.Repo{}, err
 	}
-	if err != nil || !id.sees(repo.Account) {
-		return notFound("repository " + fullName + " not found")
+	missing := notFound(fmt.Sprintf("run %q not found", r.PathValue("id")))
+	run, err := s.db.GetRun(r.Context(), runID)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.Run{}, store.Repo{}, missing
 	}
-	return nil
+	if err != nil {
+		return store.Run{}, store.Repo{}, fmt.Errorf("get run: %w", err)
+	}
+	repo, err := s.db.GetRepo(r.Context(), run.RepoID)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.Run{}, store.Repo{}, missing
+	}
+	if err != nil {
+		return store.Run{}, store.Repo{}, fmt.Errorf("get repository: %w", err)
+	}
+	visible := id.sees(repo.Account)
+	if id.Kind == principal.OIDC {
+		visible = strconv.FormatInt(repo.ID, 10) == id.Claims.RepositoryID
+	}
+	if !visible {
+		return store.Run{}, store.Repo{}, missing
+	}
+	return run, repo, nil
 }
