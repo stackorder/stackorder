@@ -130,6 +130,9 @@ func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	s.handle(mux, "GET /healthz", 0, http.HandlerFunc(s.healthz))
 	s.handle(mux, "GET /readyz", 0, http.HandlerFunc(s.readyz))
+	s.handle(mux, "GET /setup", 0, http.HandlerFunc(s.setup))
+	s.handle(mux, "GET /setup/callback", 0, http.HandlerFunc(s.setupCallback))
+	s.handle(mux, "GET /setup/installed", 0, http.HandlerFunc(s.setupInstalled))
 	if s.cfg.SetupMode {
 		s.handle(mux, "/", 0, http.HandlerFunc(s.setupRequired))
 		return s.observe(s.securityHeaders(mux))

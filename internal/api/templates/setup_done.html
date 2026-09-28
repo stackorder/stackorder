@@ -1,0 +1,19 @@
+{{define "content"}}
+<h1>The GitHub App {{.Body.Name}} is ready</h1>
+<p class="warn">These credentials are shown once. The server has not stored them anywhere; if you lose them, generate a new private key and client secret in the App's settings on GitHub.</p>
+<h2>1. Store the credentials</h2>
+<p>Put these values in your secret store and pass them to the server as environment variables:</p>
+<pre>{{range .Body.Env}}{{.Name}}={{.Value}}
+{{end}}</pre>
+<p><code>GITHUB_APP_PRIVATE_KEY</code> is the App's private key. Store the whole PEM block, BEGIN and END lines included, as one secret in AWS Secrets Manager (or your platform's equivalent) and hand it to the server through the task's secrets, never in the image. The server also accepts the PEM with its line breaks written as <code>\n</code>.</p>
+<pre>{{.Body.PrivateKey}}</pre>
+<h2>2. Restart the server</h2>
+<p>Restart the server with these variables next to <code>STACKORDER_BASE_URL</code>, <code>DATABASE_URL</code> and <code>STACKORDER_SESSION_KEY</code>. Until it has them it stays in setup mode.</p>
+<h2>3. Install the App</h2>
+<p><a class="button" href="{{.Body.InstallURL}}">Install {{.Body.Name}}</a></p>
+<p>Install it on the organisation and select the repositories that hold stacks, the repositories that hold shared git modules, and those named by cross-repository <code>depends_on</code> entries.</p>
+<h2>Next steps</h2>
+<ol>
+{{range .Body.NextSteps}}<li>{{.}}</li>
+{{end}}</ol>
+{{end}}

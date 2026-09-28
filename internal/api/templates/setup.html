@@ -1,0 +1,16 @@
+{{define "content"}}
+<h1>Create the Stackorder GitHub App</h1>
+<p>This page sends GitHub the manifest of an App named <strong>{{.Body.Name}}</strong>, owned by {{if .Body.Org}}the <strong>{{.Body.Org}}</strong> organisation{{else}}your personal GitHub account{{end}}. GitHub asks you to confirm and then sends you back here, once, with the App's credentials.</p>
+<form id="manifest-form" method="post" action="{{.Body.Action}}">
+<input type="hidden" name="manifest" value="{{.Body.Manifest}}">
+<button type="submit">Create the App on GitHub</button>
+</form>
+<p class="muted">To create the App in an organisation instead, open <code>{{.Body.OrgHint}}</code>; add <code>&amp;name=</code> to choose another name.</p>
+<h2>What the App asks for</h2>
+<p>Webhook URL <code>{{.Body.WebhookURL}}</code>, sign-in callback <code>{{.Body.CallbackURL}}</code>.</p>
+<ul>
+{{range .Body.Permissions}}<li><code>{{.Name}}</code>: {{.Level}}</li>
+{{end}}</ul>
+<p>Events: {{range $i, $e := .Body.Events}}{{if $i}}, {{end}}<code>{{$e}}</code>{{end}}.</p>
+<script nonce="{{.Nonce}}">document.getElementById("manifest-form").submit();</script>
+{{end}}
