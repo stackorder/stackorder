@@ -81,6 +81,11 @@ func (s *Service) RecordResult(ctx context.Context, p principal.Principal, runID
 		}
 		changed = append(changed, blocked...)
 	}
+	if run.Mode == v1.ModeDrift && res.Status == v1.ResultSuccess && !res.Unconfirmed {
+		if err := s.recordDrift(ctx, repo, run, stack, res); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.advance(ctx, run.ID); err != nil {
 		return nil, err
 	}
