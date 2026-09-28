@@ -1,8 +1,8 @@
 package api
 
 import (
-	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"sync"
 	"testing"
@@ -80,7 +80,7 @@ func (e *oauthEnv) startLogin(next string) (state string, cookie *http.Cookie) {
 	return loc.Query().Get("state"), cookie
 }
 
-func (e *oauthEnv) finish(state, code string, cookie *http.Cookie) *http.Response {
+func (e *oauthEnv) finish(state, code string, cookie *http.Cookie) *httptest.ResponseRecorder {
 	e.t.Helper()
 	q := url.Values{}
 	q.Set("state", state)
@@ -89,7 +89,7 @@ func (e *oauthEnv) finish(state, code string, cookie *http.Cookie) *http.Respons
 	if cookie != nil {
 		r.AddCookie(cookie)
 	}
-	return e.do(r).Result()
+	return e.do(r)
 }
 
 func TestLoginRedirectsToGitHub(t *testing.T) {
@@ -152,7 +152,7 @@ func TestSafeNext(t *testing.T) {
 		"/x/../../y":               "/x/../../y",
 		"/@evil.test":              "/@evil.test",
 		"/path with spaces":        "/path%20with%20spaces",
-		"/‮evil":                   "/%E2%80%AEevil",
+		"/\u202eevil":              "/%E2%80%AEevil",
 		"/a?next=//evil.test":      "/a?next=//evil.test",
 		"/\x7f":                    "/",
 		"/foo\\bar":                "/",
@@ -176,10 +176,10 @@ func TestCallbackIssuesSession(t *testing.T) {
 
 	state, cookie := e.startLogin("/repos/acme/infra")
 	resp := e.finish(state, "code-1", cookie)
-	require.Equal(t, http.StatusFound, resp.StatusCode)
-	assert.Equal(t, "/repos/acme/infra", resp.Header.Get("Location"))
+	require.Equal(t, http.StatusFound, resp.Code)
+	assert.Equal(t, "/repos/acme/infra", resp.Header().Get("Location"))
 
-	session := cookieNamed(resp, sessionCookie)
+	session := cookieNamed(resp.Result(), sessionCookie)
 	require.NotNil(t, session)
 	assert.Equal(t, "/", session.Path)
 	assert.True(t, session.HttpOnly)
@@ -188,7 +188,7 @@ func TestCallbackIssuesSession(t *testing.T) {
 	assert.Equal(t, int((48 * time.Hour).Seconds()), session.MaxAge)
 	token, ok := e.srv.openSessionCookie(session.Value)
 	require.True(t, ok, "the cookie is <token>.<hmac>")
-	assert.True(t, clearedCookie(t, resp, oauthCookie), "the state cookie is single use")
+	assert.True(t, clearedCookie(t, resp.Result(), oauthCookie), "the state cookie is single use")
 
 	require.Len(t, e.db.created, 1)
 	assert.Equal(t, store.NewSession{
@@ -204,7 +204,7 @@ func TestCallbackIssuesSession(t *testing.T) {
 		decodeBody[v1.Whoami](t, rec))
 
 	resp = e.finish(state, "code-1", cookie)
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "a used code is refused by GitHub")
+	assert.Equal(t, http.StatusBadRequest, resp.Code, "a used code is refused by GitHub")
 }
 
 func TestCallbackAcceptsAnInstallationOnTheUserAccount(t *testing.T) {
@@ -213,8 +213,8 @@ func TestCallbackAcceptsAnInstallationOnTheUserAccount(t *testing.T) {
 	e.gh.AddOAuthCode("code-2", "solodev")
 	state, cookie := e.startLogin("")
 	resp := e.finish(state, "code-2", cookie)
-	require.Equal(t, http.StatusFound, resp.StatusCode)
-	assert.Equal(t, "/", resp.Header.Get("Location"))
+	require.Equal(t, http.StatusFound, resp.Code)
+	assert.Equal(t, "/", resp.Header().Get("Location"))
 	require.Len(t, e.db.created, 1)
 	assert.Equal(t, []string{}, append([]string{}, e.db.created[0].Orgs...))
 }
@@ -232,17 +232,17 @@ func TestCallbackRefusesUsersWithoutAnInstallation(t *testing.T) {
 
 	state, cookie := e.startLogin("")
 	resp := e.finish(state, "code-3", cookie)
-	require.Equal(t, http.StatusForbidden, resp.StatusCode)
-	assert.Nil(t, cookieNamed(resp, sessionCookie))
+	require.Equal(t, http.StatusForbidden, resp.Code)
+	assert.Nil(t, cookieNamed(resp.Result(), sessionCookie))
 	assert.Empty(t, e.db.created, "no session is stored")
-	body := readBody(t, resp)
+	body := resp.Body.String()
 	assert.Contains(t, body, "Stackorder is not installed for your organisations")
 	assert.Contains(t, body, "mallory")
 	assert.Contains(t, body, "<code>globex</code>", "a suspended installation does not count")
 	assert.Contains(t, body, "<code>initech</code>")
 	assert.NotContains(t, body, "<code>acme</code>", "pending memberships are not reported by GitHub")
 	assert.Contains(t, body, e.gh.URL()+"/apps/stackorder-acme/installations/new")
-	assert.Contains(t, resp.Header.Get("Content-Security-Policy"), "default-src 'none'")
+	assert.Contains(t, resp.Header().Get("Content-Security-Policy"), "default-src 'none'")
 }
 
 func TestCallbackReadsTheSlugFromTheApp(t *testing.T) {
@@ -251,8 +251,8 @@ func TestCallbackReadsTheSlugFromTheApp(t *testing.T) {
 	e.gh.AddOAuthCode("code-4", "nobody")
 	state, cookie := e.startLogin("")
 	resp := e.finish(state, "code-4", cookie)
-	require.Equal(t, http.StatusForbidden, resp.StatusCode)
-	body := readBody(t, resp)
+	require.Equal(t, http.StatusForbidden, resp.Code)
+	body := resp.Body.String()
 	assert.Contains(t, body, "/apps/stackorder-test/installations/new")
 	assert.Contains(t, body, "GitHub reported no organisations for you")
 }
@@ -264,30 +264,30 @@ func TestCallbackFailures(t *testing.T) {
 
 	state, cookie := e.startLogin("")
 	resp := e.finish("other-state", "code", cookie)
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "state mismatch")
-	assert.Contains(t, readBody(t, resp), "cannot be completed")
+	assert.Equal(t, http.StatusBadRequest, resp.Code, "state mismatch")
+	assert.Contains(t, resp.Body.String(), "cannot be completed")
 
 	resp = e.finish(state, "code", nil)
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "no state cookie")
+	assert.Equal(t, http.StatusBadRequest, resp.Code, "no state cookie")
 
 	forged := *cookie
 	forged.Value = e.srv.seal("setup", sealed{Value: state, Expires: e.clock.Now().Add(time.Hour).Unix()})
 	resp = e.finish(state, "code", &forged)
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "a cookie sealed for another purpose")
+	assert.Equal(t, http.StatusBadRequest, resp.Code, "a cookie sealed for another purpose")
 
 	state, cookie = e.startLogin("")
 	e.clock.Advance(oauthStateTTL + time.Second)
 	resp = e.finish(state, "code", cookie)
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "expired state")
+	assert.Equal(t, http.StatusBadRequest, resp.Code, "expired state")
 
 	state, cookie = e.startLogin("")
 	resp = e.finish(state, "unknown-code", cookie)
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	assert.Contains(t, readBody(t, resp), "GitHub refused the sign-in code")
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+	assert.Contains(t, resp.Body.String(), "GitHub refused the sign-in code")
 
 	state, cookie = e.startLogin("")
 	resp = e.finish(state, "", cookie)
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "missing code")
+	assert.Equal(t, http.StatusBadRequest, resp.Code, "missing code")
 
 	state, cookie = e.startLogin("")
 	q := url.Values{"state": {state}, "error": {"access_denied"}, "error_description": {"The user has denied your application access."}}
@@ -300,8 +300,8 @@ func TestCallbackFailures(t *testing.T) {
 	e.gh.FailNext("GET /user", http.StatusInternalServerError, 10)
 	state, cookie = e.startLogin("")
 	resp = e.finish(state, "code-5", cookie)
-	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
-	assert.Contains(t, readBody(t, resp), "GitHub could not be reached")
+	assert.Equal(t, http.StatusBadGateway, resp.Code)
+	assert.Contains(t, resp.Body.String(), "GitHub could not be reached")
 	assert.Contains(t, e.logs.String(), "get authenticated user")
 	assert.Empty(t, e.db.created)
 }
@@ -336,11 +336,4 @@ func TestLogout(t *testing.T) {
 	rec = e.do(newRequest(t, http.MethodGet, "/auth/logout", nil))
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Equal(t, codeNotFound, errorOf(t, rec).Code)
-}
-
-func readBody(t *testing.T, resp *http.Response) string {
-	t.Helper()
-	data, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	return string(data)
 }

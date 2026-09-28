@@ -45,7 +45,7 @@ func (s *server) openSessionCookie(value string) (string, bool) {
 }
 
 func (s *server) setCookie(w http.ResponseWriter, name, value, path string, ttl time.Duration) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // Secure follows the base URL scheme so plain-http development works
 		Name:     name,
 		Value:    value,
 		Path:     path,
@@ -58,7 +58,7 @@ func (s *server) setCookie(w http.ResponseWriter, name, value, path string, ttl 
 }
 
 func (s *server) clearCookie(w http.ResponseWriter, name, path string) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // Secure follows the base URL scheme so plain-http development works
 		Name:     name,
 		Value:    "",
 		Path:     path,

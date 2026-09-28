@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"runtime/debug"
@@ -101,7 +102,7 @@ func (s *server) observe(next http.Handler) http.Handler {
 		defer func() {
 			p := recover()
 			if p != nil {
-				if p == http.ErrAbortHandler {
+				if err, ok := p.(error); ok && errors.Is(err, http.ErrAbortHandler) {
 					s.access(r, info, sw, start)
 					panic(p)
 				}
