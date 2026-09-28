@@ -119,6 +119,22 @@ func TestPlanFlow(t *testing.T) {
 	require.ErrorIs(t, err, principal.ErrNotFound)
 }
 
+func TestPolicyCheckNamesLeaveServerChecksAlone(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	runID := e.planned(7, headSHA)
+	before := e.check(report.StackCheckName(report.CheckPlan, vpc)).Output
+	for _, name := range []string{"plan", "Apply", "resolve"} {
+		_, err := e.svc.RecordCheck(e.ctx, e.planJob(7).p, runID, vpc, name, v1.CheckVerdict{Status: v1.CheckFail, Summary: "overridden"})
+		require.ErrorIs(t, err, principal.ErrInvalid, name)
+	}
+	assert.Equal(t, before, e.check(report.StackCheckName(report.CheckPlan, vpc)).Output)
+	assert.Empty(t, e.run(runID).Stacks[0].Checks)
+
+	_, err := e.svc.RecordCheck(e.ctx, e.planJob(7).p, runID, vpc, "plan-cost", v1.CheckVerdict{Status: v1.CheckPass})
+	require.NoError(t, err, "a name that only starts like a server check is a policy check")
+	assert.Equal(t, gh.ConclusionSuccess, e.check(report.PolicyCheckName("plan-cost", vpc)).Conclusion)
+}
+
 func TestCreateRunBinding(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.openPull(7, headSHA)

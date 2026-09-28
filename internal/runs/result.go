@@ -290,6 +290,9 @@ func (s *Service) RecordCheck(ctx context.Context, p principal.Principal, runID,
 	if !validCheckName(name) {
 		return nil, &principal.InvalidError{Field: "name", Reason: fmt.Sprintf("%q must be letters, digits, '-', '_' or '.'", name)}
 	}
+	if reservedCheckName(name) {
+		return nil, &principal.InvalidError{Field: "name", Reason: fmt.Sprintf("%q names one of the server's own check runs", name)}
+	}
 	switch verdict.Status {
 	case v1.CheckPass, v1.CheckFail, v1.CheckWarn:
 	default:
@@ -329,6 +332,15 @@ func validCheckName(name string) bool {
 		}
 	}
 	return true
+}
+
+func reservedCheckName(name string) bool {
+	for _, own := range []string{report.CheckResolve, report.CheckPlan, report.CheckApply} {
+		if strings.EqualFold("stackorder/"+name, own) {
+			return true
+		}
+	}
+	return false
 }
 
 func checkNameRune(r rune) bool {
