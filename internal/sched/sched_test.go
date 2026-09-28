@@ -18,6 +18,7 @@ import (
 
 	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/metrics"
+	"github.com/stackorder/stackorder/internal/runs"
 	"github.com/stackorder/stackorder/internal/store"
 	"github.com/stackorder/stackorder/internal/testutil/metricstest"
 )
@@ -128,11 +129,11 @@ func TestHousekeepingSlots(t *testing.T) {
 	s := newTestScheduler(&repos{}, q, nil)
 	tickEvery(t, s, at("2026-09-28T07:58:10Z"), at("2026-09-28T09:01:10Z"), 30*time.Second)
 
-	reconcile := q.keys(kindReconcile)
+	reconcile := q.keys(runs.JobReconcile)
 	assert.Len(t, reconcile, 63, "one reconcile per minute from 07:59 to 09:01")
 	assert.Equal(t, "reconcile:"+fmt.Sprint(at("2026-09-28T07:59:00Z").Unix()), reconcile[0])
-	assert.Equal(t, prefixed("prune:", unix("2026-09-28T08:00:00Z", "2026-09-28T09:00:00Z")), q.keys(kindPrune))
-	assert.Equal(t, prefixed("stale_locks:", unix("2026-09-28T08:00:00Z")), q.keys(kindStaleLocks))
+	assert.Equal(t, prefixed("prune:", unix("2026-09-28T08:00:00Z", "2026-09-28T09:00:00Z")), q.keys(runs.JobPrune))
+	assert.Equal(t, prefixed("stale_locks:", unix("2026-09-28T08:00:00Z")), q.keys(runs.JobStaleLocks))
 	seen := map[string]bool{}
 	for _, c := range q.calls {
 		assert.False(t, seen[c.key], "slot %s enqueued twice", c.key)
@@ -149,9 +150,9 @@ func TestDriftFiresOncePerScheduledMinute(t *testing.T) {
 	want := prefixed("schedule_drift:7:", unix(
 		"2026-09-28T10:05:00Z", "2026-09-28T10:10:00Z", "2026-09-28T10:15:00Z",
 		"2026-09-28T10:20:00Z", "2026-09-28T10:25:00Z", "2026-09-28T10:30:00Z"))
-	assert.Equal(t, want, q.keys(kindScheduleDrift))
+	assert.Equal(t, want, q.keys(runs.JobScheduleDrift))
 	for _, c := range q.calls {
-		if c.kind == kindScheduleDrift {
+		if c.kind == runs.JobScheduleDrift {
 			assert.JSONEq(t, `{"repo_id":7}`, c.payload)
 			assert.Equal(t, c.key, fmt.Sprintf("schedule_drift:7:%d", c.runAfter.Unix()), "runAfter is the fire time")
 		}
@@ -187,7 +188,7 @@ func TestDriftWindowBoundaries(t *testing.T) {
 			if tc.want != nil {
 				want = prefixed("schedule_drift:3:", tc.want)
 			}
-			assert.Equal(t, want, q.keys(kindScheduleDrift))
+			assert.Equal(t, want, q.keys(runs.JobScheduleDrift))
 		})
 	}
 }
@@ -208,7 +209,7 @@ func TestReposWithoutUsableSchedule(t *testing.T) {
 	s := newTestScheduler(rs, q, logger)
 	tickEvery(t, s, at("2026-09-28T10:00:15Z"), at("2026-09-28T10:03:15Z"), 30*time.Second)
 
-	keys := q.keys(kindScheduleDrift)
+	keys := q.keys(runs.JobScheduleDrift)
 	assert.Len(t, keys, 3)
 	for _, k := range keys {
 		assert.True(t, strings.HasPrefix(k, "schedule_drift:5:"), k)
@@ -218,7 +219,7 @@ func TestReposWithoutUsableSchedule(t *testing.T) {
 
 	rs.list[2] = repo(3, "30 10 * * *")
 	require.NoError(t, s.enqueueDue(t.Context(), at("2026-09-28T10:29:45Z"), at("2026-09-28T10:30:15Z")))
-	assert.Contains(t, q.keys(kindScheduleDrift), fmt.Sprintf("schedule_drift:3:%d", at("2026-09-28T10:30:00Z").Unix()),
+	assert.Contains(t, q.keys(runs.JobScheduleDrift), fmt.Sprintf("schedule_drift:3:%d", at("2026-09-28T10:30:00Z").Unix()),
 		"a corrected schedule is picked up")
 }
 
@@ -233,7 +234,7 @@ func TestTickErrors(t *testing.T) {
 	err := s.enqueueDue(t.Context(), at("2026-09-28T09:59:50Z"), at("2026-09-28T10:00:20Z"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "sched: enqueue prune:")
-	assert.Len(t, q.keys(kindScheduleDrift), 1, "one failure does not stop the other slots")
+	assert.Len(t, q.keys(runs.JobScheduleDrift), 1, "one failure does not stop the other slots")
 
 	listErr := errors.New("connection reset")
 	s = newTestScheduler(&repos{err: listErr}, &recorder{}, nil)
@@ -329,14 +330,14 @@ func TestLeadership(t *testing.T) {
 
 	election.set(true, nil)
 	require.Eventually(t, s.Leader, 5*time.Second, time.Millisecond)
-	require.Eventually(t, func() bool { return len(q.keys(kindReconcile)) == 1 }, 5*time.Second, time.Millisecond,
+	require.Eventually(t, func() bool { return len(q.keys(runs.JobReconcile)) == 1 }, 5*time.Second, time.Millisecond,
 		"a new leader catches up at once")
-	assert.Equal(t, prefixed("reconcile:", unix("2026-09-28T10:00:00Z")), q.keys(kindReconcile))
-	assert.Equal(t, prefixed("prune:", unix("2026-09-28T10:00:00Z")), q.keys(kindPrune))
+	assert.Equal(t, prefixed("reconcile:", unix("2026-09-28T10:00:00Z")), q.keys(runs.JobReconcile))
+	assert.Equal(t, prefixed("prune:", unix("2026-09-28T10:00:00Z")), q.keys(runs.JobPrune))
 	assert.InDelta(t, 1, metricstest.Value(t, m, "stackorder_scheduler_leader"), 0)
 
 	clock.Store(at("2026-09-28T10:01:05Z").UnixNano())
-	require.Eventually(t, func() bool { return len(q.keys(kindReconcile)) == 2 }, 5*time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return len(q.keys(runs.JobReconcile)) == 2 }, 5*time.Second, time.Millisecond)
 
 	_, locks := election.snapshot()
 	require.Len(t, locks, 1)
@@ -353,7 +354,7 @@ func TestLeadership(t *testing.T) {
 	require.Len(t, locks, 2)
 	assert.Equal(t, int32(1), locks[1].released.Load(), "stopping releases the lock")
 	distinct := map[string]bool{}
-	for _, k := range q.keys(kindReconcile) {
+	for _, k := range q.keys(runs.JobReconcile) {
 		distinct[k] = true
 	}
 	assert.Len(t, distinct, 2, "a new lead offers slots again under the same keys, which the queue deduplicates")
@@ -387,7 +388,7 @@ func TestFailedTickIsRetried(t *testing.T) {
 		Clock: func() time.Time { return at("2026-09-28T10:00:30Z") },
 	})
 	runScheduler(t, s)
-	require.Eventually(t, func() bool { return len(q.keys(kindReconcile)) == 1 }, 5*time.Second, time.Millisecond,
+	require.Eventually(t, func() bool { return len(q.keys(runs.JobReconcile)) == 1 }, 5*time.Second, time.Millisecond,
 		"the window is kept until every slot in it was enqueued")
 }
 

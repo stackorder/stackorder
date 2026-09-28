@@ -32,17 +32,11 @@ import (
 
 	"github.com/stackorder/stackorder/internal/config"
 	"github.com/stackorder/stackorder/internal/metrics"
+	"github.com/stackorder/stackorder/internal/runs"
 	"github.com/stackorder/stackorder/internal/store"
 )
 
-const (
-	kindReconcile     = "reconcile"
-	kindPrune         = "prune"
-	kindStaleLocks    = "stale_locks"
-	kindScheduleDrift = "schedule_drift"
-
-	catchUp = time.Hour
-)
+const catchUp = time.Hour
 
 // ErrRunning is returned by Run when the scheduler is already running.
 var ErrRunning = errors.New("sched: scheduler is already running")
@@ -51,9 +45,9 @@ var housekeeping = []struct {
 	kind     string
 	schedule cron.Schedule
 }{
-	{kindReconcile, mustParse("* * * * *")},
-	{kindPrune, mustParse("0 * * * *")},
-	{kindStaleLocks, mustParse("0 8 * * *")},
+	{runs.JobReconcile, mustParse("* * * * *")},
+	{runs.JobPrune, mustParse("0 * * * *")},
+	{runs.JobStaleLocks, mustParse("0 8 * * *")},
 }
 
 func mustParse(spec string) cron.Schedule {
@@ -215,10 +209,6 @@ func (s *Scheduler) setLeader(leader bool) {
 	s.metrics.SetSchedulerLeader(leader)
 }
 
-type driftPayload struct {
-	RepoID int64 `json:"repo_id"`
-}
-
 func (s *Scheduler) enqueueDue(ctx context.Context, last, now time.Time) error {
 	from := last.UTC()
 	if floor := now.Add(-catchUp); from.Before(floor) {
@@ -243,8 +233,8 @@ func (s *Scheduler) enqueueDue(ctx context.Context, last, now time.Time) error {
 			continue
 		}
 		if fire, ok := latestFire(schedule, from, now); ok {
-			key := fmt.Sprintf("%s:%d:%d", kindScheduleDrift, r.ID, fire.Unix())
-			errs = append(errs, s.enqueue(ctx, kindScheduleDrift, driftPayload{RepoID: r.ID}, fire, key))
+			key := fmt.Sprintf("%s:%d:%d", runs.JobScheduleDrift, r.ID, fire.Unix())
+			errs = append(errs, s.enqueue(ctx, runs.JobScheduleDrift, runs.ScheduleDriftJob{RepoID: r.ID}, fire, key))
 		}
 	}
 	return errors.Join(errs...)
