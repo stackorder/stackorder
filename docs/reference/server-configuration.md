@@ -71,4 +71,4 @@ The App manifest flow is the same.
 
 ## Network
 
-The server listens on plain HTTP on `STACKORDER_LISTEN`; terminate TLS in front of it. It needs inbound HTTPS from GitHub for webhooks and from people for the UI, and outbound access to the GitHub API, GitHub's OIDC keys, and Postgres. It makes no other outbound calls, apart from the optional artifact bucket.
+The server listens on plain HTTP on `STACKORDER_LISTEN`; terminate TLS in front of it. It needs inbound HTTPS from GitHub for webhooks and from people for the UI, and outbound access to the GitHub API, GitHub's OIDC keys, and Postgres. It makes no other outbound calls, apart from the optional artifact bucket and, when tracing is enabled, the OTLP endpoint.

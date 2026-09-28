@@ -79,7 +79,7 @@ Kubernetes, Nomad, Cloud Run, a VM with systemd: the requirements are the same.
 | --- | --- |
 | Configuration | Environment variables only. Load secrets from the platform's secret store. See [Server configuration](/reference/server-configuration). |
 | Inbound | HTTPS from GitHub to `/webhooks/github`, and from people to the UI. |
-| Outbound | HTTPS to the GitHub API and to GitHub's OIDC key endpoint, and the Postgres port. Nothing else, unless the artifact bucket is enabled. |
+| Outbound | HTTPS to the GitHub API and to GitHub's OIDC key endpoint, and the Postgres port. Nothing else, unless the artifact bucket or tracing is enabled. |
 | Health checks | Liveness on `GET /healthz`, readiness on `GET /readyz` (the database is reachable). |
 | Replicas | One or two. All coordination goes through Postgres; every replica needs the same `STACKORDER_SESSION_KEY`. |
 | Rollouts | Start the new replica and wait for `/readyz` before stopping the old one. Migrations run at start-up under a lock. |
