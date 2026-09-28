@@ -62,6 +62,20 @@ func TestApplyGateLayers(t *testing.T) {
 			want: []string{"**Layer 2, approvals**", "0 of 1 required approvals on the head commit 3333333"},
 		},
 		{
+			name: "layer 2 counts only approvals from users with write access",
+			cfg:  func(c *v1.RepoConfig) { c.Apply.RequireApprovals = 2 },
+			setup: func(e *env) {
+				e.gh.SetCollaboratorPermission(repoName, "bob", "write")
+				e.gh.SetCollaboratorPermission(repoName, "reader", "read")
+				e.gh.SetReviews(repoName, 7, []gh.Review{
+					{User: gh.User{Login: "bob"}, State: gh.ReviewApproved, CommitID: headSHA},
+					{User: gh.User{Login: "reader"}, State: gh.ReviewApproved, CommitID: headSHA},
+					{User: gh.User{Login: "passer-by"}, State: gh.ReviewApproved, CommitID: headSHA},
+				})
+			},
+			want: []string{"**Layer 2, approvals**", "1 of 2 required approvals on the head commit 3333333"},
+		},
+		{
 			name: "layer 2 four eyes",
 			cfg:  func(c *v1.RepoConfig) { c.Apply.FourEyes = true },
 			by:   author,
@@ -97,6 +111,9 @@ func TestApplyGateLayers(t *testing.T) {
 			setup: func(e *env) {
 				e.gh.SetContents(repoName, "main", ".github/CODEOWNERS", []byte("/stacks/prod/ @acme/platform-prod\n/stacks/staging/ @carol\n"))
 				e.gh.SetTeamMembership("acme", "platform-prod", "dave", gh.MembershipActive)
+				for _, login := range []string{"bob", "carol", "dave"} {
+					e.gh.SetCollaboratorPermission(repoName, login, "write")
+				}
 				e.gh.SetReviews(repoName, 7, []gh.Review{
 					{User: gh.User{Login: "bob"}, State: gh.ReviewApproved, CommitID: headSHA},
 					{User: gh.User{Login: "carol"}, State: gh.ReviewApproved, CommitID: headSHA},
@@ -207,6 +224,14 @@ func TestEvaluateApplyGatePasses(t *testing.T) {
 	failures, err := e.svc.EvaluateApplyGate(e.ctx, &run, applier, nil)
 	require.NoError(t, err)
 	assert.Empty(t, failures)
+	cfg := baseConfig()
+	cfg.Apply.RequireApprovals = 1
+	e.setConfig(cfg)
+	e.gh.SetCollaboratorPermission(repoName, "maintainer", "maintain")
+	e.gh.SetReviews(repoName, 7, []gh.Review{{User: gh.User{Login: "maintainer"}, State: gh.ReviewApproved, CommitID: headSHA}})
+	failures, err = e.svc.EvaluateApplyGate(e.ctx, &run, applier, nil)
+	require.NoError(t, err)
+	assert.Empty(t, failures, "an approval from a maintainer counts")
 	failures, err = e.svc.EvaluateApplyGate(e.ctx, &run, applier, []string{vpc, "stacks/none"})
 	require.NoError(t, err)
 	require.Len(t, failures, 1)

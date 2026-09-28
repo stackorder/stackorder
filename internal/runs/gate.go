@@ -253,7 +253,10 @@ func (s *Service) gateApprovals(ctx context.Context, in gateInput, cfg *v1.RepoC
 	if err != nil {
 		return nil, fmt.Errorf("runs: reviews of %s#%d: %w", in.repo.FullName, pull.Number, err)
 	}
-	approved := approvers(reviews, sha, pull.User.Login)
+	approved, err := s.withPushPermission(ctx, in.client, in.repo, approvers(reviews, sha, pull.User.Login))
+	if err != nil {
+		return nil, err
+	}
 	if len(approved) < cfg.Apply.RequireApprovals {
 		out = append(out, report.GateFailure{Layer: report.LayerApprovals,
 			Reason: fmt.Sprintf("%d of %d required approvals on the head commit %s", len(approved), cfg.Apply.RequireApprovals, shortSHA(sha))})
@@ -268,6 +271,20 @@ func (s *Service) gateApprovals(ctx context.Context, in gateInput, cfg *v1.RepoC
 			return nil, err
 		}
 		out = append(out, f...)
+	}
+	return out, nil
+}
+
+func (s *Service) withPushPermission(ctx context.Context, c *gh.Client, repo store.Repo, logins []string) ([]string, error) {
+	out := make([]string, 0, len(logins))
+	for _, login := range logins {
+		perm, err := s.permission(ctx, c, repo, login)
+		if err != nil {
+			return nil, err
+		}
+		if gh.HasPushPermission(perm) {
+			out = append(out, login)
+		}
 	}
 	return out, nil
 }
