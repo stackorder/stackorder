@@ -2,9 +2,10 @@ import type { MarkdownRenderer } from 'vitepress'
 
 type Token = ReturnType<MarkdownRenderer['parse']>[number]
 
-const repositoryFiles: Record<string, string> = {
+const sitePages: Record<string, string> = {
   'ARCHITECTURE.md': '/design/architecture',
   'CONTRIBUTING.md': '/contributing',
+  'https://claude.ai/artifact/W3gQnvGu5Fw9DSXApYE766': '/design/',
 }
 
 const taskMarker = /^\[([ xX])\]\s+/
@@ -17,7 +18,7 @@ export function repositoryLinks(md: MarkdownRenderer): void {
         const href = token.attrGet('href')
         if (!href) continue
         const [file, hash] = href.replace(/^\.\//, '').split('#')
-        const target = repositoryFiles[file]
+        const target = sitePages[file]
         if (target) token.attrSet('href', hash ? `${target}#${hash}` : target)
       }
     }
