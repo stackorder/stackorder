@@ -206,6 +206,25 @@ module "b_long" {
 			},
 		},
 		{
+			name: "self references never become self edges",
+			files: map[string]string{
+				"stacks/a/main.tf":          s3Block("b", "a.tfstate") + "module \"here\" {\n  source = \"./\"\n}\n",
+				"stacks/a/.stackorder.yaml": "depends_on: [stacks/a, ./stacks/a/, acme/infra//stacks/a]\n",
+				"modules/m/main.tf":         "module \"again\" {\n  source = \"../m\"\n}\n",
+			},
+			want: &v1.Graph{
+				Stacks: []v1.Stack{defaultStack("stacks/a", state("b", "a.tfstate"), &v1.StackConfig{
+					DependsOn: []string{"stacks/a", "./stacks/a/", "acme/infra//stacks/a"},
+				})},
+				Modules: []v1.Module{{Key: fixtureRepo + "//modules/m", Kind: v1.ModuleLocal, Path: "modules/m", Source: "./modules/m"}},
+				Warnings: []string{
+					`modules/m/main.tf:1: module "again": source "../m" is the calling directory itself; skipped`,
+					`stacks/a/main.tf:7: module "here": source "./" is the calling directory itself; skipped`,
+					"stacks/a: depends_on names the stack itself; ignored",
+				},
+			},
+		},
+		{
 			name: "include entries",
 			files: map[string]string{
 				"stackorder.yaml": "version: 1\nstacks:\n  include: [\"missing/dir\", \"./tools/x/\"]\n",

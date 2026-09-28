@@ -476,6 +476,10 @@ func (s *scanner) addModuleCall(c caller, call *tfconfig.ModuleCall) (caller, bo
 		if dir == "." {
 			dir = ""
 		}
+		if dir == c.dir {
+			s.warn("%s: module %q: source %q is the calling directory itself; skipped", loc, call.Name, call.Source)
+			return caller{}, false
+		}
 		if info, err := s.fsys.Stat(osPath(dir)); err != nil || !info.IsDir() {
 			s.warn("%s: module %q: source %q is not a directory; skipped", loc, call.Name, call.Source)
 			return caller{}, false
@@ -520,6 +524,10 @@ func (s *scanner) addDependsOn() map[string]map[string]bool {
 				continue
 			}
 			if repo == "" || repo == s.opts.Repo {
+				if target == key {
+					s.warn("%s: depends_on names the stack itself; ignored", key)
+					continue
+				}
 				if _, ok := s.stacks[target]; !ok {
 					s.warn("%s: depends_on %s: no such stack in this repository", key, target)
 				}
