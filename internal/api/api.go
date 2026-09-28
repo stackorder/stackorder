@@ -142,6 +142,9 @@ func (s *server) routes() http.Handler {
 	s.handle(mux, "POST /v1/runs/{id}/stacks/{key}/result", maxBodyBytes, s.with(runnerAuth, s.recordResult))
 	s.handle(mux, "POST /v1/runs/{id}/stacks/{key}/checks/{name}", maxBodyBytes, s.with(runnerAuth, s.recordCheck))
 	s.handle(mux, "GET /v1/runs/{id}", 0, s.with(anyAuth, s.getRun))
+	s.handle(mux, "POST /v1/unlock", maxBodyBytes, s.with(humanAuth|sameOrigin, s.unlockByKey))
+	s.handle(mux, "POST /v1/stacks/{id}/unlock", maxBodyBytes, s.with(humanAuth|sameOrigin, s.unlockStack))
+	s.handle(mux, "POST /v1/runs/{id}/rerun", maxBodyBytes, s.with(humanAuth|sameOrigin, s.rerun))
 
 	s.handle(mux, "GET /v1/me", 0, s.with(humanAuth, s.me))
 	s.handle(mux, "GET /v1/overview", 0, s.with(humanAuth, s.overview))
