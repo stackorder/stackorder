@@ -547,14 +547,7 @@ func (s *Service) commandUnlock(ctx context.Context, repo store.Repo, pr int, cm
 			if err != nil {
 				return commandOutcome{}, storeErr(err, "stack %s", key)
 			}
-			l, err := s.st.GetLock(ctx, st.ID)
-			if errors.Is(err, store.ErrNotFound) || err == nil && l.PRNumber != pr {
-				continue
-			}
-			if err != nil {
-				return commandOutcome{}, storeErr(err, "lock of %s", key)
-			}
-			l, err = s.st.ReleaseLock(ctx, st.ID)
+			l, err := s.st.ReleaseLockOfPR(ctx, st.ID, pr)
 			if errors.Is(err, store.ErrNotFound) {
 				continue
 			}
