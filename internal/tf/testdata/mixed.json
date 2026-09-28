@@ -1,0 +1,93 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.14.4",
+  "planned_values": {"root_module": {}},
+  "resource_changes": [
+    {
+      "address": "aws_subnet.private[\"b\"]",
+      "mode": "managed",
+      "type": "aws_subnet",
+      "name": "private",
+      "index": "b",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["create"], "before": null, "after": {"cidr_block": "10.0.2.0/24"}, "after_unknown": {"id": true}, "before_sensitive": false, "after_sensitive": {}}
+    },
+    {
+      "address": "aws_subnet.private[\"a\"]",
+      "mode": "managed",
+      "type": "aws_subnet",
+      "name": "private",
+      "index": "a",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["create"], "before": null, "after": {"cidr_block": "10.0.1.0/24"}, "after_unknown": {"id": true}, "before_sensitive": false, "after_sensitive": {}}
+    },
+    {
+      "address": "aws_db_instance.main",
+      "mode": "managed",
+      "type": "aws_db_instance",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["update"], "before": {"allocated_storage": 20, "password": "old"}, "after": {"allocated_storage": 50, "password": "new"}, "after_unknown": {}, "before_sensitive": {"password": true}, "after_sensitive": {"password": true}}
+    },
+    {
+      "address": "aws_nat_gateway.this[0]",
+      "mode": "managed",
+      "type": "aws_nat_gateway",
+      "name": "this",
+      "index": 0,
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["delete"], "before": {"id": "nat-0aaaaaaaaaaaaaaaa"}, "after": null, "after_unknown": {}, "before_sensitive": {}, "after_sensitive": false},
+      "action_reason": "delete_because_count_index"
+    },
+    {
+      "address": "aws_eip.nat",
+      "mode": "managed",
+      "type": "aws_eip",
+      "name": "nat",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["delete", "create"], "before": {"id": "eipalloc-0aaaaaaaaaaaaaaaa"}, "after": {}, "after_unknown": {"id": true}, "before_sensitive": {}, "after_sensitive": {}},
+      "action_reason": "replace_because_tainted"
+    },
+    {
+      "address": "aws_cloudwatch_log_group.old",
+      "mode": "managed",
+      "type": "aws_cloudwatch_log_group",
+      "name": "old",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["forget"], "before": {"name": "/acme/old"}, "after": null, "after_unknown": {}, "before_sensitive": {}, "after_sensitive": false}
+    },
+    {
+      "address": "aws_kms_key.state",
+      "mode": "managed",
+      "type": "aws_kms_key",
+      "name": "state",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["no-op"], "before": {"id": "mrk-0123"}, "after": {"id": "mrk-0123"}, "after_unknown": {}, "before_sensitive": {}, "after_sensitive": {}, "importing": {"id": "mrk-0123"}}
+    },
+    {
+      "address": "aws_sns_topic.alerts",
+      "previous_address": "aws_sns_topic.alarms",
+      "mode": "managed",
+      "type": "aws_sns_topic",
+      "name": "alerts",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["no-op"], "before": {"name": "alarms"}, "after": {"name": "alarms"}, "after_unknown": {}, "before_sensitive": {}, "after_sensitive": {}}
+    },
+    {
+      "address": "data.aws_iam_policy_document.assume",
+      "mode": "data",
+      "type": "aws_iam_policy_document",
+      "name": "assume",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["read"], "before": null, "after": {}, "after_unknown": {"json": true}, "before_sensitive": false, "after_sensitive": {}}
+    }
+  ],
+  "output_changes": {
+    "private_subnet_ids": {"actions": ["update"], "before": [], "after_unknown": true, "before_sensitive": false, "after_sensitive": false},
+    "db_endpoint": {"actions": ["no-op"], "before": "db.acme.example", "after": "db.acme.example", "after_unknown": false, "before_sensitive": false, "after_sensitive": false}
+  },
+  "timestamp": "2026-09-28T09:20:12Z",
+  "applyable": true,
+  "complete": true,
+  "errored": false
+}

@@ -1,0 +1,68 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.12.6",
+  "planned_values": {"root_module": {}},
+  "resource_drift": [
+    {
+      "address": "aws_security_group.web",
+      "mode": "managed",
+      "type": "aws_security_group",
+      "name": "web",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": ["update"],
+        "before": {"description": "web tier"},
+        "after": {"description": "web tier (edited in console)"},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    }
+  ],
+  "resource_changes": [
+    {
+      "address": "aws_security_group.web",
+      "mode": "managed",
+      "type": "aws_security_group",
+      "name": "web",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": ["no-op"],
+        "before": {"description": "web tier (edited in console)"},
+        "after": {"description": "web tier (edited in console)"},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "data.aws_region.current",
+      "mode": "data",
+      "type": "aws_region",
+      "name": "current",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": ["no-op"],
+        "before": {"name": "eu-west-1"},
+        "after": {"name": "eu-west-1"},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    }
+  ],
+  "output_changes": {
+    "sg_id": {
+      "actions": ["no-op"],
+      "before": "sg-0123456789abcdef0",
+      "after": "sg-0123456789abcdef0",
+      "after_unknown": false,
+      "before_sensitive": false,
+      "after_sensitive": false
+    }
+  },
+  "timestamp": "2026-09-28T09:18:05Z",
+  "applyable": false,
+  "complete": true,
+  "errored": false
+}

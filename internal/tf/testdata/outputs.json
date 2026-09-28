@@ -1,0 +1,49 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.14.4",
+  "planned_values": {
+    "outputs": {
+      "endpoint": {"sensitive": false, "type": "string", "value": "https://api.acme.example"},
+      "replicas": {"sensitive": false, "type": "number", "value": 3}
+    },
+    "root_module": {}
+  },
+  "output_changes": {
+    "endpoint": {
+      "actions": ["create"],
+      "before": null,
+      "after": "https://api.acme.example",
+      "after_unknown": false,
+      "before_sensitive": false,
+      "after_sensitive": false
+    },
+    "replicas": {
+      "actions": ["update"],
+      "before": 2,
+      "after": 3,
+      "after_unknown": false,
+      "before_sensitive": false,
+      "after_sensitive": false
+    },
+    "old_endpoint": {
+      "actions": ["delete"],
+      "before": "https://old.acme.example",
+      "after": null,
+      "after_unknown": false,
+      "before_sensitive": false,
+      "after_sensitive": false
+    },
+    "region": {
+      "actions": ["no-op"],
+      "before": "eu-west-1",
+      "after": "eu-west-1",
+      "after_unknown": false,
+      "before_sensitive": false,
+      "after_sensitive": false
+    }
+  },
+  "timestamp": "2026-09-28T09:19:40Z",
+  "applyable": true,
+  "complete": true,
+  "errored": false
+}

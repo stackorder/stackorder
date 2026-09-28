@@ -1,0 +1,71 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.12.6",
+  "planned_values": {"root_module": {}},
+  "resource_changes": [
+    {
+      "address": "aws_iam_user.u[\"bob\"]",
+      "mode": "managed",
+      "type": "aws_iam_user",
+      "name": "u",
+      "index": "bob",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": ["delete"],
+        "before": {"name": "bob", "path": "/"},
+        "after": null,
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": false
+      },
+      "action_reason": "delete_because_each_key"
+    },
+    {
+      "address": "aws_iam_user.u[\"alice\"]",
+      "mode": "managed",
+      "type": "aws_iam_user",
+      "name": "u",
+      "index": "alice",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": ["no-op"],
+        "before": {"name": "alice", "path": "/"},
+        "after": {"name": "alice", "path": "/"},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "module.legacy.aws_sqs_queue.jobs",
+      "module_address": "module.legacy",
+      "mode": "managed",
+      "type": "aws_sqs_queue",
+      "name": "jobs",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": ["delete"],
+        "before": {"name": "legacy-jobs"},
+        "after": null,
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": false
+      },
+      "action_reason": "delete_because_no_module"
+    }
+  ],
+  "output_changes": {
+    "legacy_queue_url": {
+      "actions": ["delete"],
+      "before": "https://sqs.eu-west-1.amazonaws.com/123456789012/legacy-jobs",
+      "after": null,
+      "after_unknown": false,
+      "before_sensitive": false,
+      "after_sensitive": false
+    }
+  },
+  "timestamp": "2026-09-28T09:14:10Z",
+  "applyable": true,
+  "complete": true,
+  "errored": false
+}

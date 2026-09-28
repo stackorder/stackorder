@@ -1,0 +1,124 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.14.4",
+  "planned_values": {
+    "outputs": {
+      "bucket_arn": {"sensitive": false}
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_s3_bucket.logs",
+          "mode": "managed",
+          "type": "aws_s3_bucket",
+          "name": "logs",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {"bucket": "acme-prod-logs", "force_destroy": false, "tags": {"Team": "platform"}},
+          "sensitive_values": {"tags": {}}
+        }
+      ],
+      "child_modules": [
+        {
+          "address": "module.vpc",
+          "resources": [
+            {
+              "address": "module.vpc.aws_vpc.this",
+              "mode": "managed",
+              "type": "aws_vpc",
+              "name": "this",
+              "provider_name": "registry.terraform.io/hashicorp/aws",
+              "schema_version": 1,
+              "values": {"cidr_block": "10.20.0.0/16", "enable_dns_support": true},
+              "sensitive_values": {}
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "resource_changes": [
+    {
+      "address": "aws_s3_bucket.logs",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "logs",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {"bucket": "acme-prod-logs", "force_destroy": false, "tags": {"Team": "platform"}},
+        "after_unknown": {"arn": true, "id": true, "region": true},
+        "before_sensitive": false,
+        "after_sensitive": {"tags": {}}
+      }
+    },
+    {
+      "address": "data.aws_caller_identity.current",
+      "mode": "data",
+      "type": "aws_caller_identity",
+      "name": "current",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["read"],
+        "before": null,
+        "after": {},
+        "after_unknown": {"account_id": true, "arn": true, "id": true, "user_id": true},
+        "before_sensitive": false,
+        "after_sensitive": {}
+      },
+      "action_reason": "read_because_dependency_pending"
+    },
+    {
+      "address": "module.vpc.aws_vpc.this",
+      "module_address": "module.vpc",
+      "mode": "managed",
+      "type": "aws_vpc",
+      "name": "this",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {"cidr_block": "10.20.0.0/16", "enable_dns_support": true},
+        "after_unknown": {"arn": true, "id": true, "main_route_table_id": true},
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    }
+  ],
+  "output_changes": {
+    "bucket_arn": {
+      "actions": ["create"],
+      "before": null,
+      "after_unknown": true,
+      "before_sensitive": false,
+      "after_sensitive": false
+    }
+  },
+  "configuration": {
+    "provider_config": {
+      "aws": {"name": "aws", "full_name": "registry.terraform.io/hashicorp/aws", "expressions": {"region": {"constant_value": "eu-west-1"}}}
+    },
+    "root_module": {
+      "outputs": {"bucket_arn": {"expression": {"references": ["aws_s3_bucket.logs.arn", "aws_s3_bucket.logs"]}}},
+      "resources": [
+        {
+          "address": "aws_s3_bucket.logs",
+          "mode": "managed",
+          "type": "aws_s3_bucket",
+          "name": "logs",
+          "provider_config_key": "aws",
+          "expressions": {"bucket": {"constant_value": "acme-prod-logs"}},
+          "schema_version": 0
+        }
+      ],
+      "module_calls": {
+        "vpc": {"source": "../../modules/vpc", "module": {"resources": []}}
+      }
+    }
+  },
+  "timestamp": "2026-09-28T09:12:44Z",
+  "applyable": true,
+  "complete": true,
+  "errored": false
+}

@@ -1,0 +1,68 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.14.4",
+  "planned_values": {"root_module": {}},
+  "resource_changes": [
+    {
+      "address": "aws_security_group.web",
+      "mode": "managed",
+      "type": "aws_security_group",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["update"],
+        "before": {"id": "sg-0123456789abcdef0", "name": "web", "description": "web tier"},
+        "after": {"id": "sg-0123456789abcdef0", "name": "web", "description": "web tier (managed)"},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "aws_instance.web[1]",
+      "mode": "managed",
+      "type": "aws_instance",
+      "name": "web",
+      "index": 1,
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["no-op"],
+        "before": {"id": "i-0bbbbbbbbbbbbbbbb", "instance_type": "t3.small"},
+        "after": {"id": "i-0bbbbbbbbbbbbbbbb", "instance_type": "t3.small"},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "aws_instance.web[0]",
+      "mode": "managed",
+      "type": "aws_instance",
+      "name": "web",
+      "index": 0,
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["update"],
+        "before": {"id": "i-0aaaaaaaaaaaaaaaa", "instance_type": "t3.small"},
+        "after": {"id": "i-0aaaaaaaaaaaaaaaa", "instance_type": "t3.medium"},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    }
+  ],
+  "output_changes": {
+    "instance_ids": {
+      "actions": ["no-op"],
+      "before": ["i-0aaaaaaaaaaaaaaaa", "i-0bbbbbbbbbbbbbbbb"],
+      "after": ["i-0aaaaaaaaaaaaaaaa", "i-0bbbbbbbbbbbbbbbb"],
+      "after_unknown": false,
+      "before_sensitive": false,
+      "after_sensitive": false
+    }
+  },
+  "timestamp": "2026-09-28T09:13:02Z",
+  "applyable": true,
+  "complete": true,
+  "errored": false
+}

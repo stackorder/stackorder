@@ -1,0 +1,58 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.14.4",
+  "planned_values": {"root_module": {}},
+  "resource_changes": [
+    {
+      "address": "aws_s3_bucket.legacy",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "legacy",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["no-op"],
+        "before": {"bucket": "acme-legacy-assets", "id": "acme-legacy-assets"},
+        "after": {"bucket": "acme-legacy-assets", "id": "acme-legacy-assets"},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {},
+        "importing": {"id": "acme-legacy-assets"}
+      }
+    },
+    {
+      "address": "aws_iam_role.deploy",
+      "mode": "managed",
+      "type": "aws_iam_role",
+      "name": "deploy",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["update"],
+        "before": {"name": "deploy", "max_session_duration": 3600},
+        "after": {"name": "deploy", "max_session_duration": 7200},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {},
+        "importing": {"id": "deploy"}
+      }
+    },
+    {
+      "address": "aws_s3_bucket_policy.legacy",
+      "mode": "managed",
+      "type": "aws_s3_bucket_policy",
+      "name": "legacy",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {"bucket": "acme-legacy-assets"},
+        "after_unknown": {"id": true, "policy": true},
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    }
+  ],
+  "timestamp": "2026-09-28T09:16:48Z",
+  "applyable": true,
+  "complete": true,
+  "errored": false
+}

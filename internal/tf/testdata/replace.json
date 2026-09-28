@@ -1,0 +1,86 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.14.4",
+  "planned_values": {"root_module": {}},
+  "resource_changes": [
+    {
+      "address": "aws_instance.db",
+      "mode": "managed",
+      "type": "aws_instance",
+      "name": "db",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["delete", "create"],
+        "before": {"ami": "ami-0aaaaaaaaaaaaaaaa", "id": "i-0cccccccccccccccc"},
+        "after": {"ami": "ami-0bbbbbbbbbbbbbbbb"},
+        "after_unknown": {"id": true},
+        "before_sensitive": {},
+        "after_sensitive": {},
+        "replace_paths": [["ami"]]
+      },
+      "action_reason": "replace_because_cannot_update"
+    },
+    {
+      "address": "aws_launch_template.lt",
+      "mode": "managed",
+      "type": "aws_launch_template",
+      "name": "lt",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create", "delete"],
+        "before": {"id": "lt-0aaaaaaaaaaaaaaaa", "name_prefix": "web-"},
+        "after": {"name_prefix": "web-"},
+        "after_unknown": {"id": true},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      },
+      "action_reason": "replace_by_request"
+    },
+    {
+      "address": "aws_launch_template.lt",
+      "mode": "managed",
+      "type": "aws_launch_template",
+      "name": "lt",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "deposed": "5f3a9c1e",
+      "change": {
+        "actions": ["delete"],
+        "before": {"id": "lt-0ffffffffffffffff", "name_prefix": "web-"},
+        "after": null,
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": false
+      }
+    },
+    {
+      "address": "random_id.suffix",
+      "mode": "managed",
+      "type": "random_id",
+      "name": "suffix",
+      "provider_name": "registry.terraform.io/hashicorp/random",
+      "change": {
+        "actions": ["delete", "create"],
+        "before": {"byte_length": 4, "hex": "9a3f10bc", "keepers": {"ami": "ami-0aaaaaaaaaaaaaaaa"}},
+        "after": {"byte_length": 4, "keepers": {"ami": "ami-0bbbbbbbbbbbbbbbb"}},
+        "after_unknown": {"hex": true, "id": true, "keepers": {}},
+        "before_sensitive": {"keepers": {}},
+        "after_sensitive": {"keepers": {}},
+        "replace_paths": [["keepers"]]
+      },
+      "action_reason": "replace_by_triggers"
+    }
+  ],
+  "output_changes": {
+    "db_instance_id": {
+      "actions": ["update"],
+      "before": "i-0cccccccccccccccc",
+      "after_unknown": true,
+      "before_sensitive": false,
+      "after_sensitive": false
+    }
+  },
+  "timestamp": "2026-09-28T09:15:33Z",
+  "applyable": true,
+  "complete": true,
+  "errored": false
+}

@@ -1,0 +1,59 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.14.4",
+  "planned_values": {"root_module": {}},
+  "resource_changes": [
+    {
+      "address": "aws_s3_bucket.artifacts",
+      "previous_address": "aws_s3_bucket.build",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "artifacts",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["no-op"],
+        "before": {"bucket": "acme-build"},
+        "after": {"bucket": "acme-build"},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "module.network.aws_vpc.main",
+      "previous_address": "aws_vpc.main",
+      "module_address": "module.network",
+      "mode": "managed",
+      "type": "aws_vpc",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["update"],
+        "before": {"cidr_block": "10.0.0.0/16", "tags": {"Name": "main"}},
+        "after": {"cidr_block": "10.0.0.0/16", "tags": {"Name": "main", "Owner": "network"}},
+        "after_unknown": {},
+        "before_sensitive": {"tags": {}},
+        "after_sensitive": {"tags": {}}
+      }
+    },
+    {
+      "address": "aws_route53_zone.internal",
+      "mode": "managed",
+      "type": "aws_route53_zone",
+      "name": "internal",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["no-op"],
+        "before": {"name": "internal.acme.example"},
+        "after": {"name": "internal.acme.example"},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    }
+  ],
+  "timestamp": "2026-09-28T09:17:21Z",
+  "applyable": true,
+  "complete": true,
+  "errored": false
+}
