@@ -264,12 +264,28 @@ func TestApplyFailures(t *testing.T) {
 		assert.Contains(t, got.ErrorText, "Error: creating S3 bucket: AccessDenied")
 		assert.Contains(t, r.stderr, "::error::apply of stacks/app failed")
 	})
-	t.Run("explicit plan file is missing", func(t *testing.T) {
+	t.Run("explicit plan file whose artifact expired is planned again", func(t *testing.T) {
 		h, fs := newApplyHarness(t)
+		planFile := filepath.Join(t.TempDir(), "not-downloaded", "stackorder-plan.tfplan")
+		r := h.run("apply", "--stack", "stacks/app", "--plan-file", planFile)
+		require.Equal(t, 0, r.code, r.stderr)
+		assert.Equal(t, []string{"version", "init", "plan", "show", "apply"}, h.tfCommands())
+		calls := h.tfCalls()
+		assert.Contains(t, calls[2], "-out="+planFile)
+		assert.Equal(t, []string{"apply", "-input=false", "-no-color", planFile}, calls[4])
+		assert.Contains(t, r.stderr, "::warning::the plan file for stacks/app is not available")
+		assert.Equal(t, v1.ResultSuccess, fs.lastResult().Result.Status)
+	})
+	t.Run("explicit plan file whose artifact expired and whose new plan differs", func(t *testing.T) {
+		h, fs := newApplyHarness(t)
+		h.tf.ShowJSON = filepath.Join(filepath.Dir(h.tf.ShowJSON), "plan_other.json")
 		r := h.run("apply", "--stack", "stacks/app", "--plan-file", filepath.Join(t.TempDir(), "gone.tfplan"))
-		require.Equal(t, ExitFailure, r.code, r.stderr)
-		assert.Equal(t, v1.ResultError, fs.lastResult().Result.Status)
+		require.Equal(t, ExitRefused, r.code, r.stderr)
 		assert.NotContains(t, h.tfCommands(), "apply")
+		got := fs.lastResult().Result
+		assert.Equal(t, v1.ResultFailure, got.Status)
+		assert.Equal(t, ExitRefused, got.ExitCode)
+		assert.Contains(t, got.ErrorText, "does not match the plan recorded in run run-1")
 	})
 	t.Run("explicit plan file", func(t *testing.T) {
 		h, fs := newApplyHarness(t)

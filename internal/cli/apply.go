@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -204,8 +203,8 @@ func (s *session) apply(ctx context.Context, sha, planFlag string, fresh bool, r
 		if oc.planFile, err = filepath.Abs(planFlag); err != nil {
 			return fmt.Errorf("--plan-file: %w", err)
 		}
-		if !fileExists(oc.planFile) {
-			return fmt.Errorf("--plan-file %s: %w", oc.planFile, fs.ErrNotExist)
+		if err := os.MkdirAll(filepath.Dir(oc.planFile), 0o750); err != nil {
+			return fmt.Errorf("--plan-file: %w", err)
 		}
 	}
 	jsonFile := planJSONPath(oc.planFile)
