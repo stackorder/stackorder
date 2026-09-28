@@ -1,0 +1,13 @@
+.git
+bin
+dist
+coverage*
+ui/node_modules
+ui/dist
+ui/playwright-report
+ui/test-results
+docs
+deploy
+test
+**/.terraform
+**/*.tfstate*
