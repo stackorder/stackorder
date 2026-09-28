@@ -41,7 +41,6 @@ const (
 )
 
 const (
-	pullHeadTTL       = 30 * time.Second
 	unboundGrace      = 60 * time.Second
 	staleLockAge      = 24 * time.Hour
 	commentWindow     = time.Minute
@@ -328,18 +327,11 @@ func (c *ttlCache) put(key, value string, now time.Time) {
 	c.entries[key] = cacheEntry{value: value, at: now}
 }
 
-func (s *Service) pullHead(ctx context.Context, c *gh.Client, repo store.Repo, number int, fresh bool) (string, error) {
-	key := "head:" + strconv.FormatInt(repo.ID, 10) + "#" + strconv.Itoa(number)
-	if !fresh {
-		if v, ok := s.cache.get(key, pullHeadTTL, s.now()); ok {
-			return v, nil
-		}
-	}
+func (s *Service) pullHead(ctx context.Context, c *gh.Client, repo store.Repo, number int) (string, error) {
 	pr, err := c.GetPull(ctx, repo.FullName, number)
 	if err != nil {
 		return "", fmt.Errorf("runs: pull request %s#%d: %w", repo.FullName, number, err)
 	}
-	s.cache.put(key, pr.HeadSHA, s.now())
 	return pr.HeadSHA, nil
 }
 

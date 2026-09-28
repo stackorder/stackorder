@@ -51,9 +51,18 @@ func (s *Service) HandlePullRequest(ctx context.Context, ev *gh.PullRequestEvent
 		if pr.IsFork() {
 			return s.forkNotice(ctx, repo, pr.HeadSHA)
 		}
-		if ev.Action == "synchronize" {
-			s.supersede(ctx, repo, pr.Number, pr.HeadSHA)
+		if ev.Action != "synchronize" {
+			return nil
 		}
+		c, err := s.client(ctx, repo)
+		if err != nil {
+			return err
+		}
+		head, err := s.pullHead(ctx, c, repo, pr.Number)
+		if err != nil {
+			return err
+		}
+		s.supersede(ctx, repo, pr.Number, head)
 		return nil
 	case "closed":
 		if pr.Merged {

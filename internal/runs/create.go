@@ -70,10 +70,7 @@ func (s *Service) createPlanRun(ctx context.Context, c *oidc.Claims, req v1.Crea
 	if err != nil {
 		return nil, err
 	}
-	head, err := s.pullHead(ctx, cl, repo, pr, false)
-	if err == nil && head != req.SHA {
-		head, err = s.pullHead(ctx, cl, repo, pr, true)
-	}
+	head, err := s.pullHead(ctx, cl, repo, pr)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +90,7 @@ func (s *Service) createPlanRun(ctx context.Context, c *oidc.Claims, req v1.Crea
 	}
 	if created {
 		s.m.RunStatusChanged(run.Status, run.Trigger, run.Mode)
-		s.supersede(ctx, repo, pr, req.SHA)
+		s.supersede(ctx, repo, pr, head)
 	} else if wr != 0 && (run.WorkflowRunID != wr || run.WorkflowRunAttempt != attempt) {
 		if err := s.st.SetRunWorkflowRun(ctx, run.ID, wr, attempt); err != nil {
 			return nil, storeErr(err, "record workflow run of run %s", run.ID)

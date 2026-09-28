@@ -14,6 +14,7 @@ import (
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/principal"
 	"github.com/stackorder/stackorder/internal/report"
+	"github.com/stackorder/stackorder/internal/runs"
 	"github.com/stackorder/stackorder/internal/store"
 )
 
@@ -239,6 +240,29 @@ func TestSupersedeOnNewHead(t *testing.T) {
 	assert.NotEqual(t, oldRun, newRun)
 	assert.Equal(t, v1.RunPlanning, e.run(newRun).Status)
 	assert.Contains(t, e.sticky(7), "4444444", "the sticky comment follows the new head")
+}
+
+func TestSupersedeFollowsTheCurrentHead(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.openPull(7, headSHA)
+	other := runs.New(e.st, e.app, runs.Config{BaseURL: "https://stackorder.test", Clock: e.clock.Now}, nil, nil)
+	req := v1.CreateRunRequest{Repo: repoName, SHA: headSHA, BaseSHA: baseSHA, PRNumber: 7, Mode: v1.ModePlan}
+	first, err := other.CreateRun(e.ctx, e.planJob(7).p, req)
+	require.NoError(t, err)
+	stale := e.gh.PullRequestEvent("synchronize", repoName, gh.PullRequest{
+		Number: 7, State: gh.IssueOpen, HeadSHA: headSHA, BaseSHA: baseSHA, User: gh.User{Login: author}, Mergeable: ptr(true),
+	})
+
+	e.openPull(7, newHeadSHA)
+	_, current, _ := e.startPlan(7, newHeadSHA)
+	assert.Equal(t, v1.RunSuperseded, e.run(first.RunID).Status)
+
+	require.NoError(t, e.svc.HandlePullRequest(e.ctx, stale))
+	assert.Equal(t, v1.RunPlanning, e.run(current).Status, "a synchronize event handled after a newer one leaves the current head alone")
+
+	_, err = other.CreateRun(e.ctx, e.planJob(7).p, req)
+	require.ErrorIs(t, err, principal.ErrSuperseded, "another server that saw the old head checks the pull request again")
+	assert.Equal(t, v1.RunPlanning, e.run(current).Status)
 }
 
 func TestForkPullRequestNotice(t *testing.T) {
