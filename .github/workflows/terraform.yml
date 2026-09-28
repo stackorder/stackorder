@@ -41,6 +41,8 @@ jobs:
         dir: [., examples/complete, examples/existing-vpc, examples/self-hosted]
         exclude:
           - terraform: 1.9.x
+            dir: .
+          - terraform: 1.9.x
             dir: examples/self-hosted
     defaults:
       run:
