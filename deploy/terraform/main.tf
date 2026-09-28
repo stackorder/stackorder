@@ -20,6 +20,6 @@ locals {
   db_username    = "stackorder"
   db_major       = split(".", var.engine_version)[0]
 
-  github_app_configured   = var.github_app_id != null
-  github_oauth_configured = var.github_oauth_client_id != null
+  github_app_configured   = nonsensitive(var.github_app_id != null)
+  github_oauth_configured = nonsensitive(var.github_oauth_client_id != null)
 }

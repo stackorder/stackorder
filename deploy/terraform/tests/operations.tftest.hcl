@@ -226,3 +226,25 @@ run "secret_rotation_redeploys" {
     error_message = "The task definition must carry the secret versions so a new secret value rolls the service."
   }
 }
+
+run "sensitive_app_inputs_keep_task_definition_readable" {
+  command = plan
+
+  variables {
+    github_app_id              = sensitive("123456")
+    github_app_private_key     = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n"
+    github_webhook_secret      = "webhook-secret"
+    github_oauth_client_id     = sensitive("Iv23liABCDEF")
+    github_oauth_client_secret = "oauth-secret"
+  }
+
+  assert {
+    condition     = !issensitive(aws_ecs_task_definition.this.container_definitions)
+    error_message = "Values read from a secret must not hide the task definition diff."
+  }
+
+  assert {
+    condition     = length(jsondecode(aws_ecs_task_definition.this.container_definitions)[0].secrets) == 7
+    error_message = "All App secrets must be mapped."
+  }
+}
