@@ -3,8 +3,8 @@
 Deploys Stackorder with everything the module can create: a VPC across two
 availability zones with public and private subnets and one NAT gateway, a
 DNS validated ACM certificate and an alias record in an existing Route53
-hosted zone, two tasks, the optional artifact bucket and CloudWatch alarms
-sent to a new SNS topic.
+hosted zone, two tasks, the optional artifact bucket, load balancer access
+logs and CloudWatch alarms sent to a new SNS topic.
 
 ```sh
 terraform init

@@ -63,6 +63,11 @@ output "artifact_bucket" {
   value       = one(aws_s3_bucket.artifacts[*].bucket)
 }
 
+output "alb_access_logs_bucket" {
+  description = "Name of the load balancer access log bucket, or null when alb_access_logs_enabled is false."
+  value       = one(aws_s3_bucket.alb_logs[*].bucket)
+}
+
 output "security_group_ids" {
   description = "Security group ids of the load balancer, the service and the database."
   value = {

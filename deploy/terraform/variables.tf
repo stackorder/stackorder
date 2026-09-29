@@ -163,6 +163,23 @@ variable "admin_cidrs" {
   }
 }
 
+variable "alb_access_logs_enabled" {
+  description = "Write load balancer access logs to an S3 bucket the module creates, encrypted with SSE-S3 as ELB log delivery requires."
+  type        = bool
+  default     = false
+}
+
+variable "alb_access_logs_retention_days" {
+  description = "Days after which objects in the access log bucket expire."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = var.alb_access_logs_retention_days >= 1 && var.alb_access_logs_retention_days <= 3650 && floor(var.alb_access_logs_retention_days) == var.alb_access_logs_retention_days
+    error_message = "alb_access_logs_retention_days must be a whole number between 1 and 3650."
+  }
+}
+
 variable "image" {
   description = "Container image repository of the server."
   type        = string

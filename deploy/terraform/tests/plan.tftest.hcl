@@ -169,6 +169,11 @@ run "defaults" {
   }
 
   assert {
+    condition     = length(aws_s3_bucket.alb_logs) == 0 && length(aws_lb.this.access_logs) == 0 && output.alb_access_logs_bucket == null
+    error_message = "Load balancer access logs must be off by default."
+  }
+
+  assert {
     condition     = toset([for r in aws_vpc_security_group_ingress_rule.alb : r.cidr_ipv4]) == toset(["0.0.0.0/0"])
     error_message = "The load balancer must default to ingress from anywhere, as GitHub webhooks need."
   }

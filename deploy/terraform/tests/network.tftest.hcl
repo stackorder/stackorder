@@ -270,3 +270,88 @@ run "webhook_ranges_only_meta_error" {
 
   expect_failures = [data.http.github_meta]
 }
+
+run "alb_access_logs" {
+  command = plan
+
+  variables {
+    alb_access_logs_enabled = true
+  }
+
+  override_resource {
+    target          = aws_s3_bucket.alb_logs[0]
+    override_during = plan
+    values = {
+      arn = "arn:aws:s3:::stackorder-alb-logs-123456789012-eu-west-1"
+    }
+  }
+
+  assert {
+    condition     = aws_s3_bucket.alb_logs[0].bucket == "stackorder-alb-logs-123456789012-eu-west-1" && output.alb_access_logs_bucket == "stackorder-alb-logs-123456789012-eu-west-1"
+    error_message = "The access log bucket must be named after the deployment, account and region."
+  }
+
+  assert {
+    condition = (
+      one(aws_lb.this.access_logs).enabled &&
+      one(aws_lb.this.access_logs).bucket == "stackorder-alb-logs-123456789012-eu-west-1" &&
+      one(aws_lb.this.access_logs).prefix == null
+    )
+    error_message = "The load balancer must write access logs to the bucket, without a prefix."
+  }
+
+  assert {
+    condition = jsondecode(aws_s3_bucket_policy.alb_logs[0].policy).Statement[0] == {
+      Sid       = "AllowLoadBalancerLogDelivery"
+      Effect    = "Allow"
+      Principal = { Service = "logdelivery.elasticloadbalancing.amazonaws.com" }
+      Action    = "s3:PutObject"
+      Resource  = "arn:aws:s3:::stackorder-alb-logs-123456789012-eu-west-1/AWSLogs/123456789012/*"
+      Condition = {
+        ArnLike = { "aws:SourceArn" = "arn:aws:elasticloadbalancing:eu-west-1:123456789012:loadbalancer/app/stackorder/*" }
+      }
+    }
+    error_message = "Only ELB log delivery for this account's load balancer may write, and only under AWSLogs/<account>."
+  }
+
+  assert {
+    condition = (
+      jsondecode(aws_s3_bucket_policy.alb_logs[0].policy).Statement[1].Effect == "Deny" &&
+      jsondecode(aws_s3_bucket_policy.alb_logs[0].policy).Statement[1].Condition.Bool["aws:SecureTransport"] == "false"
+    )
+    error_message = "The access log bucket must deny insecure transport."
+  }
+
+  assert {
+    condition = (
+      one(one(aws_s3_bucket_server_side_encryption_configuration.alb_logs[0].rule).apply_server_side_encryption_by_default).sse_algorithm == "AES256" &&
+      one(one(aws_s3_bucket_lifecycle_configuration.alb_logs[0].rule).expiration).days == 90 &&
+      one(aws_s3_bucket_ownership_controls.alb_logs[0].rule).object_ownership == "BucketOwnerEnforced"
+    )
+    error_message = "The access log bucket must use SSE-S3, which ELB log delivery requires, expire logs after 90 days and disable ACLs."
+  }
+
+  assert {
+    condition = (
+      aws_s3_bucket_public_access_block.alb_logs[0].block_public_acls &&
+      aws_s3_bucket_public_access_block.alb_logs[0].block_public_policy &&
+      aws_s3_bucket_public_access_block.alb_logs[0].ignore_public_acls &&
+      aws_s3_bucket_public_access_block.alb_logs[0].restrict_public_buckets
+    )
+    error_message = "Public access to the access log bucket must be blocked."
+  }
+}
+
+run "alb_access_logs_retention" {
+  command = plan
+
+  variables {
+    alb_access_logs_enabled        = true
+    alb_access_logs_retention_days = 400
+  }
+
+  assert {
+    condition     = one(one(aws_s3_bucket_lifecycle_configuration.alb_logs[0].rule).expiration).days == 400
+    error_message = "alb_access_logs_retention_days must set the expiry."
+  }
+}

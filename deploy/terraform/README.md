@@ -126,6 +126,21 @@ refused.
   the literal path. The server itself requires the metrics bearer token
   instead; see [Metrics](#metrics).
 
+## Load balancer access logs
+
+`alb_access_logs_enabled = true` creates a bucket named
+`<name>-alb-logs-<account>-<region>` and turns the load balancer's access
+logs on. ELB log delivery accepts only SSE-S3, so this bucket ignores
+`kms_key_arn`. Its policy lets only log delivery for this account's
+`<name>` load balancer write, under `AWSLogs/<account>/`, and denies plain
+HTTP; objects expire after `alb_access_logs_retention_days` (90). The logs
+hold full request URLs, including the short-lived, single-use `code`
+parameters of the OAuth and App setup callbacks, but no headers or bodies,
+so bearer tokens and webhook payloads stay out of them.
+
+The bucket is not emptied on destroy. Empty it before turning access logs
+off or destroying the module, or deleting the bucket fails.
+
 ## Metrics
 
 `GET /metrics` always requires `Authorization: Bearer <token>`. The token
@@ -340,11 +355,17 @@ No modules.
 | [aws\_route\_table.public](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table) | resource |
 | [aws\_route\_table\_association.private](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table_association) | resource |
 | [aws\_route\_table\_association.public](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table_association) | resource |
+| [aws\_s3\_bucket.alb\_logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
 | [aws\_s3\_bucket.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
+| [aws\_s3\_bucket\_lifecycle\_configuration.alb\_logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_lifecycle_configuration) | resource |
 | [aws\_s3\_bucket\_lifecycle\_configuration.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_lifecycle_configuration) | resource |
+| [aws\_s3\_bucket\_ownership\_controls.alb\_logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_ownership_controls) | resource |
 | [aws\_s3\_bucket\_ownership\_controls.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_ownership_controls) | resource |
+| [aws\_s3\_bucket\_policy.alb\_logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_policy) | resource |
 | [aws\_s3\_bucket\_policy.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_policy) | resource |
+| [aws\_s3\_bucket\_public\_access\_block.alb\_logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block) | resource |
 | [aws\_s3\_bucket\_public\_access\_block.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block) | resource |
+| [aws\_s3\_bucket\_server\_side\_encryption\_configuration.alb\_logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration) | resource |
 | [aws\_s3\_bucket\_server\_side\_encryption\_configuration.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration) | resource |
 | [aws\_s3\_bucket\_versioning.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_versioning) | resource |
 | [aws\_secretsmanager\_secret.app](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
@@ -396,6 +417,8 @@ No modules.
 | <a name="input_ingress_cidrs"></a> [ingress\_cidrs](#input\_ingress\_cidrs) | IPv4 or IPv6 CIDRs allowed to reach the load balancer on ports 80 and 443. GitHub webhooks and GitHub-hosted runners need the default. Ignored when github\_webhook\_ip\_ranges\_only is true. | `list(string)` | `["0.0.0.0/0"]` | no |
 | <a name="input_github_webhook_ip_ranges_only"></a> [github\_webhook\_ip\_ranges\_only](#input\_github\_webhook\_ip\_ranges\_only) | Restrict the load balancer to GitHub's webhook source ranges (the hooks list of the GitHub meta API, read at plan time) plus admin\_cidrs, instead of ingress\_cidrs. | `bool` | `false` | no |
 | <a name="input_admin_cidrs"></a> [admin\_cidrs](#input\_admin\_cidrs) | CIDRs of people and self-hosted runners that need the UI and API when github\_webhook\_ip\_ranges\_only is true. | `list(string)` | `[]` | no |
+| <a name="input_alb_access_logs_enabled"></a> [alb\_access\_logs\_enabled](#input\_alb\_access\_logs\_enabled) | Write load balancer access logs to an S3 bucket the module creates, encrypted with SSE-S3 as ELB log delivery requires. | `bool` | `false` | no |
+| <a name="input_alb_access_logs_retention_days"></a> [alb\_access\_logs\_retention\_days](#input\_alb\_access\_logs\_retention\_days) | Days after which objects in the access log bucket expire. | `number` | `90` | no |
 | <a name="input_image"></a> [image](#input\_image) | Container image repository of the server. | `string` | `"ghcr.io/stackorder/stackorder"` | no |
 | <a name="input_image_tag"></a> [image\_tag](#input\_image\_tag) | Tag or digest (sha256:...) of the server image. Pin a release such as 1.2.3 so upgrades are explicit plans. | `string` | `"latest"` | no |
 | <a name="input_desired_count"></a> [desired\_count](#input\_desired\_count) | Number of server tasks. All coordination goes through Postgres, so a second task adds availability without any other change. | `number` | `1` | no |
@@ -457,5 +480,6 @@ No modules.
 | <a name="output_app_secret_arn"></a> [app\_secret\_arn](#output\_app\_secret\_arn) | ARN of the Secrets Manager secret holding the GitHub App credentials, the session key and the metrics token as JSON. |
 | <a name="output_metrics_token_secret_arn"></a> [metrics\_token\_secret\_arn](#output\_metrics\_token\_secret\_arn) | ARN of the Secrets Manager secret holding only the /metrics bearer token, as plain text; grant Prometheus read access to this one rather than to the app secret. |
 | <a name="output_artifact_bucket"></a> [artifact\_bucket](#output\_artifact\_bucket) | Name of the artifact bucket, or null when artifact\_bucket\_enabled is false. |
+| <a name="output_alb_access_logs_bucket"></a> [alb\_access\_logs\_bucket](#output\_alb\_access\_logs\_bucket) | Name of the load balancer access log bucket, or null when alb\_access\_logs\_enabled is false. |
 | <a name="output_security_group_ids"></a> [security\_group\_ids](#output\_security\_group\_ids) | Security group ids of the load balancer, the service and the database. |
 | <a name="output_log_group_name"></a> [log\_group\_name](#output\_log\_group\_name) | CloudWatch log group of the server. |

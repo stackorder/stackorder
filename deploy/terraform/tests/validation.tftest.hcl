@@ -309,6 +309,17 @@ run "alarms_without_topic" {
   expect_failures = [var.alarm_sns_topic_arn]
 }
 
+run "alb_access_logs_retention_zero" {
+  command = plan
+
+  variables {
+    alb_access_logs_enabled        = true
+    alb_access_logs_retention_days = 0
+  }
+
+  expect_failures = [var.alb_access_logs_retention_days]
+}
+
 run "secret_recovery_window_out_of_range" {
   command = plan
 

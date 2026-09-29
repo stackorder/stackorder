@@ -34,6 +34,7 @@ module "stackorder" {
   required_workflow_ref      = "stackorder/actions/.github/workflows/*.yml@refs/tags/v1*"
 
   artifact_bucket_enabled = true
+  alb_access_logs_enabled = true
   alarms_enabled          = true
   alarm_sns_topic_arn     = aws_sns_topic.alarms.arn
 }

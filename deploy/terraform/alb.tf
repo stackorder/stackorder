@@ -37,7 +37,21 @@ resource "aws_lb" "this" {
   enable_http2               = true
   idle_timeout               = 60
 
+  dynamic "access_logs" {
+    for_each = aws_s3_bucket.alb_logs[*].bucket
+
+    content {
+      bucket  = access_logs.value
+      enabled = true
+    }
+  }
+
   tags = var.tags
+
+  depends_on = [
+    aws_s3_bucket_policy.alb_logs,
+    aws_s3_bucket_server_side_encryption_configuration.alb_logs,
+  ]
 }
 
 resource "aws_lb_target_group" "this" {
