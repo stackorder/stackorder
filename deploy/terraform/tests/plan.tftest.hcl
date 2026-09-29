@@ -45,6 +45,14 @@ variables {
 run "defaults" {
   command = plan
 
+  override_resource {
+    target          = random_password.metrics_token[0]
+    override_during = plan
+    values = {
+      result = "0123456789abcdef0123456789abcdef"
+    }
+  }
+
   assert {
     condition     = jsondecode(aws_ecs_task_definition.this.container_definitions)[0].readonlyRootFilesystem == true
     error_message = "The container must run with a read-only root file system."
@@ -139,13 +147,13 @@ run "defaults" {
   }
 
   assert {
-    condition     = jsondecode(nonsensitive(aws_secretsmanager_secret_version.app.secret_string)).STACKORDER_METRICS_TOKEN == nonsensitive(random_password.metrics_token[0].result)
+    condition     = jsondecode(nonsensitive(aws_secretsmanager_secret_version.app.secret_string)).STACKORDER_METRICS_TOKEN == "0123456789abcdef0123456789abcdef"
     error_message = "The generated metrics token must reach STACKORDER_METRICS_TOKEN through the app secret."
   }
 
   assert {
-    condition     = nonsensitive(aws_secretsmanager_secret_version.metrics_token.secret_string) == nonsensitive(random_password.metrics_token[0].result)
-    error_message = "The metrics token secret must hold the same token as plain text."
+    condition     = nonsensitive(aws_secretsmanager_secret_version.metrics_token.secret_string) == "0123456789abcdef0123456789abcdef"
+    error_message = "The metrics token secret must hold the same generated token as plain text."
   }
 
   assert {
