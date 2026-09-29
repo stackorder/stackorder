@@ -4,7 +4,9 @@ Lightweight Terraform and OpenTofu orchestration on GitHub Actions.
 
 Stackorder is a GitHub App plus a small control-plane server that decides **which** stacks to run and **in what order**, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay inside your GitHub org and AWS account; the server only ever sees metadata.
 
-> **Status:** no release is tagged yet. The server, the CLI, the actions and the deployment module are implemented and tested end to end. The design doc is the source of truth for behaviour: [Stackorder design](https://claude.ai/artifact/W3gQnvGu5Fw9DSXApYE766), and [ARCHITECTURE.md](ARCHITECTURE.md) records where the implementation departs from it. The [documentation](docs/index.md) covers setup and operation.
+> **Status:** v0.1.0, the first release. The server, the `stackorder` CLI, the embedded UI, the Terraform deployment module and the [`stackorder/actions`](https://github.com/stackorder/actions) v1.0.0 workflows implement the [design](https://claude.ai/artifact/W3gQnvGu5Fw9DSXApYE766): pull request plans with checks and a sticky comment, the apply gate and `stackorder apply` comments, `before_merge` and `on_merge` applies in dependency waves, stack locks, module and `terraform_remote_state` edges, cross-repo `depends_on`, scheduled drift checks with issues, the graph and module pages in the UI, the JSON API and Prometheus metrics. Where the code departs from the design, [ARCHITECTURE.md](ARCHITECTURE.md) records how, and the [changelog](CHANGELOG.md) lists the departures.
+>
+> How it is tested: unit tests for every package (`go test ./...`, no Docker, no network); integration tests that run the server on Postgres, an in-memory fake of the GitHub API and the CLI against a fake `terraform` binary through whole pull request, apply, drift and cross-repo flows; and end-to-end tests that run the real Terraform 1.14 and OpenTofu 1.12 binaries against a LocalStack 4.0 S3 bucket and the [`stackorder/example-infra`](https://github.com/stackorder/example-infra) monorepo, with the server in-process and the CLI as a separate process for every job. The UI has Vitest and Playwright tests, and the Terraform module has `terraform test` suites and is validated on Terraform 1.14, and through its examples on 1.9. Not covered by the default suites: a real GitHub organisation (`TestLiveGitHub` runs only when one is configured), real AWS, and GitHub Enterprise Server, which is supported through configuration but has not been run against.
 
 ## What it does
 
@@ -35,47 +37,83 @@ It is deliberately **not** a state backend, module registry, secrets store, poli
 
 ## How it works
 
-1. A PR push triggers `stackorder-plan.yml`. Its `resolve` job scans the repo, posts the dependency graph to the server, and gets back the affected stacks as a job matrix.
-2. One plan job runs per affected stack. The server posts a check run per stack and one sticky PR comment.
-3. A `stackorder apply` comment, or a merge in `on_merge` mode, goes through the apply gate. The server checks permissions, approvals, fresh plans, policy checks and locks. It then takes stack locks and dispatches `stackorder-run.yml` one dependency wave at a time.
-4. Each apply job runs under the stack's GitHub environment, so environment reviewers and the AWS role's trust policy are the hard gates. A failed stack blocks its dependents.
-5. On a schedule, the server dispatches drift checks and can open one GitHub issue per drifted stack.
+1. A pull request push triggers `.github/workflows/stackorder-plan.yml`, which calls the reusable `plan.yml`. Its `resolve` job checks out the pull request head, scans the repository, uploads the dependency graph to the server and gets back the affected stacks as a job matrix.
+2. One plan job runs per affected stack, with no GitHub environment, under the plan role. The CLI runs `init` and `plan`, runs the repository's hooks, redacts the output, reports the summary to the server and the `plan` action uploads the plan file as an artifact. The server posts the `stackorder/resolve` and `stackorder/plan` checks, one `stackorder/plan: <key>` check per stack, and one sticky pull request comment.
+3. A `stackorder apply` comment (`before_merge`, the default), or the merge itself (`on_merge`), goes through the apply gate: who asked, pull request state and approvals, fresh plans on the head commit, named policy checks, and locks. All failures are reported together in one comment. When the gate passes, the server takes locks on every affected stack and dispatches `.github/workflows/stackorder-run.yml` once per wave and GitHub environment, with the inputs `run_id`, `mode`, `wave`, `sha` and `stacks`.
+4. Each job of the reusable `run.yml` runs under the stack's GitHub environment, so environment reviewers and the AWS role's trust policy are the hard gates, and applies the plan file from the plan run. Wave n+1 is dispatched only when every stack of wave n has finished and none failed; a failed stack blocks its dependents.
+5. On a `drift.schedule`, the server dispatches `mode: drift` per stack under the environment `default` and can open one GitHub issue per drifted stack.
 
-The runner authenticates to the server with its GitHub OIDC token. There are no shared secrets between the runner and the server.
+The runner authenticates to the server with its GitHub OIDC token, bound to the pull request or to the dispatch it belongs to. There are no shared secrets between the runner and the server.
 
 ## Repositories
 
 | Repo | Contents |
 | --- | --- |
-| `stackorder/stackorder` (this repo) | Go module for the server and the CLI, the embedded UI, migrations, and the Terraform module that deploys the server |
-| `stackorder/actions` | The `setup` JavaScript action, the `resolve`, `plan`, `apply` and `drift` composite actions, and the reusable `plan.yml` and `run.yml` workflows |
-| `stackorder/example-infra` | Demo monorepo used by the end-to-end tests |
+| `stackorder/stackorder` (this repo) | Go module for the server and the CLI, the embedded UI, migrations, the docs site, and the Terraform module that deploys the server |
+| [`stackorder/actions`](https://github.com/stackorder/actions) | The `setup` JavaScript action, the `resolve`, `plan`, `apply` and `drift` composite actions, and the reusable `plan.yml` and `run.yml` workflows |
+| [`stackorder/example-infra`](https://github.com/stackorder/example-infra) | Demo monorepo used by the end-to-end tests |
 
-Layout of this repo (the full map is in [ARCHITECTURE.md](ARCHITECTURE.md)):
+## Quick start
 
-```text
-api/v1/                  wire types shared by the CLI, the server and the UI
-cmd/stackorder-server/   server main
-cmd/stackorder/          CLI main
-internal/                webhook, worker, graph, runs, gh, oidc, sched, api, store, scan and more
-ui/                      Preact app, built into internal/ui/dist and embedded
-migrations/              Postgres migrations, run at start-up
-deploy/terraform/        ECS Fargate + RDS + ALB module
-docs/                    documentation site (VitePress)
-test/                    integration and end-to-end suites
-Dockerfile               multi-stage, distroless/static, non-root
-.goreleaser.yaml         CLI releases for linux/darwin/windows, amd64/arm64
+- [Getting started](docs/guide/getting-started.md) takes one repository from nothing to a first `stackorder apply`: deploy the server, create the GitHub App from `/setup`, create the plan and apply roles, add `stackorder.yaml` and the two workflow files.
+- [Local demo](docs/guide/local-demo.md) runs everything on one machine with no GitHub App and no AWS account: Postgres and LocalStack in Docker, the server in setup mode, and the CLI planning, applying and checking drift in `example-infra`.
+
+Both pages are part of the documentation site built from [`docs/`](docs) (`guide/getting-started` and `guide/local-demo` on the site).
+
+## Install
+
+### CLI
+
+Every `vX.Y.Z` tag publishes `stackorder_X.Y.Z_<os>_<arch>.tar.gz` (`.zip` on Windows) for `linux`, `darwin` and `windows` on `amd64` and `arm64`, and `stackorder_X.Y.Z_checksums.txt` with their SHA-256 sums, on the [releases page](https://github.com/stackorder/stackorder/releases):
+
+```sh
+gh release download v0.1.0 --repo stackorder/stackorder \
+  --pattern 'stackorder_0.1.0_linux_amd64.tar.gz' \
+  --pattern 'stackorder_0.1.0_checksums.txt'
+sha256sum --check --ignore-missing stackorder_0.1.0_checksums.txt
+tar -xzf stackorder_0.1.0_linux_amd64.tar.gz stackorder
+./stackorder version
 ```
+
+In a workflow, the `setup` action downloads the archive for the runner, verifies it against the checksums file, caches it and puts it on `PATH`. The reusable workflows call it themselves; their `stackorder-version` input pins the release (default `latest`).
+
+```yaml
+- uses: stackorder/actions/setup@v1
+  with:
+    version: 0.1.0
+```
+
+### Server image
+
+`ghcr.io/stackorder/stackorder:0.1.0` (also `:0.1` and `:latest`), for `linux/amd64` and `linux/arm64`, built from the [Dockerfile](Dockerfile) on `gcr.io/distroless/static:nonroot`. It needs `DATABASE_URL` and `STACKORDER_BASE_URL`, runs its migrations at start-up, and starts in setup mode until the GitHub App variables are set. See [Deploy as a container](docs/operations/deploy-container.md) and [Server configuration](docs/reference/server-configuration.md).
+
+### Terraform module
+
+[`deploy/terraform`](deploy/terraform) runs the server on ECS Fargate behind an ALB with RDS PostgreSQL or Aurora Serverless v2, with Terraform 1.9 or later or OpenTofu:
+
+```hcl
+module "stackorder" {
+  source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.1.0"
+
+  domain_name     = "stackorder.example.com"
+  route53_zone_id = "Z0123456789ABCDEFGHIJ"
+  image_tag       = "0.1.0"
+}
+```
+
+See [Deploy on AWS](docs/operations/deploy-aws.md) and the [module README](deploy/terraform/README.md).
 
 ## Using it in a repo
 
-A repo needs a root `stackorder.yaml`, an optional `.stackorder.yaml` in any stack with dependencies or overrides, and two thin workflow files. Everything has a default, so the smallest valid config is:
+A repo needs a root `stackorder.yaml`, an optional `.stackorder.yaml` in any stack with dependencies or overrides, and two workflow files. Everything has a default, so the smallest valid config is:
 
 ```yaml
 version: 1
 ```
 
-The plan workflow, `.github/workflows/stackorder-plan.yml`, calls the reusable one. `server-url` is required, here read from the Actions variable `STACKORDER_SERVER_URL`, and the job must grant the permissions, because a called workflow cannot raise them:
+These are the two workflow files of [`stackorder/example-infra`](https://github.com/stackorder/example-infra), which read the server URL and the role ARNs from repository variables. The calling jobs must grant the permissions, because a called workflow can lower them but never raise them.
+
+`.github/workflows/stackorder-plan.yml`:
 
 ```yaml
 name: stackorder plan
@@ -87,21 +125,54 @@ concurrency:
   cancel-in-progress: true
 jobs:
   plan:
+    uses: stackorder/actions/.github/workflows/plan.yml@v1
     permissions:
       id-token: write
       contents: read
       actions: read
       checks: write
       pull-requests: read
-    uses: stackorder/actions/.github/workflows/plan.yml@v1
     with:
       server-url: ${{ vars.STACKORDER_SERVER_URL }}
-      aws-role-arn: arn:aws:iam::123456789012:role/stackorder-plan
-      tool: tofu
+      aws-role-arn: ${{ vars.STACKORDER_PLAN_ROLE_ARN }}
+      tool: terraform
     secrets: inherit
 ```
 
-The run workflow, which the server dispatches, is on [Workflows](docs/configuration/workflows.md), and [Getting started](docs/guide/getting-started.md) walks through the whole setup.
+`.github/workflows/stackorder-run.yml`, which the server dispatches. The `run-name` is how the server recognises the workflow runs it dispatched, and `sha` is the commit every job checks out:
+
+```yaml
+name: stackorder run
+run-name: stackorder ${{ inputs.mode }} ${{ inputs.run_id }} wave ${{ inputs.wave }}
+on:
+  workflow_dispatch:
+    inputs:
+      run_id: { description: Stackorder run id, type: string, required: true }
+      mode: { description: "plan, apply or drift", type: string, required: true }
+      wave: { description: Wave number within the run, type: string, required: false }
+      sha: { description: Commit to check out, type: string, required: true }
+      stacks: { description: "JSON array of matrix entries, each carrying its environment", type: string, required: true }
+jobs:
+  run:
+    uses: stackorder/actions/.github/workflows/run.yml@v1
+    permissions:
+      id-token: write
+      contents: read
+      actions: read
+      checks: write
+    with:
+      server-url: ${{ vars.STACKORDER_SERVER_URL }}
+      run-id: ${{ inputs.run_id }}
+      mode: ${{ inputs.mode }}
+      wave: ${{ inputs.wave }}
+      sha: ${{ inputs.sha }}
+      stacks: ${{ inputs.stacks }}
+      aws-plan-role-arn: ${{ vars.STACKORDER_PLAN_ROLE_ARN }}
+      aws-role-arn-map: '{"stacks/prod/": "${{ vars.STACKORDER_APPLY_ROLE_ARN_PROD }}", "stacks/staging/": "${{ vars.STACKORDER_APPLY_ROLE_ARN_STAGING }}", "stacks/legacy/": "${{ vars.STACKORDER_APPLY_ROLE_ARN_DEFAULT }}"}'
+    secrets: inherit
+```
+
+Applies assume the role of the longest matching prefix in `aws-role-arn-map`; server-dispatched plans and drift checks run under the environment `default` and assume `aws-plan-role-arn`, so the plan role must trust both the repository's `pull_request` tokens and `environment:default`. Branch protection on the default branch should require the `stackorder/plan` and `stackorder/apply` checks. [Workflows](docs/configuration/workflows.md) documents every input.
 
 A stack declares cross-stack dependencies in its own `.stackorder.yaml`:
 
@@ -111,19 +182,78 @@ depends_on:
   - acme/network-infra//stacks/prod/tgw
 ```
 
-## Roadmap
+## Layout
 
-Four phases, each gated by an end-to-end demonstration. No dates are committed yet.
+```text
+api/v1/                 wire types shared by the CLI, the server, the UI and tooling
+cmd/stackorder/         CLI main
+cmd/stackorder-server/  server main, with the healthcheck and version subcommands
+internal/
+  config/               stackorder.yaml and .stackorder.yaml
+  scan/                 HCL scanning: stacks, backends, module sources, remote state; git diff
+  graph/                affected set, propagation, waves, cycles, DOT output
+  report/               check run output, the sticky PR comment, refusals, drift issues
+  command/              `stackorder …` PR comment commands
+  tf/                   terraform / tofu wrapper, plan JSON summary, redaction, hooks
+  client/               server API client for the CLI, with runner OIDC tokens
+  cli/                  cobra commands
+  store/                Postgres queries and migrations
+  gh/                   GitHub App client; gh/codeowners/ for CODEOWNERS matching
+  oidc/                 GitHub Actions OIDC verification and run binding
+  principal/            caller identity and the error vocabulary shared by runs and api
+  runs/                 run state machine, apply gate, locks, waves, drift, reconciliation
+  webhook/              webhook verification, deduplication and persistence
+  worker/               queue workers
+  sched/                cron scheduler with leader election
+  metrics/              Prometheus metrics
+  api/                  HTTP handlers, sessions and OAuth, API keys, /setup
+  ui/                   embedded UI with SPA fallback
+  server/               composition of all of the above into one http.Server
+  artifacts/            optional S3 store for full plan text
+  version/              build information set at link time
+  testutil/             pgtest, ghfake, oidcfake and faketf test helpers
+migrations/             golang-migrate SQL files, embedded in the server
+ui/                     Preact + Vite + TypeScript app, built into internal/ui/dist
+docs/                   VitePress documentation site
+deploy/terraform/       ECS Fargate + RDS + ALB module, with examples/ and tests/
+test/integration/       whole-flow tests on Postgres and a fake GitHub (build tag integration)
+test/e2e/               real Terraform and OpenTofu on LocalStack with example-infra (build tag e2e)
+Dockerfile              node (UI) -> go -> distroless/static:nonroot
+.goreleaser.yaml        CLI archives and checksums
+docker-compose.yml      Postgres and LocalStack for development and tests
+```
 
-| Phase | Scope | Gate |
-| --- | --- | --- |
-| 1. Core loop | Resolve, plan and apply; checks and PR comment; one repo with `depends_on` | Plan to apply in one repo |
-| 2. Graph depth | Module and state edges; propagation and waves; graph page in the UI | A module change ripples through in waves |
-| 3. Observability | Drift runs and issues; metrics and run history; module version lag | Drift visible in the UI and in issues |
-| 4. Cross-repo | Cross-repo edges; workflow-ref pinning; GHES; the self-deploying Terraform module | Public v1 |
-
-Phase 1 alone is a usable Atlantis-style tool. Phase 2 is where Stackorder starts doing something the others do not.
+[ARCHITECTURE.md](ARCHITECTURE.md) is the contract between these packages and the other two repositories: layout, dependency direction, libraries, names, endpoints, configuration and the recorded departures from the design.
 
 ## Development
 
-Requirements: Go, Node for the UI and the docs site, and Docker for Postgres and LocalStack; [CONTRIBUTING.md](CONTRIBUTING.md) has the commands. End-to-end tests run the real `terraform` and `tofu` against a LocalStack S3 bucket, with GitHub faked in memory. The `graph` package gets exhaustive unit tests, because that is where the correctness risk sits.
+Go (the version in `go.mod`; `export GOTOOLCHAIN=auto` downloads it), Node 24 with npm, and Docker for the integration and end-to-end tests. Terraform or OpenTofu on `PATH` for the end-to-end tests.
+
+```sh
+make build            # bin/stackorder and bin/stackorder-server
+make test             # unit tests, no Docker, no network
+make test-integration # server + Postgres + fake GitHub + the CLI on a fake terraform, needs Docker
+make test-e2e         # real terraform and tofu + LocalStack + example-infra, needs Docker
+make lint             # gofmt, go vet, golangci-lint
+make ui               # build the UI into internal/ui/dist
+make ui-test          # UI unit tests
+make docs             # build the docs site
+make dev              # Postgres and LocalStack with docker compose, then the server
+make down             # stop them and drop their volumes
+make docker           # build the server image
+make sync-example     # refresh the vendored copy of example-infra used by the integration tests
+```
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the test suites, their environment variables, commit conventions and releases.
+
+## Documentation
+
+- [Documentation site sources](docs): guide, configuration, reference and operations.
+- [Design document](https://claude.ai/artifact/W3gQnvGu5Fw9DSXApYE766), the source of truth for behaviour, also reproduced with implementation notes in [docs/design](docs/design/index.md).
+- [ARCHITECTURE.md](ARCHITECTURE.md): the contract between packages and repositories.
+- [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and contributing.
+- [CHANGELOG.md](CHANGELOG.md): what each release contains.
+
+## License
+
+[Apache License 2.0](LICENSE)
