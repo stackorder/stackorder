@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
+	"github.com/stackorder/stackorder/internal/config"
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/gh/codeowners"
 	"github.com/stackorder/stackorder/internal/report"
@@ -99,7 +100,10 @@ func (s *Service) gate(ctx context.Context, in gateInput) (gateResult, error) {
 			res.keys = view.keys()
 		}
 	}
-	defaults := s.defaultStackConfigs(ctx, in.repo)
+	defaults, err := s.defaultStackConfigs(ctx, in.repo, res.keys)
+	if err != nil {
+		return res, err
+	}
 	if in.layers&layerAuthorization != 0 {
 		f, err := s.gateAuthorization(ctx, in, cfg, defaults, res.keys)
 		if err != nil {
@@ -130,21 +134,61 @@ func (s *Service) gate(ctx context.Context, in gateInput) (gateResult, error) {
 	return res, nil
 }
 
-func (s *Service) defaultStackConfigs(ctx context.Context, repo store.Repo) map[string]*v1.StackConfig {
+func (s *Service) defaultStackConfigs(ctx context.Context, repo store.Repo, keys []string) (map[string]*v1.StackConfig, error) {
 	out := map[string]*v1.StackConfig{}
 	g, _, err := s.st.GetDefaultGraph(ctx, repo.ID)
+	switch {
+	case err == nil:
+		for _, st := range g.Stacks {
+			if !st.External && st.Config != nil {
+				out[st.Key] = st.Config
+			}
+		}
+		return out, nil
+	case !errors.Is(err, store.ErrNotFound):
+		return nil, storeErr(err, "default graph of %s", repo.FullName)
+	}
+	if len(keys) == 0 {
+		return out, nil
+	}
+	c, err := s.client(ctx, repo)
 	if err != nil {
-		if !errors.Is(err, store.ErrNotFound) {
-			s.log.WarnContext(ctx, "load default graph", "repo", repo.FullName, "error", err)
-		}
-		return out
+		return nil, err
 	}
-	for _, st := range g.Stacks {
-		if !st.External && st.Config != nil {
-			out[st.Key] = st.Config
+	read := map[string]*v1.StackConfig{}
+	for _, key := range keys {
+		dir, _ := v1.SplitStackKey(key)
+		if strings.Contains(dir, "//") {
+			continue
+		}
+		sc, seen := read[dir]
+		if !seen {
+			if sc, err = s.readStackConfig(ctx, c, repo, dir); err != nil {
+				return nil, err
+			}
+			read[dir] = sc
+		}
+		if sc != nil {
+			out[key] = sc
 		}
 	}
-	return out
+	return out, nil
+}
+
+func (s *Service) readStackConfig(ctx context.Context, c *gh.Client, repo store.Repo, dir string) (*v1.StackConfig, error) {
+	path := strings.Trim(dir, "/") + "/" + config.StackFile
+	data, err := c.GetContents(ctx, repo.FullName, path, repo.DefaultBranch)
+	if errors.Is(err, gh.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("runs: %s of %s on %s: %w", path, repo.FullName, repo.DefaultBranch, err)
+	}
+	sc, err := config.ParseStack(data)
+	if err != nil {
+		return nil, fmt.Errorf("runs: %s of %s on %s: %w", path, repo.FullName, repo.DefaultBranch, err)
+	}
+	return sc, nil
 }
 
 func allowedTeams(cfg *v1.RepoConfig, defaults map[string]*v1.StackConfig, key string) []string {

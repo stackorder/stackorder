@@ -187,6 +187,28 @@ func TestPlanOutputSummaryComesFromTheDefaultBranch(t *testing.T) {
 	}
 }
 
+func TestPlanOutputSummaryIsReadFromTheDefaultBranchBeforeTheFirstMerge(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.gh.SetContents(repoName, "main", "stacks/prod/vpc/.stackorder.yaml", []byte("plan_output: summary\n"))
+	e.openPull(7, headSHA)
+	job, runID, resp := e.startPlan(7, headSHA)
+	outputs := map[string]string{}
+	for _, m := range resp.Matrix.Include {
+		outputs[m.Key] = m.PlanOutput
+	}
+	assert.Equal(t, map[string]string{vpc: "summary", staging: "full", eks: "full", apps: "full"}, outputs,
+		"without a default-branch graph the stack's .stackorder.yaml is read at the default branch")
+	_, err := e.svc.RecordResult(e.ctx, job.p, runID, vpc, planResult(vpc, headSHA, 1))
+	require.NoError(t, err)
+	rows, err := e.st.GetRunStacksWithText(e.ctx, uuid.MustParse(runID))
+	require.NoError(t, err)
+	for _, rs := range rows {
+		if rs.Key == vpc {
+			assert.Empty(t, rs.PlanText, "no plan text of a summary stack is kept")
+		}
+	}
+}
+
 func TestCreateRunBinding(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.openPull(7, headSHA)

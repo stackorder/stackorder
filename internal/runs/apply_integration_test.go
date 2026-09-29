@@ -54,6 +54,15 @@ func TestApplyGateLayers(t *testing.T) {
 			want: []string{"**Layer 1, authorization** (`stacks/prod/vpc`)", "`acme/platform-prod`"},
 		},
 		{
+			name: "layer 1 reads a stack's teams through the Contents API before the first merge",
+			cfg:  func(c *v1.RepoConfig) { c.Apply.AllowedTeams = []string{"platform"} },
+			setup: func(e *env) {
+				e.gh.SetTeamMembership("acme", "platform", applier, gh.MembershipActive)
+				e.gh.SetContents(repoName, "main", "stacks/prod/vpc/.stackorder.yaml", []byte("apply:\n  allowed_teams: [acme/platform-prod]\n"))
+			},
+			want: []string{"**Layer 1, authorization** (`stacks/prod/vpc`)", "`acme/platform-prod`"},
+		},
+		{
 			name: "layer 2 counts approvals on the head commit",
 			cfg:  func(c *v1.RepoConfig) { c.Apply.RequireApprovals = 1 },
 			setup: func(e *env) {

@@ -286,7 +286,9 @@ func (s *Service) startServerPlan(ctx context.Context, req serverPlan) (store.Ru
 	if refusal := planRefusal(resp, rerr, req); refusal != "" {
 		return store.Run{}, refusal, nil
 	}
-	s.enforcePlanOutput(ctx, req.repo, resp.Affected)
+	if err := s.enforcePlanOutput(ctx, req.repo, resp.Affected); err != nil {
+		return store.Run{}, "", err
+	}
 	var rows []store.RunStack
 	for _, a := range resp.Affected {
 		st, err := s.st.GetStackByKey(ctx, req.repo.ID, a.Key)
@@ -418,7 +420,10 @@ func (s *Service) startApply(ctx context.Context, req applyRequest) (store.Run, 
 		return store.Run{}, nil, storeErr(err, "graph %s", graphID)
 	}
 	cfg := repoConfig(req.repo)
-	defaults := s.defaultStackConfigs(ctx, req.repo)
+	defaults, err := s.defaultStackConfigs(ctx, req.repo, req.view.keys())
+	if err != nil {
+		return store.Run{}, nil, err
+	}
 	waves := subsetWaves(g, req.view.keys(), req.keys)
 	var (
 		rows   []store.RunStack
