@@ -36,7 +36,7 @@ Phase 1 alone is already a usable Atlantis-style tool. Phase 2 is where Stackord
 
 ## How the gates are demonstrated {#testing}
 
-End-to-end tests run the real Terraform and OpenTofu binaries against a LocalStack S3 bucket and the `stackorder/example-infra` demo monorepo, with the server in-process and the CLI as a separate process for every job. GitHub and its Actions token service are in-memory fakes, because a real organization only delivers webhooks to a server it can reach; teams that run such a server can point the same suite at a throwaway GitHub organization instead. Unit tests cover the `graph` package exhaustively, since that is where the correctness risk sits.
+End-to-end tests run the real Terraform and OpenTofu binaries against a LocalStack S3 bucket and the `stackorder/example-infra` demo monorepo, with the server in-process and the CLI as a separate process for every job. GitHub and its Actions token service are in-memory fakes, because a real organization only delivers webhooks to a server it can reach. Teams that run such a server can also run a smaller live variant, which opens a pull request in a throwaway repository of a real organization and waits for the server's resolve and plan checks. Unit tests cover the `graph` package exhaustively, since that is where the correctness risk sits.
 
 | Test level | Build tag | Needs |
 | --- | --- | --- |
