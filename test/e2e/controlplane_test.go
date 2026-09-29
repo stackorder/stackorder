@@ -50,6 +50,7 @@ type controlPlane struct {
 	baseURL string
 	apiKey  string
 	client  *http.Client
+	clockMu sync.Mutex
 }
 
 func startControlPlane(t *testing.T, ls *localStack, prepare func(*ghfake.Server)) *controlPlane {
@@ -134,6 +135,8 @@ func startControlPlane(t *testing.T, ls *localStack, prepare func(*ghfake.Server
 }
 
 func (cp *controlPlane) syncClock() {
+	cp.clockMu.Lock()
+	defer cp.clockMu.Unlock()
 	if lag := time.Since(cp.oidc.Now()); lag > 0 {
 		cp.oidc.Advance(lag)
 	}
