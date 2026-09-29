@@ -38,11 +38,11 @@ The dependency graph is the server's core data structure, not an add-on. It has 
 
 ### Cloud credentials held by the server
 
-None. The runner assumes your IAM role with its own GitHub OIDC token. The server's only outbound calls are to GitHub and to Postgres, plus an optional S3 bucket of its own for full plan text. A compromised server can dispatch workflows and post comments, but cannot read state or assume your roles. See the [security model](/reference/security-model).
+None. The runner assumes your IAM role with its own GitHub OIDC token. The server's only outbound calls are to GitHub, for its API and its OIDC signing keys, and to Postgres, plus two optional ones: an S3 bucket of its own for full plan text, and an OTLP endpoint for traces. A compromised server can dispatch workflows and post comments, but cannot read state or assume your roles. See the [security model](/reference/security-model).
 
 ### Human auth
 
-People sign in to the web UI with GitHub, through the App's user-authorization flow. A session is issued only to members of an org where the App is installed, and the UI shows only that org's repositories. Authorization to apply reuses GitHub: repository permissions, teams, CODEOWNERS and environments.
+People sign in to the web UI with GitHub, through the App's OAuth client with the `read:org` scope. A session is issued only to a user whose own account, or one of whose organisations, has the App installed, and the UI shows only those accounts' repositories. Authorization to apply reuses GitHub: repository permissions, teams, CODEOWNERS and environments.
 
 ## When something else fits better
 
