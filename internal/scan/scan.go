@@ -357,6 +357,9 @@ func (s *scanner) discoverStacks() error {
 	}
 	for _, dir := range s.dirOrder {
 		if matchAny(excludes, dir) {
+			if len(s.dirs[dir]) > 0 {
+				s.log.Debug("directory excluded", "dir", dir)
+			}
 			continue
 		}
 		if !included[dir] && (len(s.dirs[dir]) == 0 || s.underModulePaths(dir) || !matchAny(s.cfg.Stacks.Discover, dir)) {
