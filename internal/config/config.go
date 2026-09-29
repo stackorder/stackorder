@@ -6,12 +6,14 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/robfig/cron/v3"
 	"gopkg.in/yaml.v3"
 
@@ -154,12 +156,34 @@ func Validate(c *v1.RepoConfig) error {
 			add("drift.schedule: %v", err)
 		}
 	}
-	for prefix, env := range c.Environments {
-		if prefix == "" {
-			add("environments: empty path prefix")
+	seenEnvironments := map[string]string{}
+	for _, key := range slices.Sorted(maps.Keys(c.Environments)) {
+		env := c.Environments[key]
+		prefix, instance, hasInstance := splitEnvironmentKey(key)
+		normalized := normalizeEnvironmentPrefix(prefix)
+		switch {
+		case strings.Contains(prefix, ":"):
+			add("environments[%q]: path prefix %q contains \":\"", key, prefix)
+		case normalized == "" && !hasInstance:
+			add("environments[%q]: empty path prefix; only a key with an instance part (\":instance\") may leave it empty", key)
+		case hasInstance:
+			if err := ValidateInstanceName(instance); err != nil {
+				add("environments[%q]: %v", key, err)
+			}
+		}
+		id := normalized + ":" + instance
+		if !hasInstance {
+			id = normalized
+		}
+		if other, dup := seenEnvironments[id]; dup {
+			add("environments: keys %q and %q name the same path prefix and instance", other, key)
+		} else {
+			seenEnvironments[id] = key
 		}
 		if env == "" {
-			add("environments[%q]: empty environment name", prefix)
+			add("environments[%q]: empty environment name", key)
+		} else if err := checkTemplate(env); err != nil {
+			add("environments[%q]: %v", key, err)
 		}
 	}
 	for i, g := range c.Stacks.Discover {
@@ -167,16 +191,28 @@ func Validate(c *v1.RepoConfig) error {
 			add("stacks.discover[%d]: empty glob", i)
 		}
 	}
+	for i, g := range c.Stacks.Exclude {
+		switch {
+		case g == "":
+			add("stacks.exclude[%d]: empty glob", i)
+		case strings.HasPrefix(g, "/") || !doublestar.ValidatePattern(g):
+			add("stacks.exclude[%d]: %q is not a repository relative glob", i, g)
+		}
+	}
+	if g := c.Stacks.Instances.FromVarFiles; g != "" {
+		if strings.HasPrefix(g, "/") || filepath.IsAbs(g) || !doublestar.ValidatePattern(g) {
+			add("stacks.instances.from_var_files: %q is not a stack relative glob", g)
+		}
+	}
+	validateBackendConfig(add, "backend_config", c.BackendConfig)
+	validateVarFiles(add, "var_files", c.VarFiles)
+	validateEnv(add, "env", c.Env)
 	for i, p := range c.Stacks.Include {
 		if p == "" || strings.HasPrefix(p, "/") || strings.HasPrefix(p, "..") {
 			add("stacks.include[%d]: %q must be a repository relative path", i, p)
 		}
 	}
-	for i, t := range c.Apply.AllowedTeams {
-		if t == "" {
-			add("apply.allowed_teams[%d]: empty team", i)
-		}
-	}
+	validateTeams(add, "apply.allowed_teams", c.Apply.AllowedTeams)
 	return errors.Join(errs...)
 }
 
@@ -226,18 +262,29 @@ func ValidateStack(s *v1.StackConfig) error {
 	if s.PlanOutput != "" && !validPlanOutput(s.PlanOutput) {
 		add("plan_output: %q is not one of full, summary", s.PlanOutput)
 	}
-	for i, d := range s.DependsOn {
-		if _, _, err := ParseDependency(d); err != nil {
-			add("depends_on[%d]: %v", i, err)
+	validateDependsOn(add, "depends_on", s.DependsOn)
+	validateIgnoreInferred(add, "ignore_inferred", s.IgnoreInferred)
+	validateWorkspace(add, "workspace", s.Workspace)
+	if s.Workspace != "" && len(s.Instances) == 0 {
+		if ws, err := Render(s.Workspace, TemplateDataFor(sampleTemplateData.Path, "")); err == nil && ws != "" && ws != "default" {
+			if err := ValidateInstanceName(ws); err != nil {
+				add("workspace: %q names the stack's only instance: %v", ws, err)
+			}
 		}
 	}
-	for i, d := range s.IgnoreInferred {
-		if d == "" {
-			add("ignore_inferred[%d]: empty stack key", i)
-		}
+	validateTemplateField(add, "environment", s.Environment)
+	if s.Apply != nil {
+		validateTeams(add, "apply.allowed_teams", s.Apply.AllowedTeams)
 	}
-	if strings.ContainsAny(s.Workspace, "/: \t") {
-		add("workspace: %q contains invalid characters", s.Workspace)
+	validateBackendConfig(add, "backend_config", s.BackendConfig)
+	validateVarFiles(add, "var_files", s.VarFiles)
+	validateEnv(add, "env", s.Env)
+	for _, name := range s.Instances.Names() {
+		if err := ValidateInstanceName(name); err != nil {
+			add("instances: %v", err)
+			continue
+		}
+		validateInstance(add, "instances."+name+".", s.Instances[name])
 	}
 	return errors.Join(errs...)
 }
@@ -264,7 +311,8 @@ func ParseDependency(dep string) (repo, key string, err error) {
 }
 
 // NormalizePath cleans a repository relative path: forward slashes, no
-// leading "./" and no trailing "/". The workspace suffix is preserved.
+// leading "./" and no trailing "/". An instance suffix (":instance") is
+// kept intact.
 func NormalizePath(p string) string {
 	p = strings.ReplaceAll(p, "\\", "/")
 	p, ws := v1.SplitStackKey(p)
@@ -275,79 +323,6 @@ func NormalizePath(p string) string {
 	}
 	p = strings.Trim(p, "/")
 	return v1.StackKey(p, ws)
-}
-
-// Effective is the merged configuration of one stack.
-type Effective struct {
-	Key            string
-	Path           string
-	Workspace      string
-	Tool           v1.Tool
-	ToolVersion    string
-	Environment    string
-	PlanOutput     v1.PlanOutput
-	AllowedTeams   []string
-	DependsOn      []string
-	IgnoreInferred []string
-}
-
-// Resolve merges the root configuration with a stack's own file. stack may
-// be nil.
-func Resolve(root *v1.RepoConfig, stackPath string, stack *v1.StackConfig) Effective {
-	if stack == nil {
-		stack = &v1.StackConfig{}
-	}
-	stackPath = NormalizePath(stackPath)
-	e := Effective{
-		Path:           stackPath,
-		Workspace:      stack.Workspace,
-		Tool:           root.Tool,
-		ToolVersion:    root.ToolVersion,
-		Environment:    EnvironmentFor(root.Environments, stackPath),
-		PlanOutput:     root.PlanOutput,
-		AllowedTeams:   append([]string(nil), root.Apply.AllowedTeams...),
-		DependsOn:      append([]string(nil), stack.DependsOn...),
-		IgnoreInferred: append([]string(nil), stack.IgnoreInferred...),
-	}
-	if e.Workspace == "default" {
-		e.Workspace = ""
-	}
-	e.Key = v1.StackKey(stackPath, e.Workspace)
-	if stack.Tool != "" {
-		e.Tool = stack.Tool
-	}
-	if stack.ToolVersion != "" {
-		e.ToolVersion = stack.ToolVersion
-	}
-	if stack.Environment != "" {
-		e.Environment = stack.Environment
-	}
-	if stack.PlanOutput != "" {
-		e.PlanOutput = stack.PlanOutput
-	}
-	if stack.Apply != nil && len(stack.Apply.AllowedTeams) > 0 {
-		e.AllowedTeams = append([]string(nil), stack.Apply.AllowedTeams...)
-	}
-	return e
-}
-
-// EnvironmentFor picks the GitHub environment for a stack path from the
-// prefix map. The longest matching prefix wins; no match yields "".
-func EnvironmentFor(environments map[string]string, stackPath string) string {
-	stackPath = strings.TrimSuffix(NormalizePath(stackPath), "/") + "/"
-	best, bestLen := "", -1
-	keys := make([]string, 0, len(environments))
-	for k := range environments {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, prefix := range keys {
-		p := strings.TrimSuffix(strings.TrimPrefix(prefix, "./"), "/") + "/"
-		if strings.HasPrefix(stackPath, p) && len(p) > bestLen {
-			best, bestLen = environments[prefix], len(p)
-		}
-	}
-	return best
 }
 
 // IgnoreGlobs returns the effective ignore list including the lock file when
