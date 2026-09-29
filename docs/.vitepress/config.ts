@@ -130,6 +130,11 @@ export default withMermaid(
         message: `Released under the <a href="${repository}/blob/main/LICENSE">Apache-2.0 License</a>.`,
       },
     },
+    vite: {
+      optimizeDeps: {
+        include: ['mermaid > fastdom', 'mermaid > fastdom/extensions/fastdom-promised.js'],
+      },
+    },
     mermaid: {
       theme: 'neutral',
       fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
