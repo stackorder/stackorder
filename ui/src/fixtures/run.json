@@ -195,5 +195,5 @@
     "stacks/prod/eks failed in wave 1; stacks/prod/apps is blocked and was not dispatched",
     "Locks on 5 stacks are held until the PR merges or they are released with stackorder unlock"
   ],
-  "html_url": "https://github.com/acme/infra/pull/42"
+  "html_url": "https://stackorder.example.com/runs/7d9f1b3c-5e7a-4b9c-8d1e-3f5a7b9c1d66"
 }

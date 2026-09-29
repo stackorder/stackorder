@@ -283,8 +283,7 @@ function RunView({ id }: { id: string }) {
   if (res.error && !run) return <ErrorState error={res.error} onRetry={res.reload} what="run" />;
   if (!run) return <Loading />;
 
-  const htmlUrl = safeUrl(run.html_url);
-  const origin = githubOrigin(htmlUrl ?? run.stacks?.find((s) => safeUrl(s.job_url))?.job_url);
+  const origin = githubOrigin(run.stacks?.find((s) => safeUrl(s.job_url))?.job_url);
   const waves = runWaves(run);
   const selectedStack = run.stacks?.find((s) => s.key === selected);
 
@@ -366,11 +365,6 @@ function RunView({ id }: { id: string }) {
           <a class="button" href={repoPath(run.repo, { run: run.id })}>
             View in graph
           </a>
-          {htmlUrl && (
-            <a class="button" href={htmlUrl}>
-              Open on GitHub
-            </a>
-          )}
           <button type="button" class="button button--primary" onClick={() => void startRerun()} disabled={rerun.busy}>
             {rerun.busy ? 'Re-running…' : 'Re-run'}
           </button>

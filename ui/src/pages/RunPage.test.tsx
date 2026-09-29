@@ -42,6 +42,20 @@ describe('RunPage', () => {
     expect(screen.queryByText(/Refreshing every/)).not.toBeInTheDocument();
   });
 
+  it('links the PR and commit on the GitHub host of the job logs, not the run page URL', async () => {
+    const ghes = clone(run);
+    for (const s of ghes.stacks ?? []) if (s.job_url) s.job_url = s.job_url.replace('https://github.com', 'https://ghe.acme.dev');
+    renderWithApp(page, { url, handler: (c) => (c.path === `/v1/runs/${ids.run}` ? json(ghes) : undefined) });
+    expect(await screen.findByRole('link', { name: '#42' })).toHaveAttribute('href', 'https://ghe.acme.dev/acme/infra/pull/42');
+    expect(screen.getByRole('link', { name: '4f9c2d1' })).toHaveAttribute(
+      'href',
+      'https://ghe.acme.dev/acme/infra/commit/4f9c2d1e8b7a6c5d3e2f1a0b9c8d7e6f5a4b3c2d',
+    );
+    for (const a of document.querySelectorAll('a[href]')) {
+      expect(a.getAttribute('href')).not.toContain('stackorder.example.com');
+    }
+  });
+
   it('lays out the three waves with per-stack results and job logs', async () => {
     renderWithApp(page, { url });
     await screen.findByRole('heading', { level: 1 });
