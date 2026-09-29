@@ -79,7 +79,7 @@ The file has no `concurrency` group and is never cancelled in progress. Inside `
 | `run_id` | The Stackorder run id, a UUID. |
 | `mode` | `plan`, `apply` or `drift`. Any other value fails the job before checkout. |
 | `wave` | The wave index this dispatch covers, `0` for plan and drift dispatches. |
-| `sha` | The commit the run is for, which each job checks out: the pull request head for a pull request's plans and applies, the head of the default branch for drift checks and cross-repository plans. |
+| `sha` | The commit the run is for, which each job checks out: the pull request head for a pull request's plans and `before_merge` applies, the merge commit for an `on_merge` apply, the head of the default branch for drift checks and cross-repository plans. |
 | `stacks` | A JSON array of [matrix entries](/reference/actions#matrix-entry), one per stack. Each entry carries the stack's GitHub environment, tool and, for applies, the workflow run and artifact that hold its plan file. |
 
 ### Which environment and role a job gets {#environments}
