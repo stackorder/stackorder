@@ -103,7 +103,7 @@ Given a graph at a commit and the list of changed paths, the server resolves the
 4. **Ordering.** A topological sort of the affected set over `depends_on` and `reads_state`. Every edge points from the dependent to what it depends on, so for an edge from A to B, B applies first: `wave(B) < wave(A)`. Edges to unaffected or external stacks are dropped. Waves are assigned by longest path from a root. A cycle fails the resolve check with the cycle spelled out, as `a -> b -> a`.
 5. **Cross-repo.** `depends_on` edges to stacks in other repositories are stored but cannot order a single-repository run. See [Cross-repo dependencies](/configuration/cross-repo).
 
-Each affected stack carries its reasons: `changed`, `module`, `dependent`, `reads_state` or `requested`, and the node keys the change travelled through.
+Each affected stack carries its reasons, in this order: `changed`, `module`, `reads_state`, `dependent` and `requested`, and the node keys the change travelled through.
 
 ## Waves {#waves}
 
