@@ -170,7 +170,7 @@ Global Flags:
 7. Runs the `post-plan` hook, with `STACKORDER_PLAN_FILE` and `STACKORDER_PLAN_JSON` set.
 8. Posts the result to `POST /v1/runs/{id}/stacks/{key}/result`, when a server and a run id are set (and, outside Actions, `STACKORDER_API_KEY`). Otherwise the result is `unconfirmed`.
 
-The plan file is `<plan dir>/<artifact>.tfplan`, where the plan dir is `STACKORDER_PLAN_DIR` (default `.stackorder/plans`, relative to the repository root) and the artifact is `stackorder-plan-<key>-<sha>` with `/` and `:` in the key replaced by `-`. Outside a git checkout the SHA part is `local`.
+The plan file is `<plan dir>/<artifact>.tfplan`, where the plan dir is `STACKORDER_PLAN_DIR` (default `.stackorder/plans`, relative to the repository root) and the artifact is `stackorder-plan-<slug>-<sha>`, where the slug is the key with `/` and `:` replaced by `-`, then `-` and the first 8 hex characters of the key's SHA-256 (`stackorder-plan-stacks-prod-vpc-69df0ef0-<sha>`), so keys such as `a/b` and `a-b` get different artifacts. Outside a git checkout the SHA part is `local`.
 
 The text output is one line, `stacks/prod/vpc: 4 to add, 0 to change, 0 to destroy, 0 to replace, 2 output changes`, after Terraform's own output. `--format json` prints `{"stack", "run_id", "plan_file", "unconfirmed", "result"}`, where `result` is the [`StackResult`](/reference/api#stack-result) that was, or would have been, posted.
 

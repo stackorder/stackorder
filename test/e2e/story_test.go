@@ -484,7 +484,7 @@ func (s *story) prPlan(t *testing.T) {
 	}
 
 	assert.True(t, vpc.Truncated, "the plan text of prod/vpc exceeds the cap")
-	assert.Equal(t, fmt.Sprintf("s3://%s/runs/%s/stacks-prod-vpc/plan.txt", artifactBucket, run.ID), vpc.PlanURL)
+	assert.Equal(t, fmt.Sprintf("s3://%s/runs/%s/stacks-prod-vpc-69df0ef0/plan.txt", artifactBucket, run.ID), vpc.PlanURL)
 	summaryOnly := runStack(t, run, stagingApps)
 	assert.Equal(t, string(v1.PlanOutputSummary), summaryOnly.PlanOutput)
 	assert.Empty(t, summaryOnly.PlanURL, "plan_output: summary keeps plan text off the server")
@@ -499,18 +499,18 @@ func (s *story) prPlan(t *testing.T) {
 
 	objects := s.ls.keys(t, artifactBucket, "runs/"+run.ID+"/")
 	for _, key := range []string{prodVPC, stagingVPC, prodApps, prodEKS} {
-		prefix := "runs/" + run.ID + "/" + strings.ReplaceAll(key, "/", "-") + "/"
+		prefix := "runs/" + run.ID + "/" + v1.StackKeySlug(key) + "/"
 		assert.Contains(t, objects, prefix+"plan.txt", key)
 		assert.Contains(t, objects, prefix+"plan.json", key)
 	}
-	assert.NotContains(t, objects, "runs/"+run.ID+"/stacks-staging-apps/plan.txt")
-	planJSON, ok := s.ls.get(t, artifactBucket, "runs/"+run.ID+"/stacks-prod-vpc/plan.json")
+	assert.NotContains(t, objects, "runs/"+run.ID+"/stacks-staging-apps-264d44bd/plan.txt")
+	planJSON, ok := s.ls.get(t, artifactBucket, "runs/"+run.ID+"/stacks-prod-vpc-69df0ef0/plan.json")
 	require.True(t, ok)
 	var bucketSummary v1.PlanSummary
 	require.NoError(t, json.Unmarshal(planJSON, &bucketSummary), "the bucket holds the plan summary as JSON")
 	assert.Equal(t, []string{"module.vpc.terraform_data.route_table"}, bucketSummary.Added)
 	assert.NotContains(t, string(planJSON), plaintextSecret)
-	full, ok := s.ls.get(t, artifactBucket, "runs/"+run.ID+"/stacks-prod-vpc/plan.txt")
+	full, ok := s.ls.get(t, artifactBucket, "runs/"+run.ID+"/stacks-prod-vpc-69df0ef0/plan.txt")
 	require.True(t, ok)
 	assert.LessOrEqual(t, len(full), planTextCap, "the CLI caps the plan text it sends at 256 KB")
 	assert.Greater(t, len(full), len(stored[prodVPC]), "the bucket keeps more than Postgres")
@@ -882,7 +882,7 @@ func (s *story) workspaceStack(t *testing.T) {
 	assert.Equal(t, v1.DefaultEnvironment, entry.Environment, "stacks/sandbox/ matches no environment prefix")
 	planned := pr.plans[sandboxBlue]
 	assert.Contains(t, planned.stdout, `workspace "blue"`, "the plan job selects the workspace")
-	assert.Equal(t, "stackorder-plan-stacks-sandbox-blue-blue-"+head, planned.outputs["artifact"])
+	assert.Equal(t, "stackorder-plan-stacks-sandbox-blue-blue-a355f972-"+head, planned.outputs["artifact"])
 
 	s.approve(t, pr)
 	before := len(s.applyDispatches())

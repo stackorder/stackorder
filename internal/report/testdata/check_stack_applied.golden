@@ -9,7 +9,7 @@ conclusion: success
 | ---: | ---: | ---: | ---: |
 | 2 | 1 | 0 | 0 |
 
-Plan artifact: `stackorder-plan-stacks-prod-vpc-3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c`
+Plan artifact: `stackorder-plan-stacks-prod-vpc-69df0ef0-3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c`
 
 --- text ---
 ```hcl

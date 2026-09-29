@@ -71,7 +71,7 @@ Runs `stackorder resolve --server <server-url> [--base <base-ref>] [--stacks <st
 
 ## `plan` {#plan}
 
-Runs `stackorder plan --stack <stack> --run-id <run-id> --server <server-url>` with `STACKORDER_PLAN_DIR` set to `$GITHUB_WORKSPACE/.stackorder/plans`, then uploads the plan file with `actions/upload-artifact@v4` under the name the CLI reports, `stackorder-plan-<key>-<sha>` with `/` and `:` in the key replaced by `-`. A missing plan file fails the upload.
+Runs `stackorder plan --stack <stack> --run-id <run-id> --server <server-url>` with `STACKORDER_PLAN_DIR` set to `$GITHUB_WORKSPACE/.stackorder/plans`, then uploads the plan file with `actions/upload-artifact@v4` under the name the CLI reports, `stackorder-plan-<slug>-<sha>`, where the slug is the key with `/` and `:` replaced by `-`, then `-` and the first 8 hex characters of the key's SHA-256 (`stackorder-plan-stacks-prod-vpc-69df0ef0-<sha>`), so keys such as `a/b` and `a-b` get different artifacts. A missing plan file fails the upload.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -205,7 +205,7 @@ Each element of the `matrix` output, and of the `stacks` dispatch input, has thi
   "plan_output": "full",
   "sha": "9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
   "plan_run_id": 12345678901,
-  "artifact": "stackorder-plan-stacks-prod-vpc-9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c"
+  "artifact": "stackorder-plan-stacks-prod-vpc-69df0ef0-9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c"
 }
 ```
 

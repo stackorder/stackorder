@@ -1,6 +1,8 @@
 package v1
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"time"
 )
@@ -301,8 +303,15 @@ type MatrixEntry struct {
 
 // PlanArtifactName builds the workflow artifact name for a stack's plan file.
 func PlanArtifactName(stackKey, sha string) string {
-	r := strings.NewReplacer("/", "-", ":", "-")
-	return "stackorder-plan-" + r.Replace(stackKey) + "-" + sha
+	return "stackorder-plan-" + StackKeySlug(stackKey) + "-" + sha
+}
+
+// StackKeySlug names a stack in artifact names and object keys: the key
+// with / and : replaced by -, then - and the first 8 hex characters of the
+// key's SHA-256, so keys such as a/b and a-b get different slugs.
+func StackKeySlug(stackKey string) string {
+	sum := sha256.Sum256([]byte(stackKey))
+	return strings.NewReplacer("/", "-", ":", "-").Replace(stackKey) + "-" + hex.EncodeToString(sum[:4])
 }
 
 // Matrix is the JSON GitHub Actions expects in a strategy.matrix expression.

@@ -348,7 +348,7 @@ Reports a plan, apply or drift outcome for one stack and answers with the stack'
     "changed": ["aws_subnet.private[0]", "aws_subnet.private[1]"]
   },
   "plan_text": "OpenTofu will perform the following actions: ...",
-  "plan_artifact": "stackorder-plan-stacks-prod-vpc-9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
+  "plan_artifact": "stackorder-plan-stacks-prod-vpc-69df0ef0-9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
   "job_url": "https://github.com/acme/infra/actions/runs/12345678901",
   "tool": "tofu",
   "tool_version": "1.10.0",
@@ -384,7 +384,7 @@ Reports a plan, apply or drift outcome for one stack and answers with the stack'
   },
   "exit_code": 2,
   "job_url": "https://github.com/acme/infra/actions/runs/12345678901",
-  "plan_artifact": "stackorder-plan-stacks-prod-vpc-9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
+  "plan_artifact": "stackorder-plan-stacks-prod-vpc-69df0ef0-9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
   "plan_text": "OpenTofu will perform the following actions: ...",
   "plan_output": "full",
   "started_at": "2026-09-28T09:14:03Z",
@@ -447,7 +447,7 @@ The run with its per-stack rows. A `pull_request` token may read only its own pu
       "wave": 0,
       "status": "applying",
       "reasons": ["module"],
-      "plan_artifact": "stackorder-plan-stacks-prod-vpc-9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
+      "plan_artifact": "stackorder-plan-stacks-prod-vpc-69df0ef0-9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
       "plan_output": "full"
     },
     {
@@ -458,7 +458,7 @@ The run with its per-stack rows. A `pull_request` token may read only its own pu
       "wave": 1,
       "status": "planned",
       "reasons": ["dependent"],
-      "plan_artifact": "stackorder-plan-stacks-prod-apps-9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
+      "plan_artifact": "stackorder-plan-stacks-prod-apps-4b32b4c4-9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
       "plan_output": "full"
     }
   ],

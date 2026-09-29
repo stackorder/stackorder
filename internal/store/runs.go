@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -30,7 +29,7 @@ func PlanJSONArtifactKey(runID uuid.UUID, stackKey string) string {
 }
 
 func runStackArtifactDir(runID uuid.UUID, stackKey string) string {
-	return "runs/" + runID.String() + "/" + strings.ReplaceAll(stackKey, "/", "-") + "/"
+	return "runs/" + runID.String() + "/" + v1.StackKeySlug(stackKey) + "/"
 }
 
 // MaxPlanTextBytes caps the plan text stored per stack; longer text is cut

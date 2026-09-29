@@ -137,7 +137,10 @@ dependencies.
 - Sticky PR comment: one per PR, found by the hidden marker
   `<!-- stackorder:sticky -->` on its first line (and by the App's own login).
 - Plan artifact name: `v1.PlanArtifactName(key, sha)`, i.e.
-  `stackorder-plan-<key with / and : replaced by ->-<sha>`. The plan file
+  `stackorder-plan-<slug>-<sha>`, where `v1.StackKeySlug(key)` is the key
+  with `/` and `:` replaced by `-`, then `-` and the first 8 hex characters
+  of `sha256(key)`, so keys such as `a/b` and `a-b` never share a name
+  (the design's name has no hash suffix). The plan file
   inside it is `<artifact name>.tfplan`, written under `STACKORDER_PLAN_DIR`
   (default `.stackorder/plans`) and reported as an absolute path.
 - Workflow files in user repos: `.github/workflows/stackorder-plan.yml` and
@@ -253,7 +256,7 @@ with `next_cursor`.
 | `GET /v1/modules?q=` | `v1.Page[v1.ModuleDetail]` |
 | `GET /v1/modules/{id}` | `v1.ModuleDetail` |
 | `GET /v1/runs/{id}` | `v1.Run` |
-| `GET /v1/runs/{id}/stacks/{key}/plan` | `text/plain`: the run stack's full plan text, read from the artifact bucket at `store.PlanTextArtifactKey`; 404 `not_found` when the row has no `plan_url`, the server has no artifact bucket or the object is gone |
+| `GET /v1/runs/{id}/stacks/{key}/plan` | `text/plain`: the run stack's full plan text, read from the artifact bucket at `store.PlanTextArtifactKey` (`runs/<run id>/<slug>/plan.txt`); 404 `not_found` when the row has no `plan_url`, the server has no artifact bucket or the object is gone |
 | `POST /v1/stacks/{id}/unlock` | `v1.UnlockResponse` |
 | `POST /v1/runs/{id}/rerun` | `v1.CreateRunResponse` |
 | `GET /v1/audit` | `v1.Page[v1.AuditEntry]` |

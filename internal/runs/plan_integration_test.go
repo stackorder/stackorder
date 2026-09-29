@@ -632,7 +632,7 @@ func TestArtifactStoreKeepsFullPlanText(t *testing.T) {
 	res.PlanText = strings.Repeat("resource change line\n", 1000)
 	row, err := e.svc.RecordResult(e.ctx, job.p, runID, vpc, res)
 	require.NoError(t, err)
-	key := "runs/" + runID + "/stacks-prod-vpc/plan.txt"
+	key := "runs/" + runID + "/stacks-prod-vpc-69df0ef0/plan.txt"
 	assert.Equal(t, "https://artifacts.test/"+key, row.PlanURL)
 	assert.True(t, row.Truncated)
 	full, err := e.st.GetRunStack(e.ctx, uuid.MustParse(runID), uuid.MustParse(row.StackID))
@@ -641,7 +641,7 @@ func TestArtifactStoreKeepsFullPlanText(t *testing.T) {
 	e.artifacts.mu.Lock()
 	defer e.artifacts.mu.Unlock()
 	assert.Equal(t, res.PlanText, string(e.artifacts.items[key]))
-	assert.Contains(t, string(e.artifacts.items["runs/"+runID+"/stacks-prod-vpc/plan.json"]), `"adds":1`)
+	assert.Contains(t, string(e.artifacts.items["runs/"+runID+"/stacks-prod-vpc-69df0ef0/plan.json"]), `"adds":1`)
 }
 
 func TestNothingAffected(t *testing.T) {

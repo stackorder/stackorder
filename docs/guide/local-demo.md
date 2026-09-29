@@ -184,7 +184,7 @@ stacks/prod/vpc: 4 to add, 0 to change, 0 to destroy, 0 to replace, 2 output cha
 exit 0
 ```
 
-The plan file and its JSON are in `.stackorder/plans/`, named after the artifact the `plan` action would upload, `stackorder-plan-stacks-prod-vpc-<sha>`. With no server the result is `unconfirmed` and nothing is posted; `--format json` shows the [`StackResult`](/reference/api#stack-result) the CLI would have sent.
+The plan file and its JSON are in `.stackorder/plans/`, named after the artifact the `plan` action would upload, `stackorder-plan-stacks-prod-vpc-69df0ef0-<sha>`. With no server the result is `unconfirmed` and nothing is posted; `--format json` shows the [`StackResult`](/reference/api#stack-result) the CLI would have sent.
 
 ## 7. Apply, then plan a dependent {#apply}
 
@@ -192,7 +192,7 @@ The plan file and its JSON are in `.stackorder/plans/`, named after the artifact
 
 ```sh
 terraform -chdir=stacks/prod/vpc apply \
-  "$PWD/.stackorder/plans/stackorder-plan-stacks-prod-vpc-$(git rev-parse HEAD).tfplan"
+  "$PWD/.stackorder/plans/stackorder-plan-stacks-prod-vpc-69df0ef0-$(git rev-parse HEAD).tfplan"
 docker compose -f ../stackorder/docker-compose.yml exec localstack \
   awslocal s3 ls s3://stackorder-example-state --recursive
 stackorder plan --stack stacks/prod/apps

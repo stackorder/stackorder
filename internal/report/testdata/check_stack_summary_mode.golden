@@ -9,7 +9,7 @@ conclusion: success
 | ---: | ---: | ---: | ---: |
 | 1 | 0 | 1 | 0 |
 
-Plan artifact: `stackorder-plan-stacks-prod-secrets-3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c`
+Plan artifact: `stackorder-plan-stacks-prod-secrets-4b73e39f-3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c`
 
 --- text ---
 Plan output is set to `summary` for this stack, so only resource addresses are shown. The full plan is in the job log.

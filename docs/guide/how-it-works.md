@@ -69,7 +69,7 @@ For each stack, `stackorder plan --stack <key>`:
 3. builds a summary: adds, changes, destroys, replaces and their addresses;
 4. redacts the output and posts the summary and a plan text capped at 256 KB to the server.
 
-The `plan` action then uploads the binary plan file as a workflow artifact, named `stackorder-plan-<key>-<sha>`, with `/` and `:` in the key replaced by `-`. The server creates one check run per stack, such as `stackorder/plan: stacks/prod/vpc`, plus a roll-up `stackorder/plan`. It keeps one sticky PR comment with a collapsible section per stack.
+The `plan` action then uploads the binary plan file as a workflow artifact, named `stackorder-plan-<slug>-<sha>`, where the slug is the key with `/` and `:` replaced by `-`, then `-` and the first 8 hex characters of the key's SHA-256 (`stackorder-plan-stacks-prod-vpc-69df0ef0-<sha>`), so keys such as `a/b` and `a-b` get different artifacts. The server creates one check run per stack, such as `stackorder/plan: stacks/prod/vpc`, plus a roll-up `stackorder/plan`. It keeps one sticky PR comment with a collapsible section per stack.
 
 ### Apply gate {#apply-gate}
 

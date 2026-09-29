@@ -1,6 +1,6 @@
 ### Stackorder plan: `stacks/prod/vpc`
 
-**Result:** success · **Tool:** tofu 1.12.0 · **Duration:** 42s · **Exit code:** 2 · **Artifact:** `stackorder-plan-stacks-prod-vpc-3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c` · [Job](https://github.com/acme/infra/actions/runs/1234567/job/101)
+**Result:** success · **Tool:** tofu 1.12.0 · **Duration:** 42s · **Exit code:** 2 · **Artifact:** `stackorder-plan-stacks-prod-vpc-69df0ef0-3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c` · [Job](https://github.com/acme/infra/actions/runs/1234567/job/101)
 
 2 to add, 1 to change, 0 to destroy, 1 to replace, 1 to import.
 

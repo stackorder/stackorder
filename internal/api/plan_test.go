@@ -78,7 +78,7 @@ func TestPlanTextServesTheArtifactBucketCopy(t *testing.T) {
 	assert.Equal(t, strconv.Itoa(len(full)), rec.Header().Get("Content-Length"))
 	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
 	assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
-	assert.Equal(t, []string{"runs/" + run.String() + "/stacks-prod-apps:blue/plan.txt"}, mem.reads,
+	assert.Equal(t, []string{"runs/" + run.String() + "/stacks-prod-apps-blue-0f29de5f/plan.txt"}, mem.reads,
 		"the key the runs service writes the plan text under")
 
 	rec = e.do(bearer(newRequest(t, http.MethodGet, planTarget(globexRun, blue), nil), e.apiKey("ci")))

@@ -364,3 +364,18 @@ func TestSmallHelpers(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+func TestPlanArtifactKeysAreDistinctPerStack(t *testing.T) {
+	run := uuid.New()
+	keys := []string{"stacks/a-b", "stacks/a/b", "stacks/a:b", "stacks-a/b"}
+	seen := map[string]string{}
+	for _, key := range keys {
+		for _, k := range []string{PlanTextArtifactKey(run, key), PlanJSONArtifactKey(run, key)} {
+			if other, dup := seen[k]; dup {
+				t.Errorf("%s and %s share the object key %s", other, key, k)
+			}
+			seen[k] = key
+			assert.True(t, strings.HasPrefix(k, "runs/"+run.String()+"/"), k)
+		}
+	}
+}
