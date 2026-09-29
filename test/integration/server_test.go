@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html"
 	"io"
 	"io/fs"
@@ -17,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -36,6 +38,9 @@ func TestMain(m *testing.M) {
 	code := pgtest.Main(m, closeSuite)
 	if suite.failed && code == 0 {
 		code = 1
+	}
+	if serverBinary.dir != "" {
+		_ = os.RemoveAll(serverBinary.dir)
 	}
 	os.Exit(code)
 }
@@ -239,13 +244,36 @@ func TestSetupMode(t *testing.T) {
 	assert.Zero(t, jobs, "setup mode runs no workers and no scheduler")
 }
 
+const serverBuildTimeout = 5 * time.Minute
+
+var serverBinary struct {
+	once sync.Once
+	dir  string
+	path string
+	err  error
+}
+
 func buildServer(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "stackorder-server")
-	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "github.com/stackorder/stackorder/cmd/stackorder-server")
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "go build: %s", out)
-	return bin
+	serverBinary.once.Do(func() {
+		dir, err := os.MkdirTemp("", "stackorder-server-")
+		if err != nil {
+			serverBinary.err = err
+			return
+		}
+		serverBinary.dir = dir
+		bin := filepath.Join(dir, "stackorder-server")
+		ctx, cancel := context.WithTimeout(context.Background(), serverBuildTimeout)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "go", "build", "-o", bin, "github.com/stackorder/stackorder/cmd/stackorder-server").CombinedOutput()
+		if err != nil {
+			serverBinary.err = fmt.Errorf("go build ./cmd/stackorder-server: %w\n%s", err, out)
+			return
+		}
+		serverBinary.path = bin
+	})
+	require.NoError(t, serverBinary.err)
+	return serverBinary.path
 }
 
 func runBinary(t *testing.T, bin string, env []string, args ...string) (int, string) {
