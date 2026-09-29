@@ -60,7 +60,7 @@ stackorder_version=<previous>` and release the orchestration lock with
 ## Permissions
 
 The plan role of this stack needs `secretsmanager:GetSecretValue` on
-`stackorder/github-app` and on the two secrets the module creates, because
+`stackorder/github-app` and on the three secrets the module creates, because
 refreshing a secret version reads its value. The state object holds the
 database password and the App private key: restrict it to the plan and
 apply roles and keep bucket encryption on.

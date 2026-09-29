@@ -128,9 +128,10 @@ run "kms_key" {
     condition = (
       aws_secretsmanager_secret.database.kms_key_id == "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000" &&
       aws_secretsmanager_secret.app.kms_key_id == "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000" &&
+      aws_secretsmanager_secret.metrics_token.kms_key_id == "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000" &&
       aws_db_instance.this[0].kms_key_id == "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000"
     )
-    error_message = "The KMS key must encrypt both secrets and the database."
+    error_message = "The KMS key must encrypt the three secrets and the database."
   }
 
   assert {
@@ -160,7 +161,7 @@ run "execution_role_scope" {
         "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl",
       ]
     }]
-    error_message = "Without a KMS key the execution role may only read the two secrets."
+    error_message = "Without a KMS key the execution role may only read the database and app secrets, not the scraper's copy of the metrics token."
   }
 
   assert {
@@ -297,7 +298,7 @@ run "sensitive_app_inputs_keep_task_definition_readable" {
   }
 
   assert {
-    condition     = length(jsondecode(aws_ecs_task_definition.this.container_definitions)[0].secrets) == 7
+    condition     = length(jsondecode(aws_ecs_task_definition.this.container_definitions)[0].secrets) == 8
     error_message = "All App secrets must be mapped."
   }
 }

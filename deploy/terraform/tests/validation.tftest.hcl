@@ -174,6 +174,38 @@ run "extra_environment_reserved" {
   expect_failures = [var.extra_environment]
 }
 
+run "extra_environment_metrics_token" {
+  command = plan
+
+  variables {
+    extra_environment = {
+      STACKORDER_METRICS_TOKEN = "prometheus-scrape-token-2026"
+    }
+  }
+
+  expect_failures = [var.extra_environment]
+}
+
+run "metrics_token_too_short" {
+  command = plan
+
+  variables {
+    metrics_token = "short-token"
+  }
+
+  expect_failures = [var.metrics_token]
+}
+
+run "metrics_token_with_space" {
+  command = plan
+
+  variables {
+    metrics_token = "prometheus scrape token 2026"
+  }
+
+  expect_failures = [var.metrics_token]
+}
+
 run "github_app_partial" {
   command = plan
 

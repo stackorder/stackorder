@@ -14,6 +14,11 @@ output "webhook_url" {
 }
 
 output "app_secret_arn" {
-  description = "Secret holding the App credentials and session key."
+  description = "Secret holding the App credentials, session key and metrics token."
   value       = module.stackorder.app_secret_arn
+}
+
+output "metrics_token_secret_arn" {
+  description = "Secret holding only the /metrics bearer token, for Prometheus."
+  value       = module.stackorder.metrics_token_secret_arn
 }

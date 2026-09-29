@@ -29,3 +29,7 @@ where `github-app.json` holds the printed values keyed by variable name.
 
 The values end up in Terraform state, so keep the state encrypted and
 access controlled.
+
+`/metrics` requires a bearer token the module generates; the
+`metrics_token_secret_arn` output names the secret Prometheus reads it
+from, as described in the module README.

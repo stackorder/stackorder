@@ -61,9 +61,10 @@ Stackorder deploys and upgrades itself ([self-hosted](examples/self-hosted)).
 
 The module writes one Secrets Manager secret with the full `DATABASE_URL`
 and one JSON secret with a key per App variable plus
-`STACKORDER_SESSION_KEY` (generated when `session_key` is null). ECS injects
-them through `secrets` with `valueFrom = "<arn>:<KEY>::"`; nothing secret is
-in the image or in the task definition. The task definition carries the
+`STACKORDER_SESSION_KEY` (generated when `session_key` is null) and
+`STACKORDER_METRICS_TOKEN` (generated when `metrics_token` is null). ECS
+injects them through `secrets` with `valueFrom = "<arn>:<KEY>::"`; nothing
+secret is in the image or in the task definition. The task definition carries the
 version ids of both secrets as docker labels, so changing a secret value
 rolls the service onto it.
 
@@ -85,6 +86,7 @@ only by the roles that plan and apply this stack.
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` | app secret, when set |
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | app secret, when set |
 | `STACKORDER_SESSION_KEY` | app secret |
+| `STACKORDER_METRICS_TOKEN` | app secret, `metrics_token` or generated |
 
 Anything else the server reads (`STACKORDER_WORKERS`, the retention
 durations, `STACKORDER_LOG_FORMAT`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
@@ -121,13 +123,59 @@ refused.
   A load balancer path rule is not a reliable way to hide `/metrics`: the
   server's router decodes percent-escapes before matching, so an escaped
   spelling of the path can reach the handler without matching a rule on
-  the literal path. Restricting it is left to the server.
+  the literal path. The server itself requires the metrics bearer token
+  instead; see [Metrics](#metrics).
+
+## Metrics
+
+`GET /metrics` always requires `Authorization: Bearer <token>`. The token
+is `metrics_token`, or 32 random hexadecimal characters when it is null,
+and reaches the server as `STACKORDER_METRICS_TOKEN` through the app
+secret. Because the app secret also holds the App private key, the module
+writes a copy of the token alone, as plain text, to a second secret whose
+ARN is the `metrics_token_secret_arn` output. Grant the scraper
+`secretsmanager:GetSecretValue` on that secret only (and `kms:Decrypt` when
+`kms_key_arn` is set), write the value to a file, and point Prometheus at
+it:
+
+```sh
+aws secretsmanager get-secret-value --secret-id <metrics_token_secret_arn> \
+  --query SecretString --output text > /etc/prometheus/stackorder-metrics-token
+```
+
+```yaml
+scrape_configs:
+  - job_name: stackorder
+    scheme: https
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/stackorder-metrics-token
+    static_configs:
+      - targets: ["stackorder.example.com"]
+```
+
+A Prometheus Operator `ScrapeConfig` takes the token through
+`authorization.credentials`, a key of a Kubernetes secret that an external
+secrets controller can fill from `metrics_token_secret_arn`.
+
+Through the load balancer each scrape reaches one task, so with
+`desired_count = 2` successive samples of one series come from either
+task. To keep the tasks apart, scrape them directly from inside the VPC;
+that needs an ingress rule for port 8080 from the scraper on the service
+security group (`security_group_ids.service`).
+
+To rotate a generated token, replace it with
+`terraform apply -replace='module.stackorder.random_password.metrics_token[0]'`.
+The new app secret version rolls the service, and the scraper must read
+the new value from the metrics token secret.
 
 ## IAM
 
 - The execution role has `AmazonECSTaskExecutionRolePolicy` plus
-  `secretsmanager:GetSecretValue` on the two secrets, and `kms:Decrypt`
-  through Secrets Manager when `kms_key_arn` is set.
+  `secretsmanager:GetSecretValue` on the database and app secrets, and
+  `kms:Decrypt` through Secrets Manager when `kms_key_arn` is set. It
+  cannot read the metrics token secret, which only scrapers need.
 - The task role has no policy. `artifact_bucket_enabled` adds list, get,
   put and delete on that bucket only; `enable_execute_command` adds the
   `ssmmessages` actions ECS Exec needs.
@@ -286,8 +334,10 @@ No modules.
 | [aws\_s3\_bucket\_versioning.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_versioning) | resource |
 | [aws\_secretsmanager\_secret.app](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
 | [aws\_secretsmanager\_secret.database](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
+| [aws\_secretsmanager\_secret.metrics\_token](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
 | [aws\_secretsmanager\_secret\_version.app](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version) | resource |
 | [aws\_secretsmanager\_secret\_version.database](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version) | resource |
+| [aws\_secretsmanager\_secret\_version.metrics\_token](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version) | resource |
 | [aws\_security\_group.alb](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group) | resource |
 | [aws\_security\_group.db](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group) | resource |
 | [aws\_security\_group.service](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group) | resource |
@@ -302,6 +352,7 @@ No modules.
 | [aws\_vpc\_security\_group\_ingress\_rule.service\_from\_alb](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_ingress_rule) | resource |
 | [random\_bytes.session\_key](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/bytes) | resource |
 | [random\_password.db](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
+| [random\_password.metrics\_token](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
 | [data.aws\_availability\_zones.available](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/availability_zones) | data source |
 | [data.aws\_caller\_identity.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity) | data source |
 | [data.aws\_partition.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/partition) | data source |
@@ -361,6 +412,7 @@ No modules.
 | <a name="input_github_oauth_client_id"></a> [github\_oauth\_client\_id](#input\_github\_oauth\_client\_id) | OAuth client id of the GitHub App, for human sign-in (GITHUB\_OAUTH\_CLIENT\_ID). | `string` | `null` | no |
 | <a name="input_github_oauth_client_secret"></a> [github\_oauth\_client\_secret](#input\_github\_oauth\_client\_secret) | OAuth client secret of the GitHub App (GITHUB\_OAUTH\_CLIENT\_SECRET). Sensitive. | `string` | `null` | no |
 | <a name="input_session_key"></a> [session\_key](#input\_session\_key) | 32 byte hex key for cookie signing (STACKORDER\_SESSION\_KEY). Null generates one. Sensitive. | `string` | `null` | no |
+| <a name="input_metrics_token"></a> [metrics\_token](#input\_metrics\_token) | Bearer token that GET /metrics requires (STACKORDER\_METRICS\_TOKEN), at least 16 printable ASCII characters without white space. Null generates 32 hexadecimal characters. Sensitive. | `string` | `null` | no |
 | <a name="input_secret_recovery_window_days"></a> [secret\_recovery\_window\_days](#input\_secret\_recovery\_window\_days) | Days Secrets Manager keeps a deleted secret recoverable; 0 deletes immediately. | `number` | `30` | no |
 | <a name="input_github_api_url"></a> [github\_api\_url](#input\_github\_api\_url) | GitHub API base URL (GITHUB\_API\_URL); GitHub Enterprise Server uses https://&lt;host&gt;/api/v3. | `string` | `"https://api.github.com"` | no |
 | <a name="input_required_workflow_ref"></a> [required\_workflow\_ref](#input\_required\_workflow\_ref) | Glob that runner tokens' job\_workflow\_ref must match (STACKORDER\_REQUIRED\_WORKFLOW\_REF), such as stackorder/actions/.github/workflows/\*.yml@refs/tags/v1\*. Null accepts any workflow. | `string` | `null` | no |
@@ -385,7 +437,8 @@ No modules.
 | <a name="output_task_definition_arn"></a> [task\_definition\_arn](#output\_task\_definition\_arn) | ARN of the current task definition revision. |
 | <a name="output_db_endpoint"></a> [db\_endpoint](#output\_db\_endpoint) | Host name of the database writer endpoint. |
 | <a name="output_db_secret_arn"></a> [db\_secret\_arn](#output\_db\_secret\_arn) | ARN of the Secrets Manager secret holding DATABASE\_URL. |
-| <a name="output_app_secret_arn"></a> [app\_secret\_arn](#output\_app\_secret\_arn) | ARN of the Secrets Manager secret holding the GitHub App credentials and the session key as JSON. |
+| <a name="output_app_secret_arn"></a> [app\_secret\_arn](#output\_app\_secret\_arn) | ARN of the Secrets Manager secret holding the GitHub App credentials, the session key and the metrics token as JSON. |
+| <a name="output_metrics_token_secret_arn"></a> [metrics\_token\_secret\_arn](#output\_metrics\_token\_secret\_arn) | ARN of the Secrets Manager secret holding only the /metrics bearer token, as plain text; grant Prometheus read access to this one rather than to the app secret. |
 | <a name="output_artifact_bucket"></a> [artifact\_bucket](#output\_artifact\_bucket) | Name of the artifact bucket, or null when artifact\_bucket\_enabled is false. |
 | <a name="output_security_group_ids"></a> [security\_group\_ids](#output\_security\_group\_ids) | Security group ids of the load balancer, the service and the database. |
 | <a name="output_log_group_name"></a> [log\_group\_name](#output\_log\_group\_name) | CloudWatch log group of the server. |

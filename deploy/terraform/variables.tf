@@ -291,7 +291,7 @@ variable "extra_environment" {
         "STACKORDER_BASE_URL", "STACKORDER_LISTEN", "GITHUB_API_URL", "STACKORDER_OIDC_AUDIENCE",
         "STACKORDER_REQUIRED_WORKFLOW_REF", "STACKORDER_ARTIFACT_BUCKET", "STACKORDER_LOG_LEVEL",
         "DATABASE_URL", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_WEBHOOK_SECRET",
-        "GITHUB_OAUTH_CLIENT_ID", "GITHUB_OAUTH_CLIENT_SECRET", "STACKORDER_SESSION_KEY",
+        "GITHUB_OAUTH_CLIENT_ID", "GITHUB_OAUTH_CLIENT_SECRET", "STACKORDER_SESSION_KEY", "STACKORDER_METRICS_TOKEN",
       ], k)
     ])
     error_message = "extra_environment keys must be valid variable names and must not be a variable the module manages; use the dedicated input instead."
@@ -477,6 +477,18 @@ variable "session_key" {
   validation {
     condition     = var.session_key == null || can(regex("^[0-9a-fA-F]{64}$", var.session_key))
     error_message = "session_key must be 64 hexadecimal characters."
+  }
+}
+
+variable "metrics_token" {
+  description = "Bearer token that GET /metrics requires (STACKORDER_METRICS_TOKEN), at least 16 printable ASCII characters without white space. Null generates 32 hexadecimal characters."
+  type        = string
+  default     = null
+  sensitive   = true
+
+  validation {
+    condition     = var.metrics_token == null || can(regex("^[!-~]{16,}$", var.metrics_token))
+    error_message = "metrics_token must be at least 16 printable ASCII characters without white space."
   }
 }
 

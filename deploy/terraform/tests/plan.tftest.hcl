@@ -29,6 +29,14 @@ override_resource {
   }
 }
 
+override_resource {
+  target          = aws_secretsmanager_secret.metrics_token
+  override_during = plan
+  values = {
+    arn = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-MnOpQr"
+  }
+}
+
 variables {
   domain_name     = "stackorder.example.com"
   route53_zone_id = "Z0123456789ABCDEFGHIJ"
@@ -82,10 +90,11 @@ run "defaults" {
     condition = {
       for s in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].secrets : s.name => s.valueFrom
       } == {
-      DATABASE_URL           = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/database-url-AbCdEf"
-      STACKORDER_SESSION_KEY = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl:STACKORDER_SESSION_KEY::"
+      DATABASE_URL             = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/database-url-AbCdEf"
+      STACKORDER_METRICS_TOKEN = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl:STACKORDER_METRICS_TOKEN::"
+      STACKORDER_SESSION_KEY   = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl:STACKORDER_SESSION_KEY::"
     }
-    error_message = "Without App credentials only DATABASE_URL and STACKORDER_SESSION_KEY are injected, so the server starts in setup mode."
+    error_message = "Without App credentials only DATABASE_URL, STACKORDER_METRICS_TOKEN and STACKORDER_SESSION_KEY are injected, so the server starts in setup mode."
   }
 
   assert {
@@ -107,8 +116,36 @@ run "defaults" {
   }
 
   assert {
-    condition     = keys(jsondecode(nonsensitive(aws_secretsmanager_secret_version.app.secret_string))) == ["STACKORDER_SESSION_KEY"]
-    error_message = "The app secret must hold only the session key until the App is configured."
+    condition     = keys(jsondecode(nonsensitive(aws_secretsmanager_secret_version.app.secret_string))) == ["STACKORDER_METRICS_TOKEN", "STACKORDER_SESSION_KEY"]
+    error_message = "The app secret must hold only the metrics token and the session key until the App is configured."
+  }
+
+  assert {
+    condition = (
+      length(random_password.metrics_token) == 1 &&
+      random_password.metrics_token[0].length == 32 &&
+      !random_password.metrics_token[0].upper &&
+      !random_password.metrics_token[0].lower &&
+      random_password.metrics_token[0].numeric &&
+      random_password.metrics_token[0].special &&
+      random_password.metrics_token[0].override_special == "abcdef"
+    )
+    error_message = "A metrics token of 32 hexadecimal characters must be generated when metrics_token is null."
+  }
+
+  assert {
+    condition     = jsondecode(nonsensitive(aws_secretsmanager_secret_version.app.secret_string)).STACKORDER_METRICS_TOKEN == nonsensitive(random_password.metrics_token[0].result)
+    error_message = "The generated metrics token must reach STACKORDER_METRICS_TOKEN through the app secret."
+  }
+
+  assert {
+    condition     = nonsensitive(aws_secretsmanager_secret_version.metrics_token.secret_string) == nonsensitive(random_password.metrics_token[0].result)
+    error_message = "The metrics token secret must hold the same token as plain text."
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret.metrics_token.name == "stackorder/metrics-token" && output.metrics_token_secret_arn == "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-MnOpQr"
+    error_message = "metrics_token_secret_arn must expose the metrics token secret."
   }
 
   assert {
@@ -237,6 +274,7 @@ run "full_configuration" {
     github_oauth_client_id     = "Iv23liABCDEF"
     github_oauth_client_secret = "oauth-secret"
     session_key                = "abababababababababababababababababababababababababababababababab"
+    metrics_token              = "prometheus-scrape-token-2026"
     required_workflow_ref      = "stackorder/actions/.github/workflows/*.yml@refs/tags/v1*"
     oidc_audience              = "stackorder"
     base_url                   = "https://ci.example.com"
@@ -284,6 +322,7 @@ run "full_configuration" {
       GITHUB_OAUTH_CLIENT_ID     = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl:GITHUB_OAUTH_CLIENT_ID::"
       GITHUB_OAUTH_CLIENT_SECRET = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl:GITHUB_OAUTH_CLIENT_SECRET::"
       GITHUB_WEBHOOK_SECRET      = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl:GITHUB_WEBHOOK_SECRET::"
+      STACKORDER_METRICS_TOKEN   = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl:STACKORDER_METRICS_TOKEN::"
       STACKORDER_SESSION_KEY     = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl:STACKORDER_SESSION_KEY::"
     }
     error_message = "Each App secret must map to its JSON key of the app secret, and DATABASE_URL to the database secret."
@@ -296,14 +335,20 @@ run "full_configuration" {
       GITHUB_OAUTH_CLIENT_ID     = "Iv23liABCDEF"
       GITHUB_OAUTH_CLIENT_SECRET = "oauth-secret"
       GITHUB_WEBHOOK_SECRET      = "webhook-secret"
+      STACKORDER_METRICS_TOKEN   = "prometheus-scrape-token-2026"
       STACKORDER_SESSION_KEY     = "abababababababababababababababababababababababababababababababab"
     }
-    error_message = "The app secret must hold every App value and the supplied session key."
+    error_message = "The app secret must hold every App value and the supplied session key and metrics token."
   }
 
   assert {
-    condition     = length(random_bytes.session_key) == 0
-    error_message = "No session key is generated when one is supplied."
+    condition     = length(random_bytes.session_key) == 0 && length(random_password.metrics_token) == 0
+    error_message = "No session key or metrics token is generated when one is supplied."
+  }
+
+  assert {
+    condition     = nonsensitive(aws_secretsmanager_secret_version.metrics_token.secret_string) == "prometheus-scrape-token-2026"
+    error_message = "The metrics token secret must hold the supplied token."
   }
 
   assert {
@@ -499,7 +544,7 @@ run "oauth_without_app_stays_in_setup_mode" {
 
   assert {
     condition = sort([for s in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].secrets : s.name]) == tolist([
-      "DATABASE_URL", "GITHUB_OAUTH_CLIENT_ID", "GITHUB_OAUTH_CLIENT_SECRET", "STACKORDER_SESSION_KEY",
+      "DATABASE_URL", "GITHUB_OAUTH_CLIENT_ID", "GITHUB_OAUTH_CLIENT_SECRET", "STACKORDER_METRICS_TOKEN", "STACKORDER_SESSION_KEY",
     ])
     error_message = "OAuth values alone must not inject any GITHUB_APP_* variable, so the server stays in setup mode."
   }
