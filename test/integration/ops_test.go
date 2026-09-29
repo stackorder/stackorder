@@ -218,7 +218,15 @@ func TestManualApply(t *testing.T) {
 
 	outputs, summary := f.prepare(map[string]string{"STACKORDER_SERVER_URL": e.BaseURL, "STACKORDER_API_KEY": suite.apiKey})
 	done := make(chan jobResult, 1)
-	go func() { done <- f.cli(outputs, summary, "apply", "--local", "--stack", prodVPC) }()
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		done <- f.cli(outputs, summary, "apply", "--local", "--stack", prodVPC)
+	}()
+	t.Cleanup(func() {
+		_ = os.WriteFile(gate, nil, 0o600)
+		<-finished
+	})
 	e.WaitFor(func() bool {
 		_, ok := f.locks()[prodVPC]
 		return ok
