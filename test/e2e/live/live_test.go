@@ -288,6 +288,49 @@ func TestRunnerPushesWithTheGitBinary(t *testing.T) {
 	assert.Equal(t, sha, gitIn(t, remote, "rev-parse", "refs/heads/"+MainBranch))
 }
 
+func TestRunnerRetriesTransientCheckErrors(t *testing.T) {
+	var polls int
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		polls++
+		switch polls {
+		case 1:
+			w.WriteHeader(http.StatusBadGateway)
+		case 2:
+			w.WriteHeader(http.StatusTooManyRequests)
+		default:
+			_, _ = w.Write([]byte(`{"total_count":1,"check_runs":[{"name":"stackorder/plan","status":"completed","conclusion":"success"}]}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	cfg := testConfig()
+	cfg.APIURL = srv.URL
+	r := &Runner{Config: cfg, HTTP: srv.Client(), Poll: time.Millisecond, Timeout: 5 * time.Second}
+	res, err := r.Run(t.Context(), []Step{{Kind: KindWaitChecks, Name: "wait", SHA: "abc", Checks: []string{"stackorder/plan"}}})
+	require.NoError(t, err)
+	assert.Equal(t, "success", res.Checks["stackorder/plan"].Conclusion)
+	assert.Equal(t, 3, polls, "a 502 and a 429 are polled through")
+}
+
+func TestRunnerStopsWaitingOnAPermanentError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"Not Found"}`))
+	}))
+	t.Cleanup(srv.Close)
+	cfg := testConfig()
+	cfg.APIURL = srv.URL
+	r := &Runner{Config: cfg, HTTP: srv.Client(), Poll: time.Millisecond, Timeout: time.Minute}
+	start := time.Now()
+	_, err := r.Run(t.Context(), []Step{{Kind: KindWaitChecks, Name: "wait", SHA: "abc", Checks: []string{"stackorder/plan"}}})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, context.DeadlineExceeded)
+	assert.Contains(t, err.Error(), "status 404")
+	assert.Less(t, time.Since(start), 30*time.Second, "a 404 is not retried until the timeout")
+}
+
 func TestRunnerTimesOutWaitingForChecks(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"total_count":0,"check_runs":[]}`))
@@ -299,4 +342,17 @@ func TestRunnerTimesOutWaitingForChecks(t *testing.T) {
 	_, err := r.Run(t.Context(), []Step{{Kind: KindWaitChecks, Name: "wait", SHA: "abc", Checks: []string{"stackorder/plan"}}})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Contains(t, err.Error(), "stackorder/plan")
+}
+
+func TestRunnerReportsTheLastErrorWhenChecksTimeOut(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+	cfg := testConfig()
+	cfg.APIURL = srv.URL
+	r := &Runner{Config: cfg, HTTP: srv.Client(), Poll: time.Millisecond, Timeout: 50 * time.Millisecond}
+	_, err := r.Run(t.Context(), []Step{{Kind: KindWaitChecks, Name: "wait", SHA: "abc", Checks: []string{"stackorder/plan"}}})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Contains(t, err.Error(), "status 503")
 }

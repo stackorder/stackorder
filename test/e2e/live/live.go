@@ -249,6 +249,7 @@ type Runner struct {
 	// git binary. env carries the credentials, never args.
 	Git func(ctx context.Context, dir string, env []string, args ...string) error
 	// Poll and Timeout bound KindWaitChecks; zero means 10 s and 20 min.
+	// Network errors and 5xx or 429 answers are retried until Timeout.
 	Poll    time.Duration
 	Timeout time.Duration
 	// Logf receives progress lines; nil discards them.
@@ -328,9 +329,25 @@ func (r *Runner) call(ctx context.Context, st Step) ([]byte, error) {
 		return nil, err
 	}
 	if !slices.Contains(st.Want, resp.StatusCode) {
-		return nil, fmt.Errorf("%s %s: status %d: %s", st.Method, st.Path, resp.StatusCode, strings.TrimSpace(string(data)))
+		return nil, &statusError{status: resp.StatusCode,
+			msg: fmt.Sprintf("%s %s: status %d: %s", st.Method, st.Path, resp.StatusCode, strings.TrimSpace(string(data)))}
 	}
 	return data, nil
+}
+
+type statusError struct {
+	status int
+	msg    string
+}
+
+func (e *statusError) Error() string { return e.msg }
+
+func transient(err error) bool {
+	var se *statusError
+	if errors.As(err, &se) {
+		return se.status >= http.StatusInternalServerError || se.status == http.StatusTooManyRequests
+	}
+	return true
 }
 
 func (r *Runner) git(ctx context.Context, args []string) error {
@@ -371,20 +388,25 @@ func (r *Runner) waitChecks(ctx context.Context, st Step, res *Result) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	path := "/repos/" + r.Config.FullName() + "/commits/" + st.SHA + "/check-runs?per_page=100"
+	var last error
 	for {
 		body, err := r.call(ctx, Step{Method: http.MethodGet, Path: path, Want: []int{http.StatusOK}})
-		if err != nil && ctx.Err() == nil {
-			return err
-		}
-		if err == nil {
+		switch {
+		case err == nil:
 			done, err := completed(body, st.Checks, res)
 			if err != nil || done {
 				return err
 			}
+		case ctx.Err() != nil:
+		case transient(err):
+			r.logf("live: polling the checks on %s: %v", st.SHA, err)
+			last = err
+		default:
+			return err
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("checks %s on %s did not complete: %w", strings.Join(missing(st.Checks, res), ", "), st.SHA, ctx.Err())
+			return fmt.Errorf("checks %s on %s did not complete: %w", strings.Join(missing(st.Checks, res), ", "), st.SHA, errors.Join(ctx.Err(), last))
 		case <-time.After(poll):
 		}
 	}
