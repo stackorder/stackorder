@@ -56,6 +56,7 @@ const operations: DefaultTheme.SidebarItem[] = [
       { text: 'Deploy on AWS', link: '/operations/deploy-aws' },
       { text: 'Deploy as a container', link: '/operations/deploy-container' },
       { text: 'Upgrades and backups', link: '/operations/upgrades-and-backups' },
+      { text: 'Security hardening', link: '/operations/security-hardening' },
       { text: 'Troubleshooting', link: '/operations/troubleshooting' },
     ],
   },
