@@ -148,15 +148,17 @@ gh api --method PUT repos/acme/infra/actions/oidc/customization/sub \
 EOF
 ```
 
-The subject then ends with the workflow reference, and the trust policy can require it:
+The subject then ends with the workflow reference, and the trust policy can require it. The statement's `Condition` becomes:
 
 ```json
-"Condition": {
-  "StringEquals": {
-    "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-  },
-  "StringLike": {
-    "token.actions.githubusercontent.com:sub": "repo:acme/infra:environment:production:job_workflow_ref:stackorder/actions/.github/workflows/run.yml@refs/tags/v1*"
+{
+  "Condition": {
+    "StringEquals": {
+      "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+    },
+    "StringLike": {
+      "token.actions.githubusercontent.com:sub": "repo:acme/infra:environment:production:job_workflow_ref:stackorder/actions/.github/workflows/run.yml@refs/tags/v1*"
+    }
   }
 }
 ```
