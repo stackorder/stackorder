@@ -1,0 +1,75 @@
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TERRAFORM_VERSION: 1.14.4
+  TOFU_VERSION: 1.12.6
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check out the example monorepo
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ vars.STACKORDER_E2E_EXAMPLE_INFRA_REPO || 'stackorder/example-infra' }}
+          path: example-infra
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - name: Pull the LocalStack and Postgres images
+        run: |
+          docker pull localstack/localstack:4.0
+          docker pull postgres:17-alpine
+      - name: Run the end-to-end suite for Terraform and OpenTofu
+        run: make test-e2e E2E_TIMEOUT=30m
+        env:
+          STACKORDER_E2E_EXAMPLE_INFRA_DIR: ${{ github.workspace }}/example-infra
+
+  live:
+    if: vars.STACKORDER_E2E_ORG != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check out the example monorepo
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ vars.STACKORDER_E2E_EXAMPLE_INFRA_REPO || 'stackorder/example-infra' }}
+          path: example-infra
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Run the live GitHub variant against the configured organisation
+        run: go test -count=1 -tags e2e -timeout 35m -run TestLiveGitHub -v ./test/e2e/
+        env:
+          STACKORDER_E2E_EXAMPLE_INFRA_DIR: ${{ github.workspace }}/example-infra
+          STACKORDER_E2E_GITHUB_TOKEN: ${{ secrets.STACKORDER_E2E_GITHUB_TOKEN }}
+          STACKORDER_E2E_ORG: ${{ vars.STACKORDER_E2E_ORG }}
+          STACKORDER_E2E_SERVER_URL: ${{ vars.STACKORDER_E2E_SERVER_URL }}
+          STACKORDER_E2E_PLAN_ROLE_ARN: ${{ vars.STACKORDER_E2E_PLAN_ROLE_ARN }}
+          STACKORDER_E2E_GITHUB_API_URL: ${{ vars.STACKORDER_E2E_GITHUB_API_URL }}
+          STACKORDER_E2E_GITHUB_URL: ${{ vars.STACKORDER_E2E_GITHUB_URL }}
