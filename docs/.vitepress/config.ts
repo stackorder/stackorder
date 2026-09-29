@@ -37,6 +37,7 @@ const reference: DefaultTheme.SidebarItem[] = [
     text: 'Reference',
     items: [
       { text: 'CLI', link: '/reference/cli' },
+      { text: 'Exit codes', link: '/reference/exit-codes' },
       { text: 'API', link: '/reference/api' },
       { text: 'Server configuration', link: '/reference/server-configuration' },
       { text: 'GitHub App', link: '/reference/github-app' },
