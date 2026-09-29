@@ -129,6 +129,7 @@ The tables are generated from `deploy/terraform/variables.tf`. Every input also 
 | `alarms_enabled` | `bool` | `false` | Create CloudWatch alarms for target 5xx responses, unhealthy targets and service CPU, plus database free storage (RDS) or ACU utilization (Aurora, whose storage grows on its own). |
 | `alarm_sns_topic_arn` | `string` | `null` | SNS topic notified when an alarm changes state. Required when alarms_enabled is true. |
 | `alarm_thresholds` | `object` | `{}` | Alarm thresholds: target 5xx responses per 5 minutes, average service CPU percent, RDS free storage in bytes, and Aurora ACU utilization percent. |
+
 ### What the module passes to the server {#server-environment}
 
 | Variable | Source |
