@@ -12,7 +12,7 @@ The server reads the file through the GitHub Contents API when it first sees a r
 
 | Setting | Read from |
 | --- | --- |
-| `stacks`, `modules`, `tool`, `tool_version`, `propagate.dependents` | The pull request's copy, for that pull request's plans |
+| `stacks`, `modules`, `tool`, `tool_version`, `propagate.dependents` | The pull request's copy, for that pull request's plans; when it differs from the default branch's, the stacks the default branch's copy finds affected are planned too, with a warning, so a PR cannot drop stacks from its own plan |
 | `apply`, `environments` for applies, `plan_output: summary`, `propagate.cross_repo`, `drift` | The default branch |
 
 ## Full example

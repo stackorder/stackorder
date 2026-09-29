@@ -307,8 +307,13 @@ Per-stack policy (`allowed_teams`, `plan_output`) comes from the default
 branch: the default-branch graph when known, else the `.stackorder.yaml`
 files read through the Contents API at the default-branch head. A
 default-branch `plan_output: summary` always wins over the PR's copy.
-`workflow_job` events of the pull-request plan workflow, matched through
-`runs.workflow_run_id`, move stacks to `planning`. Named check verdicts may
+A pull request is resolved under the `stackorder.yaml` it uploads; when
+that differs from `repos.config` after defaults, it is resolved under both
+and the affected sets are united, stacks of the default-branch graph (else
+the latest graph) that only `repos.config` discovers and finds affected
+are added to the commit's graph, and the run warns with the keys that
+differ. `workflow_job` events of the pull-request plan workflow, matched
+through `runs.workflow_run_id`, move stacks to `planning`. Named check verdicts may
 not use the reserved names `resolve`, `plan` or `apply`. A pull request has
 at most one apply in flight. An apply of a PR that affects nothing is
 answered with a comment, while a `before_merge` PR whose head affects
