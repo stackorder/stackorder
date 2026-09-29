@@ -289,8 +289,8 @@ that excludes the stack.
 
 Roll-up: a run is `planned` when every stack is `planned`, `noop` or
 `skipped`; `applied` when every stack is `applied`, `noop` or `skipped`;
-`failed` when any stack is `failed` or `blocked` and no stack is still
-running.
+`failed` when any stack is `failed`, `blocked` or `unknown` and no stack is
+still running.
 
 When a PR merges, its latest graph becomes the repository's default-branch
 graph (`repos.default_graph_id`), which the graph endpoint and module
