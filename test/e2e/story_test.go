@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/stackorder/stackorder/internal/cli"
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/report"
+	"github.com/stackorder/stackorder/internal/runs"
 	"github.com/stackorder/stackorder/internal/testutil/ghfake"
 	"github.com/stackorder/stackorder/internal/tf"
 )
@@ -154,6 +156,7 @@ func (s *story) run(t *testing.T) {
 		{"apply", s.apply},
 		{"lock_safety", s.lockSafety},
 		{"expired_artifact", s.expiredArtifact},
+		{"drift", s.drift},
 	}
 	for _, step := range steps {
 		if !t.Run(step.name, step.fn) {
@@ -680,5 +683,85 @@ func (s *story) expiredArtifact(t *testing.T) {
 	assert.Equal(t, gh.ConclusionFailure, s.checkRun(t, "stackorder/apply: "+stagingVPC, head).Conclusion)
 	assert.Contains(t, s.ls.requireState(t, stateKeys[prodVPC]).addresses(), "module.vpc.terraform_data.dhcp_options")
 	assert.Equal(t, stagingSerial, s.ls.requireState(t, stateKeys[stagingVPC]).Serial, "the refused apply changed nothing")
+	s.noLockObjects(t)
+}
+
+func (s *story) driftCheck(t *testing.T, key string, round int) (*dispatchJob, v1.Run) {
+	t.Helper()
+	stack, ok := s.stacks(t)[key]
+	require.True(t, ok, "the server knows %s", key)
+	_, err := s.cp.store.Pool().Exec(t.Context(),
+		`UPDATE runs SET created_at = created_at - interval '1 hour' WHERE repo_id = $1 AND mode = 'drift'`, repoID)
+	require.NoError(t, err, "age the earlier drift runs by an hour, as the next scheduled check sees them")
+	before := len(s.cp.gh.Dispatches())
+	payload, err := json.Marshal(runs.DriftJob{RepoID: repoID, StackID: stack.ID})
+	require.NoError(t, err)
+	_, _, err = s.cp.store.EnqueueJob(t.Context(), runs.JobDrift, payload, time.Time{}, fmt.Sprintf("e2e-drift:%s:%d", stack.ID, round))
+	require.NoError(t, err)
+	var d ghfake.Dispatch
+	waitUntil(t, time.Minute, "the drift check of "+key+" is dispatched", func() bool {
+		for _, cand := range s.cp.gh.Dispatches()[before:] {
+			if cand.Inputs["mode"] != string(v1.ModeDrift) || s.rn.isHandled(cand.RunID) {
+				continue
+			}
+			if slices.Contains(keysOf(entriesOf(t, cand)), key) {
+				d = cand
+				return true
+			}
+		}
+		return false
+	})
+	assert.Equal(t, s.main, d.Inputs["sha"], "drift checks the head of the default branch")
+	s.rn.markHandled(d)
+	jobs := s.rn.runDispatch(t, d, 0, nil)
+	require.Len(t, jobs, 1)
+	assert.Equal(t, v1.DefaultEnvironment, jobs[0].entry.Environment)
+	return jobs[0], s.runJSON(t, d.Inputs["run_id"])
+}
+
+func (s *story) driftIssues() []gh.Issue {
+	var out []gh.Issue
+	for _, is := range s.cp.gh.Issues(repoName) {
+		if is.Title == report.DriftIssueTitle(stagingApps) {
+			out = append(out, is)
+		}
+	}
+	return out
+}
+
+func (s *story) drift(t *testing.T) {
+	drifted := s.repo.commit(t, "main", s.main, "feat(staging): scale the app to two replicas",
+		replaceIn("stacks/staging/apps/variables.tf", "default     = 1", "default     = 2"))
+	s.pushMain(t, drifted, []string{"stacks/staging/apps/variables.tf"})
+
+	job, run := s.driftCheck(t, stagingApps, 1)
+	assert.Equal(t, cli.ExitChanges, job.result.code, "drift exits 2: %s", job.result)
+	assert.Equal(t, "true", job.result.outputs["drifted"])
+	rs := runStack(t, run, stagingApps)
+	require.NotNil(t, rs.Summary)
+	assert.Equal(t, []string{"terraform_data.app"}, rs.Summary.Changed)
+	stack := s.stacks(t)[stagingApps]
+	require.NotNil(t, stack.Drift)
+	assert.True(t, stack.Drift.Drifted)
+	issues := s.driftIssues()
+	require.Len(t, issues, 1, "one drift issue for the stack")
+	assert.Equal(t, gh.IssueOpen, issues[0].State)
+	assert.Equal(t, issues[0].Number, stack.Drift.IssueNumber)
+
+	reverted := s.repo.commit(t, "main", s.main, "revert: scale the app back to one replica",
+		replaceIn("stacks/staging/apps/variables.tf", "default     = 2", "default     = 1"))
+	s.pushMain(t, reverted, []string{"stacks/staging/apps/variables.tf"})
+
+	job, second := s.driftCheck(t, stagingApps, 2)
+	assert.NotEqual(t, run.ID, second.ID, "the second check is a run of its own")
+	assert.Equal(t, 0, job.result.code, "no drift after the revert: %s", job.result)
+	assert.Equal(t, "false", job.result.outputs["drifted"])
+	stack = s.stacks(t)[stagingApps]
+	require.NotNil(t, stack.Drift)
+	assert.False(t, stack.Drift.Drifted)
+	issues = s.driftIssues()
+	require.Len(t, issues, 1)
+	assert.Equal(t, gh.IssueClosed, issues[0].State, "the drift issue is closed once the stack matches again")
+	assert.NotEmpty(t, s.cp.gh.Comments(repoName, issues[0].Number), "the issue says why it was closed")
 	s.noLockObjects(t)
 }

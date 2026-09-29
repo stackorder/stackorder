@@ -20,9 +20,9 @@
 // the repository's tool setting: adopting the repository, bootstrapping
 // every stack with apply --local, planning and applying a pull request
 // wave by wave, refusing an apply behind another pull request's locks and
-// releasing them with unlock, and re-planning for an expired plan artifact
-// and refusing a plan that no longer matches. A tool whose binary is
-// missing is skipped.
+// releasing them with unlock, re-planning for an expired plan artifact and
+// refusing a plan that no longer matches, and detecting and resolving
+// drift. A tool whose binary is missing is skipped.
 //
 // Environment:
 //

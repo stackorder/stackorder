@@ -349,6 +349,12 @@ func (rn *runner) pending(runID string) []ghfake.Dispatch {
 	return out
 }
 
+func (rn *runner) isHandled(id int64) bool {
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
+	return rn.handled[id]
+}
+
 func (rn *runner) markHandled(d ghfake.Dispatch) {
 	rn.mu.Lock()
 	defer rn.mu.Unlock()
