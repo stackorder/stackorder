@@ -8,6 +8,13 @@ version: 1
 
 The apply gate reads its policy from the copy of this file on the **default branch**, never from the copy in a pull request. A PR cannot loosen its own gate.
 
+The server reads the file through the GitHub Contents API when it first sees a repository and on every push to the default branch. A missing file means the defaults. An invalid file on the default branch is ignored: the server keeps the previous configuration, logs a warning and records a `config_invalid` entry in the [audit log](/reference/api#audit). In a pull request, the CLI parses the PR's own copy and fails the resolve job when it is invalid.
+
+| Setting | Read from |
+| --- | --- |
+| `stacks`, `modules`, `tool`, `tool_version`, `propagate.dependents` | The pull request's copy, for that pull request's plans |
+| `apply`, `environments` for applies, `plan_output: summary`, `propagate.cross_repo`, `drift` | The default branch |
+
 ## Full example
 
 ```yaml
@@ -55,7 +62,7 @@ plan_output: full                 # or summary
 | --- | --- | --- | --- |
 | `version` | integer | `1` | Schema version. Only `1` is supported. |
 | `tool` | `terraform` or `tofu` | `terraform` | The binary stacks run with. The CLI expects it on `PATH`. Overridable per stack. |
-| `tool_version` | string | empty | The tool version for this repository's stacks. It travels in each stack's matrix entry. Overridable per stack. |
+| `tool_version` | string | empty | The tool version for this repository's stacks. It travels in each stack's matrix entry, where the reusable workflows install it, and the CLI warns when the binary it runs reports another version. Overridable per stack. |
 | `environments` | map of path prefix to environment name | `{}` | The GitHub environment each stack's applies run under. See [Environment mapping](#environments). |
 | `plan_output` | `full` or `summary` | `full` | How much of a plan reaches the server and the PR comment. `summary` sends only resource counts and addresses. Overridable per stack. |
 
@@ -79,12 +86,12 @@ plan_output: full                 # or summary
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `apply.mode` | `before_merge` or `on_merge` | `before_merge` | When applies happen. `before_merge` applies on the PR after a `stackorder apply` comment and keeps the default branch deployable. `on_merge` applies after the merge. |
-| `apply.require_approvals` | integer, 0 or more | `0` | Approving reviews the PR needs before an apply. |
-| `apply.require_codeowner_review` | boolean | `false` | Each affected stack needs an `APPROVED` review on the current head SHA from a member of its owning team in `CODEOWNERS`. |
-| `apply.allowed_teams` | list of team slugs | `[]` | Who may request an apply. Empty means anyone with push permission on the repository. Needs the App's optional `Members: Read` permission. |
+| `apply.require_approvals` | integer, 0 or more | `0` | Approving reviews on the head commit the PR needs before an apply. Only reviews from users with push permission count, never the author's own, and a later `CHANGES_REQUESTED` review or a dismissal on the same commit cancels an approval. |
+| `apply.require_codeowner_review` | boolean | `false` | Each affected stack needs an `APPROVED` review on the current head SHA from one of its owners in the default branch's `CODEOWNERS` (a listed user, or a member of a listed team) who also has push permission. A stack no rule owns passes, and a missing `CODEOWNERS` file is a refusal. |
+| `apply.allowed_teams` | list of teams | `[]` | Who may request an apply: an active member of any listed team, nested teams included. A team is `slug` (in the repository owner's organisation) or `org/slug`, with or without a leading `@`. Empty means anyone with push permission on the repository. Needs the App's `Members: Read` permission. |
 | `apply.four_eyes` | boolean | `false` | Refuse an apply requested by the PR author. |
-| `apply.from_plan` | boolean | `true` | Apply the saved plan file. If the plan artifact has expired, the CLI re-plans and refuses unless the resource-address set matches the recorded plan. |
-| `apply.max_parallel` | integer, 1 or more | `6` | The most stacks applied at the same time within a wave. |
+| `apply.from_plan` | boolean | `true` | Apply the saved plan file, and require every affected stack to have a plan artifact before an apply starts. If the artifact has expired, the CLI re-plans and refuses unless the resource-address set matches the recorded plan. `false` always re-plans at apply time and compares the same way. |
+| `apply.max_parallel` | integer, 1 or more | `6` | The most stacks the server puts in one dispatch of `stackorder-run.yml`. A wave with more stacks for one environment is split into several dispatches. How many jobs of one dispatch run at once is the calling workflow's `max-parallel` input. |
 
 ### `propagate`
 
@@ -97,7 +104,7 @@ plan_output: full                 # or summary
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `drift.schedule` | five-field cron expression | empty | When the server dispatches drift checks. Empty disables drift runs. See [Drift detection](./drift). |
+| `drift.schedule` | five-field cron expression | empty | When the server dispatches drift checks: minute, hour, day of month, month, day of week, in UTC unless the expression starts with `CRON_TZ=<zone> `. Descriptors such as `@daily` are not accepted. Empty disables drift runs. See [Drift detection](./drift). |
 | `drift.open_issue` | boolean | `false` | Open or update one GitHub issue per drifted stack. Needs the App's optional `Issues: Write` permission. |
 
 ## Environment mapping {#environments}

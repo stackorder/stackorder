@@ -12,7 +12,7 @@ workspace: default
 tool: terraform                           # override
 environment: production                   # override the prefix mapping
 apply:
-  allowed_teams: [platform-prod]          # narrower than the root setting
+  allowed_teams: [platform-prod]          # replaces the root list for this stack
 plan_output: summary                      # this stack's plans hold secrets
 ignore_inferred: [stacks/legacy/dns]      # suppress a remote_state edge
 ```
@@ -22,13 +22,13 @@ ignore_inferred: [stacks/legacy/dns]      # suppress a remote_state edge
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `depends_on` | list of stack keys | `[]` | Stacks this stack depends on. Each entry creates a `depends_on` edge, which orders applies and propagates change. |
-| `workspace` | string | `default` | The Terraform workspace. A workspace other than `default` becomes part of the stack key, as `path:workspace`. |
+| `workspace` | string | `default` | The Terraform workspace the CLI selects after `init`. A workspace other than `default` becomes part of the stack key, as `path:workspace`. A stack key passed to the CLI with `:workspace` overrides it. |
 | `tool` | `terraform` or `tofu` | root `tool` | The binary this stack runs with. |
 | `tool_version` | string | root `tool_version` | The tool version for this stack. |
 | `environment` | string | from the root `environments` map | The GitHub environment this stack's applies run under. |
-| `apply.allowed_teams` | list of team slugs | root `apply.allowed_teams` | Who may request an apply that touches this stack. |
-| `plan_output` | `full` or `summary` | root `plan_output` | How much of this stack's plan reaches the server and the PR comment. |
-| `ignore_inferred` | list of stack keys | `[]` | Inferred `reads_state` edges to suppress. |
+| `apply.allowed_teams` | list of teams | root `apply.allowed_teams` | Who may request an apply that touches this stack, in the same form as the root key. A non-empty list replaces the root list. The server reads it from the default branch. |
+| `plan_output` | `full` or `summary` | root `plan_output` | How much of this stack's plan reaches the server and the PR comment. A `summary` on the default branch wins over a pull request's `full`. |
+| `ignore_inferred` | list of stack keys | `[]` | Inferred `reads_state` edges to suppress. Each suppressed edge is reported as a warning by the scan. |
 
 ## `depends_on` entries {#depends-on}
 
