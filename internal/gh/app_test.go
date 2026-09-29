@@ -203,31 +203,88 @@ func TestInstallationTokenFollowerSurvivesCancelledLeader(t *testing.T) {
 	require.ErrorIs(t, <-leaderErr, context.DeadlineExceeded)
 }
 
+type holdingTransport struct {
+	next    http.RoundTripper
+	path    string
+	arrived chan struct{}
+	release chan struct{}
+	mu      sync.Mutex
+	held    int
+}
+
+func (h *holdingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Path != h.path {
+		return h.next.RoundTrip(r)
+	}
+	h.mu.Lock()
+	h.held++
+	h.mu.Unlock()
+	h.arrived <- struct{}{}
+	<-h.release
+	<-r.Context().Done()
+	return nil, r.Context().Err()
+}
+
+func (h *holdingTransport) requests() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.held
+}
+
+type waitingContext struct {
+	context.Context
+	once    sync.Once
+	waiting chan<- struct{}
+}
+
+func (c *waitingContext) Done() <-chan struct{} {
+	c.once.Do(func() { c.waiting <- struct{}{} })
+	return c.Context.Done()
+}
+
+func receive(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(time.Minute):
+		t.Fatalf("timed out waiting for %s", what)
+	}
+}
+
 func TestInstallationTokenFollowersShareAClientTimeout(t *testing.T) {
+	const callers = 4
 	fake := ghfake.New(t)
 	fake.AddInstallation(1, "acme")
-	fake.SetLatency(300 * time.Millisecond)
+	hold := &holdingTransport{
+		next:    fake.HTTPClient().Transport,
+		path:    "/app/installations/1/access_tokens",
+		arrived: make(chan struct{}, callers),
+		release: make(chan struct{}),
+	}
 	cfg := fake.AppConfig()
-	cfg.HTTPClient = &http.Client{Timeout: 100 * time.Millisecond, Transport: fake.HTTPClient().Transport}
+	cfg.HTTPClient = &http.Client{Timeout: 50 * time.Millisecond, Transport: hold}
 	cfg.MaxAttempts = 1
 	app, err := gh.NewApp(cfg)
 	require.NoError(t, err)
 
-	const callers = 4
 	errs := make([]error, callers)
 	var wg sync.WaitGroup
 	wg.Go(func() { _, errs[0] = app.InstallationToken(context.Background(), 1) })
-	time.Sleep(20 * time.Millisecond)
+	receive(t, hold.arrived, "the leader's token exchange")
+	waiting := make(chan struct{}, callers)
 	for i := 1; i < callers; i++ {
-		wg.Go(func() { _, errs[i] = app.InstallationToken(context.Background(), 1) })
+		ctx := &waitingContext{Context: context.Background(), waiting: waiting}
+		wg.Go(func() { _, errs[i] = app.InstallationToken(ctx, 1) })
 	}
+	for i := 1; i < callers; i++ {
+		receive(t, waiting, "a follower to wait on the exchange")
+	}
+	close(hold.release)
 	wg.Wait()
 	for i := range callers {
 		require.ErrorIs(t, errs[i], context.DeadlineExceeded, "caller %d", i)
 	}
-	require.Eventually(t, func() bool { return countRequests(fake, tokenRoute) > 0 }, time.Second, 10*time.Millisecond)
-	time.Sleep(100 * time.Millisecond)
-	assert.Equal(t, 1, countRequests(fake, tokenRoute), "waiters must share the failed exchange, not repeat it")
+	assert.Equal(t, 1, hold.requests(), "waiters must share the failed exchange, not repeat it")
 }
 
 func TestInstallationTokenFollowerContextCancelled(t *testing.T) {
