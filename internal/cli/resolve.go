@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -124,10 +123,10 @@ func (a *app) resolveWithServer(ctx context.Context, sr *scanResult, requested [
 	if a.server == "" {
 		return nil, "no server is configured", nil
 	}
-	if !sr.gh.CI && strings.TrimSpace(os.Getenv(EnvAPIKey)) == "" {
-		return nil, "outside GitHub Actions the server needs " + EnvAPIKey, nil
+	if !sr.gh.CI {
+		return nil, "outside GitHub Actions the server takes graphs only from pull request resolve jobs", nil
 	}
-	cl, err := a.newClient(sr.gh, !sr.gh.CI)
+	cl, err := a.newClient(sr.gh, false)
 	if err != nil {
 		return nil, "", failed("%w", err)
 	}
