@@ -54,6 +54,20 @@ resource "aws_lb" "this" {
   ]
 }
 
+resource "aws_wafv2_web_acl_association" "this" {
+  count = var.waf_web_acl_arn == null ? 0 : 1
+
+  resource_arn = aws_lb.this.arn
+  web_acl_arn  = var.waf_web_acl_arn
+
+  lifecycle {
+    precondition {
+      condition     = split(":", var.waf_web_acl_arn)[3] == local.region
+      error_message = "waf_web_acl_arn must name a web ACL in the load balancer's region."
+    }
+  }
+}
+
 resource "aws_lb_target_group" "this" {
   name_prefix          = "${substr(var.name, 0, 5)}-"
   vpc_id               = local.vpc_id

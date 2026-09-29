@@ -320,6 +320,16 @@ run "alb_access_logs_retention_zero" {
   expect_failures = [var.alb_access_logs_retention_days]
 }
 
+run "waf_web_acl_global_scope" {
+  command = plan
+
+  variables {
+    waf_web_acl_arn = "arn:aws:wafv2:us-east-1:123456789012:global/webacl/stackorder/a1b2c3d4-5678-90ab-cdef-EXAMPLE11111"
+  }
+
+  expect_failures = [var.waf_web_acl_arn]
+}
+
 run "secret_recovery_window_out_of_range" {
   command = plan
 

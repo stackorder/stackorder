@@ -180,6 +180,17 @@ variable "alb_access_logs_retention_days" {
   }
 }
 
+variable "waf_web_acl_arn" {
+  description = "ARN of a regional AWS WAFv2 web ACL in the module's region to associate with the load balancer. Null associates none."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.waf_web_acl_arn == null || can(regex("^arn:[a-z-]+:wafv2:[a-z0-9-]+:[0-9]{12}:regional/webacl/[^/]+/[^/]+$", var.waf_web_acl_arn))
+    error_message = "waf_web_acl_arn must be the ARN of a regional WAFv2 web ACL, arn:<partition>:wafv2:<region>:<account>:regional/webacl/<name>/<id>."
+  }
+}
+
 variable "image" {
   description = "Container image repository of the server."
   type        = string

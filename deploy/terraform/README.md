@@ -141,6 +141,26 @@ so bearer tokens and webhook payloads stay out of them.
 The bucket is not emptied on destroy. Empty it before turning access logs
 off or destroying the module, or deleting the bucket fails.
 
+## AWS WAF
+
+`waf_web_acl_arn` associates an existing regional web ACL, in the module's
+region, with the load balancer; the module does not create one. Most of
+Stackorder's traffic is machine to machine, which rule groups written for
+browsers handle badly:
+
+- `SizeRestrictions_BODY` in `AWSManagedRulesCommonRuleSet` blocks bodies
+  over 8 KB. GitHub webhook deliveries, graph uploads (up to 8 MB) and plan
+  results (plan text up to 256 KB) routinely exceed that, so override the
+  rule to Count or scope it down to exclude `/webhooks/github` and
+  `/v1/runs/`.
+- On a load balancer a web ACL inspects only the first 8 KB of a body, and
+  plan text can look like cross-site scripting or path traversal to the
+  `_BODY` rules. Run new rules in Count mode and read the sampled requests
+  before blocking.
+- Rate-based rules must leave room for bursts: a wave of plan jobs posts
+  its results within seconds, and GitHub sends several webhooks for every
+  push and pull request event.
+
 ## Metrics
 
 `GET /metrics` always requires `Authorization: Bearer <token>`. The token
@@ -386,6 +406,7 @@ No modules.
 | [aws\_vpc\_security\_group\_ingress\_rule.alb](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_ingress_rule) | resource |
 | [aws\_vpc\_security\_group\_ingress\_rule.db\_from\_service](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_ingress_rule) | resource |
 | [aws\_vpc\_security\_group\_ingress\_rule.service\_from\_alb](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_ingress_rule) | resource |
+| [aws\_wafv2\_web\_acl\_association.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/wafv2_web_acl_association) | resource |
 | [random\_bytes.session\_key](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/bytes) | resource |
 | [random\_password.db](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
 | [random\_password.metrics\_token](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
@@ -419,6 +440,7 @@ No modules.
 | <a name="input_admin_cidrs"></a> [admin\_cidrs](#input\_admin\_cidrs) | CIDRs of people and self-hosted runners that need the UI and API when github\_webhook\_ip\_ranges\_only is true. | `list(string)` | `[]` | no |
 | <a name="input_alb_access_logs_enabled"></a> [alb\_access\_logs\_enabled](#input\_alb\_access\_logs\_enabled) | Write load balancer access logs to an S3 bucket the module creates, encrypted with SSE-S3 as ELB log delivery requires. | `bool` | `false` | no |
 | <a name="input_alb_access_logs_retention_days"></a> [alb\_access\_logs\_retention\_days](#input\_alb\_access\_logs\_retention\_days) | Days after which objects in the access log bucket expire. | `number` | `90` | no |
+| <a name="input_waf_web_acl_arn"></a> [waf\_web\_acl\_arn](#input\_waf\_web\_acl\_arn) | ARN of a regional AWS WAFv2 web ACL in the module's region to associate with the load balancer. Null associates none. | `string` | `null` | no |
 | <a name="input_image"></a> [image](#input\_image) | Container image repository of the server. | `string` | `"ghcr.io/stackorder/stackorder"` | no |
 | <a name="input_image_tag"></a> [image\_tag](#input\_image\_tag) | Tag or digest (sha256:...) of the server image. Pin a release such as 1.2.3 so upgrades are explicit plans. | `string` | `"latest"` | no |
 | <a name="input_desired_count"></a> [desired\_count](#input\_desired\_count) | Number of server tasks. All coordination goes through Postgres, so a second task adds availability without any other change. | `number` | `1` | no |

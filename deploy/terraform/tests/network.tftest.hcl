@@ -355,3 +355,37 @@ run "alb_access_logs_retention" {
     error_message = "alb_access_logs_retention_days must set the expiry."
   }
 }
+
+run "waf_web_acl" {
+  command = plan
+
+  variables {
+    waf_web_acl_arn = "arn:aws:wafv2:eu-west-1:123456789012:regional/webacl/stackorder/a1b2c3d4-5678-90ab-cdef-EXAMPLE11111"
+  }
+
+  override_resource {
+    target          = aws_lb.this
+    override_during = plan
+    values = {
+      arn = "arn:aws:elasticloadbalancing:eu-west-1:123456789012:loadbalancer/app/stackorder/50dc6c495c0c9188"
+    }
+  }
+
+  assert {
+    condition = (
+      aws_wafv2_web_acl_association.this[0].resource_arn == "arn:aws:elasticloadbalancing:eu-west-1:123456789012:loadbalancer/app/stackorder/50dc6c495c0c9188" &&
+      aws_wafv2_web_acl_association.this[0].web_acl_arn == "arn:aws:wafv2:eu-west-1:123456789012:regional/webacl/stackorder/a1b2c3d4-5678-90ab-cdef-EXAMPLE11111"
+    )
+    error_message = "The web ACL must be associated with the load balancer."
+  }
+}
+
+run "waf_web_acl_other_region" {
+  command = plan
+
+  variables {
+    waf_web_acl_arn = "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/stackorder/a1b2c3d4-5678-90ab-cdef-EXAMPLE11111"
+  }
+
+  expect_failures = [aws_wafv2_web_acl_association.this]
+}

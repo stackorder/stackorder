@@ -174,6 +174,11 @@ run "defaults" {
   }
 
   assert {
+    condition     = length(aws_wafv2_web_acl_association.this) == 0
+    error_message = "No web ACL must be associated by default."
+  }
+
+  assert {
     condition     = toset([for r in aws_vpc_security_group_ingress_rule.alb : r.cidr_ipv4]) == toset(["0.0.0.0/0"])
     error_message = "The load balancer must default to ingress from anywhere, as GitHub webhooks need."
   }
