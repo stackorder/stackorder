@@ -65,6 +65,9 @@ func (s *Service) HandlePullRequest(ctx context.Context, ev *gh.PullRequestEvent
 		s.supersede(ctx, repo, pr.Number, head)
 		return nil
 	case "closed":
+		if repo, err = s.syncDefaultBranch(ctx, repo, ev.Repository.DefaultBranch); err != nil {
+			return err
+		}
 		if pr.Merged && pr.BaseRef == repo.DefaultBranch {
 			return s.onMerged(ctx, repo, ev)
 		}
@@ -606,6 +609,19 @@ func (s *Service) jobStacks(ctx context.Context, repo store.Repo, workflowRunID 
 	return run, carried, true, nil
 }
 
+func (s *Service) syncDefaultBranch(ctx context.Context, repo store.Repo, branch string) (store.Repo, error) {
+	if branch == "" || branch == repo.DefaultBranch {
+		return repo, nil
+	}
+	updated, err := s.st.UpsertRepo(ctx, store.RepoParams{
+		ID: repo.ID, InstallationID: repo.InstallationID, FullName: repo.FullName, DefaultBranch: branch, Private: repo.Private,
+	})
+	if err != nil {
+		return repo, storeErr(err, "update default branch of %s", repo.FullName)
+	}
+	return updated, nil
+}
+
 // HandlePush keeps the stored default-branch configuration and default
 // branch name current, and records module versions when a semver tag is
 // pushed to a repository whose git modules stacks consume.
@@ -614,12 +630,8 @@ func (s *Service) HandlePush(ctx context.Context, ev *gh.PushEvent) error {
 	if err != nil || !ok {
 		return err
 	}
-	if b := ev.Repository.DefaultBranch; b != "" && b != repo.DefaultBranch {
-		if repo, err = s.st.UpsertRepo(ctx, store.RepoParams{
-			ID: repo.ID, InstallationID: repo.InstallationID, FullName: repo.FullName, DefaultBranch: b, Private: repo.Private,
-		}); err != nil {
-			return storeErr(err, "update default branch of %s", repo.FullName)
-		}
+	if repo, err = s.syncDefaultBranch(ctx, repo, ev.Repository.DefaultBranch); err != nil {
+		return err
 	}
 	if ev.Deleted {
 		return nil

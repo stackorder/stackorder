@@ -533,6 +533,29 @@ func TestMergeIntoAnotherBranchIsNotADefaultBranchMerge(t *testing.T) {
 	}
 }
 
+func TestMergeIntoARenamedDefaultBranchApplies(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Apply.Mode = v1.ApplyOnMerge
+	e := newEnv(t, cfg, withQueue())
+	e.planned(7, headSHA)
+	e.gh.SetRef(repoName, "heads/trunk", mainSHA)
+	merged := e.gh.PullRequestEvent("closed", repoName, gh.PullRequest{
+		Number: 7, State: gh.IssueClosed, Merged: true, MergeCommitSHA: mergeSHA, HeadSHA: headSHA, BaseSHA: baseSHA,
+		BaseRef: "trunk", User: gh.User{Login: author},
+	})
+	merged.Repository.DefaultBranch = "trunk"
+	require.NoError(t, e.svc.HandlePullRequest(e.ctx, merged))
+
+	applyRuns, _, err := e.st.ListRuns(e.ctx, store.RunFilter{RepoID: repoID, PRNumber: 7, Mode: v1.ModeApply})
+	require.NoError(t, err)
+	require.Len(t, applyRuns, 1, "the event names the default branch even before a push to it was seen")
+	repo, err := e.st.GetRepo(e.ctx, repoID)
+	require.NoError(t, err)
+	assert.Equal(t, "trunk", repo.DefaultBranch)
+	require.NotEmpty(t, e.gh.Dispatches())
+	assert.Equal(t, "trunk", e.gh.Dispatches()[0].Ref)
+}
+
 func TestApplyOnMerge(t *testing.T) {
 	cfg := baseConfig()
 	cfg.Apply.Mode = v1.ApplyOnMerge
