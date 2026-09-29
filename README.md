@@ -4,7 +4,7 @@ Lightweight Terraform and OpenTofu orchestration on GitHub Actions.
 
 Stackorder is a GitHub App plus a small control-plane server that decides **which** stacks to run and **in what order**, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay inside your GitHub org and AWS account; the server only ever sees metadata.
 
-> **Status:** pre-alpha. The design is settled and implementation is starting. Nothing here is usable yet. The design doc is the source of truth: [Stackorder design](https://claude.ai/artifact/W3gQnvGu5Fw9DSXApYE766).
+> **Status:** no release is tagged yet. The server, the CLI, the actions and the deployment module are implemented and tested end to end. The design doc is the source of truth for behaviour: [Stackorder design](https://claude.ai/artifact/W3gQnvGu5Fw9DSXApYE766), and [ARCHITECTURE.md](ARCHITECTURE.md) records where the implementation departs from it. The [documentation](docs/index.md) covers setup and operation.
 
 ## What it does
 
@@ -51,20 +51,23 @@ The runner authenticates to the server with its GitHub OIDC token. There are no 
 | `stackorder/actions` | The `setup` JavaScript action, the `resolve`, `plan`, `apply` and `drift` composite actions, and the reusable `plan.yml` and `run.yml` workflows |
 | `stackorder/example-infra` | Demo monorepo used by the end-to-end tests |
 
-Planned layout of this repo:
+Layout of this repo (the full map is in [ARCHITECTURE.md](ARCHITECTURE.md)):
 
 ```text
+api/v1/                  wire types shared by the CLI, the server and the UI
 cmd/stackorder-server/   server main
 cmd/stackorder/          CLI main
-internal/                webhook, worker, graph, runs, gh, oidc, sched, api, store, scan
+internal/                webhook, worker, graph, runs, gh, oidc, sched, api, store, scan and more
 ui/                      Preact app, built into internal/ui/dist and embedded
 migrations/              Postgres migrations, run at start-up
 deploy/terraform/        ECS Fargate + RDS + ALB module
+docs/                    documentation site (VitePress)
+test/                    integration and end-to-end suites
 Dockerfile               multi-stage, distroless/static, non-root
 .goreleaser.yaml         CLI releases for linux/darwin/windows, amd64/arm64
 ```
 
-## Using it in a repo (planned)
+## Using it in a repo
 
 A repo needs a root `stackorder.yaml`, an optional `.stackorder.yaml` in any stack with dependencies or overrides, and two thin workflow files. Everything has a default, so the smallest valid config is:
 
@@ -72,7 +75,7 @@ A repo needs a root `stackorder.yaml`, an optional `.stackorder.yaml` in any sta
 version: 1
 ```
 
-A plan workflow is a dozen lines:
+The plan workflow, `.github/workflows/stackorder-plan.yml`, calls the reusable one. `server-url` is required, here read from the Actions variable `STACKORDER_SERVER_URL`, and the job must grant the permissions, because a called workflow cannot raise them:
 
 ```yaml
 name: stackorder plan
@@ -84,12 +87,21 @@ concurrency:
   cancel-in-progress: true
 jobs:
   plan:
+    permissions:
+      id-token: write
+      contents: read
+      actions: read
+      checks: write
+      pull-requests: read
     uses: stackorder/actions/.github/workflows/plan.yml@v1
     with:
+      server-url: ${{ vars.STACKORDER_SERVER_URL }}
       aws-role-arn: arn:aws:iam::123456789012:role/stackorder-plan
       tool: tofu
     secrets: inherit
 ```
+
+The run workflow, which the server dispatches, is on [Workflows](docs/configuration/workflows.md), and [Getting started](docs/guide/getting-started.md) walks through the whole setup.
 
 A stack declares cross-stack dependencies in its own `.stackorder.yaml`:
 
@@ -114,4 +126,4 @@ Phase 1 alone is a usable Atlantis-style tool. Phase 2 is where Stackorder start
 
 ## Development
 
-Requirements (planned): Go, Node for the UI build, and Postgres. End-to-end tests run against a throwaway GitHub org and a LocalStack S3 bucket. The `graph` package gets exhaustive unit tests, because that is where the correctness risk sits.
+Requirements: Go, Node for the UI and the docs site, and Docker for Postgres and LocalStack; [CONTRIBUTING.md](CONTRIBUTING.md) has the commands. End-to-end tests run the real `terraform` and `tofu` against a LocalStack S3 bucket, with GitHub faked in memory. The `graph` package gets exhaustive unit tests, because that is where the correctness risk sits.
