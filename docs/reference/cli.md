@@ -163,7 +163,7 @@ Global Flags:
 
 1. Loads the stack's effective configuration and detects the tool (see [Tool selection](#tool)).
 2. Runs the `pre-plan` [hook](/configuration/workflows#hooks).
-3. Runs `init -input=false -no-color`, with one `-backend-config=<value>` per item of `STACKORDER_BACKEND_CONFIG`, then selects the stack's workspace when it has one.
+3. Runs `init -input=false -no-color`, with one `-backend-config=<value>` per item of `STACKORDER_BACKEND_CONFIG`, then, for a stack with a workspace, `workspace select -or-create <workspace>`.
 4. Runs `plan -input=false -no-color -detailed-exitcode -out=<plan file>`.
 5. Writes `show -json` of the plan next to the plan file, as `<artifact>.json`, and builds the summary: adds, changes, destroys, replaces, imports, moves, output changes and the addresses of each.
 6. Unless the stack's `plan_output` is `summary`, captures `show -no-color`, redacts it and cuts it at 256 KB.
