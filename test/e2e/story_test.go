@@ -678,14 +678,17 @@ func (s *story) lockSafety(t *testing.T) {
 
 func (s *story) expiredArtifact(t *testing.T) {
 	head := s.repo.commit(t, "vpc-dhcp", s.main, "feat(vpc): add DHCP options",
-		appendFile("modules/vpc/main.tf", dhcpOptionsHCL))
+		appendFile("modules/vpc/main.tf", dhcpOptionsHCL),
+		replaceIn("stacks/staging/apps/variables.tf", "default     = 1", "default     = 3"))
 	pr := s.openAndPlan(t, 4, "vpc-dhcp", s.main, head, "feat(vpc): add DHCP options")
 	assert.ElementsMatch(t, vpcChange, pr.affected)
 	plan := s.runJSON(t, pr.runID)
 	for _, key := range []string{prodVPC, stagingVPC} {
 		assert.Equal(t, []string{"module.vpc.terraform_data.dhcp_options"}, runStack(t, plan, key).Summary.Added, key)
 	}
+	assert.Equal(t, []string{"terraform_data.app"}, runStack(t, plan, stagingApps).Summary.Changed, "staging/apps has a change of its own behind staging/vpc")
 	stagingSerial := s.ls.requireState(t, stateKeys[stagingVPC]).Serial
+	appsSerial := s.ls.requireState(t, stateKeys[stagingApps]).Serial
 
 	s.approve(t, pr)
 	before := len(s.applyDispatches())
@@ -704,7 +707,7 @@ func (s *story) expiredArtifact(t *testing.T) {
 	}
 	require.Contains(t, results, prodVPC)
 	require.Contains(t, results, stagingVPC)
-	assert.Len(t, results, 2, "the stacks of wave 1 are no-ops and never dispatched")
+	assert.Len(t, results, 2, "wave 1 is never dispatched after a stack of wave 0 failed")
 
 	vpc := results[prodVPC]
 	require.Equal(t, 0, vpc.code, "%s", vpc)
@@ -723,8 +726,18 @@ func (s *story) expiredArtifact(t *testing.T) {
 	require.NotNil(t, failed.ExitCode)
 	assert.Equal(t, cli.ExitRefused, *failed.ExitCode)
 	assert.Equal(t, gh.ConclusionFailure, s.checkRun(t, "stackorder/apply: "+stagingVPC, head).Conclusion)
+	blocked := runStack(t, run, stagingApps)
+	assert.Equal(t, v1.StackBlocked, blocked.Status, "the dependent of the failed stack is blocked")
+	assert.Equal(t, []string{stagingVPC}, blocked.BlockedBy)
+	assert.Equal(t, v1.StackNoop, runStack(t, run, prodApps).Status)
+	assert.Equal(t, v1.StackNoop, runStack(t, run, prodEKS).Status)
 	assert.Contains(t, s.ls.requireState(t, stateKeys[prodVPC]).addresses(), "module.vpc.terraform_data.dhcp_options")
 	assert.Equal(t, stagingSerial, s.ls.requireState(t, stateKeys[stagingVPC]).Serial, "the refused apply changed nothing")
+	assert.Equal(t, appsSerial, s.ls.requireState(t, stateKeys[stagingApps]).Serial, "the blocked stack was not applied")
+	locks := s.locks(t)
+	for _, key := range vpcChange {
+		assert.Equal(t, 4, locks[key], "#4 keeps the lock on %s after its apply failed", key)
+	}
 	s.noLockObjects(t)
 }
 
