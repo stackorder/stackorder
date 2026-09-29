@@ -6,7 +6,7 @@ No single compromise reaches infrastructure. The server has no cloud access, the
 
 | Compromised | Can | Cannot |
 | --- | --- | --- |
-| Stackorder server | Dispatch `stackorder-run.yml` in installed repos, post checks and comments, read `stackorder.yaml`, read plan summaries and capped plan text | Read or write Terraform state, assume any AWS role, change workflow files, read repo secrets, approve PRs or environment deployments |
+| Stackorder server | Dispatch `stackorder-run.yml` in installed repos, post checks and comments, read `stackorder.yaml`, read plan summaries and capped plan text, answer its own deployment protection rule where one is configured | Read or write Terraform state, assume any AWS role, change workflow files, read repo secrets, approve pull requests, pass an environment's required reviewers |
 | A PR author with write access | Trigger plans on their PR, comment `stackorder apply` if policy allows | Bypass required approvals, branch protection or GitHub environment reviewers; skip policy checks recorded on the stack |
 | A modified workflow in a PR | Change what runs in the plan job on that PR | Post results the server accepts, when `STACKORDER_REQUIRED_WORKFLOW_REF` pins the reusable workflow; assume the AWS role, when the role's trust policy pins `job_workflow_ref` or the environment |
 | A leaked App private key | Everything the server can | Everything the server cannot; rotate in the App settings and redeploy |
@@ -17,14 +17,14 @@ Stackorder reports; GitHub and AWS enforce.
 
 - **Branch protection** requires the `stackorder/plan` check, the `stackorder/apply` check in `before_merge` mode, and the configured approvals. GitHub enforces the merge.
 - **GitHub Environments** with required reviewers on the apply job add a human gate the server cannot skip, because the server cannot approve deployments.
-- **The AWS role trust policy** restricts `sub` to `repo:org/repo:environment:prod`, or to the `job_workflow_ref` of the canonical reusable workflow, so only that workflow in that repository can obtain credentials.
+- **The AWS role trust policy** restricts `sub` to `repo:org/repo:environment:production` for an apply role, and optionally to the `job_workflow_ref` of the canonical reusable workflow, so only the gated job in that repository can obtain credentials. The read-only plan role trusts `repo:org/repo:pull_request` and `repo:org/repo:environment:default`. See [Security hardening](/operations/security-hardening#trust-policies).
 - **Runner OIDC tokens** are short-lived and bound to one run. There is nothing to rotate on the runner side.
 
 The five layers that gate an apply, and which of them are real security boundaries, are on [Environments and authorization](/configuration/environments-and-authorization).
 
 ## Trust between runner and server {#runner-trust}
 
-There are no shared secrets between the runner and the server. The CLI sends the job's GitHub OIDC token, requested with the server's base URL as audience. The server verifies its signature against GitHub's keys and binds it to the run with its claims: repository, SHA, workflow run, event, environment and, optionally, `job_workflow_ref`. See [OIDC binding](/reference/api#oidc-binding).
+There are no shared secrets between the runner and the server. The CLI sends the job's GitHub OIDC token, requested with the server's base URL as audience. The server verifies its signature against GitHub's keys and binds it to the run with its claims: repository and repository id, event and ref, workflow run, environment and, optionally, `job_workflow_ref`. It never compares the token's `sha` claim, which is GitHub's merge or dispatch commit rather than the commit being planned; it checks the pull request head through the GitHub API instead. See [OIDC binding](/reference/api#oidc-binding).
 
 Rotating anything means rotating the App's private key, which runners never see.
 
@@ -35,7 +35,7 @@ Rotating anything means rotating the App's private key, which runners never see.
 | GitHub to server | Webhook payloads (HMAC-signed); from runners, JSON manifests and result summaries. No repository contents beyond file paths and parsed dependency edges. |
 | Server to GitHub | App installation tokens, scoped to one installation and valid for an hour, used for `workflow_dispatch`, check runs and comments. |
 | Runner to AWS | Your role, assumed with `aws-actions/configure-aws-credentials` and a trust policy pinned to the repository and environment. State, lock and plan files never leave this zone. |
-| Server to anything else | Nothing, except Postgres and the optional artifact bucket. |
+| Server to anything else | Nothing, except Postgres, GitHub's OIDC signing keys, and, when enabled, the artifact bucket and the OTLP endpoint. |
 
 ## Secrets in plan output {#plan-secrets}
 
@@ -56,10 +56,10 @@ The server is not in the path of `terraform plan`. A server outage degrades to p
 
 ## Abuse limits {#abuse}
 
-- Comment commands are rate-limited to 10 per minute per PR, and ignored from users without write access.
+- Comment commands are accepted only from users with push permission, and rate-limited to 10 per minute per PR.
 - Webhook deliveries are deduplicated by delivery id.
-- The API refuses OIDC tokens issued more than 10 minutes ago, tokens it has already seen, and any token whose `run_id` belongs to a run it has already seen complete.
+- The API refuses OIDC tokens issued more than 10 minutes ago and tokens it has already seen, results for stacks that already finished or runs that were superseded, and tokens from a workflow run whose dispatch already completed or is bound to another workflow run.
 
 ## Human access {#human-access}
 
-People sign in with GitHub through the App's user-authorization flow, with `login` and `read:org` scope only. A session is issued only to a member of an org where the App is installed, and the UI shows only that org's repositories. The UI is read-only except for unlock and re-run, which go through the API and are audited.
+People sign in with GitHub through the App's OAuth client, with the `read:org` scope only. A session is issued only to a user whose own account, or one of whose organisations, has the App installed, and the UI shows only those accounts' repositories. API keys, created by an operator, see every repository. The UI is read-only except for unlock and re-run, which go through the API and are audited.
