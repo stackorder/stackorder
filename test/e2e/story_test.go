@@ -20,7 +20,6 @@ import (
 	"github.com/stackorder/stackorder/internal/report"
 	"github.com/stackorder/stackorder/internal/runs"
 	"github.com/stackorder/stackorder/internal/testutil/ghfake"
-	"github.com/stackorder/stackorder/internal/tf"
 )
 
 const (
@@ -43,6 +42,7 @@ const (
 	plaintextSecret = "e2e-plaintext-hunter2"
 	stickyMarker    = "<!-- stackorder:sticky -->"
 	commentLimit    = 65536
+	planTextCap     = 256 * 1024
 )
 
 var stateKeys = map[string]string{
@@ -478,12 +478,20 @@ func (s *story) prPlan(t *testing.T) {
 
 	objects := s.ls.keys(t, artifactBucket, "runs/"+run.ID+"/")
 	for _, key := range []string{prodVPC, stagingVPC, prodApps, prodEKS} {
-		assert.Contains(t, objects, "runs/"+run.ID+"/"+strings.ReplaceAll(key, "/", "-")+"/plan.txt", key)
+		prefix := "runs/" + run.ID + "/" + strings.ReplaceAll(key, "/", "-") + "/"
+		assert.Contains(t, objects, prefix+"plan.txt", key)
+		assert.Contains(t, objects, prefix+"plan.json", key)
 	}
 	assert.NotContains(t, objects, "runs/"+run.ID+"/stacks-staging-apps/plan.txt")
+	planJSON, ok := s.ls.get(t, artifactBucket, "runs/"+run.ID+"/stacks-prod-vpc/plan.json")
+	require.True(t, ok)
+	var bucketSummary v1.PlanSummary
+	require.NoError(t, json.Unmarshal(planJSON, &bucketSummary), "the bucket holds the plan summary as JSON")
+	assert.Equal(t, []string{"module.vpc.terraform_data.route_table"}, bucketSummary.Added)
+	assert.NotContains(t, string(planJSON), plaintextSecret)
 	full, ok := s.ls.get(t, artifactBucket, "runs/"+run.ID+"/stacks-prod-vpc/plan.txt")
 	require.True(t, ok)
-	assert.LessOrEqual(t, len(full), tf.MaxPlanText, "the CLI caps the plan text it sends")
+	assert.LessOrEqual(t, len(full), planTextCap, "the CLI caps the plan text it sends at 256 KB")
 	assert.Greater(t, len(full), len(stored[prodVPC]), "the bucket keeps more than Postgres")
 	assert.Contains(t, string(full), "module.vpc.terraform_data.route_table will be created")
 	assert.Contains(t, string(full), `admin_password = "***"`)
