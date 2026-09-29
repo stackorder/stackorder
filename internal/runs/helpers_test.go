@@ -55,6 +55,9 @@ func TestJobStackValue(t *testing.T) {
 		{"run (stacks/prod/vpc, stacks/prod/vpc, production, 0)", "stacks/prod/vpc", true},
 		{"plan (stacks/prod/vpc)", "stacks/prod/vpc", true},
 		{"run / apply (stacks/prod/apps:blue, x)", "stacks/prod/apps:blue", true},
+		{"run / apply wave 2 stacks/prod/vpc", "stacks/prod/vpc", true},
+		{"run / drift stacks/prod/apps:blue", "stacks/prod/apps:blue", true},
+		{"plan / plan stacks/dev/db", "stacks/dev/db", true},
 		{"run", "", false},
 		{"run ()", "", false},
 		{"run (unterminated", "", false},
@@ -85,6 +88,11 @@ func TestMatchJobStack(t *testing.T) {
 		{"run (stacks/prod/apps, stacks/prod/apps:blue)", "", false},
 		{"run (stacks/dev/db, x)", "stacks/dev/db", true},
 		{"run (stacks/none, x)", "", false},
+		{"run / apply wave 0 stacks/prod/vpc", "stacks/prod/vpc", true},
+		{"run / apply wave 1 stacks/prod/apps:green", "stacks/prod/apps:green", true},
+		{"plan / plan stacks/dev/db", "stacks/dev/db", true},
+		{"run / apply wave 0 stacks/prod/apps", "", false},
+		{"plan / resolve", "", false},
 		{"resolve", "", false},
 	}
 	for _, tt := range tests {
@@ -114,6 +122,7 @@ func TestPickDispatch(t *testing.T) {
 		ok   bool
 	}{
 		{"one environment", []gh.WorkflowJob{job("stacks/staging/vpc")}, stage.ID, true},
+		{"a job named by the reusable run workflow", []gh.WorkflowJob{{Name: "run / apply wave 0 stacks/staging/vpc"}}, stage.ID, true},
 		{"a chunk of an environment", []gh.WorkflowJob{job("stacks/prod/eks")}, prod2.ID, true},
 		{"unmatched jobs are ignored", []gh.WorkflowJob{{Name: "setup"}, job("stacks/prod/vpc")}, prod.ID, true},
 		{"jobs of two dispatches decide nothing", []gh.WorkflowJob{job("stacks/prod/vpc"), job("stacks/prod/eks")}, uuid.Nil, false},

@@ -45,7 +45,11 @@ func formatDisplayTitle(mode v1.RunMode, runID string, wave int) string {
 func jobStackValue(name string) (string, bool) {
 	open := strings.IndexByte(name, '(')
 	if open < 0 {
-		return "", false
+		fields := strings.Fields(name)
+		if len(fields) < 2 {
+			return "", false
+		}
+		return fields[len(fields)-1], true
 	}
 	rest := name[open+1:]
 	end := strings.IndexAny(rest, ",)")
