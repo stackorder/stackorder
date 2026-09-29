@@ -27,7 +27,8 @@ import (
 // editing its copy. Stacks of the default-branch graph (the latest graph
 // before the first merge) that only the default-branch configuration
 // discovers are added to the stored graph when that configuration finds
-// them affected. Every stack affected only under the default-branch
+// them affected, unless the pull request deletes their directory, which is
+// warned about instead. Every stack affected only under the default-branch
 // configuration is planned too, with a warning naming the keys that
 // differ.
 func (s *Service) UploadGraph(ctx context.Context, p principal.Principal, runID string, req v1.GraphUploadRequest) (*v1.ResolveResponse, error) {
@@ -88,8 +89,14 @@ func (s *Service) UploadGraph(ctx context.Context, p principal.Principal, runID 
 	in := graph.Input{ChangedPaths: req.ChangedPaths, Config: cfg, Requested: req.Stacks, Locks: locks}
 	resolved := s.withExternalDependents(ctx, repo, stored)
 	resp, rerr := graph.Resolve(resolved, in)
+	var removed []string
 	if rerr == nil && len(differs) > 0 {
-		if extended := withDefaultBranchStacks(stored, baseline, in, cfg, base); extended != nil {
+		extended := withDefaultBranchStacks(stored, baseline, in, cfg, base)
+		extended, removed, err = s.withoutDeletedStacks(ctx, repo, run.SHA, stored, baseline, extended, req.ChangedPaths)
+		if err != nil {
+			return nil, err
+		}
+		if extended != nil {
 			extended.SHA = run.SHA
 			id, ids, err := s.st.SaveGraph(ctx, repo.ID, extended)
 			if err != nil {
@@ -102,6 +109,12 @@ func (s *Service) UploadGraph(ctx context.Context, p principal.Principal, runID 
 		baseIn.Config = base
 		baseResp, baseErr := graph.Resolve(resolved, baseIn)
 		resp, rerr = unionResolution(resolved, resp, baseResp, baseErr, differs)
+		if len(removed) > 0 && resp != nil {
+			resp.Warnings = append(slices.Clone(resp.Warnings), fmt.Sprintf(
+				"the stackorder.yaml of this pull request differs from the default branch's in %s; %s, which only the default branch's configuration discovers, no longer exists at %s and is recorded as removed",
+				strings.Join(differs, ", "), strings.Join(removed, ", "), shortSHA(run.SHA)))
+			slices.Sort(resp.Warnings)
+		}
 	}
 	switch {
 	case errors.Is(rerr, graph.ErrCycle):

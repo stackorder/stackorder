@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -101,6 +102,33 @@ func (c *Client) GetContents(ctx context.Context, repo, path, ref string) ([]byt
 		return nil, fmt.Errorf("gh: contents %s: %w", path, err)
 	}
 	return data, nil
+}
+
+// PathExists reports whether a file or directory exists at path on ref.
+func (c *Client) PathExists(ctx context.Context, repo, path, ref string) (bool, error) {
+	rp, err := repoPath(repo)
+	if err != nil {
+		return false, err
+	}
+	ep, err := escapePath("path", path)
+	if err != nil {
+		return false, err
+	}
+	q := url.Values{}
+	if ref != "" {
+		q.Set("ref", ref)
+	}
+	_, err = c.t.do(ctx, request{
+		method: http.MethodGet,
+		route:  "/repos/{owner}/{repo}/contents/{path}",
+		path:   rp + "/contents/" + ep,
+		query:  q,
+		auth:   c.auth,
+	})
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // ListTags returns the repository's tags with the commits they point at.

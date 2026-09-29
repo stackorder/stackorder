@@ -313,7 +313,9 @@ that differs from `repos.config` after defaults, it is resolved under both
 and the affected sets are united, stacks of the default-branch graph (else
 the latest graph) that only `repos.config` discovers and finds affected
 are added to the commit's graph, and the run warns with the keys that
-differ. `workflow_job` events of the pull-request plan workflow, matched
+differ. Such a stack whose directory the pull request deletes (a changed
+path under it, and the directory gone at the head per the Contents API) is
+left out of the graph and the run warns that it is recorded as removed. `workflow_job` events of the pull-request plan workflow, matched
 through `runs.workflow_run_id`, move stacks to `planning`. Named check verdicts may
 not use the reserved names `resolve`, `plan` or `apply`. A pull request has
 at most one apply in flight. An apply of a PR that affects nothing is

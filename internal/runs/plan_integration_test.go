@@ -275,6 +275,7 @@ func TestPullRequestCannotNarrowItsAffectedSet(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, e.st.SetDefaultGraph(e.ctx, repoID, id))
 
+	e.gh.SetContents(repoName, headSHA, "stacks/prod/vpc/main.tf", []byte("terraform {}\n"))
 	narrowed := testGraph(headSHA)
 	narrowed.Stacks = slices.DeleteFunc(narrowed.Stacks, func(st v1.Stack) bool { return st.Key != staging })
 	narrowed.Edges = slices.DeleteFunc(narrowed.Edges, func(ed v1.Edge) bool { return ed.From.Key != staging })
@@ -341,6 +342,42 @@ func TestPullRequestCannotNarrowItsAffectedSet(t *testing.T) {
 	require.Len(t, resp8.Affected, 1)
 	for _, w := range resp8.Warnings {
 		assert.NotContains(t, w, "differs from the default branch", "a copy that spells out the defaults changes nothing")
+	}
+}
+
+func TestDefaultBranchConfigDoesNotBringBackADeletedStack(t *testing.T) {
+	const dns = "legacy/dns"
+	cfg := baseConfig()
+	cfg.Stacks.Include = []string{dns}
+	e := newEnv(t, cfg)
+	onMain := testGraph(mainSHA)
+	onMain.Stacks = append(onMain.Stacks, v1.Stack{Key: dns, Path: dns, Backend: &v1.Backend{Type: "s3", Bucket: "state", Key: dns + ".tfstate"}})
+	id, _, err := e.st.SaveGraph(e.ctx, repoID, &onMain)
+	require.NoError(t, err)
+	require.NoError(t, e.st.SetDefaultGraph(e.ctx, repoID, id))
+
+	e.openPull(7, headSHA)
+	job := e.planJob(7)
+	created, err := e.svc.CreateRun(e.ctx, job.p, v1.CreateRunRequest{Repo: repoName, SHA: headSHA, BaseSHA: baseSHA, PRNumber: 7, Mode: v1.ModePlan})
+	require.NoError(t, err)
+	resp, err := e.svc.UploadGraph(e.ctx, job.p, created.RunID, v1.GraphUploadRequest{
+		Graph: testGraph(headSHA), ChangedPaths: []string{"stackorder.yaml", dns + "/main.tf", "stacks/staging/vpc/main.tf"}, Config: baseConfig(),
+	})
+	require.NoError(t, err)
+
+	keys := make([]string, 0, len(resp.Affected))
+	for _, a := range resp.Affected {
+		keys = append(keys, a.Key)
+	}
+	assert.Equal(t, []string{staging}, keys, "a stack whose directory the pull request deletes is not planned")
+	removed := "the stackorder.yaml of this pull request differs from the default branch's in stacks.include; " +
+		"legacy/dns, which only the default branch's configuration discovers, no longer exists at 3333333 and is recorded as removed"
+	assert.Contains(t, resp.Warnings, removed)
+	assert.Contains(t, e.run(created.RunID).Warnings, removed)
+	stored, _, err := e.st.GetGraph(e.ctx, repoID, headSHA)
+	require.NoError(t, err)
+	for _, st := range stored.Stacks {
+		assert.NotEqual(t, dns, st.Key, "the run's graph, which becomes the default-branch graph on merge, leaves the deleted stack out")
 	}
 }
 

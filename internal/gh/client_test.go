@@ -895,6 +895,15 @@ func TestContents(t *testing.T) {
 	_, err = c.GetContents(ctx, repo, "stacks/prod", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "directory")
+
+	for path, want := range map[string]bool{"stacks/prod": true, "stacks/prod/vpc/main.tf": true, "stacks/legacy": false} {
+		ok, err := c.PathExists(ctx, repo, path, "")
+		require.NoError(t, err, path)
+		assert.Equal(t, want, ok, path)
+	}
+	fake.FailNext("GET /repos/{owner}/{repo}/contents/{path...}", http.StatusForbidden, 1)
+	_, err = c.PathExists(ctx, repo, "stacks/prod", "")
+	require.Error(t, err, "only a missing path answers false")
 }
 
 func TestContentsDecodingErrors(t *testing.T) {

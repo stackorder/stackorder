@@ -116,6 +116,52 @@ func withDefaultBranchStacks(g, baseline *v1.Graph, in graph.Input, pr, base *v1
 	return withStacks(g, baseline, extras)
 }
 
+func (s *Service) withoutDeletedStacks(ctx context.Context, repo store.Repo, sha string, g, baseline, extended *v1.Graph, changed []string) (*v1.Graph, []string, error) {
+	if extended == nil {
+		return nil, nil, nil
+	}
+	have := make(map[string]bool, len(g.Stacks))
+	for _, st := range g.Stacks {
+		have[st.Key] = true
+	}
+	var kept, removed []string
+	present := map[string]bool{}
+	for _, st := range extended.Stacks {
+		if have[st.Key] {
+			continue
+		}
+		dir := stackDir(st)
+		if !slices.ContainsFunc(changed, func(p string) bool { return strings.HasPrefix(strings.TrimPrefix(p, "./"), dir+"/") }) {
+			kept = append(kept, st.Key)
+			continue
+		}
+		exists, checked := present[dir]
+		if !checked {
+			c, err := s.client(ctx, repo)
+			if err != nil {
+				return nil, nil, err
+			}
+			exists, err = c.PathExists(ctx, repo.FullName, dir, sha)
+			if err != nil {
+				return nil, nil, fmt.Errorf("runs: %s of %s at %s: %w", dir, repo.FullName, shortSHA(sha), err)
+			}
+			present[dir] = exists
+		}
+		if exists {
+			kept = append(kept, st.Key)
+		} else {
+			removed = append(removed, st.Key)
+		}
+	}
+	switch {
+	case len(removed) == 0:
+		return extended, nil, nil
+	case len(kept) == 0:
+		return nil, removed, nil
+	}
+	return withStacks(g, baseline, kept), removed, nil
+}
+
 func localTo(g *v1.Graph, st v1.Stack) bool {
 	return !st.External && (st.Repo == "" || strings.EqualFold(st.Repo, g.Repo))
 }
