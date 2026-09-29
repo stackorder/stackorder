@@ -190,7 +190,7 @@ A run is `planned` when every stack is `planned`, `noop` or `skipped`, and `appl
 | Apply fails in wave n | Unrelated stacks in wave n finish; dependents are blocked; the run fails; locks are held. |
 | Server unreachable during plan | The CLI computes the affected set locally, plans, and sets a neutral `unconfirmed` check with `GITHUB_TOKEN`; apply is refused. |
 | Server unreachable during apply | The CLI cannot confirm the lock and refuses to apply (fail closed). |
-| Webhook lost | The server polls `workflow_run` state for in-flight runs every 60 s; the CLI's result call is the source of truth. |
+| Webhook lost | Every minute the server reconciles open dispatches with GitHub: it resends dispatches GitHub never accepted, binds workflow runs by their title, and marks stacks `unknown` whose dispatch no workflow run picked up within 30 minutes or whose workflow run ended without reporting. The CLI's result call is the source of truth. |
 | Runner dies mid-apply | The stack is marked `unknown`; the S3 lock is left as is; a human runs `stackorder unlock --force-state`. |
 | Head SHA changes after plan | Plans are invalidated, `stackorder apply` refuses, and the new push re-plans. |
 

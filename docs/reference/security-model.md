@@ -52,7 +52,7 @@ Plan text is kept 30 days by default, summaries and run history indefinitely, qu
 
 ## Availability {#availability}
 
-The server is not in the path of `terraform plan`. A server outage degrades to plans with `unconfirmed` checks and refused applies. Postgres is the only stateful dependency; point-in-time recovery on RDS covers it. If GitHub webhooks are delayed, the 60-second `workflow_run` reconciliation catches finished waves. If GitHub Actions is down, nothing runs, exactly as with any Actions-based tool.
+The server is not in the path of `terraform plan`. A server outage degrades to plans with `unconfirmed` checks and refused applies. Postgres is the only stateful dependency; point-in-time recovery on RDS covers it. If GitHub webhooks are delayed, the reconciliation that runs every minute catches finished waves. If GitHub Actions is down, nothing runs, exactly as with any Actions-based tool.
 
 ## Abuse limits {#abuse}
 
