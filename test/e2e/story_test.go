@@ -600,7 +600,9 @@ func (s *story) apply(t *testing.T) {
 	assert.Equal(t, gh.ConclusionSuccess, s.checkRun(t, report.CheckApply, pr.head).Conclusion)
 	stickies := s.stickies(pr.number)
 	require.Len(t, stickies, 1, "the apply updates the one sticky comment instead of adding another")
-	assert.Contains(t, strings.SplitN(stickies[0], "\n", 3)[1], string(v1.RunApplied), "the sticky comment shows the applied run")
+	heading := strings.SplitN(stickies[0], "\n", 3)
+	require.GreaterOrEqual(t, len(heading), 2, "the sticky comment has a heading after its marker: %s", stickies[0])
+	assert.Contains(t, heading[1], string(v1.RunApplied), "the sticky comment shows the applied run")
 
 	for _, key := range []string{prodVPC, stagingVPC, prodApps} {
 		st := s.ls.requireState(t, stateKeys[key])
@@ -849,6 +851,7 @@ func (s *story) workspaceStack(t *testing.T) {
 		writeFile("stacks/sandbox/blue/main.tf", sandboxMainHCL))
 	pr := s.openAndPlan(t, 5, "sandbox-blue", s.main, head, "feat(sandbox): add the blue workspace stack")
 	require.Equal(t, []string{sandboxBlue}, pr.affected)
+	require.Len(t, pr.matrix.Include, 1, "one plan job for the one affected stack")
 	entry := pr.matrix.Include[0]
 	assert.Equal(t, "blue", entry.Workspace)
 	assert.Equal(t, "stacks/sandbox/blue", entry.Stack)
