@@ -76,6 +76,21 @@ func (ix *index) stackDirs() map[string][]string {
 	return dirs
 }
 
+func (ix *index) watchers() map[string][]string {
+	out := make(map[string][]string)
+	for key, s := range ix.stacks {
+		if !schedulable(s) {
+			continue
+		}
+		for _, w := range s.WatchPaths {
+			if p := repoPath(w); p != "" && !slices.Contains(out[p], key) {
+				out[p] = append(out[p], key)
+			}
+		}
+	}
+	return out
+}
+
 func schedulable(s *v1.Stack) bool {
 	p, _ := v1.SplitStackKey(s.Key)
 	return !s.External && p != "" && p == repoPath(p) && stackDir(s) != ""

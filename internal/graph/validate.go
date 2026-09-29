@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
+	"github.com/stackorder/stackorder/internal/config"
 )
 
 // Validate checks the structure of a whole graph. It returns an error
@@ -13,9 +14,9 @@ import (
 // their type, self edges and dangling edge endpoints; the error also wraps
 // ErrCycle when depends_on and reads_state edges form a cycle anywhere in the
 // graph. A depends_on edge to an unknown stack, a stack key that does not
-// match its path and workspace, a local stack without a canonical directory
-// inside the repository, a local module without a path and a cycle of
-// modules are only warnings. Warnings are sorted.
+// match its path and instance (config.InstanceOf), a local stack without a
+// canonical directory inside the repository, a local module without a path
+// and a cycle of modules are only warnings. Warnings are sorted.
 func Validate(g *v1.Graph) (warnings []string, err error) {
 	if g == nil {
 		return nil, fmt.Errorf("%w: nil graph", ErrInvalidGraph)
@@ -31,8 +32,8 @@ func Validate(g *v1.Graph) (warnings []string, err error) {
 			fail("stacks[%d]: empty key", i)
 			continue
 		}
-		if !s.External && s.Path != "" && s.Key != v1.StackKey(s.Path, s.Workspace) {
-			warn("stack %s: key does not match path %q and workspace %q", s.Key, s.Path, s.Workspace)
+		if instance := config.InstanceOf(s.Instance, s.Workspace); !s.External && s.Path != "" && s.Key != v1.StackKey(s.Path, instance) {
+			warn("stack %s: key does not match path %q and instance %q", s.Key, s.Path, instance)
 		}
 		if !s.External && !schedulable(s) {
 			warn("stack %s: no canonical directory inside the repository, so it is never scheduled", s.Key)

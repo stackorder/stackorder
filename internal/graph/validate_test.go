@@ -131,17 +131,23 @@ func TestValidate(t *testing.T) {
 			wantErrs:     []string{"edge stack ghost -> stack phantom (depends_on): unknown stack ghost"},
 		},
 		{
-			name: "key that does not match path and workspace",
+			name: "key that does not match path and instance",
 			graph: newGraph().
 				stack(v1.Stack{Key: "s/x", Path: "s/y"}).
 				stack(v1.Stack{Key: "s/z", Path: "s/z", Workspace: "blue"}).
 				stack(v1.Stack{Key: "s/w:blue", Path: "s/w", Workspace: "blue"}).
 				stack(v1.Stack{Key: "s/v", Path: "s/v", Workspace: "default"}).
+				stack(v1.Stack{Key: "s/u:east", Path: "s/u", Instance: "east"}).
+				stack(v1.Stack{Key: "s/t:east", Path: "s/t", Instance: "east", Workspace: "blue"}).
+				stack(v1.Stack{Key: "s/s:blue", Path: "s/s", Instance: "east", Workspace: "blue"}).
+				stack(v1.Stack{Key: "s/r", Path: "s/r", Instance: "east"}).
 				stack(v1.Stack{Key: "keyonly"}).
 				build(),
 			wantWarnings: []string{
-				`stack s/x: key does not match path "s/y" and workspace ""`,
-				`stack s/z: key does not match path "s/z" and workspace "blue"`,
+				`stack s/r: key does not match path "s/r" and instance "east"`,
+				`stack s/s:blue: key does not match path "s/s" and instance "east"`,
+				`stack s/x: key does not match path "s/y" and instance ""`,
+				`stack s/z: key does not match path "s/z" and instance "blue"`,
 			},
 		},
 		{
@@ -155,7 +161,7 @@ func TestValidate(t *testing.T) {
 			wantWarnings: []string{
 				`stack ../../etc: no canonical directory inside the repository, so it is never scheduled`,
 				`stack ./s/dot: no canonical directory inside the repository, so it is never scheduled`,
-				`stack s/escape: key does not match path "../s/escape" and workspace ""`,
+				`stack s/escape: key does not match path "../s/escape" and instance ""`,
 				`stack s/escape: no canonical directory inside the repository, so it is never scheduled`,
 			},
 		},

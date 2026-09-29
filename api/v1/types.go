@@ -261,15 +261,17 @@ type Graph struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// Reason says why a stack is in the affected set.
+// Reason says why a stack is in the affected set. A stack's reasons are
+// listed in the order the constants are declared.
 type Reason string
 
 const (
 	ReasonChanged    Reason = "changed"
+	ReasonWatchPath  Reason = "watch_path"
 	ReasonModule     Reason = "module"
+	ReasonReadsState Reason = "reads_state"
 	ReasonDependent  Reason = "dependent"
 	ReasonRequested  Reason = "requested"
-	ReasonReadsState Reason = "reads_state"
 )
 
 // AffectedStack is one entry of a resolution result.

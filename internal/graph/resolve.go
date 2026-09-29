@@ -41,6 +41,7 @@ type reasonSet uint8
 
 const (
 	bitChanged reasonSet = 1 << iota
+	bitWatchPath
 	bitModule
 	bitReadsState
 	bitDependent
@@ -52,6 +53,7 @@ var reasonOrder = []struct {
 	reason v1.Reason
 }{
 	{bitChanged, v1.ReasonChanged},
+	{bitWatchPath, v1.ReasonWatchPath},
 	{bitModule, v1.ReasonModule},
 	{bitReadsState, v1.ReasonReadsState},
 	{bitDependent, v1.ReasonDependent},
@@ -178,6 +180,7 @@ func (r *resolver) classifyPaths() []string {
 	globs := r.ignoreGlobs()
 	stackDirs := r.ix.stackDirs()
 	moduleDirs := r.ix.moduleDirs()
+	watchers := r.ix.watchers()
 	var changedModules []string
 	for _, raw := range r.in.ChangedPaths {
 		p := cleanPath(raw)
@@ -190,12 +193,16 @@ func (r *resolver) classifyPaths() []string {
 		}
 		stacks := deepest(stackDirs, p)
 		modules := deepest(moduleDirs, p)
-		if len(stacks) == 0 && len(modules) == 0 {
+		watching := watchers[p]
+		if len(stacks) == 0 && len(modules) == 0 && len(watching) == 0 {
 			r.warn("changed path %s is inside no stack or module", p)
 			continue
 		}
 		for _, key := range stacks {
 			r.mark(key, bitChanged)
+		}
+		for _, key := range watching {
+			r.mark(key, bitWatchPath)
 		}
 		changedModules = append(changedModules, modules...)
 	}

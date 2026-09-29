@@ -21,9 +21,12 @@
 //
 //  1. Directly changed stacks. Each changed path that survives the ignore
 //     globs belongs to the deepest non-external stack directory enclosing it,
-//     so a change in a nested stack never affects the stack around it. Every
-//     workspace of that directory is affected. Paths with a ".terraform"
-//     segment are ignored.
+//     so a change in a nested stack never affects the stack around it
+//     through its directory. Every instance of that directory is affected. A
+//     changed path equal to one of a stack's WatchPaths (a backend config or
+//     var file that its own directory does not own, such as one outside it
+//     or inside a nested stack) affects that stack too. Paths with a
+//     ".terraform" segment are ignored.
 //  2. Module-affected stacks. Each changed path also belongs to the deepest
 //     local module directory enclosing it; every stack that reaches such a
 //     module over uses_module edges, through any number of nested modules,
@@ -51,18 +54,22 @@
 //
 // # Reasons and Via
 //
-// Reasons are deduplicated and always ordered changed, module, reads_state,
-// dependent, requested. Via is the sorted set of node keys the change reached
-// the stack through: the affected modules the stack reaches over uses_module
-// edges, and the affected stacks it has a depends_on or reads_state edge to.
+// Reasons are deduplicated and always ordered changed, watch_path, module,
+// reads_state, dependent, requested. Via is the sorted set of node keys the
+// change reached the stack through: the affected modules the stack reaches
+// over uses_module edges, and the affected stacks it has a depends_on or
+// reads_state edge to.
 //
 // # Environments
 //
-// A stack runs under the environment its .stackorder.yaml names, else the
-// longest matching prefix in the environments map of Input.Config, else
-// Stack.Environment, else v1.DefaultEnvironment with a warning. The
-// configuration the caller passes therefore decides, not the environment
-// the runner computed from the change's own stackorder.yaml.
+// A stack runs under the environment config.Resolve computes from
+// Input.Config and the stack's Config for the instance its key names when
+// that environment is configured (an instance override, the stack's
+// environment or an environments entry), else Stack.Environment, else the
+// fallback config.Resolve computes. A stack left under
+// v1.DefaultEnvironment without a configured environment is warned about.
+// The configuration the caller passes therefore decides, not the
+// environment the runner computed from the change's own stackorder.yaml.
 //
 // # Cycles
 //

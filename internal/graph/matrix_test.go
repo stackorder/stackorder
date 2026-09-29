@@ -67,24 +67,50 @@ func TestBuildMatrix(t *testing.T) {
 			name: "workspace stacks",
 			sha:  "s",
 			affected: []v1.AffectedStack{
-				{Key: "stacks/app:blue", Path: "stacks/app", Workspace: "blue", Environment: "e"},
+				{Key: "stacks/app:blue", Path: "stacks/app", Instance: "blue", Workspace: "blue", Environment: "e"},
 				{Key: "stacks/app", Path: "stacks/app", Environment: "e"},
 			},
 			want: []v1.MatrixEntry{
 				{Stack: "stacks/app", Key: "stacks/app", Environment: "e", SHA: "s"},
-				{Stack: "stacks/app", Key: "stacks/app:blue", Workspace: "blue", Environment: "e", SHA: "s"},
+				{Stack: "stacks/app", Key: "stacks/app:blue", Instance: "blue", Workspace: "blue", Environment: "e", SHA: "s"},
 			},
 		},
 		{
-			name: "path and workspace derived from the key when missing",
+			name: "a workspace without an instance is the instance",
+			sha:  "s",
+			affected: []v1.AffectedStack{
+				{Key: "stacks/app:blue", Path: "stacks/app", Workspace: "blue", Environment: "e"},
+				{Key: "stacks/db", Path: "stacks/db", Workspace: "default", Environment: "e"},
+			},
+			want: []v1.MatrixEntry{
+				{Stack: "stacks/app", Key: "stacks/app:blue", Instance: "blue", Workspace: "blue", Environment: "e", SHA: "s"},
+				{Stack: "stacks/db", Key: "stacks/db", Workspace: "default", Environment: "e", SHA: "s"},
+			},
+		},
+		{
+			name: "instances copied without a workspace",
+			sha:  "s",
+			affected: []v1.AffectedStack{
+				{Key: "infra/kyc:staging", Path: "infra/kyc", Instance: "staging", Environment: "infra-staging"},
+				{Key: "infra/kyc:production", Path: "infra/kyc", Instance: "production", Workspace: "prod", Environment: "infra-production"},
+			},
+			want: []v1.MatrixEntry{
+				{Stack: "infra/kyc", Key: "infra/kyc:production", Instance: "production", Workspace: "prod", Environment: "infra-production", SHA: "s"},
+				{Stack: "infra/kyc", Key: "infra/kyc:staging", Instance: "staging", Environment: "infra-staging", SHA: "s"},
+			},
+		},
+		{
+			name: "path derived from the key when missing, workspace never",
 			sha:  "s",
 			affected: []v1.AffectedStack{
 				{Key: "stacks/app:green", Environment: "e"},
+				{Key: "stacks/web:blue", Instance: "blue", Environment: "e"},
 				{Key: "stacks/db", Environment: "e"},
 			},
 			want: []v1.MatrixEntry{
-				{Stack: "stacks/app", Key: "stacks/app:green", Workspace: "green", Environment: "e", SHA: "s"},
+				{Stack: "stacks/app", Key: "stacks/app:green", Environment: "e", SHA: "s"},
 				{Stack: "stacks/db", Key: "stacks/db", Environment: "e", SHA: "s"},
+				{Stack: "stacks/web", Key: "stacks/web:blue", Instance: "blue", Environment: "e", SHA: "s"},
 			},
 		},
 	}
@@ -105,7 +131,7 @@ func TestBuildMatrixJSON(t *testing.T) {
 	}, "deadbeef")
 	data, err := json.Marshal(m)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"include":[{"stack":"stacks/app","key":"stacks/app:blue","workspace":"blue","environment":"staging","wave":1,"tool":"terraform","tool_version":"1.14.0","plan_output":"full","sha":"deadbeef"}]}`, string(data))
+	require.JSONEq(t, `{"include":[{"stack":"stacks/app","key":"stacks/app:blue","instance":"blue","workspace":"blue","environment":"staging","wave":1,"tool":"terraform","tool_version":"1.14.0","plan_output":"full","sha":"deadbeef"}]}`, string(data))
 
 	empty, err := json.Marshal(BuildMatrix(nil, "x"))
 	require.NoError(t, err)

@@ -1160,3 +1160,83 @@ func TestResolveResponseJSON(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"affected":[],"waves":[],"matrix":{"include":[]},"cached":false}`, string(data))
 }
+
+func TestResolveWatchPaths(t *testing.T) {
+	const (
+		kycProd    = "infra/kyc:production"
+		kycStaging = "infra/kyc:staging"
+		webProd    = "infra/web:production"
+		shared     = "infra/state.s3.tfbackend"
+	)
+	cfg := config.Default()
+	cfg.Environments = map[string]string{"infra/": "infra-{{ .Instance }}"}
+	g := newGraph().
+		stack(v1.Stack{Key: kycProd, Path: "infra/kyc", Instance: "production", WatchPaths: []string{shared, "vars/production.tfvars", "infra/kyc/sub/kyc.tfvars"}}).
+		stack(v1.Stack{Key: "infra/kyc/sub", Path: "infra/kyc/sub"}).
+		stack(v1.Stack{Key: kycStaging, Path: "infra/kyc", Instance: "staging", WatchPaths: []string{shared, "vars/staging.tfvars"}}).
+		stack(v1.Stack{Key: webProd, Path: "infra/web", Instance: "production"}).
+		stack(v1.Stack{Key: "acme/net//infra/tgw:production", Path: "infra/tgw", Instance: "production", Repo: "acme/net", External: true, WatchPaths: []string{"vars/external.tfvars"}}).
+		local("modules/m").
+		uses(kycProd, localKey("modules/m")).
+		dep(webProd, kycProd).
+		build()
+	tests := []struct {
+		name         string
+		paths        []string
+		wantReasons  map[string][]v1.Reason
+		wantWarnings []string
+	}{
+		{
+			name:  "a shared backend config file affects every instance watching it",
+			paths: []string{shared},
+			wantReasons: map[string][]v1.Reason{
+				kycProd:    reasons(v1.ReasonWatchPath),
+				kycStaging: reasons(v1.ReasonWatchPath),
+				webProd:    reasons(v1.ReasonDependent),
+			},
+		},
+		{
+			name:        "a var file affects only the instance watching it",
+			paths:       []string{"./vars/staging.tfvars"},
+			wantReasons: map[string][]v1.Reason{kycStaging: reasons(v1.ReasonWatchPath)},
+		},
+		{
+			name:  "watch_path is ordered after changed and before module",
+			paths: []string{"modules/m/main.tf", "vars/production.tfvars", "infra/kyc/main.tf"},
+			wantReasons: map[string][]v1.Reason{
+				kycProd:    reasons(v1.ReasonChanged, v1.ReasonWatchPath, v1.ReasonModule),
+				kycStaging: reasons(v1.ReasonChanged),
+				webProd:    reasons(v1.ReasonDependent),
+			},
+		},
+		{
+			name:  "a file owned by a nested stack affects the enclosing stack watching it",
+			paths: []string{"infra/kyc/sub/kyc.tfvars"},
+			wantReasons: map[string][]v1.Reason{
+				"infra/kyc/sub": reasons(v1.ReasonChanged),
+				kycProd:         reasons(v1.ReasonWatchPath),
+				webProd:         reasons(v1.ReasonDependent),
+			},
+		},
+		{
+			name:         "an unwatched file outside every stack still warns",
+			paths:        []string{"vars/dev.tfvars"},
+			wantReasons:  map[string][]v1.Reason{},
+			wantWarnings: []string{"changed path vars/dev.tfvars is inside no stack or module"},
+		},
+		{
+			name:         "watch paths of external stacks are not followed",
+			paths:        []string{"vars/external.tfvars"},
+			wantReasons:  map[string][]v1.Reason{},
+			wantWarnings: []string{"changed path vars/external.tfvars is inside no stack or module"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := Resolve(g, Input{Config: cfg, ChangedPaths: tt.paths})
+			require.NoError(t, err)
+			require.Empty(t, cmp.Diff(tt.wantReasons, reasonsByKey(resp)))
+			require.Empty(t, cmp.Diff(tt.wantWarnings, resp.Warnings))
+		})
+	}
+}
