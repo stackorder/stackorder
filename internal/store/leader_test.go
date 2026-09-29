@@ -66,7 +66,8 @@ func TestTryAdvisoryLockLostConnection(t *testing.T) {
 	var terminated int
 	require.NoError(t, s.Pool().QueryRow(ctx, `
 		SELECT count(pg_terminate_backend(pid)) FROM pg_locks
-		WHERE locktype = 'advisory' AND granted AND ((classid::bigint << 32) | objid::bigint) = $1`,
+		WHERE locktype = 'advisory' AND granted AND ((classid::bigint << 32) | objid::bigint) = $1
+			AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`,
 		store.SchedulerLockKey).Scan(&terminated))
 	require.Equal(t, 1, terminated)
 
