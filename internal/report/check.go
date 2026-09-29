@@ -583,8 +583,7 @@ func ForkNotice() (title, summary string) {
 	title = "Not run: pull request from a fork"
 	summary = "Pull requests from forks get a read-only `GITHUB_TOKEN` and no `id-token` permission, " +
 		"so the plan job can reach neither the AWS role nor the Stackorder server. Nothing was planned.\n\n" +
-		"A maintainer can push the branch to this repository to plan it. Planning forks through " +
-		"`pull_request_target` with a label gate is possible and documented, but it runs untrusted code with " +
-		"this repository's credentials and is not recommended.\n"
+		"A maintainer can push the branch to this repository to plan it. Stackorder does not plan forks through " +
+		"`pull_request_target`, which would run untrusted code with this repository's credentials.\n"
 	return title, summary
 }
