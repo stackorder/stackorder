@@ -184,7 +184,7 @@ stacks/prod/vpc: 4 to add, 0 to change, 0 to destroy, 0 to replace, 2 output cha
 exit 0
 ```
 
-The plan file and its JSON are in `.stackorder/plans/`, named after the artifact the `plan` action would upload, `stackorder-plan-stacks-prod-vpc-69df0ef0-<sha>`. With no server the result is `unconfirmed` and nothing is posted; `--format json` shows the [`StackResult`](/reference/api#stack-result) the CLI would have sent.
+The plan file and its JSON are in `.stackorder/plans/` at the repository root, named after the artifact the `plan` action would upload, `stackorder-plan-stacks-prod-vpc-69df0ef0-<sha>`. `example-infra` ignores that directory; in your own repository, add `.stackorder/plans/` to `.gitignore` so plan files, which hold every value in clear text, are never committed. With no server the result is `unconfirmed` and nothing is posted; `--format json` shows the [`StackResult`](/reference/api#stack-result) the CLI would have sent.
 
 ## 7. Apply, then plan a dependent {#apply}
 

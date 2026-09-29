@@ -501,7 +501,7 @@ The rest of `stackorder-run.yml`, its `run-name` and its dispatch inputs, is on 
 
 | `.terrateam/config.yml` | Stackorder |
 | --- | --- |
-| `dirs` with a list of `workspaces` | Stack discovery with `stacks.discover` or `stacks.include`, and instances from `stacks.instances.from_var_files` or a stack's `instances` list |
+| `dirs` with a list of `workspaces` | Stack discovery with `stacks.discover` or `stacks.include`, and instances from `stacks.instances.from_var_files` or a stack's `instances` list. Terrateam is opt-in: nothing runs until a directory has its own `dirs` entry. `stacks.discover` is opt-out: every matching directory with a `backend "s3"` block is a stack. To keep opt-in behaviour while you migrate, use a narrow `discover` plus `stacks.include` for the enabled directories, or list the directories not yet migrated in `stacks.exclude` |
 | `create_and_select_workspace: false` | The default: an instance selects no workspace and differs by its backend key |
 | `create_and_select_workspace: true` | `workspace: "{{ .Instance }}"` at the stack or in an instance override |
 | `when_modified` file patterns | Not needed: a stack is affected by its directory, the local modules it uses at any depth, and its [watch paths](#change-detection). `stacks.ignore` removes files; there is no way to add arbitrary patterns |

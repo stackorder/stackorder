@@ -176,7 +176,7 @@ Global Flags:
 7. Runs the `post-plan` hook, with `STACKORDER_PLAN_FILE` and `STACKORDER_PLAN_JSON` set.
 8. Posts the result to `POST /v1/runs/{id}/stacks/{key}/result`, when a server and a run id are set (and, outside Actions, `STACKORDER_API_KEY`). Otherwise the result is `unconfirmed`.
 
-The plan file is `<plan dir>/<artifact>.tfplan`, where the plan dir is `STACKORDER_PLAN_DIR` (default `.stackorder/plans`, relative to the repository root) and the artifact is `stackorder-plan-<slug>-<sha>`, where the slug is the key with `/` and `:` replaced by `-`, then `-` and the first 8 hex characters of the key's SHA-256 (`stackorder-plan-stacks-prod-vpc-69df0ef0-<sha>`), so keys such as `a/b` and `a-b` get different artifacts. Outside a git checkout the SHA part is `local`.
+The plan file is `<plan dir>/<artifact>.tfplan`, where the plan dir is `STACKORDER_PLAN_DIR` (default `.stackorder/plans`, relative to the repository root, so local plans write their files under `.stackorder/plans/` in the checkout; add it to `.gitignore`) and the artifact is `stackorder-plan-<slug>-<sha>`, where the slug is the key with `/` and `:` replaced by `-`, then `-` and the first 8 hex characters of the key's SHA-256 (`stackorder-plan-stacks-prod-vpc-69df0ef0-<sha>`), so keys such as `a/b` and `a-b` get different artifacts. Outside a git checkout the SHA part is `local`.
 
 The text output is one line, `stacks/prod/vpc: 4 to add, 0 to change, 0 to destroy, 0 to replace, 2 output changes`, after Terraform's own output. `--format json` prints `{"stack", "run_id", "plan_file", "unconfirmed", "result"}`, where `result` is the [`StackResult`](/reference/api#stack-result) that was, or would have been, posted.
 
@@ -443,7 +443,7 @@ stackorder 1.0.0 (a1b2c3d, 2026-09-28T09:00:00Z, go1.26.0, linux/amd64)
 | `STACKORDER_TOOL`, `STACKORDER_TOOL_VERSION` | Override the configured tool and the expected version. |
 | `STACKORDER_TERRAFORM_BIN`, `STACKORDER_TOFU_BIN` | The binary to run, as a name on `PATH` or a path. |
 | `STACKORDER_BACKEND_CONFIG` | Extra `-backend-config` values for `init`, comma separated. |
-| `STACKORDER_PLAN_DIR` | Where plan files are written, default `.stackorder/plans`; relative paths are taken from the repository root. |
+| `STACKORDER_PLAN_DIR` | Where plan files are written, default `.stackorder/plans`; relative paths are taken from the repository root. Add `.stackorder/plans/` to the repository's `.gitignore`: local plans write there. |
 | `STACKORDER_LOG_FORMAT` | `json` switches the logs on standard error to JSON. |
 | `GITHUB_ACTIONS`, `GITHUB_*`, `ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, `GITHUB_OUTPUT`, `GITHUB_STEP_SUMMARY` | Provided by the runner. |
 | `GITHUB_TOKEN` | Used only for the neutral fallback checks. |
