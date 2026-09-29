@@ -782,6 +782,10 @@ func (s *Service) HandleInstallationRepositories(ctx context.Context, ev *gh.Ins
 }
 
 func (s *Service) addRepos(ctx context.Context, installationID int64, repos []gh.Repository) error {
+	return s.recordRepos(ctx, installationID, repos, func(r store.Repo) bool { return r.Config == nil })
+}
+
+func (s *Service) recordRepos(ctx context.Context, installationID int64, repos []gh.Repository, reloadKnown func(store.Repo) bool) error {
 	if len(repos) == 0 {
 		return nil
 	}
@@ -809,7 +813,7 @@ func (s *Service) addRepos(ctx context.Context, installationID int64, repos []gh
 		if err != nil {
 			return storeErr(err, "record repository %s", meta.FullName)
 		}
-		if known && repo.Config != nil {
+		if known && !reloadKnown(repo) {
 			continue
 		}
 		sha, err := c.GetRef(ctx, repo.FullName, "heads/"+repo.DefaultBranch)

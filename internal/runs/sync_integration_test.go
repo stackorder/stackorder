@@ -3,6 +3,7 @@
 package runs_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -63,6 +64,37 @@ func TestSyncInstallations(t *testing.T) {
 	insts, err := e.st.ListInstallations(e.ctx)
 	require.NoError(t, err)
 	assert.Len(t, insts, 3)
+}
+
+func TestSyncInstallationsReadsConfigurationOnce(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.gh.SetRepo("beta/apps", gh.Repository{ID: 701, DefaultBranch: "main"})
+	e.gh.SetRef("beta/apps", "heads/main", headSHA)
+	e.gh.SetRepo("beta/empty", gh.Repository{ID: 702, DefaultBranch: "main"})
+	e.gh.AddInstallation(2, "beta", "beta/apps", "beta/empty")
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+	apps, err := e.st.GetRepo(e.ctx, 701)
+	require.NoError(t, err)
+	assert.Nil(t, apps.Config)
+	assert.Equal(t, headSHA, apps.ConfigSHA, "the commit without stackorder.yaml is recorded")
+
+	configReads := func(since int) map[string]int {
+		reads := map[string]int{}
+		for _, r := range e.gh.Requests()[since:] {
+			if strings.Contains(r.Pattern, "/contents/") || strings.Contains(r.Pattern, "/git/ref/") {
+				reads[r.Path]++
+			}
+		}
+		return reads
+	}
+	before := len(e.gh.Requests())
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+	reads := configReads(before)
+	for path := range reads {
+		assert.NotContains(t, path, "/beta/apps/", "a repository read at a commit without stackorder.yaml is left to push events")
+		assert.NotContains(t, path, "/acme/infra/", "a configured repository is left to push events")
+	}
+	assert.NotEmpty(t, reads, "a repository whose default branch had no commit is read again")
 }
 
 func TestSyncInstallationsReportsFailures(t *testing.T) {

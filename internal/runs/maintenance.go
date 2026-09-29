@@ -181,12 +181,15 @@ func (s *Service) timeOut(ctx context.Context, d store.Dispatch) error {
 // SyncInstallations reconciles the stored installations and repositories
 // with the App's installations on GitHub. Every installation is recorded
 // with its suspension state, and the repositories of the active ones are
-// recorded as HandleInstallation records them, loading stackorder.yaml for
-// repositories it has not seen. It learns installations made while the
-// server ran in setup mode and repairs installation webhooks lost during
-// downtime. It never forgets an installation or a repository; only their
-// deletion webhooks do. An installation that fails does not stop the
-// others, and every failure is returned.
+// recorded as HandleInstallation records them. stackorder.yaml is loaded
+// only for repositories it has not seen, or whose default branch had no
+// commit to read it at, so a sync makes no configuration reads for known
+// repositories, with the file or without it; push events keep those
+// current. It learns installations made while the server ran in setup mode
+// and repairs installation webhooks lost during downtime. It never forgets
+// an installation or a repository; only their deletion webhooks do. An
+// installation that fails does not stop the others, and every failure is
+// returned.
 func (s *Service) SyncInstallations(ctx context.Context) error {
 	insts, err := s.gh.ListInstallations(ctx)
 	if err != nil {
@@ -220,7 +223,7 @@ func (s *Service) syncInstallation(ctx context.Context, inst gh.Installation) er
 	if err != nil {
 		return fmt.Errorf("runs: repositories of installation %d: %w", inst.ID, err)
 	}
-	return s.addRepos(ctx, inst.ID, repos)
+	return s.recordRepos(ctx, inst.ID, repos, func(r store.Repo) bool { return r.Config == nil && r.ConfigSHA == "" })
 }
 
 // RemindStaleLocks posts a reminder on closed pull requests that still
