@@ -105,11 +105,17 @@ dependencies.
 
 ## Identities and names
 
-- Stack key inside a repo: `path` or `path:workspace` (`v1.StackKey`). Paths
-  are repository relative, slash separated, no `./`, no trailing `/`.
+- Stack key inside a repo: `path` or `path:instance` (`v1.StackKey(path,
+  instance)`, `v1.SplitStackKey`). Paths are repository relative, slash
+  separated, no `./`, no trailing `/`. The suffix names an instance of the
+  directory (see [Stack instances](#stack-instances)); it is never, by
+  itself, a Terraform workspace. A stack that sets `workspace: blue` and
+  declares no instances is one instance named `blue` whose Terraform
+  workspace is `blue`, so its key, state object and behaviour are what they
+  were before instances existed.
 - Qualified stack key: `owner/repo//key`. A cross-repo `depends_on` target
   becomes a `v1.Stack` with `External: true`, `Repo` set, `Path` and
-  `Workspace` split out, and `Key` set to the qualified key, so it can never
+  `Instance` split out, and `Key` set to the qualified key, so it can never
   collide with a local stack; the edge's `To.Key` is that qualified key.
   External stacks are never scheduled.
 - Module keys: see `api/v1/doc.go`. `uses_module` edge `Meta` always has
@@ -165,6 +171,221 @@ dependencies.
   `amd64`, `arm64`, plus `stackorder_X.Y.Z_checksums.txt` (sha256). The
   server image is `ghcr.io/stackorder/stackorder:X.Y.Z` and `:latest`.
 
+## Stack instances
+
+A stack directory can be deployed several times, once per **instance**: the
+same code with its own state object, var files, environment variables and
+GitHub environment. Every instance is a stack of its own everywhere a stack
+appears: the graph, affected sets, waves, locks, runs, checks, artifacts,
+drift and the UI. Nothing below needs the server to read the repository;
+the CLI renders everything from the checkout and the server re-resolves
+policy from the default branch with the same pure functions.
+
+### Identity
+
+- `v1.Stack.Instance` is the key suffix. `v1.Stack.Workspace` is the
+  Terraform workspace the CLI selects after `init`; empty means none.
+  `v1.RunStack`, `v1.AffectedStack`, `v1.StackDetail` and `v1.MatrixEntry`
+  carry `instance` next to `workspace`. `v1.Stack.WatchPaths` lists
+  repository-relative files outside the stack directory that the stack
+  reads at `init` or `plan` (backend config files, var files).
+- Compatibility: an object whose `Instance` is empty but whose `Workspace`
+  is set came from a CLI older than this contract; readers treat the
+  workspace as the instance. Nothing derives `Workspace` from a key any
+  more (`graph/resolve.go`, `graph/matrix.go`, `graph/validate.go`,
+  `runs/dispatch.go`, `runs/resolve.go`, `scan.go`, `store/graphs.go` use
+  `Instance`).
+- Instance names match `[A-Za-z0-9][A-Za-z0-9._-]*`, are at most 64
+  characters, and are never `default`. Job-name matching, comment parsing,
+  artifact names and GitHub environment names all tolerate that alphabet.
+- The store adds no column: `stacks.key` carries the instance and
+  `store.Stack.ToV1` splits it out; `stacks.workspace` stays the Terraform
+  workspace.
+
+### Configuration
+
+Root `stackorder.yaml` gains:
+
+```yaml
+stacks:
+  exclude: ["infra/state-backend"]              # directory globs, never stacks
+  instances:
+    from_var_files: "workspaces/*.tfvars.json"  # stack-relative glob
+backend_config:                                 # -backend-config values for init; at the root only
+  - infra/state.s3.tfbackend                    # a file, repository relative        when every stack
+  - 'key={{ trimPrefix "infra/" .Path }}/{{ .Instance }}.tfstate'  #                 has a partial backend
+var_files: []                                   # -var-file values for plan, stack relative
+env:                                            # for the tool and the hooks
+  TF_VAR_environment: "{{ .Instance }}"
+  TF_VAR_role: { plan: reader, apply: deployer }  # per mode; drift falls back to plan
+environments:
+  "infra/": "infra-{{ .Instance }}"             # prefix, prefix:instance or :instance
+```
+
+`.stackorder.yaml` gains `instances`, `backend_config`, `var_files` and
+`env`. `instances` is a list of names or a map from name to overrides;
+JSON always uses the map form (`v1.StackConfig.Instances`, custom
+(un)marshalling). An override (`v1.InstanceConfig`) may set `environment`,
+`workspace`, `backend_config`, `var_files`, `env`, `plan_output`,
+`apply.allowed_teams`, `depends_on` and `ignore_inferred`. `workspace` on
+a stack with instances is a template such as `"{{ .Instance }}"`.
+
+- The instance set of a directory (`config.InstanceNames(root, path,
+  stack, matchedVarFiles) ([]string, error)`, with `matchedVarFiles` from
+  `config.MatchVarFiles(root, dir)`) is, in order of precedence: the names
+  in `instances`; else one per file matched by `from_var_files`, named by
+  the file's base name up to its first `.`, sorted; else `[workspace]` when
+  the stack's rendered `workspace` is neither empty nor `default` (the
+  legacy single instance; the template renders with an empty `.Instance`);
+  else one instance with an empty name and a suffix-less key. A derived name that
+  is not a valid instance name (`default.tfvars.json`, say), two matched
+  files that derive the same name, and a legacy workspace that renders to
+  an invalid instance name are errors naming the file; a matched file whose
+  derived name is not in an explicit `instances` list is a warning
+  (`config.VarFileWarnings`) and is not used. Matches are ignored when
+  `from_var_files` is unset.
+- Var files of an instance, in order: root `var_files`, stack `var_files`,
+  the matched `from_var_files` file whose derived name equals the instance
+  name, if any, then instance `var_files`, so that a later, more specific
+  file wins in Terraform. Paths are relative to the stack directory.
+  `backend_config` concatenates root, stack, instance; a value containing
+  `=` is `name=value`, anything else is a file path relative to the
+  repository root. `env` merges per variable name, instance over stack over
+  root; a value is a string or an object with `plan`, `apply` and `drift`
+  keys; `drift` falls back to `plan`, and a mode with no value leaves the
+  variable as the job already has it. The re-plan inside `apply` runs with
+  the `apply` values. `depends_on` and `ignore_inferred` concatenate stack
+  and instance lists.
+  `workspace`, `plan_output`, `tool` and `tool_version` take the most
+  specific value set; `apply.allowed_teams` takes the most specific
+  non-empty list.
+- Templates are Go `text/template` with `missingkey=error`, data `.Path`,
+  `.Name` (the last path segment), `.Instance` and `.Key`, and functions
+  `trimPrefix prefix s`, `trimSuffix suffix s`, `base`, `dir`, `replace old
+  new s`, `lower` and `upper`, plus the builtins `and`, `or`, `not`, `eq`,
+  `ne`, `lt`, `le`, `gt` and `ge`, and `if` and `with`; `range`, `define`,
+  `template`, `block` and every other builtin are refused, and a template
+  or function whose output exceeds `config.MaxRenderedLength` (4096
+  bytes) fails, so a configuration value cannot stall the server. They
+  apply to `environments` values, `environment`, `workspace`,
+  `backend_config`, `var_files`, `env` values, `depends_on` and
+  `ignore_inferred`. A string without `{{` is used as is.
+  A rendering error is a validation error of the file that holds the
+  template. `config.Render` is the one implementation.
+- `environments` keys are `prefix`, `prefix:instance` or `:instance`. A
+  key matches when its prefix matches the path as before (whole segments;
+  an empty prefix, allowed only with an instance part, matches every path)
+  and, when it has an instance part, that part equals the instance. The
+  most specific key wins: one with an instance part before one without,
+  then the longest prefix. The instance part must be a valid instance name;
+  a prefix may not contain `:`, and two keys whose prefixes normalise to
+  the same path (`infra`, `infra/`, `./infra`) with the same instance part
+  are an error.
+  (The actions' `aws-role-arn-map` deliberately has no `prefix:instance`
+  form; an exact `path:instance` key covers that case there.)
+- The GitHub environment of a stack is, in order: the instance override,
+  the stack's `environment`, the `environments` match (the first of these
+  that renders non-empty; `Effective.EnvironmentConfigured` reports that
+  one did), the instance name, `v1.DefaultEnvironment`. An instance is
+  therefore protected by the GitHub environment of its own name unless
+  mapped elsewhere. This changes
+  the environment of a legacy `workspace: blue` stack from `default` to
+  `blue`; such a stack sets `environment: default` to keep it.
+- `config.Resolve(root, path, stack, instance) (Effective, error)` is pure
+  and, through `config.ResolveMatched(root, path, stack, instance,
+  matchedVarFiles)`, which the scanner and the CLI call to add the matched
+  var file, is the one place that merges and renders. `path` carries no
+  suffix and an instance `default` means none. `Effective` gains
+  `Instance`, `EnvironmentConfigured`, `BackendConfig`, `VarFiles` and
+  `Env` (rendered, per mode; `EnvFor(mode)`). It does not need to know
+  where an instance came from: the server calls it with the instance it
+  splits off a key. `config.EnvironmentFor` returns the raw, unrendered
+  `environments` value and never decides an environment. Environment
+  variable names match `[A-Za-z_][A-Za-z0-9_]*` and may not start with
+  `STACKORDER_`, `GITHUB_`, `ACTIONS_` or `RUNNER_`, nor be `PATH` or
+  `HOME`, compared without regard to case; `default` is refused as an
+  instance name in any letter case, since GitHub environment names ignore
+  case. A null list item under `instances` or a null `env` value is an
+  error.
+- Validation stays strict (`KnownFields`): a CLI or server older than this
+  contract rejects a file that uses the new keys, loudly. Upgrade the
+  server before the repositories.
+
+### Scan and graph
+
+- `stacks.exclude` beats both `stacks.discover` and `stacks.include`.
+- The scanner globs `from_var_files` in each stack directory, computes the
+  instance set and calls `addStack` once per instance.
+- The effective `v1.Backend` of an instance starts from the literals of the
+  `backend "s3"` block and overlays the rendered `backend_config` entries in
+  order: a file is parsed as HCL attributes and `name=value` sets one
+  attribute; only `bucket`, `key`, `region`, `dynamodb_table`,
+  `use_lockfile` and `workspace_key_prefix` are read, everything else is
+  ignored. A missing file is a scan error. Inferred `reads_state` edges and
+  the shared-state-object warning therefore work per instance, including
+  two instances that render the same key.
+- `WatchPaths` holds the backend config files and the var files that lie
+  outside the stack directory, sorted and unique. `TreeHash` covers
+  `*.tfvars`, `*.tfvars.json` and `*.tfbackend` too. A changed path equal
+  to a stack's watch path affects that stack with reason `watch_path`.
+- A rendered `depends_on` entry without a suffix that names a directory
+  with instances resolves to the instance of the same name when the target
+  has one, else to the target's only stack when it has exactly one, else
+  it is kept as written with a warning, as any unknown target is today. A
+  cross-repository entry is kept as written; it names its instance itself,
+  with a template if it wants the same one.
+- A listed var file that does not exist is a scan warning; the CLI errors
+  at plan.
+- Affected reasons, in order: `changed`, `watch_path`
+  (`v1.ReasonWatchPath`), `module`, `reads_state`, `dependent`,
+  `requested`.
+
+### CLI
+
+- `--stack path:instance`, help text `stack key: path or path:instance`.
+  With instances, declared in `instances` or derived from `from_var_files`,
+  the suffix must name one and a bare `path` is an error listing them; with
+  none, the suffix is the legacy workspace (equal to `workspace` when set,
+  ad hoc otherwise), as documented before this contract.
+- `init` passes `Effective.BackendConfig`, files resolved to absolute paths
+  against the repository root, followed by `STACKORDER_BACKEND_CONFIG`, and
+  `-reconfigure` whenever `Effective.BackendConfig` is not empty, so two
+  instances can share one checkout.
+- `plan`, the re-plan inside `apply` and `drift` pass one `-var-file` per
+  `Effective.VarFiles`; each must exist, and the error names it.
+  `apply <planfile>` passes none. Plan-time values of non-ephemeral variables are
+  frozen in the plan file; only `ephemeral` variables take the `apply`
+  value of `env` on an apply from a saved plan.
+- The tool process and the hooks get `EnvFor(mode)` after the automation
+  variables, and `STACKORDER_STACK` (the key), `STACKORDER_STACK_PATH` and
+  `STACKORDER_INSTANCE`. Values of configured variables whose names match
+  the secret pattern of `envSecrets` join the redaction set.
+
+### Server
+
+- Apply-time environment, `allowed_teams` and `plan_output` come from
+  `config.Resolve(defaultBranchRoot, path, defaultBranchStackConfig,
+  instance)`, never from a field read off the raw file. Dispatch grouping
+  by environment, binding and deployment protection are unchanged.
+- Runs whose keys share a directory are independent: separate locks,
+  separate concurrency groups, separate artifacts.
+
+### Actions
+
+- `aws-role-arn-map` keys are `prefix/` (as before), `path:instance` (an
+  exact key) or `:instance` (that instance in any directory). Precedence:
+  exact key, then `:instance`, then the longest prefix, then
+  `aws-role-arn`. Plan and drift jobs keep the single plan role.
+- New input `aws-role-session-name` on both reusable workflows: a name or
+  a JSON object with `plan`, `apply` and `drift` keys, passed as
+  `role-session-name` after sanitising to `[\w+=,.@-]` and 64 characters.
+- The runner's credentials model for one OIDC bootstrap role and a
+  provider `assume_role` chosen by an `env` variable is documented, not
+  coded: the plan and apply roles are the two OIDC roles the workflows
+  already take, the provider's role is `TF_VAR_<name>` with a `plan` and an
+  `apply` value, and the variable is `ephemeral` so the apply value is used
+  when applying a saved plan.
+
 ## Actions repository interface
 
 Composite actions `resolve`, `plan`, `apply`, `drift` take `stack` (except
@@ -176,7 +397,8 @@ outputs `matrix`, `waves`, `affected` (JSON array of stack keys), `count`,
 `run-id`, `unconfirmed`, `stackorder-version`.
 
 Reusable `plan.yml` inputs: `server-url` (required), `aws-role-arn`,
-`aws-role-arn-map`, `aws-region` (us-east-1), `tool`, `tool-version`,
+`aws-role-arn-map`, `aws-role-session-name`, `aws-region` (us-east-1),
+`tool`, `tool-version`,
 `stackorder-version`, `runner`, `max-parallel`, `working-directory`,
 `base-ref`, `stacks`. Its `resolve` job needs `pull-requests: read` in
 addition to the design's four permissions; the caller's job must carry the
@@ -185,13 +407,20 @@ requests are skipped with a step summary; the server posts the neutral check.
 
 Reusable `run.yml` inputs: `run-id`, `mode`, `wave`, `sha`, `stacks`
 (required), `server-url` (required), `aws-role-arn-map`, `aws-role-arn`,
-`aws-plan-role-arn`, `aws-region`, `tool`, `tool-version`,
-`stackorder-version`, `runner`, `max-parallel`, `working-directory`. Every
-job runs under `environment: ${{ matrix.environment }}` and in concurrency
-group `stackorder-stack-<key>` without cancel-in-progress. Role selection:
-`apply` uses the longest matching prefix of `aws-role-arn-map`, falling back
-to `aws-role-arn`; `plan` and `drift` use `aws-plan-role-arn`, falling back
-to `aws-role-arn`.
+`aws-plan-role-arn`, `aws-role-session-name`, `aws-region`, `tool`,
+`tool-version`, `stackorder-version`, `runner`, `max-parallel`,
+`working-directory`. Every job runs under
+`environment: ${{ matrix.environment }}` and in concurrency group
+`stackorder-stack-<key>` without cancel-in-progress. Role selection: `apply` uses the first match of
+`aws-role-arn-map`, whose keys are `prefix/`, `path:instance` or
+`:instance`, in the order exact key, `:instance`, longest prefix (a key
+with `:` is never a prefix), falling back to `aws-role-arn`; `plan` and `drift` use `aws-plan-role-arn`, falling
+back to `aws-role-arn`. `plan.yml` selects from the map the same way.
+`aws-role-session-name` is a name or a JSON object with `plan`, `apply` and
+`drift` keys (`drift` falls back to `plan`; `plan.yml` uses `plan`),
+sanitised to `[\w+=,.@-]` and 64 characters and passed as
+`role-session-name`; empty keeps `GitHubActions`. The key forms and the session name ship in
+`stackorder/actions` v1.1.0.
 
 Job names carry the stack key last: `run.yml` names its jobs
 `<mode> wave <n> <key>` and `plan.yml` its plan jobs `plan <key>`. The
@@ -533,7 +762,7 @@ graph, falling back to its latest graph.
 | `STACKORDER_RUN_ID` | Run id from the resolve step or the dispatch input |
 | `STACKORDER_TOOL`, `STACKORDER_TOOL_VERSION` | Override the configured tool |
 | `STACKORDER_TERRAFORM_BIN`, `STACKORDER_TOFU_BIN` | Binary name on `PATH` or path, overriding detection |
-| `STACKORDER_BACKEND_CONFIG` | Extra `-backend-config` values, comma separated, for `init` |
+| `STACKORDER_BACKEND_CONFIG` | Extra `-backend-config` values, comma separated, for `init`, after the stack's `backend_config` |
 | `STACKORDER_PLAN_DIR` | Where plan files are written, default `.stackorder/plans` |
 | `STACKORDER_LOG_FORMAT` | `json` switches the CLI's text logs to JSON |
 | `GITHUB_*`, `ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, `GITHUB_OUTPUT`, `GITHUB_STEP_SUMMARY`, `GITHUB_TOKEN` | Provided by the runner; `GITHUB_TOKEN` is only used for neutral fallback checks |
