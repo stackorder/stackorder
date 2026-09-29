@@ -52,14 +52,10 @@ func wavesByKey(resp *v1.ResolveResponse) map[string]int {
 
 func requireExampleResolution(t *testing.T, want *v1.ResolveResponse) {
 	t.Helper()
-	waves := wavesByKey(want)
-	require.ElementsMatch(t, []string{prodVPC, stagingVPC, prodEKS, stagingApps, prodApps}, keysOf(waves),
-		"a modules/vpc change affects both VPC stacks and their three dependents")
-	assert.Equal(t, 0, waves[prodVPC])
-	assert.Equal(t, 0, waves[stagingVPC])
-	assert.Equal(t, 1, waves[prodEKS])
-	assert.Equal(t, 1, waves[stagingApps])
-	assert.Greater(t, waves[prodApps], waves[prodVPC], "stacks/prod/apps reads the state of stacks/prod/vpc")
+	require.Equal(t, map[string]int{prodVPC: 0, stagingVPC: 0, prodEKS: 1, stagingApps: 1, prodApps: 1}, wavesByKey(want),
+		"a modules/vpc change affects both VPC stacks and, one wave later, their three dependents; "+
+			"stacks/prod/apps reads only the state of stacks/prod/vpc")
+	require.Len(t, want.Waves, 2)
 }
 
 func TestPullRequestPlanFlow(t *testing.T) {
