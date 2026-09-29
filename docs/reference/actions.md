@@ -75,7 +75,7 @@ Runs `stackorder plan --stack <stack> --run-id <run-id> --server <server-url>` w
 
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `stack` | required | The stack key, `path` or `path:workspace` |
+| `stack` | required | The stack key, `path` or `path:instance` |
 | `run-id` | required | The Stackorder run id |
 | `server-url` | required | The server's base URL |
 | `working-directory` | `.` | The directory to run `stackorder` in |
@@ -169,7 +169,7 @@ Called from `stackorder-plan.yml` on `pull_request`.
 | `plan` | `count` is above zero | One job per matrix entry, named `plan <key>`, with `fail-fast: false` and `max-parallel`: checks out the entry's `sha`, installs the tool, installs the same `stackorder` version, selects and assumes the AWS role, restores the plugin cache, runs the `plan` action |
 | `fork-notice` | The head repository is a fork | Writes the reason nothing was planned to the job summary |
 
-Inputs: `server-url` (required), `aws-role-arn`, `aws-role-arn-map`, `aws-region`, `tool`, `tool-version`, `stackorder-version`, `runner`, `max-parallel`, `working-directory`, `base-ref`, `stacks`.
+Inputs: `server-url` (required), `aws-role-arn`, `aws-role-arn-map`, `aws-role-session-name`, `aws-region`, `tool`, `tool-version`, `stackorder-version`, `runner`, `max-parallel`, `working-directory`, `base-ref`, `stacks`.
 
 ### `run.yml` {#run-yml}
 
@@ -181,9 +181,13 @@ Called from `stackorder-run.yml`, which the server dispatches once per wave and 
 - installs the entry's tool and `stackorder`, selects and assumes the AWS role, restores the plugin cache;
 - runs exactly one of the `plan`, `apply` or `drift` actions, according to `mode`.
 
-Inputs: `run-id`, `mode` and `stacks` (required), `wave`, `sha`, `server-url` (required), `aws-role-arn-map`, `aws-role-arn`, `aws-plan-role-arn`, `aws-region`, `tool`, `tool-version`, `stackorder-version`, `runner`, `max-parallel`, `working-directory`.
+Inputs: `run-id`, `mode` and `stacks` (required), `wave`, `sha`, `server-url` (required), `aws-role-arn-map`, `aws-role-arn`, `aws-plan-role-arn`, `aws-role-session-name`, `aws-region`, `tool`, `tool-version`, `stackorder-version`, `runner`, `max-parallel`, `working-directory`.
 
-**Role selection.** For `mode: apply` the role is the value of the longest key of `aws-role-arn-map` that the stack path starts with, else `aws-role-arn`. For `mode: plan` and `mode: drift` the map is ignored: those dispatches run under the `default` environment and assume `aws-plan-role-arn`, else `aws-role-arn`. When no role results, the job logs a notice and skips AWS credentials. `plan.yml` selects roles the same way as an apply, from the map and then `aws-role-arn`.
+**Role selection.** For `mode: apply` the role comes from `aws-role-arn-map`, whose keys are path prefixes (`infra/`), exact stack keys (`infra/network:production`) or instances in any directory (`:production`). The first match wins, in this order: the exact key, then `:instance`, then the longest prefix the stack path starts with, whole segments only (a key containing `:` is never a prefix); else `aws-role-arn`. The `:instance` rule reads the entry's `instance`, or its `workspace` for an entry from an older CLI. For `mode: plan` and `mode: drift` the map is ignored: those dispatches run under the `default` environment and assume `aws-plan-role-arn`, else `aws-role-arn`. When no role results, the job logs a notice and skips AWS credentials. `plan.yml` selects roles the same way as an apply, from the map and then `aws-role-arn`.
+
+**Session name.** `aws-role-session-name` is passed to `configure-aws-credentials` as `role-session-name`. It is a name, or a JSON object, recognised by its leading `{`, with `plan`, `apply` and `drift` keys from which the job's mode picks one: `drift` falls back to `plan`, and `plan.yml` always uses `plan`. Every byte outside `[A-Za-z0-9_+=,.@-]` becomes `-`, and the name is cut at 64 characters. Nothing is added, so every stack of a job's mode gets the same name. An empty result keeps the action's default, `GitHubActions`.
+
+The key forms of `aws-role-arn-map` and `aws-role-session-name` are in `stackorder/actions` v1.1.0 and later.
 
 ### Hooks {#hooks}
 
@@ -195,8 +199,9 @@ Each element of the `matrix` output, and of the `stacks` dispatch input, has thi
 
 ```json
 {
-  "stack": "stacks/prod/vpc",
-  "key": "stacks/prod/vpc",
+  "stack": "infra/network",
+  "key": "infra/network:production",
+  "instance": "production",
   "workspace": "",
   "environment": "production",
   "wave": 0,
@@ -205,16 +210,17 @@ Each element of the `matrix` output, and of the `stacks` dispatch input, has thi
   "plan_output": "full",
   "sha": "9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
   "plan_run_id": 12345678901,
-  "artifact": "stackorder-plan-stacks-prod-vpc-69df0ef0-9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c"
+  "artifact": "stackorder-plan-infra-network-production-2ebae875-9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c"
 }
 ```
 
 | Field | Meaning |
 | --- | --- |
 | `stack` | The stack directory |
-| `key` | The stack key, `path` or `path:workspace` |
-| `workspace` | The workspace; empty for `default` |
-| `environment` | The GitHub environment the job runs under: the stack's own for an apply, `default` for plan and drift dispatches and for unmapped stacks |
+| `key` | The stack key, `path` or `path:instance` |
+| `instance` | The [instance](/configuration/instances) name; empty for a stack with no instances |
+| `workspace` | The Terraform workspace the CLI selects; empty for none |
+| `environment` | The GitHub environment the job runs under: the stack's own for an apply, `default` for plan and drift dispatches. A stack's own environment is its instance name when nothing maps it, and `default` for an unmapped stack with no instance |
 | `wave` | The wave index |
 | `tool`, `tool_version` | The tool and version for the stack |
 | `plan_output` | `full` or `summary` |

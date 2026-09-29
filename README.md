@@ -172,7 +172,7 @@ jobs:
     secrets: inherit
 ```
 
-Applies assume the role of the longest matching prefix in `aws-role-arn-map`; server-dispatched plans and drift checks run under the environment `default` and assume `aws-plan-role-arn`, so the plan role must trust both the repository's `pull_request` tokens and `environment:default`. Branch protection on the default branch should require the `stackorder/plan` and `stackorder/apply` checks. [Workflows](docs/configuration/workflows.md) documents every input.
+Applies assume the role `aws-role-arn-map` gives their stack: an exact key such as `infra/network:production`, then an instance in any directory such as `:production`, then the longest matching path prefix; server-dispatched plans and drift checks run under the environment `default` and assume `aws-plan-role-arn`, so the plan role must trust both the repository's `pull_request` tokens and `environment:default`. Branch protection on the default branch should require the `stackorder/plan` and `stackorder/apply` checks. [Workflows](docs/configuration/workflows.md) documents every input.
 
 A stack declares cross-stack dependencies in its own `.stackorder.yaml`:
 
@@ -181,6 +181,8 @@ depends_on:
   - stacks/prod/vpc
   - acme/network-infra//stacks/prod/tgw
 ```
+
+A directory deployed several times, such as a component with one var file per environment, declares **instances**: `infra/network:production` and `infra/network:staging` are two stacks with their own state key, var files, environment variables, GitHub environment and apply role, all rendered from templates in `stackorder.yaml`. `stacks.instances.from_var_files: "workspaces/*.tfvars.json"` derives them from the files, and `backend_config`, `var_files` and `env` replace the per-directory scripts other tools need. [Stack instances](docs/configuration/instances.md) has the keys, a worked example of one bootstrap role with a provider role per account, and a migration table from Terrateam.
 
 ## Layout
 

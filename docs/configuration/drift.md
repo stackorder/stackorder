@@ -21,9 +21,9 @@ drift:
 
 ## What happens on schedule {#flow}
 
-1. At each time the cron expression fires (in UTC, unless it starts with `CRON_TZ=`), the server's scheduler takes the repository's current graph, the default-branch graph when known, and enqueues one drift check per stack in it, spread evenly across the next hour, so a large repository does not start every job at once.
+1. At each time the cron expression fires (in UTC, unless it starts with `CRON_TZ=`), the server's scheduler takes the repository's current graph, the default-branch graph when known, and enqueues one drift check per stack in it, each [instance](./instances) counting as a stack, spread evenly across the next hour, so a large repository does not start every job at once.
 2. Each check reads the head of the default branch and creates a drift run for the stack, trigger `schedule`, or reuses the one it created in the same hour. It dispatches `stackorder-run.yml` with `mode: drift`, wave `0` and `sha` set to that head.
-3. The job runs `stackorder drift --stack <key>`, which runs `plan -detailed-exitcode` and posts the result.
+3. The job runs `stackorder drift --stack <key>`, which runs `plan -detailed-exitcode` with the stack's var files and the `drift` values of its `env` (the `plan` values where a variable has no `drift` value), and posts the result.
 4. Exit code 0 means no drift. Exit code 2 marks the stack drifted and records the plan summary.
 5. With `open_issue: true`, the server opens an issue titled `Drift detected in <key>`, labelled `stackorder-drift`, for a drifted stack, or updates the open one. When a later check finds no drift, it comments on the issue and closes it. There is at most one open issue per stack.
 

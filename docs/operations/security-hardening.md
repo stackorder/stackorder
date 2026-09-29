@@ -82,8 +82,23 @@ Pass it to both wrappers: `aws-role-arn` in `stackorder-plan.yml` and `aws-plan-
 `environment:production` appears in the subject only when the job ran under that environment, and so only after its protection rules passed. Repeat for `staging`, and list each role in `aws-role-arn-map` under the stack path prefix the environment covers.
 
 ::: warning Map every stack to a named environment
-A stack that matches no prefix in `environments` applies under `default`, the same environment the dispatched plan and drift jobs use. An apply role trusting `repo:acme/infra:environment:default` can therefore be assumed by any job the server dispatches for a plan or drift check, and by any other workflow run under `default`. Give every stack that changes real infrastructure an environment of its own, and keep `environment:default` for the read-only plan role.
+A stack without an [instance](/configuration/instances) that matches nothing in `environments` applies under `default`, the same environment the dispatched plan and drift jobs use. An apply role trusting `repo:acme/infra:environment:default` can therefore be assumed by any job the server dispatches for a plan or drift check, and by any other workflow run under `default`. Give every stack that changes real infrastructure an environment of its own, and keep `environment:default` for the read-only plan role.
 :::
+
+### Instances {#instances}
+
+[Stack instances](/configuration/instances) change nothing here. An apply of `infra/network:production` runs under the instance's GitHub environment, `production` unless it is mapped elsewhere, and its token carries `repo:acme/infra:environment:production` like any other apply. Keep one apply role per environment, and select it per instance in `aws-role-arn-map` with a key such as `:production`. Plans and drift checks of every instance still run under `pull_request` or `environment:default` with the plan role.
+
+An instance nothing maps applies under the environment of its own name, which GitHub creates unprotected on first use. Create and protect the environment of every instance before its first apply, and never name an instance after an environment you have not configured.
+
+### One bootstrap role per job {#bootstrap-roles}
+
+Some organisations let every job assume one bootstrap role in the account that holds state, and let the AWS provider assume a role per target account, chosen by an `env` variable with a `plan` and an `apply` value. [One bootstrap role and a provider role per account](/configuration/instances#bootstrap-roles) has the whole setup. It moves part of the boundary out of the OIDC subject:
+
+- The provider's deployer role in each account must trust only the apply bootstrap role. A pull request controls its own `env` and can ask for the deployer role in a plan; that trust policy is what refuses it.
+- A single apply bootstrap role can assume the deployer role of every account, so AWS no longer tells a staging apply from a production one, and a staging apply runs the pull request's code. Use one apply bootstrap role per environment, each trusting only its environment's subject and trusted only by its own account's deployer role.
+- Session names come from the workflow and are not a boundary; do not condition trust on them.
+- Chained sessions last at most one hour, so an apply that takes longer fails part way. Split such stacks.
 
 ### Pinning the reusable workflow {#subject-workflow-ref}
 
@@ -201,7 +216,7 @@ On the default branch, with a branch protection rule or a ruleset:
 
 - Require the status checks `stackorder/plan` and, in `before_merge` mode, `stackorder/apply`. In `on_merge` mode require only `stackorder/plan`, since the apply runs after the merge.
 - Require the approvals `apply.require_approvals` asks for, and review from code owners.
-- Put `.github/workflows/`, `stackorder.yaml` and `.stackorder/hooks/` under `CODEOWNERS` of a team you trust with production. The server reads its policy from `stackorder.yaml` on the default branch, the dispatched workflow is the default branch's `stackorder-run.yml`, and the CLI runs the hooks inside apply jobs, so all three decide what an apply does.
+- Put `.github/workflows/`, `stackorder.yaml`, every `.stackorder.yaml` and `.stackorder/hooks/` under `CODEOWNERS` of a team you trust with production. The server reads its policy from `stackorder.yaml` on the default branch, the dispatched workflow is the default branch's `stackorder-run.yml`, and the CLI runs the hooks inside apply jobs and takes `env`, `backend_config` and `var_files` from the commit it applies, so all of them decide what an apply does.
 - Restrict who can push to the default branch and who can bypass the rules.
 
 ## Server secrets and network {#server}

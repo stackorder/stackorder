@@ -1,6 +1,6 @@
 # `stackorder.yaml`
 
-The root `stackorder.yaml` sets the repository's discovery rules, tool, environment mapping, apply policy, propagation and drift schedule. Every key has a default, so the smallest valid file is one line:
+The root `stackorder.yaml` sets the repository's discovery rules, stack instances, tool, backend and variable defaults, environment mapping, apply policy, propagation and drift schedule. Every key has a default, so the smallest valid file is one line:
 
 ```yaml
 version: 1
@@ -14,6 +14,7 @@ The server reads the file through the GitHub Contents API when it first sees a r
 | --- | --- |
 | `stacks`, `modules`, `tool`, `tool_version`, `propagate.dependents` | The pull request's copy, for that pull request's plans; when it differs from the default branch's, the stacks the default branch's copy finds affected are planned too, with a warning, so a PR cannot drop stacks from its own plan |
 | `apply`, `environments` for applies, `plan_output: summary`, `propagate.cross_repo`, `drift` | The default branch |
+| `backend_config`, `var_files`, `env` | The commit being planned or applied, read by the CLI from its checkout |
 
 ## Full example
 
@@ -22,6 +23,7 @@ version: 1
 
 stacks:
   discover: ["stacks/**"]        # dirs with a terraform { backend "s3" {} } block
+  exclude: ["stacks/bootstrap"]   # never stacks, whatever discover and include say
   ignore: ["**/*.md", "**/README*"]
 
 modules:
@@ -63,7 +65,10 @@ plan_output: full                 # or summary
 | `version` | integer | `1` | Schema version. Only `1` is supported. |
 | `tool` | `terraform` or `tofu` | `terraform` | The binary stacks run with. The CLI expects it on `PATH`. Overridable per stack. |
 | `tool_version` | string | empty | The tool version for this repository's stacks. It travels in each stack's matrix entry, where the reusable workflows install it, and the CLI warns when the binary it runs reports another version. Overridable per stack. |
-| `environments` | map of path prefix to environment name | `{}` | The GitHub environment each stack's applies run under. See [Environment mapping](#environments). |
+| `environments` | map of key to environment name | `{}` | The GitHub environment each stack's applies run under. A key is a path prefix, `prefix:instance` or `:instance`; a value may be a template. See [Environment mapping](#environments). |
+| `backend_config` | list of strings | `[]` | `-backend-config` values for `init`, for every stack: `name=value`, or a file relative to the repository root. Templates. It overlays every stack's `backend` block, so set it here only when every discovered stack has a partial `backend "s3" {}` block; otherwise set it in the `.stackorder.yaml` of the stacks that need it. See [Where to put it](./instances#backend-config-scope). |
+| `var_files` | list of paths | `[]` | `-var-file` values for every plan, relative to each stack directory. Templates. See [`var_files`](./instances#var-files). |
+| `env` | map of name to string or `{plan, apply, drift}` | `{}` | Environment variables for the tool and the hooks, for every stack. Templates. See [`env`](./instances#env). |
 | `plan_output` | `full` or `summary` | `full` | How much of a plan reaches the server and the PR comment. `summary` sends only resource counts and addresses. Overridable per stack. |
 
 ### `stacks`
@@ -72,6 +77,8 @@ plan_output: full                 # or summary
 | --- | --- | --- | --- |
 | `stacks.discover` | list of directory globs | `["stacks/**"]` | A matching directory is a stack when it contains a `terraform` block with a `backend "s3"`. An empty list falls back to the default. |
 | `stacks.include` | list of paths | `[]` | Directories that are stacks regardless of discovery. Paths are repository relative. |
+| `stacks.exclude` | list of directory globs | `[]` | Directories that are never stacks. It wins over both `stacks.discover` and `stacks.include`. |
+| `stacks.instances.from_var_files` | glob | empty | A glob relative to each stack directory, such as `workspaces/*.tfvars.json`. Each matching file declares an instance, named by the file's base name up to its first `.`, and is that instance's var file, after the root and stack `var_files`. A name that is not a valid instance name is an error. A stack's own `instances` list wins over it, and a matched file it does not list is a warning. See [Stack instances](./instances#from-var-files). |
 | `stacks.ignore` | list of file globs | `["**/*.md", "**/README*"]` | Changed files matching these never affect a stack. Set `[]` to ignore nothing. |
 | `stacks.ignore_lockfile` | boolean | `false` | Adds `**/.terraform.lock.hcl` to `stacks.ignore`, so provider lock file updates alone do not trigger plans. |
 
@@ -109,12 +116,19 @@ plan_output: full                 # or summary
 
 ## Environment mapping {#environments}
 
-`environments` maps a stack path prefix to the GitHub environment its applies run under.
+`environments` maps stacks to the GitHub environment their applies run under. A key takes one of three forms:
 
-- Prefixes match whole path segments. `stacks/prod/` matches `stacks/prod/vpc` but not `stacks/production/vpc`. The trailing slash is optional.
-- The longest matching prefix wins.
-- A stack's own `environment` in `.stackorder.yaml` overrides the map.
-- A stack that matches nothing runs under the environment `default`, which GitHub creates on first use with no protection rules.
+| Key | Matches |
+| --- | --- |
+| `stacks/prod/` | Every stack under `stacks/prod/` |
+| `infra/:production` | The `production` instance of every stack under `infra/` |
+| `:production` | The `production` instance in any directory |
+
+- Prefixes match whole path segments. `stacks/prod/` matches `stacks/prod/vpc` but not `stacks/production/vpc`. The trailing slash is optional. An empty prefix, as in `:production`, matches every path.
+- The most specific key wins: a key with an instance part before one without, then the longest prefix.
+- A value is a [template](./instances#templates), such as `"infra-{{ .Instance }}"`.
+- A stack's own `environment` in `.stackorder.yaml`, or an instance's, overrides the map.
+- A stack that matches nothing runs under the environment of its instance name, and a stack with no instance under `default`, which GitHub creates on first use with no protection rules.
 
 The environment is what lets GitHub environment protection rules and the AWS trust policy gate applies per stack. See [Environments and authorization](./environments-and-authorization).
 
@@ -132,12 +146,17 @@ The file is parsed strictly. The CLI and the server reject:
 - a `tool`, `apply.mode`, `propagate.cross_repo` or `plan_output` outside its allowed values;
 - a negative `apply.require_approvals`, or an `apply.max_parallel` below 1;
 - a `drift.schedule` that is not a valid five-field cron expression;
-- an empty environment prefix or environment name;
-- an empty `stacks.discover` glob or `apply.allowed_teams` entry;
-- a `stacks.include` path that is absolute or starts with `..`.
+- an empty environment prefix without an instance part, or an empty environment name;
+- an `environments` key whose instance part is not a valid [instance name](./instances#keys);
+- an empty `stacks.discover` or `stacks.exclude` glob or `apply.allowed_teams` entry;
+- a `stacks.include` path that is absolute or starts with `..`;
+- a template that does not parse, or fails to render for a stack;
+- an `env` name that is not a valid variable name or is reserved (`STACKORDER_*`, `GITHUB_*`, `ACTIONS_*`, `RUNNER_*`, `PATH`, `HOME`), or an `env` object with a key other than `plan`, `apply` and `drift`.
 
 All problems are reported together, each with the key that caused it.
 
 ## Per-stack overrides
 
-A `.stackorder.yaml` in a stack directory declares dependencies and overrides `tool`, `tool_version`, `environment`, `plan_output` and `apply.allowed_teams` for that stack. See [`.stackorder.yaml`](./stack-yaml).
+A `.stackorder.yaml` in a stack directory declares dependencies and instances, adds `backend_config`, `var_files` and `env`, and overrides `tool`, `tool_version`, `workspace`, `environment`, `plan_output` and `apply.allowed_teams` for that stack. See [`.stackorder.yaml`](./stack-yaml) and [Stack instances](./instances).
+
+A CLI or server older than these keys rejects a file that uses them. Upgrade the server before the repositories, and pin `stackorder-version` in the workflows to a CLI that knows them.

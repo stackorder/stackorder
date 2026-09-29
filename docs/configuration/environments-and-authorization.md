@@ -66,13 +66,28 @@ This is still a server check, but it reuses GitHub's review audit trail and pair
 
 ## Layer 3: GitHub Environments {#layer-3}
 
-The apply job in the reusable `run.yml` declares `environment: ${{ matrix.environment }}`. The server assigns each stack an environment from the `environments` prefix map in `stackorder.yaml`, overridable per stack with `environment` in `.stackorder.yaml`.
+The apply job in the reusable `run.yml` declares `environment: ${{ matrix.environment }}`. The server assigns each stack an environment from the `environments` map in `stackorder.yaml`, overridable per stack with `environment` in `.stackorder.yaml`.
 
 ```yaml
 environments:
   "stacks/prod/": production
   "stacks/staging/": staging
 ```
+
+### Per instance {#instances}
+
+Each [instance](./instances) of a directory has an environment of its own. Without any mapping, an instance applies under the environment of its own name, so `infra/network:production` is gated by `production`. Map instances elsewhere with a key that has an instance part, or with a template:
+
+```yaml
+environments:
+  ":production": production          # the production instance of every directory
+  "infra/:staging": staging          # the staging instances under infra/
+  "legacy/": "legacy-{{ .Instance }}" # one environment per instance name under legacy/
+```
+
+A key with an instance part wins over one without, then the longest prefix wins. An instance override in the stack's `instances` map, or the stack's own `environment`, wins over the map. See [GitHub environments](./instances#environments).
+
+The server reads the environment of an apply from the default branch's configuration, per instance, so a pull request cannot move its own apply to a weaker environment.
 
 In the repository settings, under **Environments**, configure `production`:
 
@@ -137,6 +152,8 @@ None of the above matters if a tampered workflow can assume the apply role direc
 
 `repo:acme/infra:environment:production` appears in the token's `sub` only when the job ran under that environment, and so only after its protection rules passed.
 
+With instances nothing changes: the subject names the instance's environment. Give each environment its apply role and select it in `aws-role-arn-map` by instance, with a key such as `:production`, or by exact key, `infra/network:production`. See [AWS roles](./instances#aws-roles).
+
 ### Pinning the reusable workflow
 
 To pin the role further to the canonical reusable workflow at a `v1` tag, add `job_workflow_ref` to the subject with the repository's OIDC subject customization endpoint:
@@ -173,3 +190,5 @@ Now the only path to production credentials runs through the environment gate, w
 | --- | --- | --- |
 | Plan | `repo:acme/infra:pull_request` and `repo:acme/infra:environment:default` | Read state, write the state lock, and the read-only permissions providers need to plan |
 | Apply, per environment | `repo:acme/infra:environment:<name>` | Read and write state, and the write permissions the stacks need |
+
+When the jobs assume one bootstrap role and the provider assumes a role per account, the roles and their trust change; see [One bootstrap role and a provider role per account](./instances#bootstrap-roles).

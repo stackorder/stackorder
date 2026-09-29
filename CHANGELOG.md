@@ -4,6 +4,37 @@ All notable changes to this repository are documented here. The format follows [
 
 ## [Unreleased]
 
+This release adds stack instances: one directory deployed several times, each deployment a stack of its own. It works with [`stackorder/actions`](https://github.com/stackorder/actions) v1.0.0 or later; the per-instance role selection and session names need v1.1.0.
+
+### Added
+
+- Stack instances. A key `path:instance` names one deployment of a directory, with its own state object, var files, environment variables, GitHub environment and apply role, and every instance is a stack of its own in the graph, affected sets, waves, locks, runs, checks, plan artifacts, drift and the UI.
+- `stacks.instances.from_var_files` in `stackorder.yaml`, a glob relative to each stack directory: every matching file declares an instance named by its base name up to the first `.`, and is that instance's var file after the root and stack `var_files`. A derived name that is not a valid instance name is an error; a matched file an explicit `instances` list leaves out is a warning.
+- `instances` in `.stackorder.yaml`, a list of names or a map from name to overrides of `environment`, `workspace`, `backend_config`, `var_files`, `env`, `plan_output`, `apply.allowed_teams`, `depends_on` and `ignore_inferred`.
+- `backend_config` at the root, per stack and per instance: `-backend-config` values for `init`, as `name=value` or a file relative to the repository root. The scanner overlays them on the `backend "s3"` block, so inferred `reads_state` edges and the shared-state warning work for partial backends and per instance.
+- `var_files` at the root, per stack and per instance: `-var-file` values for `plan`, the re-plan inside `apply` and `drift`, relative to the stack directory. A missing file is a scan warning and a plan error.
+- `env` at the root, per stack and per instance: environment variables for the tool and the hooks, as a string or with a `plan`, `apply` and `drift` value, `drift` falling back to `plan`. Reserved names are refused, and values of secret-looking names are redacted.
+- `stacks.exclude` in `stackorder.yaml`: directory globs that are never stacks, beating `stacks.discover` and `stacks.include`.
+- `environments` keys `prefix:instance` and `:instance`, the most specific key winning, and template values.
+- Go templates in `environments` values, `environment`, `workspace`, `backend_config`, `var_files`, `env` values, `depends_on` and `ignore_inferred`, with `.Path`, `.Name`, `.Instance` and `.Key` and the functions `trimPrefix`, `trimSuffix`, `base`, `dir`, `replace`, `lower` and `upper`.
+- `depends_on` entries with an instance suffix; a bare path to a directory with instances resolves to the instance of the same name.
+- Watch paths: the backend configuration files and var files outside a stack directory affect the stack with the reason `watch_path`, and the tree hash covers `*.tfvars`, `*.tfvars.json` and `*.tfbackend` files. `watch_paths` is part of a stack in the API.
+- `instance` on stacks, affected stacks, run stacks, stack details and matrix entries in the API.
+- `STACKORDER_STACK_PATH` and `STACKORDER_INSTANCE` for the tool and the hooks.
+- `stackorder/actions` v1.1.0: `aws-role-arn-map` keys `path:instance` and `:instance`, matched before path prefixes, and the `aws-role-session-name` input on both reusable workflows, a name or a name per mode.
+- Documentation: [Stack instances](docs/configuration/instances.md), with a worked example of one OIDC bootstrap role and a provider role per account, and a migration table from Terrateam.
+
+### Changed
+
+- A key suffix names an instance, never by itself a Terraform workspace. An instance selects a workspace only when its `workspace` is set; a stack with `workspace: blue` and no instances is the instance `blue` with workspace `blue`, so its key and state object are unchanged.
+- The default GitHub environment of an instance is its name. A stack with `workspace: blue` and no environment mapping now applies under `blue` instead of `default`; set `environment: default` in its `.stackorder.yaml` to keep the old behaviour.
+- `init` runs with `-reconfigure` whenever a stack has `backend_config`, so instances of one directory can share a checkout; `STACKORDER_BACKEND_CONFIG` values follow the stack's.
+- The `--stack` help of `plan`, `apply`, `drift` and `check` reads `stack key: path or path:instance`. A bare path on a directory with instances is an error that lists them.
+
+### Compatibility
+
+The new keys are validated strictly: a CLI or server older than this release rejects a `stackorder.yaml` or `.stackorder.yaml` that uses them. Upgrade the server first, then pin `stackorder-version` in the workflows to this release before adding instances to a repository. An older CLI run on an instance key would select a Terraform workspace of the instance's name.
+
 ## [0.1.0] - 2026-09-29
 
 The first release. It works with [`stackorder/actions`](https://github.com/stackorder/actions) v1.0.0 or later.

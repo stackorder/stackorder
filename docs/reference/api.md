@@ -265,7 +265,7 @@ Uploads the scanned graph and the changed paths, and answers with the affected s
 }
 ```
 
-The request may also carry a `stacks` list that restricts the run, as a `stackorder plan stacks/a stacks/b` comment does. Edges point from the dependent to what it depends on. An inferred edge has `inferred: true`; `meta` carries `ref` and `source` on `uses_module` edges, and the matched `bucket` and `key` on `reads_state` edges. A cross-repository `depends_on` target appears as a stack with `external: true`, `repo` set and `key` qualified as `owner/repo//key`.
+The request may also carry a `stacks` list that restricts the run, as a `stackorder plan stacks/a stacks/b` comment does. Edges point from the dependent to what it depends on. An inferred edge has `inferred: true`; `meta` carries `ref` and `source` on `uses_module` edges, and the matched `bucket` and `key` on `reads_state` edges. A cross-repository `depends_on` target appears as a stack with `external: true`, `repo` set and `key` qualified as `owner/repo//key`. A stack that is an [instance](/configuration/instances) of its directory has the key `path:instance` and carries `instance`; `workspace` is set only when the stack selects a Terraform workspace; and `watch_paths` lists the repository-relative files outside the stack directory that it reads at `init` or `plan`, its backend configuration files and var files. `backend` is the effective backend, after the stack's `backend_config`. A node from a CLI older than instances has `workspace` and no `instance`; the server takes the workspace as the instance.
 
 The uploaded `config`, the pull request's own `stackorder.yaml` after defaults and validation, decides the affected set of the plan, but cannot shrink it: when it differs from the default branch's configuration, the graph is resolved under both and the affected sets are united. Stacks of the default-branch graph (before the first merge, the latest graph) that only the default branch's configuration discovers are added to the commit's graph when it finds them affected, and `warnings` names the keys that differ and the stacks planned because of them. Such a stack whose directory the pull request deletes is not added; `warnings` names it as removed. Policy does not come from it either: a default-branch `plan_output: summary` always wins over it, and the apply gate, `allowed_teams` and the environment an apply runs under are read from the default branch when the apply starts.
 
@@ -327,7 +327,7 @@ The uploaded `config`, the pull request's own `stackorder.yaml` after defaults a
 }
 ```
 
-Other fields: `warnings`; `cycles`, set when resolution failed on a dependency cycle, each entry spelling one cycle (the response is still `200`, and the run fails); `external`, the cross-repository stacks with an ordering edge to a scheduled stack; `unconfirmed`, set only when the CLI produced the response locally; and `locked_by` on an affected stack another pull request holds a lock on. `reasons` are `changed`, `module`, `reads_state`, `dependent` and `requested`, in that order.
+Other fields: `warnings`; `cycles`, set when resolution failed on a dependency cycle, each entry spelling one cycle (the response is still `200`, and the run fails); `external`, the cross-repository stacks with an ordering edge to a scheduled stack; `unconfirmed`, set only when the CLI produced the response locally; and `locked_by` on an affected stack another pull request holds a lock on. `reasons` are `changed`, `watch_path` (a file outside the stack directory that the stack reads changed), `module`, `reads_state`, `dependent` and `requested`, in that order. Affected stacks and matrix entries carry `instance` next to `workspace`.
 
 ### `POST /v1/runs/{id}/stacks/{key}/result` {#stack-result}
 
@@ -392,7 +392,7 @@ Reports a plan, apply or drift outcome for one stack and answers with the stack'
 }
 ```
 
-A row can also carry `workspace`, `truncated`, `checks` (the stack's named checks), `blocked_by` (the failed predecessors of a `blocked` stack), `lock` (the orchestration lock on the stack now, whichever run holds it; `stackorder apply` applies only while it names its own run) and `plan_url` (the full plan text in the [artifact bucket](/reference/server-configuration#artifact-bucket), when `plan_text` holds only its beginning).
+A row can also carry `instance`, `workspace`, `truncated`, `checks` (the stack's named checks), `blocked_by` (the failed predecessors of a `blocked` stack), `lock` (the orchestration lock on the stack now, whichever run holds it; `stackorder apply` applies only while it names its own run) and `plan_url` (the full plan text in the [artifact bucket](/reference/server-configuration#artifact-bucket), when `plan_text` holds only its beginning).
 
 ### `POST /v1/runs/{id}/stacks/{key}/checks/{name}` {#check-verdict}
 
@@ -736,7 +736,7 @@ Stack detail: last plan and apply, the latest drift result, the lock, dependenci
 }
 ```
 
-`last_plan` has the same shape as `last_apply`. `lock` is a `LockInfo` while the stack is locked. A drifted stack's `drift` carries the plan `summary` and, with drift issues enabled, `issue_number` and `issue_url`.
+`last_plan` has the same shape as `last_apply`. A stack detail also carries `instance` and `workspace` when they are set. `lock` is a `LockInfo` while the stack is locked. A drifted stack's `drift` carries the plan `summary` and, with drift issues enabled, `issue_number` and `issue_url`.
 
 ### `GET /v1/stacks/{id}/runs` {#stack-runs}
 

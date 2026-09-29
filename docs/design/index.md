@@ -242,7 +242,11 @@ A PR that edits `modules/vpc` affects both VPC stacks through their module edges
 | Registry module | `registry:namespace/name/provider@version` | Recorded so the UI can list consumers; can never be "changed by a PR" |
 
 ::: info Implementation note
-Inside its repository a stack is keyed by its path, or `path:workspace` for a workspace other than `default`, and `owner/repo//key` qualifies it across repositories. The directories "listed explicitly" are `stacks.include`, and directories under `modules.paths` are never discovered as stacks, though one listed in `stacks.include` still is one. A git module hosted off the GitHub instance Stackorder is installed on (github.com, or the Enterprise Server host) keeps its host, as `gitlab.com/acme/modules//vpc@v1.2.0`, and a private registry's module keeps its registry host. See [Concepts](/guide/concepts#modules).
+Inside its repository a stack is keyed by its path, or `path:instance` for an instance of the directory, and `owner/repo//key` qualifies it across repositories. The directories "listed explicitly" are `stacks.include`, and directories under `modules.paths` are never discovered as stacks, though one listed in `stacks.include` still is one. A git module hosted off the GitHub instance Stackorder is installed on (github.com, or the Enterprise Server host) keeps its host, as `gitlab.com/acme/modules//vpc@v1.2.0`, and a private registry's module keeps its registry host. See [Concepts](/guide/concepts#modules).
+:::
+
+::: info Implementation note
+A stack's identity is its path plus an optional **instance**, not a workspace. A directory can declare several instances, each with its own state object, var files, environment variables and GitHub environment, and each is a stack of its own in the graph, runs, locks and checks. The suffix never selects a Terraform workspace by itself: an instance selects one only when its `workspace` is set, and a legacy stack with `workspace: blue` and no instances is the single instance `blue` with workspace `blue`. See [Stack instances](/configuration/instances) and the [architecture contract](/design/architecture#stack-instances).
 :::
 
 **Edges**
@@ -264,7 +268,11 @@ Inferred edges are drawn dashed in the UI and carry `inferred: true`; a stack co
 5. Cross-repo: `depends_on` edges to stacks in other repos are stored but cannot order a single-repo run. When an upstream stack applies, the server lists external dependents on the run and, if `propagate.cross_repo: plan` is set, dispatches a plan-only run on each so drift shows up within minutes rather than at the next scheduled drift check.
 
 ::: info Implementation note
-A changed path belongs only to the deepest enclosing stack directory, and affects every workspace of it; paths under `.terraform` are ignored. The default `stacks.ignore` is `["**/*.md", "**/README*"]`, and `.terraform.lock.hcl` is added only with `ignore_lockfile`. Any local module a stack uses propagates, inside `modules.paths` or not: those globs only keep module directories from being discovered as stacks. Git and registry modules never match changed paths. Every edge points from the dependent to what it depends on, so `wave(To) < wave(From)`. Cross-repository plan runs have trigger `push` and run once per upstream run and downstream repository.
+A changed path belongs only to the deepest enclosing stack directory, and affects every instance of it; paths under `.terraform` are ignored. The default `stacks.ignore` is `["**/*.md", "**/README*"]`, and `.terraform.lock.hcl` is added only with `ignore_lockfile`. Any local module a stack uses propagates, inside `modules.paths` or not: those globs only keep module directories from being discovered as stacks. Git and registry modules never match changed paths. Every edge points from the dependent to what it depends on, so `wave(To) < wave(From)`. Cross-repository plan runs have trigger `push` and run once per upstream run and downstream repository.
+:::
+
+::: info Implementation note
+"Every workspace of that directory" is every instance of it: instances of one directory cannot be told apart by path, since they run the same code. A stack is also affected, with the reason `watch_path`, when a file outside its directory that it reads at `init` or `plan` changes: a backend configuration file or a var file named in its `backend_config` or `var_files`. See [Change detection](/configuration/instances#change-detection).
 :::
 
 **Module version tracking.** A git module edge carries its `ref`. When a module repo that has the App installed pushes a semver tag, the server records the version, and the UI shows every consumer stack with the ref it pins and how far behind it is. Bumping is left to Renovate or Dependabot; Stackorder only makes the lag visible.
@@ -272,7 +280,7 @@ A changed path belongs only to the deepest enclosing stack directory, and affect
 **Storage.** Graphs are stored per repo and SHA (`graphs`, `stacks`, `modules`, `edges` with an `inferred` flag and a `meta` JSON column). The resolve job sends a tree hash of the paths it scanned, so a re-run on the same tree is a cache hit and posts nothing. A 300-stack monorepo with 2,000 edges is well under a megabyte per graph.
 
 ::: info Implementation note
-The resolve job always uploads its graph. When the tree hash, a SHA-256 over the repository's `.tf`, `.tf.json`, `stackorder.yaml` and `.stackorder.yaml` files, equals that of a stored graph of the repository, the server reuses the stored graph, stores nothing new and answers with `cached: true`. See [`POST /v1/runs/{id}/graph`](/reference/api#upload-graph).
+The resolve job always uploads its graph. When the tree hash, a SHA-256 over the repository's `.tf`, `.tf.json`, `.tfvars`, `.tfvars.json`, `.tfbackend`, `stackorder.yaml` and `.stackorder.yaml` files, equals that of a stored graph of the repository, the server reuses the stored graph, stores nothing new and answers with `cached: true`. See [`POST /v1/runs/{id}/graph`](/reference/api#upload-graph).
 :::
 
 ## The server
@@ -746,4 +754,8 @@ End-to-end tests run against a throwaway GitHub org and a LocalStack S3 bucket; 
 - [ ] One run per apply. With one dispatch per wave, an environment with required reviewers asks for approval once per wave. A single run with waves as chained jobs (a fixed maximum, empty waves skipped) may reduce that to one approval; verify GitHub's reviewer behaviour for sequential jobs in a test repo.
 - [ ] Removed stacks. A stack deleted from the repo currently just disappears from the graph; a reverse-wave destroy flow is out of scope for v1 and needs a design of its own.
 - [ ] Workspaces. Supported as part of a stack's identity; multi-workspace stacks with a shared directory are untested territory.
+
+  ::: info Implementation note
+  A directory deployed several times is modelled as stack instances, `path:instance`, rather than workspaces: each instance has its own state key, var files, environment variables, GitHub environment and apply role, and selects a workspace only when configured to. Instances can share one checkout because `init` runs with `-reconfigure` whenever a backend configuration is set. See [Stack instances](/configuration/instances) and the [architecture contract](/design/architecture#stack-instances).
+  :::
 - [ ] Pre-dispatch shortcut. The server could use the last graph plus the PR's changed files to skip the resolve job on docs-only PRs. Worth the complexity only if runner minutes turn out to matter.

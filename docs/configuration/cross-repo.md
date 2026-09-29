@@ -15,7 +15,7 @@ depends_on:
 Requirements:
 
 - Both repositories are covered by the same App installation.
-- The upstream stack's key is its repository-relative path, with `:workspace` when the workspace is not `default`.
+- The upstream stack's key is its repository-relative path, with `:instance` when the upstream directory has [instances](./instances), as in `acme/network-infra//infra/tgw:production`. Name the instance explicitly: the scanner cannot see another repository's instances, so a bare path is not resolved to the instance of the same name as it is within a repository. A `depends_on` entry may use a template, such as `acme/network-infra//infra/tgw:{{ .Instance }}`.
 
 The server stores the edge and marks the upstream stack `external` in the dependent repository's graph.
 

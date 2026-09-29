@@ -19,7 +19,7 @@ export function repositoryLinks(md: MarkdownRenderer): void {
         const href = token.attrGet('href')
         if (!href) continue
         const [file, hash] = href.replace(/^\.\//, '').split('#')
-        const target = sitePages[file]
+        const target = sitePages[file] ?? file.match(/^docs\/(.+)\.md$/)?.[1].replace(/(^|\/)index$/, '$1').replace(/^/, '/')
         if (target) token.attrSet('href', hash ? `${target}#${hash}` : target)
       }
     }

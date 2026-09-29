@@ -25,6 +25,7 @@ const configuration: DefaultTheme.SidebarItem[] = [
     items: [
       { text: 'stackorder.yaml', link: '/configuration/stackorder-yaml' },
       { text: '.stackorder.yaml', link: '/configuration/stack-yaml' },
+      { text: 'Stack instances', link: '/configuration/instances' },
       { text: 'Workflows', link: '/configuration/workflows' },
       { text: 'Environments and authorization', link: '/configuration/environments-and-authorization' },
       { text: 'Cross-repo dependencies', link: '/configuration/cross-repo' },

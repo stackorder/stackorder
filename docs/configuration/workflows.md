@@ -80,13 +80,13 @@ The file has no `concurrency` group and is never cancelled in progress. Inside `
 | `mode` | `plan`, `apply` or `drift`. Any other value fails the job before checkout. |
 | `wave` | The wave index this dispatch covers, `0` for plan and drift dispatches. |
 | `sha` | The commit the run is for, which each job checks out: the pull request head for a pull request's plans and `before_merge` applies, the merge commit for an `on_merge` apply, the head of the default branch for drift checks and cross-repository plans. |
-| `stacks` | A JSON array of [matrix entries](/reference/actions#matrix-entry), one per stack. Each entry carries the stack's GitHub environment, tool and, for applies, the workflow run and artifact that hold its plan file. |
+| `stacks` | A JSON array of [matrix entries](/reference/actions#matrix-entry), one per stack. Each entry carries the stack's key, directory and instance, its GitHub environment, tool and, for applies, the workflow run and artifact that hold its plan file. |
 
 ### Which environment and role a job gets {#environments}
 
 | Mode | Dispatched for | Environment | AWS role |
 | --- | --- | --- | --- |
-| `apply` | A `stackorder apply` comment, a merge in `on_merge` mode | The stack's environment, from `environments` or its `.stackorder.yaml`; `default` when nothing matches | The longest matching prefix of `aws-role-arn-map`, else `aws-role-arn` |
+| `apply` | A `stackorder apply` comment, a merge in `on_merge` mode | The stack's environment: from its instance override or `.stackorder.yaml`, else the `environments` map, else its instance name, else `default` | The first match in `aws-role-arn-map` (exact key, then `:instance`, then the longest prefix), else `aws-role-arn` |
 | `plan` | A `stackorder plan` comment, a re-run from the UI or the checks tab, a cross-repository plan | Always `default` | `aws-plan-role-arn`, else `aws-role-arn` |
 | `drift` | The drift schedule | Always `default` | `aws-plan-role-arn`, else `aws-role-arn` |
 
@@ -97,9 +97,10 @@ An apply is dispatched once per wave and environment, at most `apply.max_paralle
 | Input | Workflows | Default | Meaning |
 | --- | --- | --- | --- |
 | `server-url` | both | required | The server's base URL. The CLI also requests it as the OIDC audience, so it must equal the server's `STACKORDER_OIDC_AUDIENCE`, the base URL by default. |
-| `aws-role-arn` | both | empty | The IAM role for stacks that match no prefix in `aws-role-arn-map`, and for plan and drift dispatches when `aws-plan-role-arn` is empty. |
-| `aws-role-arn-map` | both | empty | A JSON object from stack path prefix to IAM role ARN; the longest matching prefix wins. In `run.yml` only apply jobs use it. |
+| `aws-role-arn` | both | empty | The IAM role for stacks that match nothing in `aws-role-arn-map`, and for plan and drift dispatches when `aws-plan-role-arn` is empty. |
+| `aws-role-arn-map` | both | empty | A JSON object from key to IAM role ARN. A key is a path prefix (`stacks/prod/`), an exact stack key (`infra/network:production`) or an instance in any directory (`:production`). The exact key wins, then `:instance`, then the longest prefix; a key with `:` is never a prefix. In `run.yml` only apply jobs use it. |
 | `aws-plan-role-arn` | `run.yml` | empty | The IAM role for plan and drift dispatches, which run under the `default` environment. |
+| `aws-role-session-name` | both | empty | The AWS role session name: a name, or a JSON object with `plan`, `apply` and `drift` keys, `drift` falling back to `plan`; `plan.yml` uses `plan`. Every character outside `[A-Za-z0-9_+=,.@-]` becomes `-` and the name is cut at 64 characters. Empty keeps the credentials action's default, `GitHubActions`. Since actions v1.1.0. |
 | `aws-region` | both | `us-east-1` | The AWS region for the credentials. |
 | `tool` | both | `terraform` | `terraform` or `tofu`, for stacks whose matrix entry names no tool. |
 | `tool-version` | both | `latest` | The tool version to install, for stacks whose matrix entry pins none. |
@@ -111,7 +112,7 @@ An apply is dispatched once per wave and environment, at most `apply.max_paralle
 | `stacks` | `plan.yml` | empty | Comma separated stack keys to restrict the plan to. |
 | `run-id`, `mode`, `wave`, `sha`, `stacks` | `run.yml` | | The dispatch inputs, passed through. `run-id`, `mode` and `stacks` are required. |
 
-When no role applies to a stack, the job logs a notice and skips AWS credentials, which suits self-hosted runners with an instance role. Reading `aws-role-arn-map` needs `jq` on the runner.
+Instances need `stackorder/actions` v1.1.0 or later for the key forms of `aws-role-arn-map` and for `aws-role-session-name`; see [AWS roles](./instances#aws-roles). When no role applies to a stack, the job logs a notice and skips AWS credentials, which suits self-hosted runners with an instance role. Reading `aws-role-arn-map` needs `jq` on the runner.
 
 Every job installs the stack's tool with `hashicorp/setup-terraform@v3` or `opentofu/setup-opentofu@v1` (wrapper disabled), sets `STACKORDER_TOOL` to it, installs `stackorder` with the [`setup` action](/reference/actions#setup), and caches providers in `$RUNNER_TEMP/terraform-plugin-cache` with `actions/cache@v4`, keyed on the stack's `.terraform.lock.hcl`.
 
@@ -156,11 +157,13 @@ If any of these files exist, the CLI runs them around plan and apply, in CI and 
 
 `stackorder drift` runs no hooks.
 
-Each hook runs with `bash`, from the repository root, with the job's environment plus:
+Each hook runs with `bash`, from the repository root, with the job's environment, the stack's [`env`](./instances#env) for the command's mode, and:
 
 | Variable | Value |
 | --- | --- |
-| `STACKORDER_STACK` | The stack key. |
+| `STACKORDER_STACK` | The stack key, such as `infra/network:production`. |
+| `STACKORDER_STACK_PATH` | The stack directory, such as `infra/network`. |
+| `STACKORDER_INSTANCE` | The instance name, such as `production`; empty for a stack with no instances. |
 | `STACKORDER_RUN_ID` | The Stackorder run id; empty when there is none, such as a local plan. |
 | `STACKORDER_PLAN_FILE` | The path of the binary plan file; empty for `pre-plan`. |
 | `STACKORDER_PLAN_JSON` | The path of the plan as JSON, from `show -json`; empty for `pre-plan`. |

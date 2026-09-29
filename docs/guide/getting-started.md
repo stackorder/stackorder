@@ -190,7 +190,7 @@ In the repository settings, under **Environments**, create `production`:
 - **Prevent self-review**: on, so the requester cannot approve their own deployment.
 - **Deployment branches**: the default branch only. Server-dispatched runs start from the default branch and check out the commit they are given.
 
-Create `staging` the same way, with fewer or no reviewers. The environment `default`, which GitHub creates on first use with no protection rules, is where the server's plan and drift dispatches run, and where stacks that match no prefix apply. Give it no reviewers, or every `stackorder plan` comment waits for an approval.
+Create `staging` the same way, with fewer or no reviewers. The environment `default`, which GitHub creates on first use with no protection rules, is where the server's plan and drift dispatches run, and where stacks without an instance that match no prefix apply. Give it no reviewers, or every `stackorder plan` comment waits for an approval.
 
 Required reviewers on private repositories need GitHub Enterprise. [Environments and authorization](/configuration/environments-and-authorization) covers the alternatives.
 

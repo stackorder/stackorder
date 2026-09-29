@@ -82,6 +82,12 @@ Network errors, timeouts and 5xx answers are retried three times, after 200 ms, 
 
 When a result is unconfirmed in Actions, the CLI creates a neutral check run with `GITHUB_TOKEN` (`stackorder/resolve` or `stackorder/plan: <key>`) so the pull request shows why, and writes a warning annotation. Without `GITHUB_TOKEN` it only warns.
 
+### Stack keys {#stack-keys}
+
+`--stack` takes a stack key: the directory, `infra/network`, or the directory and an instance, `infra/network:production`. For a directory with [instances](/configuration/instances), declared in `instances` or derived from `from_var_files`, the suffix must name one of them, and a bare path is an error that lists them. For a directory without, the suffix is a Terraform workspace, as before instances existed: the stack's `workspace` when it sets one, or an ad hoc workspace otherwise.
+
+The CLI loads the stack's effective configuration for that instance, from the root `stackorder.yaml` and the directory's `.stackorder.yaml` in the checkout: its backend configuration, var files, environment variables and workspace.
+
 ## `resolve` {#resolve}
 
 ```text
@@ -152,7 +158,7 @@ Flags:
   -h, --help            help for plan
       --out string      plan file to write (default <plan dir>/<artifact>.tfplan)
       --run-id string   server run id (env STACKORDER_RUN_ID)
-      --stack string    stack key: path or path:workspace
+      --stack string    stack key: path or path:instance
 
 Global Flags:
       --format string      output format: text, json, or dot where it applies (default "text")
@@ -161,10 +167,10 @@ Global Flags:
   -v, --verbose            log debug output
 ```
 
-1. Loads the stack's effective configuration and detects the tool (see [Tool selection](#tool)).
+1. Loads the stack's effective configuration and detects the tool (see [Tool selection](#tool)). Every step below runs with the `plan` values of the stack's [`env`](/configuration/instances#env).
 2. Runs the `pre-plan` [hook](/configuration/workflows#hooks).
-3. Runs `init -input=false -no-color`, with one `-backend-config=<value>` per item of `STACKORDER_BACKEND_CONFIG`, then, for a stack with a workspace, `workspace select -or-create <workspace>`.
-4. Runs `plan -input=false -no-color -detailed-exitcode -out=<plan file>`.
+3. Runs `init -input=false -no-color`, with one `-backend-config=<value>` per entry of the stack's [`backend_config`](/configuration/instances#backend-config) (files as absolute paths), then one per item of `STACKORDER_BACKEND_CONFIG`, and `-reconfigure` when the stack has a `backend_config`. Then, for a stack with a workspace, it runs `workspace select -or-create <workspace>`.
+4. Runs `plan -input=false -no-color -detailed-exitcode -out=<plan file>`, with one `-var-file=<path>` per [var file](/configuration/instances#var-files) of the stack. A var file that does not exist fails the plan with an error that names it.
 5. Writes `show -json` of the plan next to the plan file, as `<artifact>.json`, and builds the summary: adds, changes, destroys, replaces, imports, moves, output changes and the addresses of each.
 6. Unless the stack's `plan_output` is `summary`, captures `show -no-color`, redacts it and cuts it at 256 KB.
 7. Runs the `post-plan` hook, with `STACKORDER_PLAN_FILE` and `STACKORDER_PLAN_JSON` set.
@@ -198,7 +204,7 @@ Flags:
       --local              apply from outside GitHub Actions through a manual run; needs STACKORDER_API_KEY
       --plan-file string   saved plan to apply (default <plan dir>/<artifact>.tfplan)
       --run-id string      server run id (env STACKORDER_RUN_ID)
-      --stack string       stack key: path or path:workspace
+      --stack string       stack key: path or path:instance
 
 Global Flags:
       --format string      output format: text, json, or dot where it applies (default "text")
@@ -215,13 +221,15 @@ In Actions, before touching anything, `apply` confirms with `GET /v1/runs/{id}` 
 
 Any mismatch, no server, or an unreachable server is a refusal: exit 3, fail closed.
 
-Then it runs `init` and chooses what to apply:
+Then it runs `init`, with the same backend configuration as `plan`, and chooses what to apply. Every step runs with the `apply` values of the stack's `env`, the re-plan included.
 
 | Situation | What happens |
 | --- | --- |
 | The plan file exists and `apply.from_plan` is `true` (the default) | The saved plan is applied. |
 | The plan file exists and `apply.from_plan` is `false` | The stack is planned again, and applied only if the new plan's resource address set equals the one recorded in the run. |
 | The plan file is missing, such as an expired artifact | The same re-plan and comparison, with a warning. |
+
+A re-plan passes the stack's var files. `apply <plan file>` passes none: the plan file holds the values of every variable, and only [ephemeral variables](/configuration/instances#ephemeral) take their value from the apply's environment.
 
 A re-plan whose addresses differ, or a run that recorded no summary to compare with, is refused with exit 3 and the differing addresses. The `pre-apply` hook runs before `apply -input=false -no-color <plan file>`, and the `post-apply` hook after it. Once the run is confirmed, the result is posted whatever happens: a failed apply exits 1 after reporting, a failed post after a successful apply exits 1, and so does a failing `post-apply` hook.
 
@@ -243,7 +251,7 @@ Usage:
 Flags:
   -h, --help            help for drift
       --run-id string   server run id (env STACKORDER_RUN_ID)
-      --stack string    stack key: path or path:workspace
+      --stack string    stack key: path or path:instance
 
 Global Flags:
       --format string      output format: text, json, or dot where it applies (default "text")
@@ -252,7 +260,7 @@ Global Flags:
   -v, --verbose            log debug output
 ```
 
-Runs `init` and `plan -detailed-exitcode` into a temporary plan file, summarizes it, and posts the result like `plan` does. It runs no hooks. The text output is `stacks/prod/vpc: no drift` or `stacks/prod/vpc: drifted: …`.
+Runs `init` and `plan -detailed-exitcode` into a temporary plan file, with the same backend configuration and var files as `plan` and the `drift` values of the stack's `env`, summarizes it, and posts the result like `plan` does. It runs no hooks. The text output is `stacks/prod/vpc: no drift` or `stacks/prod/vpc: drifted: …`.
 
 | Output | Meaning |
 | --- | --- |
@@ -276,7 +284,7 @@ Flags:
   -h, --help                  help for check
       --name string           check name, shown as stackorder/<name>: <stack>
       --run-id string         server run id (env STACKORDER_RUN_ID)
-      --stack string          stack key: path or path:workspace
+      --stack string          stack key: path or path:instance
       --status string         verdict: pass, fail or warn
       --summary string        one line summary
 
@@ -440,7 +448,13 @@ stackorder 1.0.0 (a1b2c3d, 2026-09-28T09:00:00Z, go1.26.0, linux/amd64)
 | `GITHUB_ACTIONS`, `GITHUB_*`, `ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, `GITHUB_OUTPUT`, `GITHUB_STEP_SUMMARY` | Provided by the runner. |
 | `GITHUB_TOKEN` | Used only for the neutral fallback checks. |
 
-Terraform and OpenTofu always run with `TF_IN_AUTOMATION=1`, `TF_INPUT=0` and `CHECKPOINT_DISABLE=1`, on top of the process environment.
+Terraform, OpenTofu and the [hooks](/configuration/workflows#hooks) run with the process environment, then `TF_IN_AUTOMATION=1`, `TF_INPUT=0` and `CHECKPOINT_DISABLE=1`, then the stack's [`env`](/configuration/instances#env) for the command's mode, then:
+
+| Variable | Value |
+| --- | --- |
+| `STACKORDER_STACK` | The stack key, such as `infra/network:production` |
+| `STACKORDER_STACK_PATH` | The stack directory, such as `infra/network` |
+| `STACKORDER_INSTANCE` | The instance name, such as `production`; empty for a stack with no instances |
 
 ## Tool selection {#tool}
 
@@ -452,7 +466,7 @@ Everything the CLI sends to the server, the step summary or a fallback check (pl
 
 - the bodies of PEM private key blocks, JSON web tokens, AWS access key ids and secret access key assignments, GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`) and Slack tokens;
 - quoted values assigned to names ending in `password`, `passwd`, `secret` or `token`, and `…PASSWORD=`, `…SECRET=` or `…TOKEN=` assignments;
-- the value of every environment variable whose name has a `SECRET`, `TOKEN`, `PASSWORD`, `PASSWD`, `PASSPHRASE`, `APIKEY`, `API_KEY`, `PRIVATE_KEY` or `CREDENTIAL(S)` component, such as `GITHUB_TOKEN` or `DB_PASSWORD`, unless it is shorter than 4 characters, a boolean or a number.
+- the value of every environment variable, from the process environment or the stack's `env`, whose name has a `SECRET`, `TOKEN`, `PASSWORD`, `PASSWD`, `PASSPHRASE`, `APIKEY`, `API_KEY`, `PRIVATE_KEY` or `CREDENTIAL(S)` component, such as `GITHUB_TOKEN` or `DB_PASSWORD`, unless it is shorter than 4 characters, a boolean or a number.
 
 In Actions those environment values are also registered with `::add-mask::` before Terraform runs, and the output Terraform streams to the job log goes through the same redactor. Values marked `sensitive` are already masked by Terraform itself.
 
