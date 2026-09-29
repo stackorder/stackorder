@@ -512,6 +512,67 @@ func TestReconcileAbandonsAnApplyWhosePlansMovedOn(t *testing.T) {
 	})
 }
 
+func TestReconcileRecoversAnApplyThatStartedApplyingWithoutDispatch(t *testing.T) {
+	applying := func(e *env, applyID string) {
+		e.t.Helper()
+		_, err := e.st.UpdateRunStatus(e.ctx, uuid.MustParse(applyID), v1.RunApplying, v1.RunPending)
+		require.NoError(e.t, err)
+	}
+	t.Run("dispatched", func(t *testing.T) {
+		e := newEnv(t, baseConfig())
+		planRun := e.planned(7, headSHA)
+		applyID := e.stalledApply(7, planRun)
+		applying(e, applyID)
+		e.clock.Set(e.run(applyID).CreatedAt.Add(2*time.Minute + time.Second))
+		require.NoError(t, e.svc.Reconcile(e.ctx))
+		ds := e.gh.Dispatches()
+		require.Len(t, ds, 2, "wave 0 goes out once per environment")
+		for _, d := range ds {
+			assert.Equal(t, applyID, d.Inputs["run_id"])
+			assert.Equal(t, "0", d.Inputs["wave"])
+		}
+		require.NoError(t, e.svc.Reconcile(e.ctx))
+		require.Len(t, e.gh.Dispatches(), 2, "a recovered apply is dispatched once")
+		for i := 0; i < len(e.gh.Dispatches()); i++ {
+			e.reportAll(e.gh.Dispatches()[i], nil)
+		}
+		assert.Equal(t, v1.RunApplied, e.run(applyID).Status)
+	})
+	t.Run("abandoned", func(t *testing.T) {
+		e := newEnv(t, baseConfig())
+		planRun := e.planned(7, headSHA)
+		applyID := e.stalledApply(7, planRun)
+		applying(e, applyID)
+		e.openPull(7, newHeadSHA)
+		e.clock.Set(e.run(applyID).CreatedAt.Add(3 * time.Minute))
+		require.NoError(t, e.svc.Reconcile(e.ctx))
+		assert.Equal(t, v1.RunFailed, e.run(applyID).Status)
+		assert.Empty(t, e.gh.Dispatches(), "stale plans are never applied")
+		assert.Empty(t, e.locks())
+		assert.Contains(t, e.lastComment(7), "moved on to 4444444")
+	})
+	t.Run("current wave empty", func(t *testing.T) {
+		e := newEnv(t, baseConfig())
+		planRun := e.planned(7, headSHA)
+		applyID := e.stalledApply(7, planRun)
+		rows, err := e.st.GetRunStacks(e.ctx, uuid.MustParse(applyID))
+		require.NoError(t, err)
+		noop := v1.StackNoop
+		for _, rs := range rows {
+			if rs.Wave == 0 {
+				_, err := e.st.UpdateRunStack(e.ctx, rs.RunID, rs.StackID, store.RunStackPatch{Status: &noop})
+				require.NoError(t, err)
+			}
+		}
+		applying(e, applyID)
+		e.openPull(7, newHeadSHA)
+		e.clock.Set(e.run(applyID).CreatedAt.Add(3 * time.Minute))
+		require.NoError(t, e.svc.Reconcile(e.ctx))
+		assert.Equal(t, v1.RunApplying, e.run(applyID).Status, "a run whose next wave is its dispatch job's to send is left alone")
+		assert.Len(t, e.locks(), 4)
+	})
+}
+
 func TestDispatchFailure(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.planned(7, headSHA)

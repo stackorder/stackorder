@@ -26,11 +26,11 @@ import (
 // unbound for longer than UnboundDispatchTimeout unknown unless a workflow
 // run with their title is still running undecided, and closes dispatches
 // whose workflow run completed without every stack reporting. An apply run
-// still pending without any dispatch two minutes after it was created,
-// which a failure between its creation and its first dispatch leaves
-// behind, has its wave 0 dispatched while its plans are still current, and
-// is otherwise failed with a comment on its pull request and its locks
-// released.
+// without any dispatch two minutes after it was created, still pending or
+// applying with stacks of its current wave planned, which a failure
+// between its creation and its first dispatch leaves behind, has that
+// wave dispatched while its plans are still current, and is otherwise
+// failed with a comment on its pull request and its locks released.
 func (s *Service) Reconcile(ctx context.Context) error {
 	open, err := s.st.OpenDispatches(ctx)
 	if err != nil {
@@ -56,26 +56,48 @@ func (s *Service) Reconcile(ctx context.Context) error {
 }
 
 func (s *Service) recoverStalledApplies(ctx context.Context, now time.Time) error {
-	pending, _, err := s.st.ListRuns(ctx, store.RunFilter{Status: v1.RunPending, Mode: v1.ModeApply, Limit: 500})
-	if err != nil {
-		return storeErr(err, "pending apply runs")
-	}
 	var errs []error
-	for _, run := range pending {
-		if run.Trigger == v1.TriggerManual || now.Sub(run.CreatedAt) < stalledApplyAge {
-			continue
-		}
-		dispatches, err := s.st.ListDispatches(ctx, run.ID)
+	for _, status := range []v1.RunStatus{v1.RunPending, v1.RunApplying} {
+		runs, _, err := s.st.ListRuns(ctx, store.RunFilter{Status: status, Mode: v1.ModeApply, Limit: 500})
 		if err != nil {
-			errs = append(errs, storeErr(err, "dispatches of run %s", run.ID))
+			errs = append(errs, storeErr(err, "%s apply runs", status))
 			continue
 		}
-		if len(dispatches) > 0 {
-			continue
+		for _, run := range runs {
+			if run.Trigger == v1.TriggerManual || now.Sub(run.CreatedAt) < stalledApplyAge {
+				continue
+			}
+			stalled, err := s.neverDispatched(ctx, run)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if stalled {
+				errs = append(errs, s.recoverApply(ctx, run))
+			}
 		}
-		errs = append(errs, s.recoverApply(ctx, run))
 	}
 	return errors.Join(errs...)
+}
+
+func (s *Service) neverDispatched(ctx context.Context, run store.Run) (bool, error) {
+	dispatches, err := s.st.ListDispatches(ctx, run.ID)
+	if err != nil {
+		return false, storeErr(err, "dispatches of run %s", run.ID)
+	}
+	if len(dispatches) > 0 {
+		return false, nil
+	}
+	if run.Status == v1.RunPending {
+		return true, nil
+	}
+	rows, err := s.st.GetRunStacks(ctx, run.ID)
+	if err != nil {
+		return false, storeErr(err, "stacks of run %s", run.ID)
+	}
+	return slices.ContainsFunc(rows, func(rs store.RunStack) bool {
+		return rs.Wave == run.CurrentWave && rs.Status == v1.StackPlanned
+	}), nil
 }
 
 func (s *Service) recoverApply(ctx context.Context, run store.Run) error {
@@ -91,8 +113,8 @@ func (s *Service) recoverApply(ctx context.Context, run store.Run) error {
 		return err
 	}
 	if reason == "" {
-		s.log.InfoContext(ctx, "dispatching an apply left without a dispatch", "run_id", run.ID)
-		return s.dispatchWave(ctx, run.ID, 0)
+		s.log.InfoContext(ctx, "dispatching an apply left without a dispatch", "run_id", run.ID, "wave", run.CurrentWave)
+		return s.dispatchWave(ctx, run.ID, run.CurrentWave)
 	}
 	return s.abandonApply(ctx, repo, run, reason)
 }
@@ -151,7 +173,7 @@ func (s *Service) staleApply(ctx context.Context, repo store.Repo, run store.Run
 }
 
 func (s *Service) abandonApply(ctx context.Context, repo store.Repo, run store.Run, reason string) error {
-	moved, err := s.transition(ctx, run, v1.RunFailed, v1.RunPending)
+	moved, err := s.transition(ctx, run, v1.RunFailed, run.Status)
 	if err != nil || !moved {
 		return err
 	}

@@ -57,7 +57,7 @@ The gate checks every layer and reports all failures in one comment:
 | A stack has no plan for the head SHA | Wait for the plans of the latest push, or fix the stack whose plan failed. |
 | A named check failed | Fix what the check reported. `warn` does not block; `fail` does. |
 | A stack is locked by another PR | Wait for that PR to merge, or see [Locks after a closed PR](#locks-after-close). |
-| Another apply of this PR is in flight | Wait for it to finish. |
+| Another apply of this PR is in flight | Wait for it to finish. An apply the server recorded but never dispatched is dispatched by the server within about three minutes, or, when its plans are no longer the head's, failed with its locks released and a comment. |
 | `apply.mode` is `on_merge` | Merge the PR; the merge starts the apply. |
 
 Gate policy comes from `stackorder.yaml` on the default branch. Changing it in the PR does not change the gate for that PR.

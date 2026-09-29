@@ -362,7 +362,13 @@ to the default branch head.
 Dispatches are unique per (run, wave, environment, mode, chunk), where
 chunks split one (wave, environment) by `apply.max_parallel`; `sent_at`
 marks a dispatch GitHub accepted, and Reconcile resends unsent ones after
-60 s. Each dispatch row binds at most one Actions `workflow_run_id`: a
+60 s. An apply run (manual runs excepted) with no dispatch row two minutes
+after it was created, still `pending` or `applying` with stacks of its
+current wave `planned`, has that wave dispatched by Reconcile while it is
+the pull request's newest apply, a comment apply's pull request is still
+open at the run's commit and every planned stack keeps the head's plan;
+otherwise it is failed, its locks are released and the pull request gets
+a comment. Each dispatch row binds at most one Actions `workflow_run_id`: a
 `workflow_run` event's `display_title` binds only when it names a single
 dispatch of that (run, wave, mode); otherwise the stacks named by the run's
 jobs choose the dispatch, or the environment of a `deployment_protection_rule`
