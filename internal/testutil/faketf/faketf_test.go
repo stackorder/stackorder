@@ -22,6 +22,7 @@ type fixture struct {
 	t    *testing.T
 	root string
 	cfg  Config
+	env  []string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -51,9 +52,8 @@ type result struct {
 func (f *fixture) run(dir string, args ...string) result {
 	f.t.Helper()
 	path := WriteConfig(f.t, f.cfg)
-	env := map[string]string{EnvConfig: path}
 	var stdout, stderr bytes.Buffer
-	code := Run(args, func(k string) string { return env[k] }, filepath.Join(f.root, dir), &stdout, &stderr)
+	code := Run(args, append([]string{EnvConfig + "=" + path}, f.env...), filepath.Join(f.root, dir), &stdout, &stderr)
 	return result{code: code, stdout: stdout.String(), stderr: stderr.String()}
 }
 
@@ -93,6 +93,35 @@ func TestStackBehaviorByLongestSuffix(t *testing.T) {
 		})
 	}
 	assert.Equal(t, 1, f.cfg.Stack("/x/vpc").PlanExit, "a shorter key matches a directory that ends with it")
+}
+
+func TestStackBehaviorByKey(t *testing.T) {
+	f := newFixture(t)
+	f.cfg.Stacks["stacks/prod/apps:blue"] = Behavior{PlanExit: 2}
+	f.cfg.Stacks["stacks/prod/apps:red"] = Behavior{PlanExit: 1}
+	tests := []struct {
+		name  string
+		dir   string
+		stack string
+		want  int
+	}{
+		{name: "a key names its instance", dir: "stacks/prod/apps", stack: "stacks/prod/apps:blue", want: 2},
+		{name: "another instance of the directory", dir: "stacks/prod/apps", stack: "stacks/prod/apps:red", want: 1},
+		{name: "an unknown key falls back to the directory", dir: "stacks/prod/vpc", stack: "stacks/prod/vpc:green", want: 2},
+		{name: "a key without an instance", dir: "stacks/prod/vpc", stack: "stacks/prod/vpc", want: 2},
+		{name: "no key", dir: "stacks/prod/apps", want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f.env = nil
+			if tt.stack != "" {
+				f.env = []string{EnvStack + "=" + tt.stack}
+			}
+			out := filepath.Join(t.TempDir(), "plan.tfplan")
+			r := f.run(tt.dir, "plan", "-detailed-exitcode", "-out="+out)
+			assert.Equal(t, tt.want, r.code, r.stderr)
+		})
+	}
 }
 
 func TestPlanFailure(t *testing.T) {
@@ -172,12 +201,37 @@ func TestCallsAreRecorded(t *testing.T) {
 	assert.Equal(t, []string{"init", "-input=false"}, calls[0].Args)
 	assert.Equal(t, filepath.ToSlash(filepath.Join(f.root, "stacks/prod/vpc")), calls[0].Dir)
 	assert.Equal(t, "workspace", calls[1].Args[0])
+	assert.Nil(t, calls[0].Env)
 	assert.Empty(t, Calls(t, filepath.Join(t.TempDir(), "none")))
+}
+
+func TestCallsRecordTheStackEnvironment(t *testing.T) {
+	f := newFixture(t)
+	f.env = []string{
+		"TF_VAR_environment=production",
+		"TF_VAR_role=deploy",
+		"STACKORDER_STACK=stacks/prod/apps:blue",
+		"STACKORDER_INSTANCE=blue",
+		"AWS_REGION=eu-west-1",
+		"TF_IN_AUTOMATION=1",
+		"TF_VAR_empty=",
+	}
+	f.run("stacks/prod/apps", "plan", "-var-file=workspaces/blue.tfvars.json")
+	calls := Calls(t, f.cfg.Log)
+	require.Len(t, calls, 1)
+	assert.Equal(t, map[string]string{
+		"TF_VAR_environment":  "production",
+		"TF_VAR_role":         "deploy",
+		"TF_VAR_empty":        "",
+		"STACKORDER_STACK":    "stacks/prod/apps:blue",
+		"STACKORDER_INSTANCE": "blue",
+	}, calls[0].Env, "only TF_VAR_ and STACKORDER_ variables are kept, never the fake's own config")
+	assert.Equal(t, "stacks/prod/apps:blue", calls[0].Stack())
 }
 
 func TestMisconfigured(t *testing.T) {
 	var stderr bytes.Buffer
-	code := Run([]string{"version"}, func(string) string { return "" }, t.TempDir(), &bytes.Buffer{}, &stderr)
+	code := Run([]string{"version"}, nil, t.TempDir(), &bytes.Buffer{}, &stderr)
 	assert.Equal(t, ExitMisconfigured, code)
 	assert.Contains(t, stderr.String(), EnvConfig)
 }

@@ -66,6 +66,14 @@ func TestApplyGateLayers(t *testing.T) {
 			want: []string{"**Layer 1, authorization** (`stacks/prod/vpc`)", "`acme/platform-prod`"},
 		},
 		{
+			name: "layer 1 refuses a stack whose default-branch configuration does not render",
+			setup: func(e *env) {
+				e.gh.SetContents(repoName, "main", "stacks/prod/vpc/.stackorder.yaml",
+					[]byte("environment: '{{ if eq .Path \"stacks/prod/vpc\" }}{{ .Nope }}{{ end }}'\n"))
+			},
+			want: []string{"**Layer 1, authorization** (`stacks/prod/vpc`)", "apply.allowed_teams is unknown", "Nope"},
+		},
+		{
 			name: "layer 2 counts approvals on the head commit",
 			cfg:  func(c *v1.RepoConfig) { c.Apply.RequireApprovals = 1 },
 			setup: func(e *env) {

@@ -246,6 +246,28 @@ func TestPlanOutputSummaryComesFromTheDefaultBranch(t *testing.T) {
 	}
 }
 
+func TestPlanOutputFailsClosedWhenTheDefaultBranchDoesNotRender(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	onMain := testGraph(mainSHA)
+	for i := range onMain.Stacks {
+		if onMain.Stacks[i].Key == vpc {
+			onMain.Stacks[i].Config = &v1.StackConfig{PlanOutput: v1.PlanOutputFull, Environment: "{{ .Nope }}"}
+		}
+	}
+	id, _, err := e.st.SaveGraph(e.ctx, repoID, &onMain)
+	require.NoError(t, err)
+	require.NoError(t, e.st.SetDefaultGraph(e.ctx, repoID, id))
+
+	e.openPull(7, headSHA)
+	_, _, resp := e.startPlan(7, headSHA)
+	outputs := map[string]string{}
+	for _, m := range resp.Matrix.Include {
+		outputs[m.Key] = m.PlanOutput
+	}
+	assert.Equal(t, map[string]string{vpc: "summary", staging: "full", eks: "full", apps: "full"}, outputs,
+		"a default-branch stack file that does not render keeps the plan text out of the pull request")
+}
+
 func TestPlanOutputSummaryIsReadFromTheDefaultBranchBeforeTheFirstMerge(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.gh.SetContents(repoName, "main", "stacks/prod/vpc/.stackorder.yaml", []byte("plan_output: summary\n"))

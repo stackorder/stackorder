@@ -3,9 +3,11 @@
 // holding both names, to be put first on PATH. On every call the binary
 // reads a Config from the JSON file named by EnvConfig and answers version,
 // init, workspace, plan, show, apply and output with the Behavior configured
-// for the stack directory it runs in: plan and apply exit codes, a canned
-// show -json fixture, and an apply that can wait for a file so a test can
-// observe an apply in flight.
+// for the stack it runs for, named by EnvStack or else by its directory:
+// plan and apply exit codes, a canned show -json fixture, and an apply that
+// can wait for a file so a test can observe an apply in flight. Every call is
+// recorded with its arguments and the TF_VAR_ and STACKORDER_ variables of
+// its environment.
 package faketf
 
 import (
@@ -26,6 +28,8 @@ import (
 const (
 	// EnvConfig names the variable holding the path of the Config file.
 	EnvConfig = "STACKORDER_FAKETF_CONFIG"
+	// EnvStack names the variable the CLI sets to the stack key.
+	EnvStack = "STACKORDER_STACK"
 	// DefaultVersion is the version reported when Config.Version is empty.
 	DefaultVersion = "1.14.0"
 	// ApplyWaitTimeout bounds how long an apply waits for its
@@ -47,11 +51,12 @@ type Config struct {
 	Tofu bool `json:"tofu,omitempty"`
 	// Version is the reported version, DefaultVersion when empty.
 	Version string `json:"version,omitempty"`
-	// Default is the behaviour of stack directories Stacks does not name.
+	// Default is the behaviour of stacks Stacks does not name.
 	Default Behavior `json:"default"`
-	// Stacks maps stack directories, slash separated and relative to the
-	// repository root, to their behaviour. A call uses the longest key its
-	// working directory ends with.
+	// Stacks maps stack keys ("path" or "path:instance") and stack
+	// directories, slash separated and relative to the repository root, to
+	// their behaviour. A call whose EnvStack names a key of Stacks uses it;
+	// any other call uses the longest key its working directory ends with.
 	Stacks map[string]Behavior `json:"stacks,omitempty"`
 }
 
@@ -77,6 +82,21 @@ type Call struct {
 	Dir string `json:"dir"`
 	// Args are the arguments after the program name.
 	Args []string `json:"args"`
+	// Env holds the variables of the call's environment whose names start
+	// with TF_VAR_ or STACKORDER_, except EnvConfig.
+	Env map[string]string `json:"env,omitempty"`
+}
+
+// Stack returns the stack key the call ran for, from EnvStack, or "".
+func (c Call) Stack() string { return c.Env[EnvStack] }
+
+// For returns the behaviour for a stack key, when Stacks names it, else for
+// the working directory.
+func (c Config) For(key, dir string) Behavior {
+	if b, ok := c.Stacks[key]; ok && key != "" {
+		return b
+	}
+	return c.Stack(dir)
 }
 
 // Stack returns the behaviour for a working directory.
@@ -100,17 +120,19 @@ func Main() int {
 		_, _ = fmt.Fprintln(os.Stderr, "faketf:", err)
 		return ExitMisconfigured
 	}
-	return Run(os.Args[1:], os.Getenv, dir, os.Stdout, os.Stderr)
+	return Run(os.Args[1:], os.Environ(), dir, os.Stdout, os.Stderr)
 }
 
-// Run answers one invocation with args in dir and returns its exit code.
-func Run(args []string, getenv func(string) string, dir string, stdout, stderr io.Writer) int {
-	cfg, err := readConfig(getenv(EnvConfig))
+// Run answers one invocation with args in dir under the environment
+// environ, as "NAME=value" entries, and returns its exit code.
+func Run(args []string, environ []string, dir string, stdout, stderr io.Writer) int {
+	env := recordedEnv(environ)
+	cfg, err := readConfig(lookup(environ, EnvConfig))
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "faketf:", err)
 		return ExitMisconfigured
 	}
-	if err := record(cfg.Log, Call{Dir: filepath.ToSlash(dir), Args: args}); err != nil {
+	if err := record(cfg.Log, Call{Dir: filepath.ToSlash(dir), Args: args, Env: env}); err != nil {
 		_, _ = fmt.Fprintln(stderr, "faketf:", err)
 		return ExitMisconfigured
 	}
@@ -118,7 +140,7 @@ func Run(args []string, getenv func(string) string, dir string, stdout, stderr i
 		_, _ = fmt.Fprintln(stderr, "Usage: terraform [global options] <subcommand> [args]")
 		return 1
 	}
-	b := cfg.Stack(dir)
+	b := cfg.For(env[EnvStack], dir)
 	switch args[0] {
 	case "version":
 		return version(cfg, stdout)
@@ -137,6 +159,31 @@ func Run(args []string, getenv func(string) string, dir string, stdout, stderr i
 		_, _ = fmt.Fprintln(stdout, "{}")
 	}
 	return 0
+}
+
+func lookup(environ []string, name string) string {
+	value := ""
+	for _, kv := range environ {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == name {
+			value = v
+		}
+	}
+	return value
+}
+
+func recordedEnv(environ []string) map[string]string {
+	var out map[string]string
+	for _, kv := range environ {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || k == EnvConfig || !strings.HasPrefix(k, "TF_VAR_") && !strings.HasPrefix(k, "STACKORDER_") {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[k] = v
+	}
+	return out
 }
 
 func readConfig(path string) (Config, error) {

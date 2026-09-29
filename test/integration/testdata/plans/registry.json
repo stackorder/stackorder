@@ -1,0 +1,14 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.14.0",
+  "resource_changes": [
+    {
+      "address": "terraform_data.registry",
+      "mode": "managed",
+      "type": "terraform_data",
+      "name": "registry",
+      "provider_name": "terraform.io/builtin/terraform",
+      "change": {"actions": ["create"], "before": null, "after": {"input": {"environment": "shared", "instance_size": "medium"}}, "after_unknown": {"id": true, "output": true}}
+    }
+  ]
+}
