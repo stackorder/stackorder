@@ -162,9 +162,11 @@ dependencies.
   role; only `apply` dispatches carry the stack's environment.
 - Hooks `.stackorder/hooks/{pre-plan,post-plan,pre-apply,post-apply}.sh` are
   run by the CLI itself, in CI and locally, with `STACKORDER_STACK`,
-  `STACKORDER_RUN_ID`, `STACKORDER_PLAN_JSON` and `STACKORDER_PLAN_FILE`
-  (both file paths) set. The design assigns hooks to the reusable workflow;
-  the CLI owns them so local and CI behaviour match.
+  `STACKORDER_STACK_PATH`, `STACKORDER_INSTANCE`, `STACKORDER_RUN_ID`,
+  `STACKORDER_PLAN_JSON` and `STACKORDER_PLAN_FILE` (both file paths) set,
+  plus the stack's configured `env` variables for the mode (see
+  [Stack instances](#stack-instances)). The design assigns hooks to the
+  reusable workflow; the CLI owns them so local and CI behaviour match.
 - Release assets on `stackorder/stackorder` tags `vX.Y.Z`:
   `stackorder_X.Y.Z_<os>_<arch>.tar.gz` (`.zip` on windows) containing the
   `stackorder` binary, `os` in `linux`, `darwin`, `windows`, `arch` in
@@ -187,8 +189,10 @@ policy from the default branch with the same pure functions.
   Terraform workspace the CLI selects after `init`; empty means none.
   `v1.RunStack`, `v1.AffectedStack`, `v1.StackDetail` and `v1.MatrixEntry`
   carry `instance` next to `workspace`. `v1.Stack.WatchPaths` lists
-  repository-relative files outside the stack directory that the stack
-  reads at `init` or `plan` (backend config files, var files).
+  repository-relative files that the stack reads at `init` or `plan`
+  (backend config files, var files) and that its own directory does not
+  own under the deepest-directory rule, so a file inside a nested stack
+  directory is a watch path of the enclosing stack that reads it.
 - Compatibility: an object whose `Instance` is empty but whose `Workspace`
   is set came from a CLI older than this contract; readers treat the
   workspace as the instance. Nothing derives `Workspace` from a key any
@@ -324,14 +328,18 @@ a stack with instances is a template such as `"{{ .Instance }}"`.
   ignored. A missing file is a scan error. Inferred `reads_state` edges and
   the shared-state-object warning therefore work per instance, including
   two instances that render the same key.
-- `WatchPaths` holds the backend config files and the var files that lie
-  outside the stack directory, sorted and unique. `TreeHash` covers
-  `*.tfvars`, `*.tfvars.json` and `*.tfbackend` too. A changed path equal
-  to a stack's watch path affects that stack with reason `watch_path`.
-- A rendered `depends_on` entry without a suffix that names a directory
-  with instances resolves to the instance of the same name when the target
-  has one, else to the target's only stack when it has exactly one, else
-  it is kept as written with a warning, as any unknown target is today. A
+- `WatchPaths` holds the backend config files and the var files that the
+  stack's own directory does not own, sorted and unique. `TreeHash` covers
+  `*.tfvars`, `*.tfvars.json` and `*.tfbackend` files, and every
+  backend config file, var file and `from_var_files` match the scan read,
+  whatever its name. A changed path equal to a stack's watch path affects
+  that stack with reason `watch_path`.
+- A rendered `depends_on` or `ignore_inferred` entry without a suffix that
+  names a directory with instances resolves to the instance of the same
+  name when the target has one, else to the target's only stack when it
+  has exactly one; a `depends_on` entry that resolves to nothing is kept as
+  written with a warning, as any unknown target is today, and an
+  `ignore_inferred` entry that resolves to nothing suppresses nothing. A
   cross-repository entry is kept as written; it names its instance itself,
   with a template if it wants the same one.
 - A listed var file that does not exist is a scan warning; the CLI errors
@@ -346,11 +354,16 @@ a stack with instances is a template such as `"{{ .Instance }}"`.
   With instances, declared in `instances` or derived from `from_var_files`,
   the suffix must name one and a bare `path` is an error listing them; with
   none, the suffix is the legacy workspace (equal to `workspace` when set,
-  ad hoc otherwise), as documented before this contract.
+  ad hoc otherwise, and a valid instance name either way), as documented
+  before this contract. `check --stack` resolves the key the same way,
+  but only warns when the stack cannot be loaded for another reason, so a
+  verdict can still be posted from a job without a checkout.
 - `init` passes `Effective.BackendConfig`, files resolved to absolute paths
   against the repository root, followed by `STACKORDER_BACKEND_CONFIG`, and
   `-reconfigure` whenever `Effective.BackendConfig` is not empty, so two
-  instances can share one checkout.
+  instances can share one checkout; in that case it also resets the
+  selected workspace to the instance's own (or `default`), since the
+  checkout's `.terraform` may have been left on another instance's.
 - `plan`, the re-plan inside `apply` and `drift` pass one `-var-file` per
   `Effective.VarFiles`; each must exist, and the error names it.
   `apply <planfile>` passes none. Plan-time values of non-ephemeral variables are
