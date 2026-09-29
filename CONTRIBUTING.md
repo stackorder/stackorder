@@ -70,7 +70,7 @@ nothing and needs neither Docker nor Terraform locally.
 
 | Variable | Meaning |
 | --- | --- |
-| `STACKORDER_E2E_GITHUB_TOKEN` | Token that may create and delete repositories in the organisation and set their Actions variables |
+| `STACKORDER_E2E_GITHUB_TOKEN` | Token that may create and delete repositories in the organisation, push workflow files (the `workflow` scope, or Workflows: write) and set their Actions variables |
 | `STACKORDER_E2E_ORG` | The organisation |
 | `STACKORDER_E2E_SERVER_URL` | The server's public `https` base URL |
 | `STACKORDER_E2E_PLAN_ROLE_ARN` | Optional plan role, set as `STACKORDER_PLAN_ROLE_ARN`; with it every plan check must succeed |

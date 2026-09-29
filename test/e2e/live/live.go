@@ -56,7 +56,7 @@ var ErrPartialConfig = errors.New("live: " + EnvToken + ", " + EnvOrg + " and " 
 // Config is where the live variant runs.
 type Config struct {
 	// Token is a GitHub token that may create and delete repositories in
-	// Org and set their Actions variables.
+	// Org, push workflow files and set their Actions variables.
 	Token string
 	// Org is the organisation the App is installed in.
 	Org string
