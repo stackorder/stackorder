@@ -3,14 +3,19 @@
 package integration
 
 import (
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/report"
+	"github.com/stackorder/stackorder/internal/testutil/faketf"
 )
 
 const codeowners = "stacks/prod/** @acme/platform-prod\nstacks/staging/** @acme/platform-eng\nmodules/** @acme/platform-eng\n"
@@ -157,5 +162,52 @@ func TestApplyGateRefusals(t *testing.T) {
 		}
 		assert.Equal(t, 10, accepted)
 		assert.Equal(t, 1, limited)
+	})
+}
+
+func TestDefaultBranchStackPolicy(t *testing.T) {
+	t.Run("allowed teams of a stack before the first merge", func(t *testing.T) {
+		e := shared(t)
+		f := newFixture(t, e, "stack-teams", withEdit(func(root string) {
+			require.NoError(t, os.WriteFile(filepath.Join(root, "stacks/prod/vpc/.stackorder.yaml"),
+				[]byte("apply:\n  allowed_teams: [platform-prod]\n"), 0o600))
+		}))
+		ev := f.openPR(40, f.co.head, "feature/vpc-subnet")
+		f.plan(ev)
+		f.approve(40, reviewer, f.co.head)
+		cmd := f.comment(40, applier, applyCommand)
+		replies := f.botComments(40, cmd.ID)
+		require.Len(t, replies, 1, "the stack's allowed_teams refuses the apply")
+		assert.Contains(t, replies[0].Body, "**Layer 1, authorization** (`stacks/prod/vpc`): carol is not an active member of `acme/platform-prod`")
+		assert.Empty(t, f.dispatches(""))
+		assert.Empty(t, f.locks())
+	})
+
+	t.Run("plan output of a stack before the first merge", func(t *testing.T) {
+		e := shared(t)
+		f := newFixture(t, e, "stack-plan-output")
+		f.setStack(stagingApps, func(b *faketf.Behavior) { b.PlanExit, b.ShowJSON = 2, fixturePath(t, "eks.json") })
+		f.co.at(f.co.head)
+		head := f.co.edit("stacks/staging/apps/.stackorder.yaml", "chore: show the staging plan", func(s string) string {
+			return strings.Replace(s, "plan_output: summary\n", "", 1)
+		})
+		ev := f.openPR(41, head, "feature/vpc-subnet")
+		p := f.plan(ev)
+		textShown := false
+		for _, c := range faketf.Calls(t, f.tf.Log) {
+			if strings.HasSuffix(c.Dir, "/"+stagingApps) && c.Args[0] == "show" && !slices.Contains(c.Args, "-json") {
+				textShown = true
+			}
+		}
+		require.True(t, textShown, "the pull request's copy of the stack asks the CLI for the full plan text")
+		run := e.run(p.runID)
+		rs := runStacks(run)[stagingApps]
+		assert.Equal(t, string(v1.PlanOutputSummary), rs.PlanOutput, "the default branch's plan_output: summary wins")
+		var text string
+		require.NoError(t, e.Store.Pool().QueryRow(t.Context(),
+			`SELECT rs.plan_text FROM run_stacks rs JOIN stacks s ON s.id = rs.stack_id WHERE rs.run_id = $1 AND s.key = $2`,
+			p.runID, stagingApps).Scan(&text))
+		assert.Empty(t, text, "no plan text of a summary stack is stored")
+		assert.NotContains(t, f.sticky(41).Body, "module.eks.terraform_data.cluster will be updated")
 	})
 }
