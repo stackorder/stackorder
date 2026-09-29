@@ -16,7 +16,9 @@ This release adds stack instances: one directory deployed several times, each de
 - `env` at the root, per stack and per instance: environment variables for the tool and the hooks, as a string or with a `plan`, `apply` and `drift` value, `drift` falling back to `plan`. Reserved names are refused, and values of secret-looking names are redacted.
 - `stacks.exclude` in `stackorder.yaml`: directory globs that are never stacks, beating `stacks.discover` and `stacks.include`.
 - `environments` keys `prefix:instance` and `:instance`, the most specific key winning, and template values.
-- Go templates in `environments` values, `environment`, `workspace`, `backend_config`, `var_files`, `env` values, `depends_on` and `ignore_inferred`, with `.Path`, `.Name`, `.Instance` and `.Key` and the functions `trimPrefix`, `trimSuffix`, `base`, `dir`, `replace`, `lower` and `upper`.
+- Go templates in `environments` values, `environment`, `workspace`, `backend_config`, `var_files`, `env` values, `depends_on` and `ignore_inferred`, with `.Path`, `.Name`, `.Instance` and `.Key`, the functions `trimPrefix`, `trimSuffix`, `base`, `dir`, `replace`, `lower` and `upper`, the builtins `and`, `or`, `not`, `eq`, `ne`, `lt`, `le`, `gt` and `ge`, and `if` and `with`. Other actions and builtins are refused, and output over 4096 bytes is an error, so a repository's configuration cannot stall the server.
+- The environment of a stack is the first of the instance's `environment`, the stack's and the `environments` match that renders non-empty, then the instance name, then `default`.
+- Validation of the new keys: `environments` prefixes may not contain `:`, an empty prefix needs an instance part, and keys whose prefixes normalise to the same path with the same instance part are refused; a null item in `instances` or a null `env` value is refused; reserved `env` names and the instance name `default` are refused in any letter case; two `from_var_files` matches that derive the same instance name are an error.
 - `depends_on` entries with an instance suffix; a bare path to a directory with instances resolves to the instance of the same name.
 - Watch paths: the backend configuration files and var files outside a stack directory affect the stack with the reason `watch_path`, and the tree hash covers `*.tfvars`, `*.tfvars.json` and `*.tfbackend` files. `watch_paths` is part of a stack in the API.
 - `instance` on stacks, affected stacks, run stacks, stack details and matrix entries in the API.
@@ -30,6 +32,8 @@ This release adds stack instances: one directory deployed several times, each de
 - The default GitHub environment of an instance is its name. A stack with `workspace: blue` and no environment mapping now applies under `blue` instead of `default`; set `environment: default` in its `.stackorder.yaml` to keep the old behaviour.
 - `init` runs with `-reconfigure` whenever a stack has `backend_config`, so instances of one directory can share a checkout; `STACKORDER_BACKEND_CONFIG` values follow the stack's.
 - The `--stack` help of `plan`, `apply`, `drift` and `check` reads `stack key: path or path:instance`. A bare path on a directory with instances is an error that lists them.
+- The ad hoc workspace suffix of `--stack path:x`, on a directory without instances, must be a valid instance name; any workspace string was accepted before.
+- An `environments` key `/` or `./` with no instance part is refused. It used to match only a stack at the repository root, which the scanner never produces.
 
 ### Compatibility
 

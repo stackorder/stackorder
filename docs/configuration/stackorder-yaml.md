@@ -126,6 +126,7 @@ plan_output: full                 # or summary
 
 - Prefixes match whole path segments. `stacks/prod/` matches `stacks/prod/vpc` but not `stacks/production/vpc`. The trailing slash is optional. An empty prefix, as in `:production`, matches every path.
 - The most specific key wins: a key with an instance part before one without, then the longest prefix.
+- A key with an empty prefix needs an instance part, a prefix may not contain `:`, and two keys whose prefixes name the same path (`infra`, `infra/`, `./infra`) with the same instance part are an error.
 - A value is a [template](./instances#templates), such as `"infra-{{ .Instance }}"`.
 - A stack's own `environment` in `.stackorder.yaml`, or an instance's, overrides the map.
 - A stack that matches nothing runs under the environment of its instance name, and a stack with no instance under `default`, which GitHub creates on first use with no protection rules.
@@ -146,12 +147,13 @@ The file is parsed strictly. The CLI and the server reject:
 - a `tool`, `apply.mode`, `propagate.cross_repo` or `plan_output` outside its allowed values;
 - a negative `apply.require_approvals`, or an `apply.max_parallel` below 1;
 - a `drift.schedule` that is not a valid five-field cron expression;
-- an empty environment prefix without an instance part, or an empty environment name;
-- an `environments` key whose instance part is not a valid [instance name](./instances#keys);
+- an `environments` key with an empty prefix (`""`, `/` or `./`) and no instance part, a prefix containing `:`, an instance part that is not a valid [instance name](./instances#keys), or two keys whose prefixes normalise to the same path with the same instance part;
+- an empty environment name;
 - an empty `stacks.discover` or `stacks.exclude` glob or `apply.allowed_teams` entry;
 - a `stacks.include` path that is absolute or starts with `..`;
-- a template that does not parse, or fails to render for a stack;
-- an `env` name that is not a valid variable name or is reserved (`STACKORDER_*`, `GITHUB_*`, `ACTIONS_*`, `RUNNER_*`, `PATH`, `HOME`), or an `env` object with a key other than `plan`, `apply` and `drift`.
+- a template that does not parse, uses an action or builtin outside the [allowed set](./instances#templates), fails to render for a stack, or renders more than 4096 bytes;
+- an `env` name that is not a valid variable name or is reserved (`STACKORDER_*`, `GITHUB_*`, `ACTIONS_*`, `RUNNER_*`, `PATH`, `HOME`, in any letter case), a null `env` value, or an `env` object with a key other than `plan`, `apply` and `drift`;
+- a `from_var_files` match whose derived name is not a valid instance name, or two matches in one stack that derive the same name.
 
 All problems are reported together, each with the key that caused it.
 

@@ -19,7 +19,7 @@ acme/infra//infra/dns:shared  an instance in another repository
 | --- | --- |
 | Characters | A letter or digit, then letters, digits, `.`, `_` and `-` |
 | Length | At most 64 characters |
-| Reserved | `default` is never an instance name |
+| Reserved | `default`, in any letter case, is never an instance name, since GitHub environment names ignore case |
 
 The same name is safe in check run names, comment commands, plan artifact names and GitHub environment names.
 
@@ -31,7 +31,7 @@ There are four ways to declare the instances of a directory. The first that appl
 
 1. The names in the stack's `instances` key.
 2. One instance per file that the root `stacks.instances.from_var_files` glob matches in the stack directory.
-3. The stack's `workspace`, as one instance of that name: the legacy form. A `workspace` of `default`, or one that renders empty, is no workspace.
+3. The stack's `workspace`, as one instance of that name: the legacy form. A `workspace` of `default`, or one that renders empty, is no workspace, and one that renders to an invalid instance name is an error.
 4. Otherwise one instance with an empty name, keyed by the bare path.
 
 ### From var files {#from-var-files}
@@ -51,7 +51,7 @@ infra/network/workspaces/staging.tfvars.json      ->  infra/network:staging
 ```
 
 - The glob is relative to each stack directory.
-- An instance is named by the file's base name up to its first `.`, so `production.tfvars.json` gives `production`. Instances are sorted by name.
+- An instance is named by the file's base name up to its first `.`, so `production.tfvars.json` gives `production`. Instances are sorted by name. Two files that derive the same name, such as `production.tfvars` and `production.tfvars.json`, are an error that names them.
 - The matched file is one of the instance's [var files](#var-files), after the root and stack `var_files`.
 - A stack directory with no matching file falls through to the next rule.
 - A derived name that is not a valid instance name, such as `default` from `default.tfvars.json`, is an error that names the file.
@@ -67,7 +67,7 @@ A stack's `.stackorder.yaml` can name its instances:
 instances: [shared]
 ```
 
-The list replaces anything `from_var_files` would derive for the directory. A matched var file whose name equals a listed instance is still that instance's var file. A matched file whose name is not listed is not used, and the scan warns about it.
+A null item in the list, a `-` with nothing after it, is an error. The list replaces anything `from_var_files` would derive for the directory. A matched var file whose name equals a listed instance is still that instance's var file. A matched file whose name is not listed is not used, and the scan warns about it.
 
 ### A map with overrides {#overrides}
 
@@ -117,11 +117,13 @@ The settings of an instance come from three levels: the root `stackorder.yaml`, 
 | `var_files` | Root entries, then stack entries, then the instance's `from_var_files` file if any, then instance entries, in that order |
 | `env` | Per variable name: the instance's value, else the stack's, else the root's |
 | `depends_on`, `ignore_inferred` | The stack's list followed by the instance's |
-| `environment` | The instance's `environment`, else the stack's, else the best match in the root `environments` map, else the instance name, else `default` |
-| `workspace` | The instance's, else the stack's; none when neither is set |
-| `plan_output` | The instance's, else the stack's, else the root's |
+| `environment` | The first of the instance's `environment`, the stack's and the best match in the root `environments` map that renders non-empty, else the instance name, else `default` |
+| `workspace` | The instance's, else the stack's, rendered; none when neither is set or it renders empty or `default` |
+| `plan_output` | The instance's, else the stack's, else the root's, rendered |
 | `tool`, `tool_version` | The stack's, else the root's |
 | `apply.allowed_teams` | The most specific non-empty list: the instance's, else the stack's, else the root's |
+
+`workspace`, `plan_output`, `tool` and `tool_version` take the most specific value that is set and render it; an empty result does not fall back to a less specific level. `environment` is the exception: an empty result falls through to the next source.
 
 An `env` value is replaced as a whole. An instance that sets `TF_VAR_role: admin` replaces a stack's `{ plan: reader, apply: deployer }`, for every mode.
 
@@ -156,10 +158,17 @@ Templates are Go [`text/template`](https://pkg.go.dev/text/template). They rende
 | `replace old new s` | `replace "/" "-" .Path` | `infra-network` |
 | `lower s`, `upper s` | `upper .Instance` | `PRODUCTION` |
 
+Templates also have the builtins `and`, `or`, `not`, `eq`, `ne`, `lt`, `le`, `gt` and `ge`, and the actions `if` and `with`:
+
+```yaml
+workspace: '{{ if eq .Instance "legacy" }}default{{ else }}{{ .Instance }}{{ end }}'
+```
+
 Templates apply to `environments` values, `environment`, `workspace`, `backend_config`, `var_files`, `env` values, `depends_on` and `ignore_inferred`. A string without `{{` is used as it is.
 
 - **Quoting.** A YAML value that starts with `{` is read as a map, so quote every template. Use single quotes around a template that contains double quotes: `'key={{ trimPrefix "infra/" .Path }}.tfstate'`.
 - **Errors.** A name that does not exist, such as `.Instanse`, is an error, not an empty string. A template that fails to parse or render is a validation error of the file that holds it.
+- **Limits.** Templates are restricted so that a repository's configuration cannot stall the server, which renders them too. `range`, `define`, `block`, `template`, `break`, `continue` and every other builtin, such as `printf`, `index` or `len`, are refused. A template, or one function call in it, whose output exceeds 4096 bytes is an error.
 - **Empty instance.** `.Instance` is empty for a stack with no instances, so `{{ .Instance }}.tfstate` renders as `.tfstate` there. Give such stacks an instance, or keep instance templates out of the settings they read.
 
 ## `backend_config` {#backend-config}
@@ -245,7 +254,8 @@ A mode the object leaves out, other than `drift`, leaves the variable as the job
 
 - **Merging.** Variables merge by name: the instance's value, else the stack's, else the root's.
 - **Order.** The variables are set on top of the job's environment and the automation variables. Then the CLI sets `STACKORDER_STACK` (the key), `STACKORDER_STACK_PATH` and `STACKORDER_INSTANCE`, which `env` cannot override.
-- **Names.** A name matches `[A-Za-z_][A-Za-z0-9_]*`. It may not start with `STACKORDER_`, `GITHUB_`, `ACTIONS_` or `RUNNER_`, nor be `PATH` or `HOME`.
+- **Names.** A name matches `[A-Za-z_][A-Za-z0-9_]*`. It may not start with `STACKORDER_`, `GITHUB_`, `ACTIONS_` or `RUNNER_`, nor be `PATH` or `HOME`, in any letter case: `github_token` and `Path` are refused too.
+- **Values.** A value may not be null: `TF_VAR_x:` with nothing after it is an error. Write `""` for an empty string.
 - **Redaction.** A value whose variable name looks like a secret, such as `DB_PASSWORD`, is masked in everything the CLI reports, under the same rule as the process environment (see [Secrets](/reference/cli#secrets)). The values are still in the repository: never put a secret in `env`.
 - **Where it applies.** `env` reaches only what the CLI runs. The workflow steps before it, such as the AWS credentials step, never see it.
 
@@ -304,6 +314,8 @@ The apply job of an instance runs under one GitHub environment, chosen in this o
 4. the instance name;
 5. `default`.
 
+The first of 1 to 3 that renders non-empty wins, so a template such as `'{{ if eq .Instance "production" }}prod{{ end }}'` that renders empty for other instances falls through to the next source.
+
 An instance is therefore protected by the GitHub environment of its own name unless it is mapped elsewhere. `infra/network:production` applies under `production` with no configuration at all.
 
 `environments` keys take three forms:
@@ -315,6 +327,10 @@ An instance is therefore protected by the GitHub environment of its own name unl
 | `:production` | The `production` instance in any directory |
 
 Prefixes match whole path segments, and an empty prefix matches every path. The most specific key wins: a key with an instance part before one without, then the longest prefix. Values are templates.
+
+- An empty prefix needs an instance part: `:production` is valid, and a key `""`, `/` or `./` alone is rejected.
+- A prefix may not contain `:`, and the instance part must be a valid instance name.
+- Two keys whose prefixes name the same path, such as `infra`, `infra/` and `./infra`, with the same instance part are an error.
 
 To map instances to GitHub environments with other names, use one of:
 

@@ -84,7 +84,7 @@ When a result is unconfirmed in Actions, the CLI creates a neutral check run wit
 
 ### Stack keys {#stack-keys}
 
-`--stack` takes a stack key: the directory, `infra/network`, or the directory and an instance, `infra/network:production`. For a directory with [instances](/configuration/instances), declared in `instances` or derived from `from_var_files`, the suffix must name one of them, and a bare path is an error that lists them. For a directory without, the suffix is a Terraform workspace, as before instances existed: the stack's `workspace` when it sets one, or an ad hoc workspace otherwise.
+`--stack` takes a stack key: the directory, `infra/network`, or the directory and an instance, `infra/network:production`. For a directory with [instances](/configuration/instances), declared in `instances` or derived from `from_var_files`, the suffix must name one of them, and a bare path is an error that lists them. For a directory without, the suffix is a Terraform workspace, as before instances existed: the stack's `workspace` when it sets one, or an ad hoc workspace otherwise. An ad hoc suffix must be a valid [instance name](/configuration/instances#keys): a letter or digit followed by letters, digits, `.`, `_` and `-`, at most 64 characters, and not `default` in any letter case.
 
 The CLI loads the stack's effective configuration for that instance, from the root `stackorder.yaml` and the directory's `.stackorder.yaml` in the checkout: its backend configuration, var files, environment variables and workspace.
 

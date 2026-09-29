@@ -96,6 +96,15 @@ When a stack reads another stack's state through `terraform_remote_state` with a
 
 ## Validation
 
-The file is parsed strictly. It is rejected when it has unknown keys, a `tool` or `plan_output` outside its allowed values, an invalid `depends_on` entry, an empty `ignore_inferred` entry, a `workspace` containing `/`, `:`, a space or a tab, an instance name that is not a letter or digit followed by letters, digits, `.`, `_` and `-`, is longer than 64 characters or is `default`, an invalid or reserved `env` name, or a template that fails to parse or render. An empty file is valid and changes nothing.
+The file is parsed strictly. It is rejected when it has:
+
+- unknown keys, or a `tool` or `plan_output` outside its allowed values;
+- an invalid `depends_on` entry, or an empty `ignore_inferred` entry;
+- a `workspace` containing `/`, `:`, a space or a tab, or, on a stack without instances, one that renders to an invalid instance name;
+- an instance name that is not a letter or digit followed by letters, digits, `.`, `_` and `-`, is longer than 64 characters, or is `default` in any letter case, or a null item in the `instances` list;
+- an `env` name that is not a valid variable name or is reserved in any letter case, a null `env` value, or an `env` object with a key other than `plan`, `apply` and `drift`;
+- a template that does not parse, uses an action or builtin outside the [allowed set](./instances#templates), fails to render, or renders more than 4096 bytes.
+
+An empty file is valid and changes nothing.
 
 A CLI or server older than the instance keys rejects a file that uses them. Upgrade the server first.
