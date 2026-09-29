@@ -43,6 +43,7 @@ const (
 
 const (
 	unboundGrace      = 60 * time.Second
+	stalledApplyAge   = 2 * time.Minute
 	staleLockAge      = 24 * time.Hour
 	commentWindow     = time.Minute
 	artifactTextLimit = 8 << 10

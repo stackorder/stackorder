@@ -25,7 +25,12 @@ import (
 // and job names as HandleWorkflowRun does, marks the stacks of dispatches
 // unbound for longer than UnboundDispatchTimeout unknown unless a workflow
 // run with their title is still running undecided, and closes dispatches
-// whose workflow run completed without every stack reporting.
+// whose workflow run completed without every stack reporting. An apply run
+// still pending without any dispatch two minutes after it was created,
+// which a failure between its creation and its first dispatch leaves
+// behind, has its wave 0 dispatched while its plans are still current, and
+// is otherwise failed with a comment on its pull request and its locks
+// released.
 func (s *Service) Reconcile(ctx context.Context) error {
 	open, err := s.st.OpenDispatches(ctx)
 	if err != nil {
@@ -46,7 +51,146 @@ func (s *Service) Reconcile(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
+	errs = append(errs, s.recoverStalledApplies(ctx, now))
 	return errors.Join(errs...)
+}
+
+func (s *Service) recoverStalledApplies(ctx context.Context, now time.Time) error {
+	pending, _, err := s.st.ListRuns(ctx, store.RunFilter{Status: v1.RunPending, Mode: v1.ModeApply, Limit: 500})
+	if err != nil {
+		return storeErr(err, "pending apply runs")
+	}
+	var errs []error
+	for _, run := range pending {
+		if run.Trigger == v1.TriggerManual || now.Sub(run.CreatedAt) < stalledApplyAge {
+			continue
+		}
+		dispatches, err := s.st.ListDispatches(ctx, run.ID)
+		if err != nil {
+			errs = append(errs, storeErr(err, "dispatches of run %s", run.ID))
+			continue
+		}
+		if len(dispatches) > 0 {
+			continue
+		}
+		errs = append(errs, s.recoverApply(ctx, run))
+	}
+	return errors.Join(errs...)
+}
+
+func (s *Service) recoverApply(ctx context.Context, run store.Run) error {
+	repo, err := s.st.GetRepo(ctx, run.RepoID)
+	if err != nil {
+		return storeErr(err, "repository of run %s", run.ID)
+	}
+	if repo.Suspended {
+		return nil
+	}
+	reason, err := s.staleApply(ctx, repo, run)
+	if err != nil {
+		return err
+	}
+	if reason == "" {
+		s.log.InfoContext(ctx, "dispatching an apply left without a dispatch", "run_id", run.ID)
+		return s.dispatchWave(ctx, run.ID, 0)
+	}
+	return s.abandonApply(ctx, repo, run, reason)
+}
+
+func (s *Service) staleApply(ctx context.Context, repo store.Repo, run store.Run) (string, error) {
+	if run.PRNumber <= 0 {
+		return "", nil
+	}
+	applies, _, err := s.st.ListRuns(ctx, store.RunFilter{RepoID: repo.ID, PRNumber: run.PRNumber, Mode: v1.ModeApply, Limit: 20})
+	if err != nil {
+		return "", storeErr(err, "apply runs of #%d", run.PRNumber)
+	}
+	for _, r := range applies {
+		if r.ID != run.ID && r.CreatedAt.After(run.CreatedAt) {
+			return fmt.Sprintf("apply run %s of this pull request started after it", r.ID), nil
+		}
+	}
+	c, err := s.client(ctx, repo)
+	if err != nil {
+		return "", err
+	}
+	pull, err := c.GetPull(ctx, repo.FullName, run.PRNumber)
+	if err != nil {
+		return "", fmt.Errorf("runs: pull request %s#%d: %w", repo.FullName, run.PRNumber, err)
+	}
+	if run.Trigger == v1.TriggerComment {
+		switch {
+		case pull.Merged || pull.MergedAt != nil || pull.State != gh.IssueOpen:
+			return "the pull request is no longer open", nil
+		case pull.HeadSHA != run.SHA:
+			return fmt.Sprintf("the pull request moved on to %s, so the plans of %s are no longer current", shortSHA(pull.HeadSHA), shortSHA(run.SHA)), nil
+		}
+	}
+	view, err := planViewAt(ctx, s.st, repo.ID, run.PRNumber, pull.HeadSHA)
+	if err != nil {
+		return "", err
+	}
+	rows, err := s.st.GetRunStacks(ctx, run.ID)
+	if err != nil {
+		return "", storeErr(err, "stacks of run %s", run.ID)
+	}
+	var changed []string
+	for _, rs := range rows {
+		if rs.Status != v1.StackPlanned {
+			continue
+		}
+		plan, ok := view.stored[rs.Key]
+		if !ok || plan.Status != v1.StackPlanned || plan.PlanArtifact != rs.PlanArtifact || plan.PlanRunID != rs.PlanRunID {
+			changed = append(changed, "`"+rs.Key+"`")
+		}
+	}
+	if len(changed) > 0 {
+		return "the plans of " + strings.Join(changed, ", ") + " changed since the apply was requested", nil
+	}
+	return "", nil
+}
+
+func (s *Service) abandonApply(ctx context.Context, repo store.Repo, run store.Run, reason string) error {
+	moved, err := s.transition(ctx, run, v1.RunFailed, v1.RunPending)
+	if err != nil || !moved {
+		return err
+	}
+	s.log.WarnContext(ctx, "abandoning an apply left without a dispatch", "run_id", run.ID, "reason", reason)
+	if err := s.st.AddRunWarning(ctx, run.ID, "the apply was never dispatched and was abandoned: "+reason); err != nil {
+		return storeErr(err, "record warning on run %s", run.ID)
+	}
+	released, err := s.st.ReleaseLocksForRun(ctx, run.ID)
+	if err != nil {
+		return storeErr(err, "release locks of run %s", run.ID)
+	}
+	for _, l := range released {
+		s.audit(ctx, "", "unlock", v1.QualifiedStackKey(repo.FullName, l.StackKey), map[string]any{
+			"repo": repo.FullName, "stack": l.StackKey, "stack_id": l.StackID.String(), "pr": l.PRNumber,
+			"run_id": run.ID.String(), "reason": "apply abandoned: " + reason,
+		})
+	}
+	if len(released) > 0 {
+		s.refreshLocksGauge(ctx)
+	}
+	if run.PRNumber > 0 {
+		s.comment(ctx, repo, run.PRNumber, abandonedApplyComment(run, reason, len(released)))
+	}
+	s.renderQuiet(ctx, run.ID, renderOpts{allStacks: true})
+	return nil
+}
+
+func abandonedApplyComment(run store.Run, reason string, released int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "**The apply of `%s` did not start.** Stackorder recorded apply run %s but never dispatched it, and %s, so it was abandoned.",
+		shortSHA(run.SHA), run.ID, reason)
+	if released > 0 {
+		fmt.Fprintf(&b, " Its %d orchestration lock(s) were released.", released)
+	}
+	if run.Trigger == v1.TriggerComment {
+		b.WriteString(" Comment `stackorder apply` again to apply the current plans.")
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 func (s *Service) reconcileRepo(ctx context.Context, repoID int64, dispatches []store.Dispatch, now time.Time) error {

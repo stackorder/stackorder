@@ -436,6 +436,82 @@ func TestReconcile(t *testing.T) {
 	assert.Equal(t, v1.RunApplying, e3.run(apply3.ID).Status)
 }
 
+func TestReconcileDispatchesAnApplyLeftWithoutDispatch(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	planRun := e.planned(7, headSHA)
+	applyID := e.stalledApply(7, planRun)
+	require.Len(t, e.locks(), 4)
+	created := e.run(applyID).CreatedAt
+
+	e.clock.Set(created.Add(time.Minute))
+	require.NoError(t, e.svc.Reconcile(e.ctx))
+	assert.Equal(t, v1.RunPending, e.run(applyID).Status, "a young apply is left to its own first dispatch")
+	assert.Empty(t, e.gh.Dispatches())
+
+	e.clock.Set(created.Add(2*time.Minute + time.Second))
+	require.NoError(t, e.svc.Reconcile(e.ctx))
+	assert.Equal(t, v1.RunApplying, e.run(applyID).Status)
+	ds := e.gh.Dispatches()
+	require.Len(t, ds, 2, "wave 0 goes out once per environment")
+	for _, d := range ds {
+		assert.Equal(t, applyID, d.Inputs["run_id"])
+		assert.Equal(t, "apply", d.Inputs["mode"])
+		assert.Equal(t, "0", d.Inputs["wave"])
+	}
+	require.NoError(t, e.svc.Reconcile(e.ctx))
+	require.Len(t, e.gh.Dispatches(), 2, "a recovered apply is dispatched once")
+
+	for i := 0; i < len(e.gh.Dispatches()); i++ {
+		e.reportAll(e.gh.Dispatches()[i], nil)
+	}
+	assert.Equal(t, v1.RunApplied, e.run(applyID).Status, "the recovered apply runs every wave")
+	assert.Len(t, e.locks(), 4, "a before_merge apply keeps its locks until the merge")
+}
+
+func TestReconcileAbandonsAnApplyWhosePlansMovedOn(t *testing.T) {
+	t.Run("new head", func(t *testing.T) {
+		e := newEnv(t, baseConfig())
+		planRun := e.planned(7, headSHA)
+		applyID := e.stalledApply(7, planRun)
+		e.openPull(7, newHeadSHA)
+		e.clock.Set(e.run(applyID).CreatedAt.Add(3 * time.Minute))
+		require.NoError(t, e.svc.Reconcile(e.ctx))
+
+		r := e.run(applyID)
+		assert.Equal(t, v1.RunFailed, r.Status)
+		assert.Contains(t, strings.Join(r.Warnings, "\n"), "the apply was never dispatched and was abandoned")
+		assert.Empty(t, e.gh.Dispatches(), "stale plans are never applied")
+		assert.Empty(t, e.locks(), "the abandoned apply releases its locks")
+		unlocks := e.audit("unlock")
+		require.Len(t, unlocks, 4)
+		for _, u := range unlocks {
+			assert.Equal(t, repoName, u.Details["repo"])
+			assert.Equal(t, applyID, u.Details["run_id"])
+		}
+		body := e.lastComment(7)
+		assert.Contains(t, body, "**The apply of `3333333` did not start.**")
+		assert.Contains(t, body, "moved on to 4444444")
+		assert.Contains(t, body, "Its 4 orchestration lock(s) were released.")
+		n := len(e.comments(7))
+		require.NoError(t, e.svc.Reconcile(e.ctx))
+		assert.Len(t, e.comments(7), n, "an abandoned apply is answered once")
+	})
+	t.Run("stack planned again", func(t *testing.T) {
+		e := newEnv(t, baseConfig())
+		planRun := e.planned(7, headSHA)
+		applyID := e.stalledApply(7, planRun)
+		e.comment(7, applier, "stackorder plan "+vpc)
+		planDispatches := len(e.gh.Dispatches())
+		e.clock.Set(e.run(applyID).CreatedAt.Add(3 * time.Minute))
+		require.NoError(t, e.svc.Reconcile(e.ctx))
+
+		assert.Equal(t, v1.RunFailed, e.run(applyID).Status)
+		assert.Len(t, e.gh.Dispatches(), planDispatches, "nothing of the apply is dispatched")
+		assert.Contains(t, e.lastComment(7), "the plans of `"+vpc+"` changed since the apply was requested")
+		assert.Empty(t, e.locks())
+	})
+}
+
 func TestDispatchFailure(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.planned(7, headSHA)

@@ -102,8 +102,18 @@ func (s *Service) dispatchStacks(ctx context.Context, run store.Run, wave int, t
 		s.renderQuiet(ctx, run.ID, renderOpts{})
 		return nil
 	}
-	if _, err := s.transition(ctx, run, started, v1.RunPending, v1.RunPlanned); err != nil {
+	moved, err := s.transition(ctx, run, started, v1.RunPending, v1.RunPlanned)
+	if err != nil {
 		return err
+	}
+	if !moved {
+		current, err := s.st.GetRun(ctx, run.ID)
+		if err != nil {
+			return storeErr(err, "run %s", run.ID)
+		}
+		if current.Status.Terminal() {
+			return nil
+		}
 	}
 	repo, err := s.st.GetRepo(ctx, run.RepoID)
 	if err != nil {

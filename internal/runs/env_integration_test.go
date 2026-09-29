@@ -66,6 +66,12 @@ func (c *fakeClock) Advance(d time.Duration) {
 	c.now = c.now.Add(d)
 }
 
+func (c *fakeClock) Set(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = t.UTC()
+}
+
 type recMetrics struct {
 	mu         sync.Mutex
 	runs       []string
@@ -581,6 +587,48 @@ func (e *env) applyRun(pr int) v1.Run {
 	require.NoError(e.t, err)
 	require.NotEmpty(e.t, runs, "an apply run of #%d", pr)
 	return e.run(runs[0].ID.String())
+}
+
+func (e *env) stalledApply(pr int, planRunID string) string {
+	e.t.Helper()
+	planRun, err := e.st.GetRun(e.ctx, uuid.MustParse(planRunID))
+	require.NoError(e.t, err)
+	require.NotNil(e.t, planRun.GraphID)
+	plans, err := e.st.GetRunStacks(e.ctx, planRun.ID)
+	require.NoError(e.t, err)
+	var id uuid.UUID
+	require.NoError(e.t, e.st.InTx(e.ctx, func(tx *store.Store) error {
+		run, err := tx.CreateRun(e.ctx, store.CreateRunParams{
+			RepoID: repoID, SHA: planRun.SHA, BaseSHA: planRun.BaseSHA, PRNumber: pr,
+			Trigger: v1.TriggerComment, Mode: v1.ModeApply, Status: v1.RunPending, RequestedBy: applier,
+		})
+		if err != nil {
+			return err
+		}
+		id = run.ID
+		rows := make([]store.RunStack, len(plans))
+		ids := make([]uuid.UUID, len(plans))
+		waves := 0
+		for i, p := range plans {
+			ids[i] = p.StackID
+			waves = max(waves, p.Wave+1)
+			rows[i] = store.RunStack{
+				StackID: p.StackID, Mode: v1.ModeApply, Status: v1.StackPlanned, Wave: p.Wave, Reasons: p.Reasons,
+				Environment: p.Environment, Summary: p.Summary, HasChanges: p.HasChanges,
+				PlanArtifact: p.PlanArtifact, PlanRunID: p.PlanRunID,
+			}
+		}
+		conflicts, err := tx.TryLockStacks(e.ctx, ids, run.ID, pr, fmt.Sprintf("apply of #%d by %s", pr, applier))
+		if err != nil {
+			return err
+		}
+		require.Empty(e.t, conflicts)
+		if err := tx.UpsertRunStacks(e.ctx, run.ID, rows); err != nil {
+			return err
+		}
+		return tx.SetRunGraph(e.ctx, run.ID, *planRun.GraphID, waves, nil)
+	}))
+	return id.String()
 }
 
 func (e *env) planRunIDs(runID string) map[string]int64 {
