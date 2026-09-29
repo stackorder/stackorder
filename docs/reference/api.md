@@ -817,10 +817,11 @@ A page of audited actions, newest first: unlocks (`unlock`), re-runs (`rerun`), 
       "at": "2026-09-28T09:31:00Z",
       "actor": "octocat",
       "action": "unlock",
-      "target": "stack:3d6f0a2e-1b4c-4d8e-9f10-2a3b4c5d6e7f",
+      "target": "acme/infra//stacks/prod/vpc",
       "details": {
         "repo": "acme/infra",
         "stack": "stacks/prod/vpc",
+        "stack_id": "3d6f0a2e-1b4c-4d8e-9f10-2a3b4c5d6e7f",
         "pr": 41,
         "run_id": "5b8e1f2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b",
         "reason": "PR 41 closed",
@@ -832,7 +833,7 @@ A page of audited actions, newest first: unlocks (`unlock`), re-runs (`rerun`), 
 }
 ```
 
-A person sees the entries they made and those whose `details.repo`, or whose `target` (`owner/repo…` or `kind:owner/repo…`), names a repository they see.
+Unlocks target the qualified stack key `owner/repo//key` and keep the stack's id in `details.stack_id`; re-runs and comment commands target `owner/repo` and keep the pull request in `details.pr`. Every one of them carries `details.repo`. A person sees the entries they made and those whose `details.repo`, or whose `target` (`owner/repo…` or `kind:owner/repo…`), names a repository they see.
 
 ## Sign-in {#sign-in}
 
