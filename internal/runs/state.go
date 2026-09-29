@@ -90,10 +90,7 @@ func (s *Service) finishApply(ctx context.Context, repo store.Repo, run store.Ru
 	if status == v1.RunFailed && run.PRNumber > 0 {
 		s.comment(ctx, repo, run.PRNumber, applyFailedComment(run, rows, releasesOnCompletion(run)))
 	}
-	if status == v1.RunApplied {
-		return s.propagateCrossRepo(ctx, repo, run, rows)
-	}
-	return nil
+	return s.propagateCrossRepo(ctx, repo, run, rows)
 }
 
 func releasesOnCompletion(run store.Run) bool {

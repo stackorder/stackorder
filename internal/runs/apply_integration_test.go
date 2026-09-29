@@ -974,6 +974,57 @@ func TestCrossRepoPlanIsRetriedAfterAFailedFirstAttempt(t *testing.T) {
 	assert.Equal(t, 1, downstreamRuns(), "the plan is still started once per upstream run")
 }
 
+func TestCrossRepoPlanFollowsTheStacksAFailedApplyApplied(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Propagate.CrossRepo = v1.CrossRepoPlan
+	e := newEnv(t, cfg, withQueue())
+	const downstream = "acme/apps"
+	e.gh.SetRepo(downstream, gh.Repository{ID: 300, DefaultBranch: "main"})
+	e.gh.AddInstallation(instID, "acme", downstream)
+	down, err := e.st.UpsertRepo(e.ctx, store.RepoParams{ID: 300, InstallationID: instID, FullName: downstream, DefaultBranch: "main"})
+	require.NoError(t, err)
+	_, _, err = e.st.SaveGraph(e.ctx, down.ID, &v1.Graph{
+		Repo: downstream, SHA: baseSHA,
+		Stacks: []v1.Stack{
+			{Key: "stacks/api", Path: "stacks/api"},
+			{Key: "acme/infra//" + vpc, Path: vpc, Repo: repoName, External: true},
+		},
+		Edges: []v1.Edge{{From: v1.StackRef("stacks/api"), To: v1.StackRef("acme/infra//" + vpc), Type: v1.EdgeDependsOn}},
+	})
+	require.NoError(t, err)
+
+	e.planned(7, headSHA)
+	e.comment(7, applier, "stackorder apply")
+	var kept []queuedJob
+	reported := map[int64]bool{}
+	for progressed := true; progressed; {
+		progressed = false
+		for _, d := range e.gh.Dispatches() {
+			if !reported[d.RunID] {
+				reported[d.RunID] = true
+				e.reportAll(d, map[string]bool{eks: false})
+				progressed = true
+			}
+		}
+		for _, j := range e.queue.take() {
+			if j.Kind != runs.JobDispatchWave {
+				kept = append(kept, j)
+				continue
+			}
+			require.NoError(t, e.svc.HandleJob(e.ctx, j.Kind, j.Payload))
+			progressed = true
+		}
+	}
+	apply := e.applyRun(7)
+	require.Equal(t, v1.RunFailed, apply.Status)
+	require.Equal(t, v1.StackApplied, stackStatuses(apply)[vpc])
+	require.Len(t, kept, 1, "vpc applied, so its downstream dependents are planned")
+	assert.Equal(t, runs.JobCrossRepoPlan, kept[0].Kind)
+	var cj runs.CrossRepoPlanJob
+	require.NoError(t, json.Unmarshal(kept[0].Payload, &cj))
+	assert.Equal(t, runs.CrossRepoPlanJob{Repo: downstream, StackKeys: []string{"stacks/api"}, UpstreamRunID: apply.ID}, cj)
+}
+
 func TestCrossRepoPlanJob(t *testing.T) {
 	cfg := baseConfig()
 	cfg.Propagate.CrossRepo = v1.CrossRepoPlan
