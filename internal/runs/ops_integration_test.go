@@ -5,6 +5,7 @@ package runs_test
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -588,6 +589,36 @@ func TestDispatchFailure(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "the failure is explained on the pull request")
+}
+
+func TestTransientDispatchFailureRecordsEveryGroupOfTheWave(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.planned(7, headSHA)
+	e.gh.FailNext("POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches", http.StatusServiceUnavailable, 10)
+	e.comment(7, applier, "stackorder apply")
+	apply := e.applyRun(7)
+	assert.Equal(t, v1.RunApplying, apply.Status)
+	assert.Empty(t, e.gh.Dispatches())
+	dispatches, err := e.st.ListDispatches(e.ctx, uuid.MustParse(apply.ID))
+	require.NoError(t, err)
+	envs := make([]string, 0, len(dispatches))
+	for _, d := range dispatches {
+		envs = append(envs, d.Environment)
+	}
+	slices.Sort(envs)
+	assert.Equal(t, []string{"production", "staging"}, envs, "every group of the wave is recorded even when a send fails")
+
+	e.clock.Advance(2 * time.Minute)
+	require.NoError(t, e.svc.Reconcile(e.ctx))
+	sent := e.gh.Dispatches()
+	require.Len(t, sent, 2, "Reconcile resends every unsent group")
+	for _, d := range sent {
+		e.reportAll(d, nil)
+		e.gh.CompleteWorkflowRun(repoName, d.RunID, gh.ConclusionSuccess)
+	}
+	statuses := stackStatuses(e.run(apply.ID))
+	assert.Equal(t, v1.StackApplied, statuses[vpc])
+	assert.Equal(t, v1.StackApplied, statuses[staging])
 }
 
 func TestPushUpdatesConfigAndModuleVersions(t *testing.T) {

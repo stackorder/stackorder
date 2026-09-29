@@ -1,6 +1,7 @@
 package runs
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -124,32 +125,48 @@ func (s *Service) dispatchStacks(ctx context.Context, run store.Run, wave int, t
 		return err
 	}
 	cfg := repoConfig(repo)
-	var sent []uuid.UUID
-	for _, g := range dispatchGroups(run.Mode, targets, cfg.Apply.MaxParallel) {
-		d, created, err := s.st.CreateDispatchChunk(ctx, run.ID, wave, g.env, run.Mode, g.chunk)
-		if err != nil {
-			return storeErr(err, "record dispatch of run %s", run.ID)
-		}
-		if !created {
-			continue
-		}
-		for _, rs := range g.rows {
-			if _, err := s.st.UpdateRunStack(ctx, run.ID, rs.StackID, store.RunStackPatch{DispatchID: &d.ID}); err != nil {
-				return storeErr(err, "record dispatch of %s", rs.Key)
+	type pendingSend struct {
+		d    store.Dispatch
+		rows []store.RunStack
+	}
+	var pending []pendingSend
+	err = s.st.InTx(ctx, func(tx *store.Store) error {
+		for _, g := range dispatchGroups(run.Mode, targets, cfg.Apply.MaxParallel) {
+			d, created, err := tx.CreateDispatchChunk(ctx, run.ID, wave, g.env, run.Mode, g.chunk)
+			if err != nil {
+				return storeErr(err, "record dispatch of run %s", run.ID)
 			}
+			if !created {
+				continue
+			}
+			for _, rs := range g.rows {
+				if _, err := tx.UpdateRunStack(ctx, run.ID, rs.StackID, store.RunStackPatch{DispatchID: &d.ID}); err != nil {
+					return storeErr(err, "record dispatch of %s", rs.Key)
+				}
+			}
+			pending = append(pending, pendingSend{d: d, rows: g.rows})
 		}
-		if err := s.send(ctx, repo, run, d, g.rows, nodes, cfg); err != nil {
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	var sent []uuid.UUID
+	var sendErr error
+	for _, p := range pending {
+		if err := s.send(ctx, repo, run, p.d, p.rows, nodes, cfg); err != nil {
 			if permanentGitHubError(err) {
 				return s.failDispatch(ctx, repo, run, err)
 			}
-			return err
+			sendErr = cmp.Or(sendErr, err)
+			continue
 		}
-		for _, rs := range g.rows {
+		for _, rs := range p.rows {
 			sent = append(sent, rs.StackID)
 		}
 	}
 	s.renderQuiet(ctx, run.ID, renderOpts{stacks: sent, allStacks: wave == 0})
-	return nil
+	return sendErr
 }
 
 type dispatchGroup struct {
