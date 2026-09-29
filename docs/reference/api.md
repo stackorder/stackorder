@@ -886,7 +886,7 @@ This route has no API body limit; the webhook receiver bounds it. See [GitHub Ap
 | `GET /metrics` | Prometheus metrics; with `STACKORDER_METRICS_TOKEN` set, `401` without `Authorization: Bearer <token>`. See [Metrics and tracing](/reference/metrics). |
 
 ```json
-{ "status": "ok", "version": "1.0.0" }
+{ "status": "ok", "version": "0.1.0" }
 ```
 
 In setup mode both health endpoints add `"setup_mode": true`.
