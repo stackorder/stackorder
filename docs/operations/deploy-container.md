@@ -119,11 +119,13 @@ spec:
             requests: { cpu: 250m, memory: 512Mi }
           securityContext:
             runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
 ```
 
-Here the Secret `stackorder` holds `DATABASE_URL`, `STACKORDER_SESSION_KEY` and the five `GITHUB_*` values.
+Here the Secret `stackorder` holds `DATABASE_URL`, `STACKORDER_SESSION_KEY` and the five `GITHUB_*` values. The image declares its user by name, `nonroot`, and Kubernetes can only verify `runAsNonRoot` against a numeric user, so the example sets `runAsUser` to the distroless `nonroot` id, 65532.
 
 ## Postgres {#postgres}
 
