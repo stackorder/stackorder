@@ -260,9 +260,12 @@ image's own `HEALTHCHECK`; only the task definition's check counts, and a
 container that fails it is replaced.
 
 `/healthz` answers as long as the process serves HTTP and does not touch
-the database, so a database outage does not make ECS replace every task.
-Readiness, database included, stays with the load balancer's `/readyz`
-check, which gates deployments and drives the circuit breaker.
+the database, so the container check fails only when the process itself
+stops answering. Readiness, database included, stays with the load
+balancer's `/readyz` check, which gates deployments and drives the circuit
+breaker. ECS also marks a task that fails the load balancer check
+unhealthy and replaces it, so a database outage still makes ECS replace
+tasks, whatever `health_check_command` is.
 
 Set `health_check_command` to another command the image provides, or to
 `[]` to turn the container health check off and leave task health to the
