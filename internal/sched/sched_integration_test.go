@@ -73,7 +73,8 @@ func leaderPID(t *testing.T, st *store.Store) int {
 	var pid int
 	err := st.Pool().QueryRow(t.Context(), `
 		SELECT COALESCE(max(pid), 0) FROM pg_locks
-		WHERE locktype = 'advisory' AND granted AND ((classid::bigint << 32) | objid::bigint) = $1`,
+		WHERE locktype = 'advisory' AND granted AND ((classid::bigint << 32) | objid::bigint) = $1
+			AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`,
 		store.SchedulerLockKey).Scan(&pid)
 	require.NoError(t, err)
 	return pid
