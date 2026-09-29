@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"fmt"
 	"net/url"
 	"path"
 	"regexp"
@@ -30,12 +31,18 @@ var (
 // Local sources ("./", "../") return Kind ModuleLocal, Path set to the cleaned
 // source relative to the calling directory and an empty Key, because their
 // identity depends on the caller; Scan resolves them to "owner/repo//path".
-// Git sources return "owner/repo//subdir@ref" for GitHub and keep the host for
-// other servers ("gitlab.com/owner/repo//subdir@ref"); the subdir and "@ref"
-// parts are omitted when absent and version is ignored. Registry sources
+// Git sources return "owner/repo//subdir@ref" for github.com and keep the host
+// for other servers ("gitlab.com/owner/repo//subdir@ref"); the subdir and
+// "@ref" parts are omitted when absent and version is ignored. Registry sources
 // return "registry:namespace/name/provider@version", keeping the host only
 // for private registries. Source always holds the raw source as written.
 func ParseModuleSource(source, version string) (v1.Module, bool) {
+	return parseModuleSource(source, version, githubHost)
+}
+
+// parseModuleSource is ParseModuleSource with git sources on ghHost, the
+// lowercased host of the GitHub instance, keyed without their host.
+func parseModuleSource(source, version, ghHost string) (v1.Module, bool) {
 	src := strings.TrimSpace(source)
 	var (
 		m  v1.Module
@@ -48,11 +55,11 @@ func ParseModuleSource(source, version string) (v1.Module, bool) {
 		m = v1.Module{Kind: v1.ModuleLocal, Path: path.Clean(strings.ReplaceAll(src, "\\", "/"))}
 		ok = true
 	case getter == "git":
-		m, ok = parseGitSource(rest, true)
+		m, ok = parseGitSource(rest, true, ghHost)
 	case getter != "":
 	default:
 		if m, ok = parseRegistrySource(src, strings.TrimSpace(version)); !ok {
-			m, ok = parseGitSource(src, false)
+			m, ok = parseGitSource(src, false, ghHost)
 		}
 	}
 	if !ok {
@@ -60,6 +67,17 @@ func ParseModuleSource(source, version string) (v1.Module, bool) {
 	}
 	m.Source = source
 	return m, true
+}
+
+func gitHubHost(webURL string) (string, error) {
+	if strings.TrimSpace(webURL) == "" {
+		return githubHost, nil
+	}
+	u, err := url.Parse(strings.TrimSpace(webURL))
+	if err != nil || u.Hostname() == "" {
+		return "", fmt.Errorf("GitHub URL %q has no host", webURL)
+	}
+	return strings.ToLower(u.Hostname()), nil
 }
 
 func forcedGetter(src string) (getter, rest string) {
@@ -78,7 +96,7 @@ func isLocalSource(src string) bool {
 	return false
 }
 
-func parseGitSource(src string, forced bool) (v1.Module, bool) {
+func parseGitSource(src string, forced bool, ghHost string) (v1.Module, bool) {
 	base, query, _ := strings.Cut(src, "?")
 	repo, subdir := splitSubdir(base)
 	host, repoPath, ok := splitGitLocation(repo, forced)
@@ -90,7 +108,7 @@ func parseGitSource(src string, forced bool) (v1.Module, bool) {
 		return v1.Module{}, false
 	}
 	key := repoPath
-	if host != githubHost {
+	if host != ghHost {
 		key = host + "/" + repoPath
 	}
 	if subdir = cleanSubdir(extra + "/" + subdir); subdir != "" {

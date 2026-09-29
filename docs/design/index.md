@@ -242,7 +242,7 @@ A PR that edits `modules/vpc` affects both VPC stacks through their module edges
 | Registry module | `registry:namespace/name/provider@version` | Recorded so the UI can list consumers; can never be "changed by a PR" |
 
 ::: info Implementation note
-Inside its repository a stack is keyed by its path, or `path:workspace` for a workspace other than `default`, and `owner/repo//key` qualifies it across repositories. The directories "listed explicitly" are `stacks.include`, and directories under `modules.paths` are never discovered as stacks, though one listed in `stacks.include` still is one. A git module hosted off GitHub keeps its host, as `gitlab.com/acme/modules//vpc@v1.2.0`, and a private registry's module keeps its registry host. See [Concepts](/guide/concepts#modules).
+Inside its repository a stack is keyed by its path, or `path:workspace` for a workspace other than `default`, and `owner/repo//key` qualifies it across repositories. The directories "listed explicitly" are `stacks.include`, and directories under `modules.paths` are never discovered as stacks, though one listed in `stacks.include` still is one. A git module hosted off the GitHub instance Stackorder is installed on (github.com, or the Enterprise Server host) keeps its host, as `gitlab.com/acme/modules//vpc@v1.2.0`, and a private registry's module keeps its registry host. See [Concepts](/guide/concepts#modules).
 :::
 
 **Edges**

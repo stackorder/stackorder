@@ -38,6 +38,11 @@ type Options struct {
 	// Config is the root configuration. Nil reads stackorder.yaml from the
 	// scan root and defaults it as config.Load does.
 	Config *v1.RepoConfig
+	// GitHubURL is the web root of the GitHub instance hosting Repo, such as
+	// GITHUB_SERVER_URL. Git modules on its host are keyed without the host,
+	// as "owner/repo//path@ref", and those on any other host, github.com
+	// included, keep it. Empty means https://github.com.
+	GitHubURL string
 	// Logger receives debug output. Nil discards it.
 	Logger *slog.Logger
 }
@@ -66,6 +71,8 @@ type scanner struct {
 	cfg  *v1.RepoConfig
 	log  *slog.Logger
 	hcl  *hclReader
+
+	ghHost string
 
 	dirs     map[string][]string
 	dirOrder []string
@@ -121,7 +128,12 @@ func Scan(ctx context.Context, root string, opts Options) (*v1.Graph, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan %s: %w", root, err)
 	}
+	ghHost, err := gitHubHost(opts.GitHubURL)
+	if err != nil {
+		return nil, fmt.Errorf("scan %s: %w", root, err)
+	}
 	s := &scanner{
+		ghHost:   ghHost,
 		root:     abs,
 		fsys:     fsys,
 		opts:     opts,
@@ -462,7 +474,7 @@ func (s *scanner) addModuleCall(c caller, call *tfconfig.ModuleCall) (caller, bo
 		s.warn("%s: module %q has no source; skipped", loc, call.Name)
 		return caller{}, false
 	}
-	m, ok := ParseModuleSource(call.Source, call.Version)
+	m, ok := parseModuleSource(call.Source, call.Version, s.ghHost)
 	if !ok {
 		s.warn("%s: module %q: unsupported source %q; skipped", loc, call.Name, call.Source)
 		return caller{}, false

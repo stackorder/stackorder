@@ -240,3 +240,30 @@ func TestParseModuleSource(t *testing.T) {
 		})
 	}
 }
+
+func TestParseModuleSourceOnGitHubEnterpriseServer(t *testing.T) {
+	const host = "ghe.acme.com"
+	tests := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{name: "https on the instance", source: "git::https://ghe.acme.com/acme/modules.git//vpc?ref=v1.2.0", want: "acme/modules//vpc@v1.2.0"},
+		{name: "ssh url on the instance", source: "git::ssh://git@ghe.acme.com/acme/modules.git//vpc?ref=v1.2.0", want: "acme/modules//vpc@v1.2.0"},
+		{name: "scp-like on the instance", source: "git@GHE.acme.com:acme/modules.git//vpc?ref=v1.2.0", want: "acme/modules//vpc@v1.2.0"},
+		{name: "github.com keeps its host", source: "git::https://github.com/acme/modules.git//dns?ref=v1.0.0", want: "github.com/acme/modules//dns@v1.0.0"},
+		{name: "github.com shorthand keeps its host", source: "github.com/acme/modules//dns?ref=v1.0.0", want: "github.com/acme/modules//dns@v1.0.0"},
+		{name: "another host keeps its host", source: "git::https://gitlab.com/o/r.git//sub?ref=v1", want: "gitlab.com/o/r//sub@v1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseModuleSource(tt.source, "", host)
+			if !ok {
+				t.Fatalf("parseModuleSource(%q) ok = false", tt.source)
+			}
+			if got.Key != tt.want {
+				t.Errorf("parseModuleSource(%q).Key = %q, want %q", tt.source, got.Key, tt.want)
+			}
+		})
+	}
+}

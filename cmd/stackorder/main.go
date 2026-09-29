@@ -15,7 +15,7 @@ import (
 func main() {
 	cli.Bind(cli.Deps{
 		ScanRepo: func(ctx context.Context, root, repo, sha string, cfg *v1.RepoConfig) (*v1.Graph, error) {
-			return scan.Scan(ctx, root, scan.Options{Repo: repo, SHA: sha, Config: cfg})
+			return scan.Scan(ctx, root, scan.Options{Repo: repo, SHA: sha, Config: cfg, GitHubURL: os.Getenv("GITHUB_SERVER_URL")})
 		},
 		ChangedPaths: scan.ChangedPaths,
 		ResolveLocal: func(g *v1.Graph, changed []string, cfg *v1.RepoConfig, requested []string) (*v1.ResolveResponse, error) {

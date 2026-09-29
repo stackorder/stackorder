@@ -591,3 +591,34 @@ func TestRootFS(t *testing.T) {
 		t.Errorf("ReadFile followed a symlink out of the root and read %q", data)
 	}
 }
+
+func TestScanKeysGitModulesOnTheConfiguredGitHubHost(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "infra/x/main.tf", s3Block("b", "x.tfstate")+`
+module "vpc" {
+  source = "git::https://ghe.acme.com/acme/modules.git//vpc?ref=v1.2.0"
+}
+
+module "dns" {
+  source = "git::https://github.com/acme/modules.git//dns?ref=v1.0.0"
+}
+`)
+	cfg := &v1.RepoConfig{Stacks: v1.StacksConfig{Discover: []string{"infra/*"}}}
+	for _, u := range []string{"https://ghe.acme.com", "https://GHE.acme.com/"} {
+		g, err := Scan(context.Background(), root, Options{Repo: fixtureRepo, Config: cfg, GitHubURL: u})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var keys []string
+		for _, m := range g.Modules {
+			keys = append(keys, m.Key)
+		}
+		want := []string{"acme/modules//vpc@v1.2.0", "github.com/acme/modules//dns@v1.0.0"}
+		if diff := cmp.Diff(want, keys, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+			t.Errorf("GitHubURL %q: module keys (-want +got):\n%s", u, diff)
+		}
+	}
+	if _, err := Scan(context.Background(), root, Options{Repo: fixtureRepo, Config: cfg, GitHubURL: "ghe.acme.com"}); err == nil {
+		t.Error("Scan with a GitHubURL without a host: want an error")
+	}
+}

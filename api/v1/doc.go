@@ -20,7 +20,7 @@
 // A module is identified by its Key, whose shape depends on its kind:
 //
 //	acme/infra//modules/vpc                     local module (owner/repo//path)
-//	acme/modules//vpc@v1.2.0                    git module hosted on GitHub
+//	acme/modules//vpc@v1.2.0                    git module on the GitHub instance
 //	gitlab.com/acme/modules//vpc@v1.2.0         git module on another host
 //	registry:terraform-aws-modules/vpc/aws@5.1  registry module
 //

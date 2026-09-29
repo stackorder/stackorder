@@ -26,7 +26,7 @@ A module is anything a `module` block points at. Its key depends on where the so
 | Kind | Key | Discovered by |
 | --- | --- | --- |
 | Local | `owner/repo//path` | A `module` block whose `source` is a relative path |
-| Git | `owner/repo//path@ref`, or `host/owner/repo//path@ref` off GitHub | A `module` block with a `git::` or `github.com/` source; the `ref` is part of the identity |
+| Git | `owner/repo//path@ref`, or `host/owner/repo//path@ref` off the GitHub instance Stackorder is installed on | A `module` block with a `git::` or `github.com/` source; the `ref` is part of the identity |
 | Registry | `registry:namespace/name/provider@version` | A registry `module` block; recorded so the UI can list consumers, and never "changed by a PR" |
 
 ```text
