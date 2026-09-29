@@ -80,6 +80,31 @@ output "route_table_id" {
 }
 `
 
+const natGatewayHCL = `
+resource "terraform_data" "nat_gateway" {
+  input = {
+    vpc_id = module.vpc.vpc_id
+  }
+}
+`
+
+const dhcpOptionsHCL = `
+resource "terraform_data" "dhcp_options" {
+  input = {
+    vpc_id      = terraform_data.vpc.input.id
+    domain_name = "${var.name}.internal.example"
+  }
+}
+`
+
+const flowLogHCL = `
+resource "terraform_data" "flow_log" {
+  input = {
+    vpc_id = module.vpc.vpc_id
+  }
+}
+`
+
 type story struct {
 	tool    v1.Tool
 	ls      *localStack
@@ -127,6 +152,8 @@ func (s *story) run(t *testing.T) {
 		{"bootstrap", s.bootstrap},
 		{"pr_plan", s.prPlan},
 		{"apply", s.apply},
+		{"lock_safety", s.lockSafety},
+		{"expired_artifact", s.expiredArtifact},
 	}
 	for _, step := range steps {
 		if !t.Run(step.name, step.fn) {
@@ -209,6 +236,16 @@ func (s *story) stickies(pr int) []string {
 	return out
 }
 
+func (s *story) commentsContaining(pr int, text string) []string {
+	var out []string
+	for _, c := range s.comments(pr) {
+		if strings.Contains(c.Body, text) {
+			out = append(out, c.Body)
+		}
+	}
+	return out
+}
+
 func (s *story) noLockObjects(t *testing.T) {
 	t.Helper()
 	assert.Empty(t, s.ls.lockObjects(t), "every S3 state lock was released")
@@ -228,6 +265,12 @@ func (s *story) mergePull(t *testing.T, pr *pullRequest) {
 	s.pushMain(t, pr.head, s.repo.changedPaths(t, pr.base, pr.head))
 	now := time.Now().UTC()
 	pr.pull.State, pr.pull.Merged, pr.pull.MergeCommitSHA, pr.pull.MergedAt = gh.IssueClosed, true, pr.head, &now
+	s.cp.deliver(t, gh.EventPullRequest, s.cp.gh.PullRequestEvent("closed", repoName, pr.pull))
+}
+
+func (s *story) closePull(t *testing.T, pr *pullRequest) {
+	t.Helper()
+	pr.pull.State = gh.IssueClosed
 	s.cp.deliver(t, gh.EventPullRequest, s.cp.gh.PullRequestEvent("closed", repoName, pr.pull))
 }
 
@@ -536,5 +579,106 @@ func (s *story) apply(t *testing.T) {
 	for _, key := range vpcChange {
 		assert.Equal(t, 2, locks[key], "#2 holds the lock on %s until it merges", key)
 	}
+	s.noLockObjects(t)
+}
+
+func (s *story) lockSafety(t *testing.T) {
+	head := s.repo.commit(t, "staging-nat", s.main, "feat(staging): add a NAT gateway",
+		appendFile("stacks/staging/vpc/main.tf", natGatewayHCL))
+	pr := s.openAndPlan(t, 3, "staging-nat", s.main, head, "feat(staging): add a NAT gateway")
+	assert.ElementsMatch(t, []string{stagingApps, stagingVPC}, pr.affected)
+	run := s.runJSON(t, pr.runID)
+	nat := runStack(t, run, stagingVPC)
+	assert.Equal(t, []string{"module.vpc.terraform_data.route_table"}, nat.Summary.Destroyed,
+		"planned against the state #2 applied, the branch would remove its route table")
+	assert.Equal(t, []string{"terraform_data.nat_gateway"}, nat.Summary.Added)
+
+	resolveCheck := s.checkRun(t, report.CheckResolve, head)
+	assert.Contains(t, resolveCheck.Output.Summary+resolveCheck.Output.Text, "[#2]", "the resolve check shows the locks #2 holds")
+
+	s.approve(t, pr)
+	before := len(s.applyDispatches())
+	s.command(t, pr, "stackorder apply")
+	assert.Len(t, s.applyDispatches(), before, "a refused apply dispatches nothing")
+	refusals := s.commentsContaining(pr.number, "locked by #2")
+	require.NotEmpty(t, refusals, "the refusal names the pull request holding the locks")
+	assert.Contains(t, refusals[len(refusals)-1], report.LayerName(report.LayerLocks))
+	assert.Contains(t, refusals[len(refusals)-1], stagingVPC)
+
+	ws := s.repo.checkout(t, s.main)
+	const reason = "e2e: release the staging locks of #2"
+	res := s.rn.local(t, ws, "unlock", stagingVPC, stagingApps, "--reason", reason)
+	require.Equal(t, 0, res.code, "%s", res)
+	assert.Contains(t, res.stdout, "released "+stagingVPC)
+	assert.Contains(t, res.stdout, "released "+stagingApps)
+	assert.Contains(t, res.stdout, "PR #2")
+	assert.Equal(t, map[string]int{prodVPC: 2, prodEKS: 2, prodApps: 2}, s.locks(t), "only the named locks were released")
+
+	var audit v1.Page[v1.AuditEntry]
+	s.cp.getJSON(t, "/v1/audit?limit=100", &audit)
+	var unlocked []string
+	for _, e := range audit.Items {
+		if e.Action == "unlock" && e.Actor == "apikey:e2e" && e.Details["reason"] == reason {
+			unlocked = append(unlocked, fmt.Sprint(e.Details["stack"]))
+			assert.InDelta(t, 2, e.Details["pr"], 0)
+		}
+	}
+	assert.ElementsMatch(t, []string{stagingVPC, stagingApps}, unlocked, "the unlock is audited")
+
+	s.closePull(t, pr)
+	s.mergePull(t, s.pulls[2])
+	assert.Empty(t, s.locks(t), "merging #2 released its remaining locks")
+	assert.NotEmpty(t, s.commentsContaining(2, prodVPC), "the merge comment lists the released locks")
+}
+
+func (s *story) expiredArtifact(t *testing.T) {
+	head := s.repo.commit(t, "vpc-dhcp", s.main, "feat(vpc): add DHCP options",
+		appendFile("modules/vpc/main.tf", dhcpOptionsHCL))
+	pr := s.openAndPlan(t, 4, "vpc-dhcp", s.main, head, "feat(vpc): add DHCP options")
+	assert.ElementsMatch(t, vpcChange, pr.affected)
+	plan := s.runJSON(t, pr.runID)
+	for _, key := range []string{prodVPC, stagingVPC} {
+		assert.Equal(t, []string{"module.vpc.terraform_data.dhcp_options"}, runStack(t, plan, key).Summary.Added, key)
+	}
+	stagingSerial := s.ls.requireState(t, stateKeys[stagingVPC]).Serial
+
+	s.approve(t, pr)
+	before := len(s.applyDispatches())
+	s.command(t, pr, "stackorder apply")
+	runID := s.applyRunOf(t, before)
+	jobs := s.rn.drive(t, runID, func(t *testing.T, j *dispatchJob) {
+		t.Helper()
+		j.skipDownload = true
+		if j.entry.Key == stagingVPC {
+			appendFile("stacks/staging/vpc/main.tf", flowLogHCL)(t, j.workspace)
+		}
+	})
+	results := map[string]cliResult{}
+	for _, j := range jobs {
+		results[j.entry.Key] = j.result
+	}
+	require.Contains(t, results, prodVPC)
+	require.Contains(t, results, stagingVPC)
+	assert.Len(t, results, 2, "the stacks of wave 1 are no-ops and never dispatched")
+
+	vpc := results[prodVPC]
+	require.Equal(t, 0, vpc.code, "%s", vpc)
+	assert.Contains(t, vpc.stderr, "planning again", "the CLI re-plans when the artifact expired")
+
+	staging := results[stagingVPC]
+	assert.Equal(t, cli.ExitRefused, staging.code, "%s", staging)
+	assert.Contains(t, staging.stderr, "does not match the plan recorded")
+	assert.Contains(t, staging.stderr, "terraform_data.flow_log")
+
+	run := s.runJSON(t, runID)
+	assert.Equal(t, v1.RunFailed, run.Status)
+	assert.Equal(t, v1.StackApplied, runStack(t, run, prodVPC).Status)
+	failed := runStack(t, run, stagingVPC)
+	assert.Equal(t, v1.StackFailed, failed.Status)
+	require.NotNil(t, failed.ExitCode)
+	assert.Equal(t, cli.ExitRefused, *failed.ExitCode)
+	assert.Equal(t, gh.ConclusionFailure, s.checkRun(t, "stackorder/apply: "+stagingVPC, head).Conclusion)
+	assert.Contains(t, s.ls.requireState(t, stateKeys[prodVPC]).addresses(), "module.vpc.terraform_data.dhcp_options")
+	assert.Equal(t, stagingSerial, s.ls.requireState(t, stateKeys[stagingVPC]).Serial, "the refused apply changed nothing")
 	s.noLockObjects(t)
 }

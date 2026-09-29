@@ -306,11 +306,12 @@ func planFile(workspace, artifact string) string {
 }
 
 type dispatchJob struct {
-	dispatch  ghfake.Dispatch
-	entry     v1.MatrixEntry
-	workspace string
-	round     int
-	result    cliResult
+	dispatch     ghfake.Dispatch
+	entry        v1.MatrixEntry
+	workspace    string
+	round        int
+	skipDownload bool
+	result       cliResult
 }
 
 type jobHook func(t *testing.T, j *dispatchJob)
@@ -451,7 +452,9 @@ func (rn *runner) stepArgs(t *testing.T, mode string, j *dispatchJob) []string {
 	base := []string{"--stack", j.entry.Key, "--run-id", j.dispatch.Inputs["run_id"], "--server", rn.cp.baseURL}
 	switch v1.RunMode(mode) {
 	case v1.ModeApply:
-		rn.download(t, j.entry, j.workspace)
+		if !j.skipDownload {
+			rn.download(t, j.entry, j.workspace)
+		}
 		return append(append([]string{"apply"}, base...), "--plan-file", planFile(j.workspace, j.entry.Artifact))
 	case v1.ModeDrift:
 		return append([]string{"drift"}, base...)

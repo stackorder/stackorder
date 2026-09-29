@@ -18,8 +18,11 @@
 //
 // TestEndToEnd tells one story per tool, terraform and tofu, selected by
 // the repository's tool setting: adopting the repository, bootstrapping
-// every stack with apply --local, and planning and applying a pull request
-// wave by wave. A tool whose binary is missing is skipped.
+// every stack with apply --local, planning and applying a pull request
+// wave by wave, refusing an apply behind another pull request's locks and
+// releasing them with unlock, and re-planning for an expired plan artifact
+// and refusing a plan that no longer matches. A tool whose binary is
+// missing is skipped.
 //
 // Environment:
 //
