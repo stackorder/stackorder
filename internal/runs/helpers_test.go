@@ -234,12 +234,11 @@ func TestStackCodeowners(t *testing.T) {
 		dir  string
 		want []string
 	}{
-		{"stacks/prod/vpc", []string{"@acme/platform-prod"}},
-		{"stacks/prod/legacy/dns", []string{"@alice"}},
-		{"stacks/staging/vpc", []string{"@acme/staging"}},
-		{"stacks/other", nil},
+		{"stacks/prod/vpc", []string{"@acme/terraform"}},
+		{"stacks/prod/legacy/dns", []string{"@acme/terraform"}},
+		{"stacks/other", []string{"@acme/terraform"}},
 		{"stacks/dev/unowned", nil},
-		{"/stacks/prod/vpc/", []string{"@acme/platform-prod"}},
+		{"/stacks/prod/vpc/", []string{"@acme/terraform"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.dir, func(t *testing.T) {
@@ -247,6 +246,32 @@ func TestStackCodeowners(t *testing.T) {
 		})
 	}
 	assert.Nil(t, stackCodeowners(nil, "stacks/prod/vpc"))
+}
+
+func TestStackCodeownersFollowsTheRuleGitHubAppliesToTheStackFiles(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines []string
+		dir   string
+		want  []string
+	}{
+		{"catch-all", []string{"* @acme/infra"}, "stacks/prod/vpc", []string{"@acme/infra"}},
+		{"double star", []string{"** @acme/infra"}, "stacks/prod/vpc", []string{"@acme/infra"}},
+		{"extension", []string{"*.tf @acme/terraform"}, "stacks/prod/vpc", []string{"@acme/terraform"}},
+		{"anchored file pattern", []string{"/stacks/prod/**/*.tf @acme/prod"}, "stacks/prod/vpc", []string{"@acme/prod"}},
+		{"directory", []string{"/stacks/prod/ @acme/platform-prod", "/stacks/staging/ @acme/staging"}, "stacks/staging/vpc", []string{"@acme/staging"}},
+		{"later file rule wins", []string{"/stacks/ @acme/a", "*.tf @acme/b"}, "stacks/prod/vpc", []string{"@acme/b"}},
+		{"later directory rule wins", []string{"*.tf @acme/b", "/stacks/prod/ @acme/a"}, "stacks/prod/vpc", []string{"@acme/a"}},
+		{"other directory", []string{"/stacks/prod/ @acme/platform-prod"}, "stacks/staging/vpc", nil},
+		{"explicitly unowned", []string{"* @acme/infra", "/stacks/dev/"}, "stacks/dev/vpc", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := codeowners.Parse(strings.NewReader(strings.Join(tt.lines, "\n")))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, stackCodeowners(f, tt.dir))
+		})
+	}
 }
 
 func TestNoopCandidate(t *testing.T) {

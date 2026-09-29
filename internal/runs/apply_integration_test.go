@@ -134,6 +134,25 @@ func TestApplyGateLayers(t *testing.T) {
 			want: []string{"**Layer 2, code owner review** (`stacks/prod/vpc`)", "@acme/platform-prod", "(`stacks/prod/eks`)"},
 		},
 		{
+			name: "layer 2 code owner review under a catch-all rule",
+			cfg:  func(c *v1.RepoConfig) { c.Apply.RequireCodeownerReview = true },
+			setup: func(e *env) {
+				e.gh.SetContents(repoName, "main", ".github/CODEOWNERS", []byte("* @acme/infra\n"))
+			},
+			want: []string{"**Layer 2, code owner review** (`stacks/prod/vpc`)", "@acme/infra", "(`stacks/staging/vpc`)"},
+		},
+		{
+			name: "layer 2 code owner review follows the rule of the stack's files",
+			cfg:  func(c *v1.RepoConfig) { c.Apply.RequireCodeownerReview = true },
+			setup: func(e *env) {
+				e.gh.SetContents(repoName, "main", ".github/CODEOWNERS", []byte("/stacks/ @acme/a\n*.tf @acme/b\n"))
+				e.gh.SetTeamMembership("acme", "a", "dave", gh.MembershipActive)
+				e.gh.SetCollaboratorPermission(repoName, "dave", "write")
+				e.gh.SetReviews(repoName, 7, []gh.Review{{User: gh.User{Login: "dave"}, State: gh.ReviewApproved, CommitID: headSHA}})
+			},
+			want: []string{"**Layer 2, code owner review** (`stacks/prod/vpc`)", "code owner: @acme/b"},
+		},
+		{
 			name: "layer 3 needs a plan of the head commit",
 			setup: func(e *env) {
 				e.openPull(7, newHeadSHA)

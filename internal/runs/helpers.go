@@ -199,11 +199,12 @@ func versionsBehind(released []string, ref string) (int, bool) {
 	return n, true
 }
 
+// CODEOWNERS rules match files, so a stack is owned by the owners of its main.tf.
 func stackCodeowners(f *codeowners.File, dir string) []string {
 	if f == nil {
 		return nil
 	}
-	return f.OwnersFor(strings.Trim(dir, "/") + "/")
+	return f.OwnersFor(strings.Trim(dir, "/") + "/main.tf")
 }
 
 func noopCandidate(reasons []v1.Reason, summary *v1.PlanSummary, hasChanges bool) bool {
