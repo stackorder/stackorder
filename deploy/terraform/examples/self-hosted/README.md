@@ -11,7 +11,7 @@ relative path to a tag, so Renovate or Dependabot can bump it together with
 `stackorder_version`:
 
 ```hcl
-source = "github.com/stackorder/stackorder//deploy/terraform?ref=v1.0.0"
+source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.1.0"
 ```
 
 `.stackorder.yaml` maps the stack to the `production` GitHub environment and
