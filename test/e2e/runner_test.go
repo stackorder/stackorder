@@ -325,6 +325,7 @@ type dispatchJob struct {
 	workspace    string
 	round        int
 	skipDownload bool
+	vanish       bool
 	result       cliResult
 }
 
@@ -437,6 +438,10 @@ func (rn *runner) runDispatch(t *testing.T, d ghfake.Dispatch, round int, hook j
 		jobs[i] = j
 		if hook != nil {
 			hook(t, j)
+		}
+		if j.vanish {
+			j.result = cliResult{code: -1}
+			continue
 		}
 		env := rn.dispatchEnv(t, d, entry, entry.Environment, j.workspace)
 		args := rn.stepArgs(t, d.Inputs["mode"], j)

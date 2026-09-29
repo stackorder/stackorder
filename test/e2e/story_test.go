@@ -31,13 +31,15 @@ const (
 	reviewer       = "bob"
 	applier        = "carol"
 
-	prodVPC     = "stacks/prod/vpc"
-	prodEKS     = "stacks/prod/eks"
-	prodApps    = "stacks/prod/apps"
-	stagingVPC  = "stacks/staging/vpc"
-	stagingApps = "stacks/staging/apps"
-	legacyDNS   = "stacks/legacy/dns"
-	sandboxBlue = "stacks/sandbox/blue:blue"
+	prodVPC      = "stacks/prod/vpc"
+	prodEKS      = "stacks/prod/eks"
+	prodApps     = "stacks/prod/apps"
+	stagingVPC   = "stacks/staging/vpc"
+	stagingApps  = "stacks/staging/apps"
+	legacyDNS    = "stacks/legacy/dns"
+	sandboxBlue  = "stacks/sandbox/blue:blue"
+	prodQueue    = "stacks/prod/queue"
+	stagingQueue = "stacks/staging/queue"
 
 	plaintextSecret = "e2e-plaintext-hunter2"
 	stickyMarker    = "<!-- stackorder:sticky -->"
@@ -130,6 +132,17 @@ output "workspace" {
 }
 `
 
+const queueMainHCL = `resource "terraform_data" "queue" {
+  input = {
+    name = "queue"
+  }
+}
+`
+
+func queueBackendHCL(key string) string {
+	return strings.Replace(sandboxBackendHCL, `"sandbox/blue.tfstate"`, `"`+key+`"`, 1)
+}
+
 type story struct {
 	tool    v1.Tool
 	ls      *localStack
@@ -181,6 +194,7 @@ func (s *story) run(t *testing.T) {
 		{"expired_artifact", s.expiredArtifact},
 		{"drift", s.drift},
 		{"workspace_stack", s.workspaceStack},
+		{"vanished_job", s.vanishedJob},
 	}
 	for _, step := range steps {
 		if !t.Run(step.name, step.fn) {
@@ -881,5 +895,45 @@ func (s *story) workspaceStack(t *testing.T) {
 	assert.Equal(t, "blue", stack.Workspace)
 	require.NotNil(t, stack.Backend)
 	assert.Equal(t, "sandbox/blue.tfstate", stack.Backend.Key)
+	s.noLockObjects(t)
+}
+
+func (s *story) vanishedJob(t *testing.T) {
+	head := s.repo.commit(t, "queues", s.main, "feat(queue): add a queue per environment",
+		writeFile("stacks/prod/queue/backend.tf", queueBackendHCL("prod/queue.tfstate")),
+		writeFile("stacks/prod/queue/main.tf", queueMainHCL),
+		writeFile("stacks/staging/queue/backend.tf", queueBackendHCL("staging/queue.tfstate")),
+		writeFile("stacks/staging/queue/main.tf", queueMainHCL))
+	pr := s.openAndPlan(t, 6, "queues", s.main, head, "feat(queue): add a queue per environment")
+	require.ElementsMatch(t, []string{prodQueue, stagingQueue}, pr.affected)
+	assert.Equal(t, [][]string{{prodQueue, stagingQueue}}, sortedWaves(pr.waves), "both queues are in wave 0")
+
+	s.approve(t, pr)
+	before := len(s.applyDispatches())
+	s.command(t, pr, "stackorder apply")
+	runID := s.applyRunOf(t, before)
+	jobs := s.rn.drive(t, runID, func(_ *testing.T, j *dispatchJob) {
+		j.vanish = j.entry.Key == stagingQueue
+	})
+	environments := map[string]string{}
+	for _, j := range jobs {
+		environments[j.entry.Key] = j.entry.Environment
+		assert.Equal(t, "0", j.dispatch.Inputs["wave"], j.entry.Key)
+	}
+	require.Equal(t, map[string]string{prodQueue: "production", stagingQueue: "staging"}, environments,
+		"wave 0 is dispatched once per environment, so both dispatches carry the same run name")
+
+	run := s.runJSON(t, runID)
+	assert.Equal(t, v1.RunFailed, run.Status, "a job that ended without reporting fails the run")
+	assert.Equal(t, v1.StackApplied, runStack(t, run, prodQueue).Status)
+	assert.Equal(t, v1.StackUnknown, runStack(t, run, stagingQueue).Status,
+		"the server matches the finished workflow run to its dispatch by the stacks its jobs name and marks the stack unknown")
+	s.ls.requireState(t, "prod/queue.tfstate")
+	_, applied := s.ls.state(t, "staging/queue.tfstate")
+	assert.False(t, applied, "the vanished job applied nothing")
+	locks := s.locks(t)
+	for _, key := range []string{prodQueue, stagingQueue} {
+		assert.Equal(t, 6, locks[key], "#6 keeps the lock on %s after its apply failed", key)
+	}
 	s.noLockObjects(t)
 }

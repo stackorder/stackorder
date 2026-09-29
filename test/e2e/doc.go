@@ -27,8 +27,8 @@
 // wave by wave, refusing an apply behind another pull request's locks and
 // releasing them with unlock, re-planning for an expired plan artifact and
 // refusing a plan that no longer matches, detecting and resolving drift,
-// and a stack in a non-default workspace. A tool whose binary is missing is
-// skipped.
+// a stack in a non-default workspace, and failing a run whose job ended
+// without reporting. A tool whose binary is missing is skipped.
 //
 // Environment:
 //
