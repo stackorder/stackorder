@@ -211,7 +211,7 @@ func TestTypesMirrorAPI(t *testing.T) {
 	interfaces, unions := parseTS(t)
 
 	required := []string{
-		"AffectedStack", "ApiErrorBody", "Backend", "Check", "CreateRunResponse", "DriftStatus",
+		"AffectedStack", "ApiErrorBody", "AuditEntry", "Backend", "Check", "CreateRunResponse", "DriftStatus",
 		"Edge", "Graph", "GraphView", "LockInfo", "Matrix", "MatrixEntry", "Module", "ModuleConsume",
 		"ModuleConsumer", "ModuleDetail", "ModuleVersion", "NodeRef", "Overview", "Page", "PlanSummary",
 		"RepoSummary", "Run", "RunStack", "RunStackRef", "Stack", "StackApplyConfig", "StackConfig",

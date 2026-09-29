@@ -419,6 +419,15 @@ export interface UnlockResponse {
   released: LockInfo[] | null;
 }
 
+/** One row of GET /v1/audit. */
+export interface AuditEntry {
+  at: string;
+  actor: string;
+  action: string;
+  target?: string;
+  details?: Record<string, unknown>;
+}
+
 /** The body of every non-2xx response (v1.Error). */
 export interface ApiErrorBody {
   code: string;
