@@ -23,4 +23,5 @@ COPY --from=build /out/stackorder-server /stackorder-server
 USER nonroot:nonroot
 EXPOSE 8080
 ENV STACKORDER_LISTEN=:8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["/stackorder-server", "healthcheck"]
 ENTRYPOINT ["/stackorder-server"]

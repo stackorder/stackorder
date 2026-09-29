@@ -61,7 +61,8 @@ docker-compose.yml         local Postgres and LocalStack for development and tes
 Dependency direction: `api/v1` <- `config` <- `scan`, `graph`, `command`,
 `report`, `tf` <- `client`, `cli` (runner side); `api/v1` <- `store`, `gh`,
 `oidc` <- `principal` <- `runs` <- `webhook`, `worker`, `sched`, `api` <-
-`server` <- `cmd`. Nothing under `internal/` imports `internal/cli` or
+`server` <- `cmd`. `runs` talks to GitHub through its `GitHub` interface
+(`Client`, `ListInstallations`, `InstallationRepos`), satisfied by `*gh.App`. Nothing under `internal/` imports `internal/cli` or
 `internal/server` except `cmd` and tests. `internal/graph`, `internal/report`
 and `internal/command` import nothing but `api/v1`, `internal/config` and
 the standard library (plus the YAML, glob and cron libraries config pulls
@@ -431,11 +432,26 @@ as `other`.
 | `STACKORDER_LOG_LEVEL`, `STACKORDER_LOG_FORMAT` | `info` / `json` by default |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Enables tracing; spans carry `stackorder.run_id` |
 
-The server refuses to start without `DATABASE_URL`. Without the GitHub App
-variables it starts in setup mode, runs migrations, and serves only
-`/setup*`, `/healthz` and `/readyz`. `stackorder-server healthcheck` GETs
-`http://127.0.0.1<STACKORDER_LISTEN>/healthz` and exits 0 on 200, for
-container health checks in images without a shell.
+The server refuses to start without `DATABASE_URL` and `STACKORDER_BASE_URL`;
+retentions must be positive durations; `STACKORDER_ARTIFACT_PREFIX` without a
+bucket is an error; a partial set of the three `GITHUB_APP_*` variables is an
+error. Without all three it starts in setup mode, runs migrations, and serves
+only `/setup*`, `/healthz` and `/readyz`. The default OIDC audience is the
+base URL with trailing slashes removed, and the `/setup` page tells operators
+to use that exact value as the Actions `server-url`. A generated session key
+is warned about, never logged. With a bucket, `AWS_ENDPOINT_URL_S3` switches
+the artifact store to path-style addressing (LocalStack); artifact URLs are
+`s3://bucket/key`. `stackorder-server healthcheck` GETs `/healthz` on the
+listen port (an unspecified host maps to `127.0.0.1`) and exits 0 on 200,
+for container health checks in images without a shell; the Dockerfile
+declares it as `HEALTHCHECK`. At start-up, and daily at 04:00 UTC, the server
+syncs installations and their repositories from the App API (adding and
+refreshing, reading `stackorder.yaml` only for repositories not seen before)
+so installations made in setup mode or lost webhooks are learned. Traces
+carry `stackorder.run_id`, `stackorder.event`, `stackorder.delivery`,
+`stackorder.job` and `stackorder.job_id`; `/healthz`, `/readyz` and
+`/metrics` are not traced. The pgx pool takes its size from the DSN's
+`pool_max_conns`; the scheduler's leader lock holds one connection.
 
 ## Store notes
 
@@ -458,8 +474,11 @@ after a 30 s drain; the stale claim age (10 m) exceeds the handler timeout
 unless the expression carries a `CRON_TZ=` prefix; a new leader catches up
 at most one hour, keeping the latest fire per window; dedupe keys are
 `reconcile:<minute>`, `prune:<hour>`, `stale_locks:<day>`,
-`schedule_drift:<repo>:<fire unix>`, `drift:<stack>:<hour>` and
-`dispatch_wave:<run>:<wave>`.
+`schedule_drift:<repo>:<fire unix>`, `drift:<stack>:<hour>`,
+`dispatch_wave:<run>:<wave>`, `sync_installations:<fire unix>` and
+`sync_installations:start:<minute unix>`. `store.UpsertRepo` takes a
+transaction-level advisory lock on the lowercased full name so two workers
+recording the same new repository do not race the unique index.
 `store.SetDefaultGraph` records `repos.default_graph_id` (the runs service
 calls it when a PR merges) and `store.GetDefaultGraph` reads it back;
 `ModuleConsumers` and `StackModules` read each repository's default-branch
