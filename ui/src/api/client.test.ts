@@ -23,7 +23,6 @@ describe('ApiClient requests', () => {
   it.each([
     ['me', (a: ApiClient) => a.me(), '/v1/me'],
     ['overview', (a: ApiClient) => a.overview(), '/v1/overview'],
-    ['repos', (a: ApiClient) => a.repos(), '/v1/repos'],
     ['repoGraph', (a: ApiClient) => a.repoGraph('acme', 'infra'), '/v1/repos/acme/infra/graph'],
     ['repoGraph with ref', (a: ApiClient) => a.repoGraph('acme', 'infra', { ref: 'main' }), '/v1/repos/acme/infra/graph?ref=main'],
     [
@@ -33,10 +32,8 @@ describe('ApiClient requests', () => {
     ],
     ['repoGraph with empty query', (a: ApiClient) => a.repoGraph('acme', 'infra', { ref: '', run: '' }), '/v1/repos/acme/infra/graph'],
     ['repoRuns', (a: ApiClient) => a.repoRuns('acme', 'infra'), '/v1/repos/acme/infra/runs'],
-    ['repoStacks', (a: ApiClient) => a.repoStacks('acme', 'acme.github.io'), '/v1/repos/acme/acme.github.io/stacks'],
     ['stack', (a: ApiClient) => a.stack(id), `/v1/stacks/${id}`],
     ['stackRuns', (a: ApiClient) => a.stackRuns(id), `/v1/stacks/${id}/runs`],
-    ['modules', (a: ApiClient) => a.modules(), '/v1/modules'],
     ['module', (a: ApiClient) => a.module(id), `/v1/modules/${id}`],
     ['run', (a: ApiClient) => a.run(id), `/v1/runs/${id}`],
     ['encoded segment', (a: ApiClient) => a.run('a/b c'), '/v1/runs/a%2Fb%20c'],
@@ -49,6 +46,29 @@ describe('ApiClient requests', () => {
     expect(init.body).toBeUndefined();
     expect(init.credentials).toBe('same-origin');
     expect(init.headers).toEqual({ Accept: 'application/json' });
+  });
+
+  it.each([
+    ['repos', (a: ApiClient) => a.repos(), '/v1/repos'],
+    ['repoStacks', (a: ApiClient) => a.repoStacks('acme', 'acme.github.io'), '/v1/repos/acme/acme.github.io/stacks'],
+    ['modules', (a: ApiClient) => a.modules(), '/v1/modules'],
+  ])('%s follows next_cursor through every page', async (_name, call, path) => {
+    const pages = [{ items: [1, 2], next_cursor: 'c 1', total: 3 }, { items: [], next_cursor: 'c2' }, { items: [3] }];
+    let served = 0;
+    const fetch = vi.fn<FetchLike>(() => Promise.resolve(respond(pages[served++])));
+    await expect(call(new ApiClient({ fetch }))).resolves.toEqual({ items: [1, 2, 3], total: 3 });
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      `${path}?limit=500`,
+      `${path}?limit=500&cursor=c+1`,
+      `${path}?limit=500&cursor=c2`,
+    ]);
+    expect(fetch.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
+  });
+
+  it('stops paging when the server repeats a cursor', async () => {
+    const { api, fetch } = client(() => Promise.resolve(respond({ items: ['x'], next_cursor: 'same' })));
+    await expect(api.repos()).resolves.toEqual({ items: ['x', 'x'] });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it('reads the full plan text as text', async () => {

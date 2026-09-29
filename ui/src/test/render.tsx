@@ -62,6 +62,13 @@ export function renderWithApp(ui: ComponentChildren, options: { url?: string; ha
   return { ...result, calls: api.calls, client };
 }
 
+/** Serves a list 50 items at a time with an offset cursor, however large a limit the call asks for. */
+export function paged(items: readonly unknown[], call: Call): Response {
+  const start = Number(new URLSearchParams(call.search).get('cursor') ?? '0');
+  const end = start + 50;
+  return json(end < items.length ? { items: items.slice(start, end), next_cursor: String(end) } : { items: items.slice(start) });
+}
+
 /** Returns list[i] or fails the test when it is missing. */
 export function nth<T>(list: readonly T[], i: number): T {
   const value = list[i];

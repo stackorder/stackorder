@@ -1,7 +1,7 @@
 import { screen, within } from '@testing-library/preact';
 import { describe, expect, it } from 'vitest';
 
-import { json, nth, renderWithApp } from '../test/render';
+import { json, nth, paged, renderWithApp } from '../test/render';
 import { ReposPage } from './ReposPage';
 
 describe('ReposPage', () => {
@@ -25,6 +25,21 @@ describe('ReposPage', () => {
     expect(within(infra).getByText('1')).toHaveClass('text-warning');
     expect(within(nth(rows, 2)).getByText('trunk')).toBeInTheDocument();
     expect(within(nth(rows, 2)).getByText('—')).toBeInTheDocument();
+  });
+
+  it('lists every repository past the first page', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({
+      id: i + 1,
+      full_name: `acme/repo-${String(i).padStart(2, '0')}`,
+      default_branch: 'main',
+      stacks: 1,
+      drifted: 0,
+      locks_held: 0,
+    }));
+    renderWithApp(<ReposPage />, { handler: (c) => (c.path === '/v1/repos' ? paged(many, c) : undefined) });
+    const table = await screen.findByRole('table', { name: 'Repositories' });
+    expect(within(table).getAllByRole('row').slice(1)).toHaveLength(60);
+    expect(within(table).getByRole('link', { name: 'acme/repo-59' })).toHaveAttribute('href', '/repos/acme/repo-59');
   });
 
   it('explains how to get a first repository', async () => {

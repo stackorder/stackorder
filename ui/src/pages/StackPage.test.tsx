@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { StackDetail } from '../api/types';
 import { Routes } from '../app';
 import { clone, ids, stack } from '../fixtures';
-import { type Handler, json, nth, renderWithApp } from '../test/render';
+import { type Handler, json, nth, paged, renderWithApp } from '../test/render';
 import { StackPage } from './StackPage';
 
 const url = `/stacks/${ids.stack}`;
@@ -80,6 +80,32 @@ describe('StackPage', () => {
       'href',
       '/repos/acme/platform-infra',
     );
+  });
+
+  it('links a dependency that is past the first page of the repository stacks', async () => {
+    const far = { id: 'f0e1d2c3-b4a5-4968-8776-655443322110', repo: 'acme/infra', key: 'stacks/zz/vpc', path: 'stacks/zz/vpc' };
+    const siblings = [
+      ...Array.from({ length: 60 }, (_, i) => ({
+        id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        repo: 'acme/infra',
+        key: `stacks/a${String(i).padStart(2, '0')}`,
+        path: `stacks/a${String(i).padStart(2, '0')}`,
+      })),
+      far,
+    ];
+    const s = clone(stack);
+    s.depends_on = [far.key];
+    renderWithApp(page, {
+      url,
+      handler: (c) => {
+        if (c.path === `/v1/stacks/${ids.stack}`) return json(s);
+        return c.path === '/v1/repos/acme/infra/stacks' ? paged(siblings, c) : undefined;
+      },
+    });
+    await screen.findByRole('heading', { level: 1 });
+    await waitFor(() => {
+      expect(card('Depends on').getByRole('link', { name: far.key })).toHaveAttribute('href', `/stacks/${far.id}`);
+    });
   });
 
   it('falls back to the repository graph when stack ids are unavailable', async () => {

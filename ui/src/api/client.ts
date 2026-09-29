@@ -20,6 +20,9 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 /** Error code used when the request never reached the server. */
 export const NETWORK_ERROR = 'network';
 
+/** The page size asked for when reading a whole list; the server caps it at 500. */
+export const LIST_PAGE_LIMIT = 500;
+
 /** Error code used when a response body is not the JSON the client expected. */
 export const INVALID_RESPONSE = 'invalid_response';
 
@@ -121,9 +124,9 @@ export class ApiClient {
     return this.get('/v1/overview', opts);
   }
 
-  /** GET /v1/repos: repositories the user can see. */
+  /** GET /v1/repos, every page: repositories the user can see. */
   repos(opts?: RequestOptions): Promise<Page<RepoSummary>> {
-    return this.get('/v1/repos', opts);
+    return this.all('/v1/repos', opts);
   }
 
   /** GET /v1/repos/{owner}/{repo}/graph: the graph at a ref, optionally replaying a run. */
@@ -140,9 +143,9 @@ export class ApiClient {
     return this.get(`/v1/repos/${segment(owner)}/${segment(repo)}/runs`, opts);
   }
 
-  /** GET /v1/repos/{owner}/{repo}/stacks: the repository's stacks with their ids. */
+  /** GET /v1/repos/{owner}/{repo}/stacks, every page: the repository's stacks with their ids. */
   repoStacks(owner: string, repo: string, opts?: RequestOptions): Promise<Page<StackDetail>> {
-    return this.get(`/v1/repos/${segment(owner)}/${segment(repo)}/stacks`, opts);
+    return this.all(`/v1/repos/${segment(owner)}/${segment(repo)}/stacks`, opts);
   }
 
   /** GET /v1/stacks/{id}: stack detail. */
@@ -155,9 +158,9 @@ export class ApiClient {
     return this.get(`/v1/stacks/${segment(id)}/runs`, opts);
   }
 
-  /** GET /v1/modules: every module the server tracks. */
+  /** GET /v1/modules, every page: every module the server tracks. */
   modules(opts?: RequestOptions): Promise<Page<ModuleDetail>> {
-    return this.get('/v1/modules', opts);
+    return this.all('/v1/modules', opts);
   }
 
   /** GET /v1/modules/{id}: module versions and consumers. */
@@ -192,6 +195,23 @@ export class ApiClient {
 
   private get<T>(path: string, opts?: RequestOptions): Promise<T> {
     return this.send('GET', path, undefined, opts);
+  }
+
+  private async all<T>(path: string, opts?: RequestOptions): Promise<Page<T>> {
+    const items: T[] = [];
+    const seen = new Set<string>();
+    let total: number | undefined;
+    let cursor = '';
+    do {
+      const params = new URLSearchParams({ limit: String(LIST_PAGE_LIMIT) });
+      if (cursor) params.set('cursor', cursor);
+      const page = await this.get<Page<T>>(`${path}?${params.toString()}`, opts);
+      if (seen.size === 0) total = page.total;
+      items.push(...(page.items ?? []));
+      seen.add(cursor);
+      cursor = page.next_cursor ?? '';
+    } while (cursor && !seen.has(cursor));
+    return total === undefined ? { items } : { items, total };
   }
 
   private async text(path: string, opts?: RequestOptions): Promise<string> {

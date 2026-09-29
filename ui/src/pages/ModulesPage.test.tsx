@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/preact';
 import { describe, expect, it } from 'vitest';
 
 import { moduleDetail } from '../fixtures';
-import { nth, renderWithApp } from '../test/render';
+import { nth, paged, renderWithApp } from '../test/render';
 import { consumersBehind, latestVersion, matchesModule, ModulesPage } from './ModulesPage';
 
 describe('module helpers', () => {
@@ -47,6 +47,22 @@ describe('ModulesPage', () => {
     ]);
     expect(within(nth(rows, 2)).getByRole('link')).toHaveAttribute('href', `/modules/${moduleDetail.id}`);
     expect(screen.getByText('4 of 4')).toBeInTheDocument();
+  });
+
+  it('finds a module past the first page from a ?q= link', async () => {
+    const many = Array.from({ length: 70 }, (_, i) => ({
+      id: `m${String(i)}`,
+      key: `acme/infra//modules/m${String(i).padStart(2, '0')}`,
+      kind: 'local',
+      source: `../../modules/m${String(i).padStart(2, '0')}`,
+    }));
+    renderWithApp(<ModulesPage />, {
+      url: `/modules?q=${encodeURIComponent('acme/infra//modules/m60')}`,
+      handler: (c) => (c.path === '/v1/modules' ? paged(many, c) : undefined),
+    });
+    const table = await screen.findByRole('table', { name: 'Modules' });
+    expect(within(table).getByRole('link', { name: 'acme/infra//modules/m60' })).toHaveAttribute('href', '/modules/m60');
+    expect(screen.getByText('1 of 70')).toBeInTheDocument();
   });
 
   it('filters from the URL and as the user types', async () => {
