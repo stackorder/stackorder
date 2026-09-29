@@ -39,7 +39,7 @@ The manifest subscribes to these events. GitHub delivers `installation` and `ins
 | `check_run` | Re-runs requested from the checks UI (`rerequested`) |
 | `check_suite` | Check suite re-requests |
 | `workflow_run` | Binding dispatches to workflow runs and closing each wave |
-| `workflow_job` | Recording a stack's job and moving the stack to `planning` or `applying` when the job starts, for jobs named in GitHub's default matrix form, `<job> (<stack>, …)`. The jobs of the reusable workflows are named `plan <key>` and `<mode> wave <n> <key>`, which the server does not match, so their stacks move on when their results arrive |
+| `workflow_job` | Recording a stack's job and moving the stack to `planning` or `applying` when the job starts. The server finds the stack in the job's name: `plan <key>` and `<mode> wave <n> <key>`, as the reusable workflows name their jobs, or GitHub's default matrix form, `<job> (<stack>, …)` |
 | `deployment_protection_rule` | Approving or rejecting deployments as a custom protection rule; not on Enterprise Server |
 
 Every minute the server also reconciles dispatches whose webhooks were lost: it resends dispatches GitHub never accepted, binds dispatches to workflow runs by their title, marks the stacks of a dispatch unbound for 30 minutes `unknown`, and closes dispatches whose workflow run completed without every stack reporting. The CLI's result call stays the source of truth.
