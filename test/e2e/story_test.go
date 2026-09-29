@@ -38,6 +38,7 @@ const (
 	stagingVPC  = "stacks/staging/vpc"
 	stagingApps = "stacks/staging/apps"
 	legacyDNS   = "stacks/legacy/dns"
+	sandboxBlue = "stacks/sandbox/blue:blue"
 
 	plaintextSecret = "e2e-plaintext-hunter2"
 	stickyMarker    = "<!-- stackorder:sticky -->"
@@ -107,6 +108,28 @@ resource "terraform_data" "flow_log" {
 }
 `
 
+const sandboxBackendHCL = `terraform {
+  backend "s3" {
+    bucket       = "stackorder-example-state"
+    key          = "sandbox/blue.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true
+  }
+}
+`
+
+const sandboxMainHCL = `resource "terraform_data" "marker" {
+  input = {
+    workspace = terraform.workspace
+  }
+}
+
+output "workspace" {
+  description = "Workspace the stack was applied in."
+  value       = terraform.workspace
+}
+`
+
 type story struct {
 	tool    v1.Tool
 	ls      *localStack
@@ -157,6 +180,7 @@ func (s *story) run(t *testing.T) {
 		{"lock_safety", s.lockSafety},
 		{"expired_artifact", s.expiredArtifact},
 		{"drift", s.drift},
+		{"workspace_stack", s.workspaceStack},
 	}
 	for _, step := range steps {
 		if !t.Run(step.name, step.fn) {
@@ -763,5 +787,41 @@ func (s *story) drift(t *testing.T) {
 	require.Len(t, issues, 1)
 	assert.Equal(t, gh.IssueClosed, issues[0].State, "the drift issue is closed once the stack matches again")
 	assert.NotEmpty(t, s.cp.gh.Comments(repoName, issues[0].Number), "the issue says why it was closed")
+	s.noLockObjects(t)
+}
+
+func (s *story) workspaceStack(t *testing.T) {
+	head := s.repo.commit(t, "sandbox-blue", s.main, "feat(sandbox): add the blue workspace stack",
+		writeFile("stacks/sandbox/blue/.stackorder.yaml", "workspace: blue\n"),
+		writeFile("stacks/sandbox/blue/backend.tf", sandboxBackendHCL),
+		writeFile("stacks/sandbox/blue/main.tf", sandboxMainHCL))
+	pr := s.openAndPlan(t, 5, "sandbox-blue", s.main, head, "feat(sandbox): add the blue workspace stack")
+	require.Equal(t, []string{sandboxBlue}, pr.affected)
+	entry := pr.matrix.Include[0]
+	assert.Equal(t, "blue", entry.Workspace)
+	assert.Equal(t, "stacks/sandbox/blue", entry.Stack)
+	assert.Equal(t, v1.DefaultEnvironment, entry.Environment, "stacks/sandbox/ matches no environment prefix")
+	planned := pr.plans[sandboxBlue]
+	assert.Contains(t, planned.stdout, `workspace "blue"`, "the plan job selects the workspace")
+	assert.Equal(t, "stackorder-plan-stacks-sandbox-blue-blue-"+head, planned.outputs["artifact"])
+
+	s.approve(t, pr)
+	before := len(s.applyDispatches())
+	s.command(t, pr, "stackorder apply")
+	runID := s.applyRunOf(t, before)
+	jobs := s.rn.drive(t, runID, nil)
+	require.Len(t, jobs, 1)
+	assert.Equal(t, 0, jobs[0].result.code, "%s", jobs[0].result)
+	assert.Equal(t, v1.RunApplied, s.runJSON(t, runID).Status)
+
+	st := s.ls.requireState(t, "env:/blue/sandbox/blue.tfstate")
+	assert.Equal(t, "blue", st.Outputs["workspace"].Value)
+	assert.Equal(t, []string{"terraform_data.marker"}, st.addresses())
+	_, inDefault := s.ls.state(t, "sandbox/blue.tfstate")
+	assert.False(t, inDefault, "nothing is written to the default workspace's key")
+	stack := s.stacks(t)[sandboxBlue]
+	assert.Equal(t, "blue", stack.Workspace)
+	require.NotNil(t, stack.Backend)
+	assert.Equal(t, "sandbox/blue.tfstate", stack.Backend.Key)
 	s.noLockObjects(t)
 }

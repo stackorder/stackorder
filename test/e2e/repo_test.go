@@ -161,6 +161,15 @@ func (r *gitRepo) head(t *testing.T) string {
 
 type edit func(t *testing.T, dir string)
 
+func writeFile(path, content string) edit {
+	return func(t *testing.T, dir string) {
+		t.Helper()
+		p := filepath.Join(dir, filepath.FromSlash(path))
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o750))
+		require.NoError(t, os.WriteFile(p, []byte(content), 0o600))
+	}
+}
+
 func appendFile(path, content string) edit {
 	return func(t *testing.T, dir string) {
 		t.Helper()

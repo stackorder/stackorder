@@ -21,8 +21,9 @@
 // every stack with apply --local, planning and applying a pull request
 // wave by wave, refusing an apply behind another pull request's locks and
 // releasing them with unlock, re-planning for an expired plan artifact and
-// refusing a plan that no longer matches, and detecting and resolving
-// drift. A tool whose binary is missing is skipped.
+// refusing a plan that no longer matches, detecting and resolving drift,
+// and a stack in a non-default workspace. A tool whose binary is missing is
+// skipped.
 //
 // Environment:
 //
