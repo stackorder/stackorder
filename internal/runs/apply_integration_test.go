@@ -503,6 +503,34 @@ func TestApplyFailureBlocksDependents(t *testing.T) {
 	assert.Len(t, e.gh.Dispatches(), 3)
 }
 
+func TestMergeIntoAnotherBranchIsNotADefaultBranchMerge(t *testing.T) {
+	for _, mode := range []v1.ApplyMode{v1.ApplyOnMerge, v1.ApplyBeforeMerge} {
+		t.Run(string(mode), func(t *testing.T) {
+			cfg := baseConfig()
+			cfg.Apply.Mode = mode
+			e := newEnv(t, cfg, withQueue())
+			g := testGraph(mainSHA)
+			defaultID, _, err := e.st.SaveGraph(e.ctx, repoID, &g)
+			require.NoError(t, err)
+			require.NoError(t, e.st.SetDefaultGraph(e.ctx, repoID, defaultID))
+			e.planned(7, headSHA)
+			merged := e.gh.PullRequestEvent("closed", repoName, gh.PullRequest{
+				Number: 7, State: gh.IssueClosed, Merged: true, MergeCommitSHA: mergeSHA, HeadSHA: headSHA, BaseSHA: baseSHA,
+				BaseRef: "scratch", User: gh.User{Login: author},
+			})
+			require.NoError(t, e.svc.HandlePullRequest(e.ctx, merged))
+
+			applyRuns, _, err := e.st.ListRuns(e.ctx, store.RunFilter{RepoID: repoID, PRNumber: 7, Mode: v1.ModeApply})
+			require.NoError(t, err)
+			assert.Empty(t, applyRuns, "a merge into another branch applies nothing")
+			assert.Empty(t, e.gh.Dispatches())
+			_, id, err := e.st.GetDefaultGraph(e.ctx, repoID)
+			require.NoError(t, err)
+			assert.Equal(t, defaultID, id, "a merge into another branch leaves the default-branch graph alone")
+		})
+	}
+}
+
 func TestApplyOnMerge(t *testing.T) {
 	cfg := baseConfig()
 	cfg.Apply.Mode = v1.ApplyOnMerge

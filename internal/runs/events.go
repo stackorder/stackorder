@@ -37,9 +37,9 @@ func (s *Service) eventRepo(ctx context.Context, ev *gh.EventCommon) (store.Repo
 
 // HandlePullRequest reacts to pull request activity: a fork gets a neutral
 // plan check and nothing runs, a new head commit supersedes older plans, a
-// merge releases locks (before_merge) or starts the apply (on_merge) and
-// makes the pull request's graph the default-branch graph, and a close
-// without merge warns about the locks it keeps.
+// merge into the default branch releases locks (before_merge) or starts the
+// apply (on_merge) and makes the pull request's graph the default-branch
+// graph, and a close without such a merge warns about the locks it keeps.
 func (s *Service) HandlePullRequest(ctx context.Context, ev *gh.PullRequestEvent) error {
 	repo, ok, err := s.eventRepo(ctx, &ev.EventCommon)
 	if err != nil || !ok {
@@ -65,7 +65,7 @@ func (s *Service) HandlePullRequest(ctx context.Context, ev *gh.PullRequestEvent
 		s.supersede(ctx, repo, pr.Number, head)
 		return nil
 	case "closed":
-		if pr.Merged {
+		if pr.Merged && pr.BaseRef == repo.DefaultBranch {
 			return s.onMerged(ctx, repo, ev)
 		}
 		return s.onClosedUnmerged(ctx, repo, pr.Number)

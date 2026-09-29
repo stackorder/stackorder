@@ -299,9 +299,10 @@ Roll-up: a run is `planned` when every stack is `planned`, `noop` or
 `failed` when any stack is `failed`, `blocked` or `unknown` and no stack is
 still running.
 
-When a PR merges, its latest graph becomes the repository's default-branch
-graph (`repos.default_graph_id`), which the graph endpoint and module
-consumer queries prefer over the newest PR graph.
+When a PR merges into the default branch, its latest graph becomes the
+repository's default-branch graph (`repos.default_graph_id`), which the
+graph endpoint and module consumer queries prefer over the newest PR graph.
+A merge into any other branch counts as a close without merge.
 
 Per-stack policy (`allowed_teams`, `plan_output`) comes from the default
 branch: the default-branch graph when known, else the `.stackorder.yaml`
