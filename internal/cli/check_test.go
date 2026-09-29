@@ -97,3 +97,50 @@ func TestCheckErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckResolvesTheStack(t *testing.T) {
+	const secret = "s3cr3t-prod-value"
+	tests := []struct {
+		name      string
+		stack     string
+		wantCode  int
+		wantErr   string
+		wantKey   string
+		wantWarn  string
+		wantClean bool
+	}{
+		{name: "instance key", stack: "stacks/app:prod", wantKey: "stacks/app:prod", wantClean: true},
+		{name: "bare path of a directory with instances", stack: "stacks/app", wantCode: ExitFailure, wantErr: "stack stacks/app has instances; name one as stacks/app:<instance> (dev, prod)"},
+		{name: "unknown instance", stack: "stacks/app:qa", wantCode: ExitFailure, wantErr: `stack stacks/app has no instance "qa"`},
+		{name: "stack missing from the checkout", stack: "stacks/gone:prod", wantKey: "stacks/gone:prod", wantWarn: "configured secrets of stacks/gone:prod are not redacted"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			fs := newFakeServer(t)
+			h.ci(fs, "pull_request", prPayload())
+			writeFile(t, filepath.Join(h.root, "stackorder.yaml"), "version: 1\nenv:\n  TF_VAR_db_password: \"s3cr3t-{{ .Instance }}-value\"\n")
+			writeFile(t, filepath.Join(h.root, "stacks", "app", ".stackorder.yaml"), "instances: [prod, dev]\n")
+			details := writeFile(t, filepath.Join(t.TempDir(), "report.txt"), "db_password = \""+secret+"\"\n")
+			r := h.run("check", "--stack", tt.stack, "--run-id", "run-1", "--name", "policy", "--status", "pass",
+				"--summary", "found "+secret, "--details-file", details)
+			require.Equal(t, tt.wantCode, r.code, r.stderr)
+			if tt.wantErr != "" {
+				assert.Contains(t, r.stderr, tt.wantErr)
+				assert.Empty(t, fs.checks)
+				return
+			}
+			require.Len(t, fs.checks, 1)
+			c := fs.checks[0]
+			assert.Equal(t, tt.wantKey, c.Key)
+			if tt.wantWarn != "" {
+				assert.Contains(t, r.stderr, "::warning::")
+				assert.Contains(t, r.stderr, tt.wantWarn)
+			}
+			if tt.wantClean {
+				assert.Equal(t, "found ***", c.Verdict.Summary)
+				assert.Equal(t, "db_password = \"***\"\n", c.Verdict.Details)
+			}
+		})
+	}
+}

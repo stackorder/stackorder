@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/tf"
 )
 
@@ -27,6 +28,19 @@ func envSecrets() []string {
 			continue
 		}
 		out = append(out, value)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+func configuredSecrets(env map[v1.RunMode]map[string]string) []string {
+	var out []string
+	for _, vars := range env {
+		for name, value := range vars {
+			if sensitiveEnvName.MatchString(name) && !plainValue(value) {
+				out = append(out, value)
+			}
+		}
 	}
 	slices.Sort(out)
 	return slices.Compact(out)
@@ -98,6 +112,15 @@ func newMaskWriter(w io.Writer, r *tf.Redactor, known []string) *maskWriter {
 		m.seen[s] = true
 	}
 	return m
+}
+
+func (m *maskWriter) setRedactor(r *tf.Redactor, known []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.r = r
+	for _, s := range known {
+		m.seen[s] = true
+	}
 }
 
 func (m *maskWriter) Write(p []byte) (int, error) {
@@ -176,6 +199,6 @@ func (m *maskWriter) emit(secrets []string, line string) error {
 	return err
 }
 
-func redactMessage(msg string) string {
-	return tf.NewRedactor(envSecrets()).Redact(msg)
+func (a *app) redactMessage(msg string) string {
+	return tf.NewRedactor(append(envSecrets(), a.secrets...)).Redact(msg)
 }

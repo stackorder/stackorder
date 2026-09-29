@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -24,10 +26,15 @@ import (
 const (
 	maxErrorText   = 64 * 1024
 	errorTailLines = 40
+	envDataDir     = "TF_DATA_DIR"
 	reportTimeout  = 30 * time.Second
 )
 
 var plainVersion = regexp.MustCompile(`^\d+(\.\d+){0,2}$`)
+
+type instanceKeyError struct{ error }
+
+func (e instanceKeyError) Unwrap() error { return e.error }
 
 type stack struct {
 	key       string
@@ -72,15 +79,15 @@ func loadStack(root, key string) (*stack, error) {
 	instance, resolved := suffix, sc
 	switch {
 	case hasInstances && suffix == "":
-		return nil, fmt.Errorf("stack %s has instances; name one as %s:<instance> (%s)", p, p, strings.Join(names, ", "))
+		return nil, instanceKeyError{fmt.Errorf("stack %s has instances; name one as %s:<instance> (%s)", p, p, strings.Join(names, ", "))}
 	case hasInstances && !slices.Contains(names, suffix):
-		return nil, fmt.Errorf("stack %s has no instance %q; its instances are %s", p, suffix, strings.Join(names, ", "))
+		return nil, instanceKeyError{fmt.Errorf("stack %s has no instance %q; its instances are %s", p, suffix, strings.Join(names, ", "))}
 	case hasInstances:
 	case suffix == "":
 		instance = names[0]
 	case suffix != names[0]:
 		if err := config.ValidateInstanceName(suffix); err != nil {
-			return nil, fmt.Errorf("stack %s: %w", key, err)
+			return nil, instanceKeyError{fmt.Errorf("stack %s: %w", key, err)}
 		}
 		adHoc := *sc
 		adHoc.Workspace = suffix
@@ -93,8 +100,14 @@ func loadStack(root, key string) (*stack, error) {
 	return &stack{key: eff.Key, path: p, workspace: eff.Workspace, dir: dir, cfg: cfg, eff: eff}, nil
 }
 
-func backendConfig() []string {
-	var out []string
+func backendConfig(root string, configured []string) []string {
+	out := make([]string, 0, len(configured))
+	for _, v := range configured {
+		if !strings.Contains(v, "=") && !filepath.IsAbs(v) {
+			v = filepath.Join(root, filepath.FromSlash(v))
+		}
+		out = append(out, v)
+	}
 	for _, v := range strings.Split(os.Getenv(EnvBackendConfig), ",") {
 		if v = strings.TrimSpace(v); v != "" {
 			out = append(out, v)
@@ -103,14 +116,7 @@ func backendConfig() []string {
 	return out
 }
 
-func readBackend(dir string) *v1.Backend {
-	dataDir := os.Getenv("TF_DATA_DIR")
-	switch {
-	case dataDir == "":
-		dataDir = filepath.Join(dir, ".terraform")
-	case !filepath.IsAbs(dataDir):
-		dataDir = filepath.Join(dir, dataDir)
-	}
+func readBackend(dataDir string) *v1.Backend {
 	data, err := os.ReadFile(filepath.Join(dataDir, "terraform.tfstate")) //nolint:gosec
 	if err != nil {
 		return nil
@@ -173,10 +179,12 @@ type session struct {
 	key      string
 	runID    string
 	st       *stack
+	mode     v1.RunMode
 	secrets  []string
 	redactor *tf.Redactor
 	out      io.Writer
 	errOut   io.Writer
+	masks    []*maskWriter
 	flushers []func() error
 	start    time.Time
 
@@ -186,7 +194,7 @@ type session struct {
 	backend     *v1.Backend
 }
 
-func (a *app) newSession(ctx context.Context, key, runID string) (*session, error) {
+func (a *app) newSession(ctx context.Context, key, runID string, mode v1.RunMode) (*session, error) {
 	gh, err := a.github(ctx)
 	if err != nil {
 		return nil, err
@@ -202,6 +210,7 @@ func (a *app) newSession(ctx context.Context, key, runID string) (*session, erro
 		root:     a.root,
 		key:      key,
 		runID:    firstNonEmpty(runID, os.Getenv(EnvRunID), gh.DispatchRunID),
+		mode:     mode,
 		secrets:  secrets,
 		redactor: tf.NewRedactor(secrets),
 		out:      a.toolOut(),
@@ -215,6 +224,7 @@ func (a *app) newSession(ctx context.Context, key, runID string) (*session, erro
 		out := newMaskWriter(a.toolOut(), s.redactor, secrets)
 		errOut := newMaskWriter(a.stderr, s.redactor, secrets)
 		s.out, s.errOut = out, errOut
+		s.masks = []*maskWriter{out, errOut}
 		s.flushers = []func() error{out.Flush, errOut.Flush}
 	}
 	return s, nil
@@ -232,7 +242,70 @@ func (s *session) loadStack() error {
 		return err
 	}
 	s.st, s.key = st, st.key
+	s.addSecrets(configuredSecrets(st.eff.Env))
 	return nil
+}
+
+func (s *session) addSecrets(values []string) {
+	var fresh []string
+	for _, v := range values {
+		if !slices.Contains(s.secrets, v) {
+			fresh = append(fresh, v)
+		}
+	}
+	if len(fresh) == 0 {
+		return
+	}
+	s.secrets = append(s.secrets, fresh...)
+	s.a.secrets = append(s.a.secrets, fresh...)
+	slices.Sort(s.secrets)
+	s.redactor = tf.NewRedactor(s.secrets)
+	if s.gh.CI {
+		for _, cmd := range tf.MaskCommands(fresh) {
+			_, _ = fmt.Fprintln(s.a.toolOut(), cmd)
+		}
+	}
+	for _, m := range s.masks {
+		m.setRedactor(s.redactor, fresh)
+	}
+}
+
+func (s *session) stackEnv() map[string]string {
+	env := s.st.eff.EnvFor(s.mode)
+	if env == nil {
+		env = map[string]string{}
+	}
+	env[tf.HookEnvStack] = s.key
+	env[tf.HookEnvStackPath] = s.st.path
+	env[tf.HookEnvInstance] = s.st.eff.Instance
+	return env
+}
+
+func (s *session) dataDir() string {
+	dir, ok := s.stackEnv()[envDataDir]
+	if !ok {
+		dir = os.Getenv(envDataDir)
+	}
+	switch {
+	case dir == "":
+		return filepath.Join(s.st.dir, ".terraform")
+	case !filepath.IsAbs(dir):
+		return filepath.Join(s.st.dir, dir)
+	}
+	return dir
+}
+
+func (s *session) varFiles() ([]string, error) {
+	for _, f := range s.st.eff.VarFiles {
+		p := filepath.FromSlash(f)
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(s.st.dir, p)
+		}
+		if !fileExists(p) {
+			return nil, fmt.Errorf("stack %s: var file %s does not exist (%s)", s.key, f, p)
+		}
+	}
+	return s.st.eff.VarFiles, nil
 }
 
 func (s *session) detectTool(ctx context.Context) error {
@@ -264,14 +337,26 @@ func (s *session) detectTool(ctx context.Context) error {
 }
 
 func (s *session) runner() *tf.Runner {
-	return &tf.Runner{Bin: s.bin, Dir: s.st.dir, Stdout: s.out, Stderr: s.errOut, Workspace: s.st.workspace}
+	env := s.stackEnv()
+	vars := make([]string, 0, len(env))
+	for _, k := range slices.Sorted(maps.Keys(env)) {
+		vars = append(vars, k+"="+env[k])
+	}
+	return &tf.Runner{Bin: s.bin, Dir: s.st.dir, Env: vars, Stdout: s.out, Stderr: s.errOut, Workspace: s.st.workspace}
 }
 
 func (s *session) init(ctx context.Context, r *tf.Runner) error {
-	if err := r.Init(ctx, backendConfig(), tf.InitOptions{}); err != nil {
+	dataDir := s.dataDir()
+	opts := tf.InitOptions{Reconfigure: len(s.st.eff.BackendConfig) > 0}
+	if opts.Reconfigure {
+		if err := os.Remove(filepath.Join(dataDir, "environment")); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("resetting the selected workspace: %w", err)
+		}
+	}
+	if err := r.Init(ctx, backendConfig(s.root, s.st.eff.BackendConfig), opts); err != nil {
 		return err
 	}
-	s.backend = readBackend(s.st.dir)
+	s.backend = readBackend(dataDir)
 	if s.st.workspace != "" {
 		return r.SelectWorkspace(ctx)
 	}
@@ -279,12 +364,10 @@ func (s *session) init(ctx context.Context, r *tf.Runner) error {
 }
 
 func (s *session) runHook(ctx context.Context, name, planFile, planJSON string) error {
-	env := map[string]string{
-		tf.HookEnvStack:    s.key,
-		tf.HookEnvRunID:    s.runID,
-		tf.HookEnvPlanFile: planFile,
-		tf.HookEnvPlanJSON: planJSON,
-	}
+	env := s.stackEnv()
+	env[tf.HookEnvRunID] = s.runID
+	env[tf.HookEnvPlanFile] = planFile
+	env[tf.HookEnvPlanJSON] = planJSON
 	ran, err := tf.RunHook(ctx, s.root, name, env, s.out, s.errOut)
 	if ran {
 		s.a.log.Info("ran hook", "hook", name, "stack", s.key)

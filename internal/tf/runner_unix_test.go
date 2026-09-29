@@ -126,6 +126,12 @@ func TestPlanArgv(t *testing.T) {
 				"-lock=false", "-lock-timeout=1m30s"),
 		},
 		{
+			name: "var files in order before targets",
+			opts: PlanOptions{Out: "p.tfplan", VarFiles: []string{"common.tfvars", "../shared/prod.tfvars.json"}, Targets: []string{"aws_s3_bucket.logs"}},
+			want: append(append([]string{}, base...),
+				"-out=p.tfplan", "-var-file=common.tfvars", "-var-file=../shared/prod.tfvars.json", "-target=aws_s3_bucket.logs"),
+		},
+		{
 			name: "refresh only with explicit refresh and lock",
 			opts: PlanOptions{Refresh: Bool(true), RefreshOnly: true, Lock: Bool(true)},
 			want: append(append([]string{}, base...), "-refresh=true", "-refresh-only", "-lock=true"),

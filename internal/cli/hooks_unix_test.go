@@ -162,3 +162,80 @@ func TestHookFailures(t *testing.T) {
 		assert.Contains(t, r.stderr, "hook is not executable")
 	})
 }
+
+const envHook = `#!/usr/bin/env bash
+set -eu
+{
+  echo "hook=$(basename "$0" .sh)"
+  env | grep -E '^(TF_VAR_|STACKORDER_)' | grep -v '^STACKORDER_TEST_FAKE_TF=' | sort
+  echo "--"
+} >> "$HOOK_LOG"
+`
+
+func TestHookEnvironment(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		hooks   []string
+		want    map[string]string
+		absent  []string
+	}{
+		{
+			name: "plan", command: "plan", hooks: []string{"pre-plan", "post-plan"},
+			want: map[string]string{"TF_VAR_role": "reader", "TF_VAR_scan": "planning", "TF_VAR_only_apply": "outer"},
+		},
+		{
+			name: "apply", command: "apply", hooks: []string{"pre-apply", "post-apply"},
+			want:   map[string]string{"TF_VAR_role": "deployer", "TF_VAR_only_apply": "from-config", "STACKORDER_RUN_ID": "run-1"},
+			absent: []string{"TF_VAR_scan"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var h *harness
+			if tt.command == "apply" {
+				h, _ = instanceApplyHarness(t, true)
+			} else {
+				h = newHarness(t)
+				writeInstanceStack(t, h.root)
+			}
+			log := filepath.Join(t.TempDir(), "hooks.log")
+			t.Setenv("HOOK_LOG", log)
+			for _, n := range tt.hooks {
+				writeFile(t, filepath.Join(h.root, ".stackorder", "hooks", n+".sh"), envHook)
+				require.NoError(t, os.Chmod(filepath.Join(h.root, ".stackorder", "hooks", n+".sh"), 0o755)) //nolint:gosec
+			}
+			t.Setenv("TF_VAR_only_apply", "outer")
+			r := h.run(tt.command, "--stack", "stacks/app:prod")
+			require.Equal(t, 0, r.code, r.stderr)
+			recs := hookRecords(t, log)
+			require.Len(t, recs, len(tt.hooks))
+			for i, rec := range recs {
+				assert.Equal(t, tt.hooks[i], rec["hook"])
+				assert.Equal(t, "stacks/app:prod", rec["STACKORDER_STACK"])
+				assert.Equal(t, "stacks/app", rec["STACKORDER_STACK_PATH"])
+				assert.Equal(t, "prod", rec["STACKORDER_INSTANCE"])
+				assert.Equal(t, "prod", rec["TF_VAR_environment"])
+				for k, v := range tt.want {
+					assert.Equal(t, v, rec[k], "%s: %s", rec["hook"], k)
+				}
+				for _, k := range tt.absent {
+					assert.NotContains(t, rec, k)
+				}
+			}
+			assert.NotEmpty(t, recs[len(recs)-1]["STACKORDER_PLAN_FILE"])
+		})
+	}
+}
+
+func TestPrePlanHookCanWriteAVarFile(t *testing.T) {
+	h := newHarness(t)
+	writeInstanceStack(t, h.root)
+	generated := filepath.Join(h.root, "stacks", "app", "prod-extra.tfvars")
+	require.NoError(t, os.Remove(generated))
+	hook := writeFile(t, filepath.Join(h.root, ".stackorder", "hooks", "pre-plan.sh"), "#!/bin/sh\nprintf '{}' > '"+generated+"'\n")
+	require.NoError(t, os.Chmod(hook, 0o755)) //nolint:gosec
+	r := h.run("plan", "--stack", "stacks/app:prod")
+	require.Equal(t, 0, r.code, r.stderr)
+	assert.Equal(t, prodVarFiles, varFileArgs(h.tfCall("plan").args))
+}

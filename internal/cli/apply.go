@@ -34,7 +34,7 @@ func (a *app) applyCommand() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&o.stack, "stack", "", "stack key: path or path:workspace")
+	f.StringVar(&o.stack, "stack", "", "stack key: path or path:instance")
 	f.StringVar(&o.runID, "run-id", "", "server run id (env "+EnvRunID+")")
 	f.StringVar(&o.planFile, "plan-file", "", "saved plan to apply (default <plan dir>/<artifact>.tfplan)")
 	f.BoolVar(&o.local, "local", false, "apply from outside GitHub Actions through a manual run; needs "+EnvAPIKey)
@@ -87,7 +87,7 @@ func (a *app) runApply(ctx context.Context, o applyOptions) error {
 	if err := a.checkApplyUsage(gh, o); err != nil {
 		return err
 	}
-	s, err := a.newSession(ctx, o.stack, o.runID)
+	s, err := a.newSession(ctx, o.stack, o.runID, v1.ModeApply)
 	if err != nil {
 		return err
 	}
@@ -270,10 +270,14 @@ func (s *session) replan(ctx context.Context, r *tf.Runner, planFile, jsonFile s
 	if !fresh && recorded == nil {
 		return nil, refused("run %s recorded no plan summary for %s to compare a new plan with, and %s cannot be applied as saved; refusing to apply", s.runID, s.key, planFile)
 	}
+	varFiles, err := s.varFiles()
+	if err != nil {
+		return nil, err
+	}
 	if !fresh {
 		s.a.warn(why)
 	}
-	if _, err := r.Plan(ctx, tf.PlanOptions{Out: planFile, DetailedExitCode: true}); err != nil {
+	if _, err := r.Plan(ctx, tf.PlanOptions{Out: planFile, DetailedExitCode: true, VarFiles: varFiles}); err != nil {
 		return nil, err
 	}
 	p, err := s.writePlanJSON(ctx, r, planFile, jsonFile)

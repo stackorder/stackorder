@@ -29,7 +29,7 @@ func (a *app) planCommand() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&o.stack, "stack", "", "stack key: path or path:workspace")
+	f.StringVar(&o.stack, "stack", "", "stack key: path or path:instance")
 	f.StringVar(&o.runID, "run-id", "", "server run id (env "+EnvRunID+")")
 	f.StringVar(&o.out, "out", "", "plan file to write (default <plan dir>/<artifact>.tfplan)")
 	_ = cmd.MarkFlagRequired("stack")
@@ -47,7 +47,7 @@ func (a *app) runPlan(ctx context.Context, o planOptions) error {
 	if err := a.requireFormat(false); err != nil {
 		return err
 	}
-	s, err := a.newSession(ctx, o.stack, o.runID)
+	s, err := a.newSession(ctx, o.stack, o.runID, v1.ModePlan)
 	if err != nil {
 		return err
 	}
@@ -85,11 +85,15 @@ func (s *session) plan(ctx context.Context, out string, oc *planOutcome) error {
 	if err := s.runHook(ctx, tf.HookPrePlan, "", ""); err != nil {
 		return err
 	}
+	varFiles, err := s.varFiles()
+	if err != nil {
+		return err
+	}
 	r := s.runner()
 	if err := s.init(ctx, r); err != nil {
 		return err
 	}
-	pr, err := r.Plan(ctx, tf.PlanOptions{Out: oc.planFile, DetailedExitCode: true})
+	pr, err := r.Plan(ctx, tf.PlanOptions{Out: oc.planFile, DetailedExitCode: true, VarFiles: varFiles})
 	if pr != nil {
 		oc.res.ExitCode, oc.res.HasChanges = pr.ExitCode, pr.HasChanges
 	}

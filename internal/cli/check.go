@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -39,7 +40,7 @@ func (a *app) checkCommand() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&o.stack, "stack", "", "stack key: path or path:workspace")
+	f.StringVar(&o.stack, "stack", "", "stack key: path or path:instance")
 	f.StringVar(&o.runID, "run-id", "", "server run id (env "+EnvRunID+")")
 	f.StringVar(&o.name, "name", "", "check name, shown as stackorder/<name>: <stack>")
 	f.StringVar(&o.status, "status", "", "verdict: pass, fail or warn")
@@ -74,6 +75,20 @@ func (a *app) runCheck(ctx context.Context, o checkOptions) error {
 	if err != nil {
 		return err
 	}
+	secrets := envSecrets()
+	st, err := loadStack(a.root, key)
+	var keyErr instanceKeyError
+	switch {
+	case errors.As(err, &keyErr):
+		return failed("%w", err)
+	case err != nil:
+		a.warn(fmt.Sprintf("check: %v; configured secrets of %s are not redacted", err, key))
+	default:
+		key = st.key
+		configured := configuredSecrets(st.eff.Env)
+		a.secrets = append(a.secrets, configured...)
+		secrets = append(secrets, configured...)
+	}
 	runID := firstNonEmpty(o.runID, os.Getenv(EnvRunID), gh.DispatchRunID)
 	if runID == "" {
 		return failed("check needs --run-id or %s", EnvRunID)
@@ -82,7 +97,7 @@ func (a *app) runCheck(ctx context.Context, o checkOptions) error {
 	if err != nil {
 		return failed("%w", err)
 	}
-	redactor := tf.NewRedactor(envSecrets())
+	redactor := tf.NewRedactor(secrets)
 	verdict := v1.CheckVerdict{Status: status, DetailsURL: strings.TrimSpace(o.detailsURL)}
 	verdict.Summary, _ = tf.Truncate(redactor.Redact(o.summary), maxCheckSummaryText)
 	if o.detailsFile != "" {

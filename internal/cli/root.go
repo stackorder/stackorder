@@ -161,8 +161,9 @@ type app struct {
 	verbose  bool
 	format   string
 
-	root string
-	gh   *Context
+	root    string
+	gh      *Context
+	secrets []string
 }
 
 func (a *app) rootCommand() *cobra.Command {
@@ -295,7 +296,7 @@ func (a *app) printError(err error) {
 	if errors.As(err, &exitErr) && exitErr.Err == nil {
 		return
 	}
-	msg := redactMessage(err.Error())
+	msg := a.redactMessage(err.Error())
 	if errors.Is(err, context.Canceled) {
 		msg = "interrupted: " + msg
 	}

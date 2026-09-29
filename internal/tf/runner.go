@@ -76,6 +76,9 @@ type PlanOptions struct {
 	Refresh *bool
 	// RefreshOnly passes -refresh-only.
 	RefreshOnly bool
+	// VarFiles are passed as -var-file=<path> each, in order; a relative
+	// path is relative to Runner.Dir.
+	VarFiles []string
 	// Targets are passed as -target=<address> each.
 	Targets []string
 	// Lock passes -lock=<value> when non-nil; nil keeps the tool default of
@@ -186,6 +189,9 @@ func (r *Runner) Plan(ctx context.Context, opts PlanOptions) (*PlanResult, error
 	}
 	if opts.RefreshOnly {
 		args = append(args, "-refresh-only")
+	}
+	for _, f := range opts.VarFiles {
+		args = append(args, "-var-file="+f)
 	}
 	for _, t := range opts.Targets {
 		args = append(args, "-target="+t)

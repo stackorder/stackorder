@@ -53,7 +53,12 @@ if [ -z "$STACKORDER_TEST_FAKE_TF" ] || [ ! -r "$STACKORDER_TEST_FAKE_TF" ]; the
 fi
 . "$STACKORDER_TEST_FAKE_TF"
 if [ -n "$FAKE_LOG" ]; then
-  { for a in "$@"; do printf '%s\037' "$a"; done; printf '\n'; } >> "$FAKE_LOG"
+  {
+    for a in "$@"; do printf '%s\037' "$a"; done
+    printf '\036'
+    env | grep -E '^(TF_VAR_|STACKORDER_)[A-Za-z0-9_]*=' | grep -v '^STACKORDER_TEST_FAKE_TF=' | sort | while IFS= read -r kv; do printf '%s\037' "$kv"; done
+    printf '\n'
+  } >> "$FAKE_LOG"
 fi
 fail() {
   printf '\nError: %s\n' "$FAKE_FAIL_OUTPUT" >&2
@@ -74,9 +79,10 @@ case "$1" in
     echo "Terraform has been successfully initialized!"
     if [ "$FAKE_INIT_EXIT" -ne 0 ]; then fail "$FAKE_INIT_EXIT"; fi
     if [ -n "$FAKE_BACKEND" ]; then
-      mkdir -p .terraform && printf '%s' "$FAKE_BACKEND" > .terraform/terraform.tfstate
+      mkdir -p "${TF_DATA_DIR:-.terraform}" && printf '%s' "$FAKE_BACKEND" > "${TF_DATA_DIR:-.terraform}/terraform.tfstate"
     fi ;;
   workspace)
+    mkdir -p "${TF_DATA_DIR:-.terraform}" && printf '%s' "$last" > "${TF_DATA_DIR:-.terraform}/environment"
     printf 'Switched to workspace "%s".\n' "$last" ;;
   plan)
     printf '%s' "$FAKE_PLAN_OUTPUT"
@@ -269,18 +275,51 @@ func (h *harness) stepSummary() string {
 	return string(data)
 }
 
-func (h *harness) tfCalls() [][]string {
+type tfCall struct {
+	args []string
+	env  map[string]string
+}
+
+func (h *harness) tfLog() []tfCall {
 	h.t.Helper()
 	data, err := os.ReadFile(h.tf.Log)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	require.NoError(h.t, err)
-	var out [][]string
+	var out []tfCall
 	for _, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
-		out = append(out, strings.Split(strings.TrimSuffix(line, "\x1f"), "\x1f"))
+		args, vars, _ := strings.Cut(line, "\x1e")
+		call := tfCall{args: strings.Split(strings.TrimSuffix(args, "\x1f"), "\x1f"), env: map[string]string{}}
+		for _, kv := range strings.Split(vars, "\x1f") {
+			if k, v, ok := strings.Cut(kv, "="); ok {
+				call.env[k] = v
+			}
+		}
+		out = append(out, call)
 	}
 	return out
+}
+
+func (h *harness) tfCalls() [][]string {
+	h.t.Helper()
+	calls := h.tfLog()
+	out := make([][]string, 0, len(calls))
+	for _, c := range calls {
+		out = append(out, c.args)
+	}
+	return out
+}
+
+func (h *harness) tfCall(command string) tfCall {
+	h.t.Helper()
+	for _, c := range h.tfLog() {
+		if c.args[0] == command {
+			return c
+		}
+	}
+	h.t.Fatalf("terraform %s was not called; calls: %v", command, h.tfCalls())
+	return tfCall{}
 }
 
 func (h *harness) tfCommands() []string {

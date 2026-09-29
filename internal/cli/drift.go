@@ -29,7 +29,7 @@ func (a *app) driftCommand() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&o.stack, "stack", "", "stack key: path or path:workspace")
+	f.StringVar(&o.stack, "stack", "", "stack key: path or path:instance")
 	f.StringVar(&o.runID, "run-id", "", "server run id (env "+EnvRunID+")")
 	_ = cmd.MarkFlagRequired("stack")
 	return cmd
@@ -39,7 +39,7 @@ func (a *app) runDrift(ctx context.Context, o driftOptions) error {
 	if err := a.requireFormat(false); err != nil {
 		return err
 	}
-	s, err := a.newSession(ctx, o.stack, o.runID)
+	s, err := a.newSession(ctx, o.stack, o.runID, v1.ModeDrift)
 	if err != nil {
 		return err
 	}
@@ -97,6 +97,10 @@ func (s *session) drift(ctx context.Context, res *v1.StackResult) error {
 	if err := s.loadStack(); err != nil {
 		return err
 	}
+	varFiles, err := s.varFiles()
+	if err != nil {
+		return err
+	}
 	if err := s.detectTool(ctx); err != nil {
 		return err
 	}
@@ -110,7 +114,7 @@ func (s *session) drift(ctx context.Context, res *v1.StackResult) error {
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 	planFile := filepath.Join(tmp, "drift.tfplan")
-	pr, err := r.Plan(ctx, tf.PlanOptions{Out: planFile, DetailedExitCode: true})
+	pr, err := r.Plan(ctx, tf.PlanOptions{Out: planFile, DetailedExitCode: true, VarFiles: varFiles})
 	if pr != nil {
 		res.ExitCode, res.HasChanges = pr.ExitCode, pr.HasChanges
 	}

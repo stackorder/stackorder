@@ -30,6 +30,12 @@ const (
 const (
 	// HookEnvStack names the variable holding the stack key.
 	HookEnvStack = "STACKORDER_STACK"
+	// HookEnvStackPath names the variable holding the stack directory,
+	// repository relative.
+	HookEnvStackPath = "STACKORDER_STACK_PATH"
+	// HookEnvInstance names the variable holding the stack's instance name,
+	// empty for a stack without one.
+	HookEnvInstance = "STACKORDER_INSTANCE"
 	// HookEnvRunID names the variable holding the server run id.
 	HookEnvRunID = "STACKORDER_RUN_ID"
 	// HookEnvPlanJSON names the variable holding the path of the plan JSON.

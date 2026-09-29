@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -45,6 +46,14 @@ func run(cfgPath string, args []string) int {
 		for _, a := range args {
 			line.WriteString(a + "\x1f")
 		}
+		line.WriteString("\x1e")
+		env := os.Environ()
+		slices.Sort(env)
+		for _, kv := range env {
+			if (strings.HasPrefix(kv, "TF_VAR_") || strings.HasPrefix(kv, "STACKORDER_")) && !strings.HasPrefix(kv, "STACKORDER_TEST_FAKE_TF=") {
+				line.WriteString(kv + "\x1f")
+			}
+		}
 		f, err := os.OpenFile(cfg.Log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err == nil {
 			_, _ = f.WriteString(line.String() + "\n")
@@ -58,6 +67,7 @@ func run(cfgPath string, args []string) int {
 		fmt.Fprintf(os.Stderr, "\nError: %s\n", cfg.FailOutput)
 		return code
 	}
+	dataDir := cmp.Or(os.Getenv("TF_DATA_DIR"), ".terraform")
 	lastFile := func() (string, bool) {
 		f := args[len(args)-1]
 		_, err := os.Stat(f)
@@ -76,10 +86,12 @@ func run(cfgPath string, args []string) int {
 			return fail(cfg.InitExit)
 		}
 		if len(cfg.Backend) > 0 {
-			_ = os.MkdirAll(".terraform", 0o750)
-			_ = os.WriteFile(filepath.Join(".terraform", "terraform.tfstate"), cfg.Backend, 0o600)
+			_ = os.MkdirAll(dataDir, 0o750)
+			_ = os.WriteFile(filepath.Join(dataDir, "terraform.tfstate"), cfg.Backend, 0o600)
 		}
 	case "workspace":
+		_ = os.MkdirAll(dataDir, 0o750)
+		_ = os.WriteFile(filepath.Join(dataDir, "environment"), []byte(args[len(args)-1]), 0o600)
 		fmt.Printf("Switched to workspace %q.\n", args[len(args)-1])
 	case "plan":
 		fmt.Print(cfg.PlanOutput)

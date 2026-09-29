@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/tf"
 )
 
@@ -47,6 +48,36 @@ func TestEnvSecrets(t *testing.T) {
 	}
 	assert.True(t, slices.IsSorted(got))
 	assert.Len(t, slices.Compact(slices.Clone(got)), len(got))
+}
+
+func TestConfiguredSecrets(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[v1.RunMode]map[string]string
+		want []string
+	}{
+		{name: "none"},
+		{
+			name: "secret names across modes, sorted and unique",
+			env: map[v1.RunMode]map[string]string{
+				v1.ModePlan:  {"TF_VAR_db_password": "plan-pass-1", "TF_VAR_region": "eu-west-1", "API_TOKEN": "tok-shared"},
+				v1.ModeApply: {"TF_VAR_db_password": "apply-pass-1", "API_TOKEN": "tok-shared"},
+				v1.ModeDrift: {"TF_VAR_db_password": "plan-pass-1"},
+			},
+			want: []string{"apply-pass-1", "plan-pass-1", "tok-shared"},
+		},
+		{
+			name: "plain values are not secrets",
+			env: map[v1.RunMode]map[string]string{
+				v1.ModePlan: {"TF_VAR_enable_secret": "true", "TF_VAR_token_ttl": "3600", "SHORT_TOKEN": "abc", "SECRETARY": "alice-smith"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, configuredSecrets(tt.env))
+		})
+	}
 }
 
 func TestRedactedValues(t *testing.T) {
