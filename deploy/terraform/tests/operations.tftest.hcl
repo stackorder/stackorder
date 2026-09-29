@@ -230,6 +230,39 @@ run "health_check_command_without_command" {
   expect_failures = [var.health_check_command]
 }
 
+run "stop_timeout" {
+  command = plan
+
+  variables {
+    stop_timeout_seconds = 120
+  }
+
+  assert {
+    condition     = jsondecode(aws_ecs_task_definition.this.container_definitions)[0].stopTimeout == 120
+    error_message = "stop_timeout_seconds must become the container's stopTimeout."
+  }
+}
+
+run "stop_timeout_above_fargate_maximum" {
+  command = plan
+
+  variables {
+    stop_timeout_seconds = 121
+  }
+
+  expect_failures = [var.stop_timeout_seconds]
+}
+
+run "stop_timeout_below_fargate_minimum" {
+  command = plan
+
+  variables {
+    stop_timeout_seconds = 1
+  }
+
+  expect_failures = [var.stop_timeout_seconds]
+}
+
 run "image_digest_and_arm64" {
   command = plan
 

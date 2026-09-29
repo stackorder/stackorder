@@ -235,7 +235,16 @@ reviewed plan. The service keeps 100 % of its tasks healthy and may run
 at start-up and receives traffic only once it passes `/readyz`, while the
 old task keeps serving. The deployment circuit breaker rolls back a task
 that never becomes healthy, and `wait_for_steady_state` makes the apply
-fail in that case. Deregistration waits 30 seconds for in-flight requests.
+fail in that case.
+
+An old task is stopped gracefully. ECS first deregisters it from the
+target group and waits the 30 second deregistration delay, then sends
+SIGTERM. The server stops accepting connections and gives in-flight
+requests up to 15 seconds, then lets its workers finish for up to 30
+seconds and cancelled handlers 5 more; claimed but unstarted jobs go back
+to the queue. `stop_timeout_seconds` (60, at most 120 on Fargate) is how
+long ECS waits after SIGTERM before it kills the container, which also
+leaves room for the trace exporter's final flush.
 
 ## Container health check
 
@@ -449,6 +458,7 @@ No modules.
 | <a name="input_cpu_architecture"></a> [cpu\_architecture](#input\_cpu\_architecture) | CPU architecture of the task, X86\_64 or ARM64. | `string` | `"X86_64"` | no |
 | <a name="input_enable_execute_command"></a> [enable\_execute\_command](#input\_enable\_execute\_command) | Enable ECS Exec. The SSM agent needs a writable root file system, so this also turns readonlyRootFilesystem off and grants the task role the ssmmessages permissions. | `bool` | `false` | no |
 | <a name="input_health_check_command"></a> [health\_check\_command](#input\_health\_check\_command) | Container health check command, starting with CMD or CMD-SHELL. The default runs the server's healthcheck subcommand, which GETs /healthz on the listen port. The distroless image has no shell or curl, so a replacement must be a command the image itself provides. Empty turns the container health check off and leaves task health to the load balancer check on /readyz. | `list(string)` | `["CMD", "/stackorder-server", "healthcheck"]` | no |
+| <a name="input_stop_timeout_seconds"></a> [stop\_timeout\_seconds](#input\_stop\_timeout\_seconds) | Seconds ECS waits after SIGTERM before it kills the container (stopTimeout), 2 to 120 on Fargate. The server drains HTTP for up to 15 s, then its workers for up to 30 s plus 5 s for cancelled handlers, so a value under 50 can cut the drain short. | `number` | `60` | no |
 | <a name="input_wait_for_steady_state"></a> [wait\_for\_steady\_state](#input\_wait\_for\_steady\_state) | Make terraform apply wait until the new tasks pass /readyz, so an apply of an upgrade fails when the deployment rolls back. | `bool` | `true` | no |
 | <a name="input_log_retention_days"></a> [log\_retention\_days](#input\_log\_retention\_days) | Retention of the server log group in days. | `number` | `30` | no |
 | <a name="input_log_level"></a> [log\_level](#input\_log\_level) | Server log level (STACKORDER\_LOG\_LEVEL). | `string` | `"info"` | no |

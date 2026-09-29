@@ -24,6 +24,7 @@ locals {
       essential              = true
       user                   = "65532:65532"
       readonlyRootFilesystem = !var.enable_execute_command
+      stopTimeout            = var.stop_timeout_seconds
       portMappings = [{
         name          = "http"
         containerPort = local.container_port

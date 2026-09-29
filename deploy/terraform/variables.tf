@@ -280,6 +280,17 @@ variable "health_check_command" {
   }
 }
 
+variable "stop_timeout_seconds" {
+  description = "Seconds ECS waits after SIGTERM before it kills the container (stopTimeout), 2 to 120 on Fargate. The server drains HTTP for up to 15 s, then its workers for up to 30 s plus 5 s for cancelled handlers, so a value under 50 can cut the drain short."
+  type        = number
+  default     = 60
+
+  validation {
+    condition     = var.stop_timeout_seconds >= 2 && var.stop_timeout_seconds <= 120 && floor(var.stop_timeout_seconds) == var.stop_timeout_seconds
+    error_message = "stop_timeout_seconds must be a whole number between 2 and 120, the range Fargate accepts."
+  }
+}
+
 variable "wait_for_steady_state" {
   description = "Make terraform apply wait until the new tasks pass /readyz, so an apply of an upgrade fails when the deployment rolls back."
   type        = bool

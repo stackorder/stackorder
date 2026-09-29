@@ -77,6 +77,11 @@ run "defaults" {
   }
 
   assert {
+    condition     = jsondecode(aws_ecs_task_definition.this.container_definitions)[0].stopTimeout == 60
+    error_message = "The container must get 60 s after SIGTERM, enough for the server's 15 s HTTP drain, 30 s worker drain and 5 s grace."
+  }
+
+  assert {
     condition     = jsondecode(aws_ecs_task_definition.this.container_definitions)[0].logConfiguration.logDriver == "awslogs"
     error_message = "The container must log with the awslogs driver."
   }
