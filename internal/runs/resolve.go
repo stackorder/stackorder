@@ -20,6 +20,16 @@ import (
 // the affected stacks against it, records them on the run and creates the
 // run's check runs and sticky comment. A dependency cycle fails the run and
 // is reported in the response with a nil error.
+//
+// When the uploaded stackorder.yaml differs from the stored default-branch
+// configuration, the graph is resolved under both and the affected sets
+// are united, so a pull request cannot shrink its own affected set by
+// editing its copy. Stacks of the default-branch graph (the latest graph
+// before the first merge) that only the default-branch configuration
+// discovers are added to the stored graph when that configuration finds
+// them affected. Every stack affected only under the default-branch
+// configuration is planned too, with a warning naming the keys that
+// differ.
 func (s *Service) UploadGraph(ctx context.Context, p principal.Principal, runID string, req v1.GraphUploadRequest) (*v1.ResolveResponse, error) {
 	run, repo, err := s.loadRun(ctx, runID)
 	if err != nil {
@@ -58,6 +68,15 @@ func (s *Service) UploadGraph(ctx context.Context, p principal.Principal, runID 
 	if err != nil {
 		return nil, err
 	}
+	base := repoConfig(repo)
+	var differs []string
+	if req.Config != nil {
+		differs = configDiff(base, cfg)
+	}
+	var baseline *v1.Graph
+	if len(differs) > 0 {
+		baseline = s.baselineGraph(ctx, repo)
+	}
 	stored, graphID, stackIDs, cached, err := s.storeGraph(ctx, repo, &g)
 	if err != nil {
 		return nil, err
@@ -66,8 +85,24 @@ func (s *Service) UploadGraph(ctx context.Context, p principal.Principal, runID 
 	if err != nil {
 		return nil, err
 	}
+	in := graph.Input{ChangedPaths: req.ChangedPaths, Config: cfg, Requested: req.Stacks, Locks: locks}
 	resolved := s.withExternalDependents(ctx, repo, stored)
-	resp, rerr := graph.Resolve(resolved, graph.Input{ChangedPaths: req.ChangedPaths, Config: cfg, Requested: req.Stacks, Locks: locks})
+	resp, rerr := graph.Resolve(resolved, in)
+	if rerr == nil && len(differs) > 0 {
+		if extended := withDefaultBranchStacks(stored, baseline, in, cfg, base); extended != nil {
+			extended.SHA = run.SHA
+			id, ids, err := s.st.SaveGraph(ctx, repo.ID, extended)
+			if err != nil {
+				return nil, storeErr(err, "save graph of %s at %s", repo.FullName, shortSHA(run.SHA))
+			}
+			stored, graphID, stackIDs, cached = extended, id, ids, false
+			resolved = s.withExternalDependents(ctx, repo, stored)
+		}
+		baseIn := in
+		baseIn.Config = base
+		baseResp, baseErr := graph.Resolve(resolved, baseIn)
+		resp, rerr = unionResolution(resolved, resp, baseResp, baseErr, differs)
+	}
 	switch {
 	case errors.Is(rerr, graph.ErrCycle):
 		resp.RunID, resp.Cached = run.ID.String(), cached

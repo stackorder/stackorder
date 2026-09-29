@@ -3,6 +3,7 @@
 package runs_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -263,6 +264,82 @@ func TestPlanOutputSummaryIsReadFromTheDefaultBranchBeforeTheFirstMerge(t *testi
 		if rs.Key == vpc {
 			assert.Empty(t, rs.PlanText, "no plan text of a summary stack is kept")
 		}
+	}
+}
+
+func TestPullRequestCannotNarrowItsAffectedSet(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	onMain := testGraph(mainSHA)
+	id, _, err := e.st.SaveGraph(e.ctx, repoID, &onMain)
+	require.NoError(t, err)
+	require.NoError(t, e.st.SetDefaultGraph(e.ctx, repoID, id))
+
+	narrowed := testGraph(headSHA)
+	narrowed.Stacks = slices.DeleteFunc(narrowed.Stacks, func(st v1.Stack) bool { return st.Key != staging })
+	narrowed.Edges = slices.DeleteFunc(narrowed.Edges, func(ed v1.Edge) bool { return ed.From.Key != staging })
+	prConfig := baseConfig()
+	prConfig.Stacks.Discover = []string{"stacks/staging/**"}
+	e.openPull(7, headSHA)
+	job := e.planJob(7)
+	created, err := e.svc.CreateRun(e.ctx, job.p, v1.CreateRunRequest{Repo: repoName, SHA: headSHA, BaseSHA: baseSHA, PRNumber: 7, Mode: v1.ModePlan})
+	require.NoError(t, err)
+	resp, err := e.svc.UploadGraph(e.ctx, job.p, created.RunID, v1.GraphUploadRequest{
+		Graph: narrowed, ChangedPaths: []string{"modules/vpc/main.tf", "stacks/prod/vpc/main.tf"}, Config: prConfig,
+	})
+	require.NoError(t, err)
+
+	waves := map[string]int{}
+	for _, a := range resp.Affected {
+		waves[a.Key] = a.Wave
+	}
+	assert.Equal(t, map[string]int{vpc: 0, staging: 0, eks: 1, apps: 2}, waves,
+		"the stacks the default branch's stacks.discover finds are planned in dependency order")
+	assert.Len(t, resp.Matrix.Include, 4)
+	assert.Contains(t, resp.Warnings, "the stackorder.yaml of this pull request differs from the default branch's in stacks.discover; "+
+		"under the default branch's configuration stacks/prod/apps, stacks/prod/eks, stacks/prod/vpc are affected as well and planned too")
+	run := e.run(created.RunID)
+	assert.Contains(t, run.Warnings, resp.Warnings[0])
+	assert.Len(t, run.Stacks, 4)
+	stored, _, err := e.st.GetGraph(e.ctx, repoID, headSHA)
+	require.NoError(t, err)
+	var keys []string
+	for _, st := range stored.Stacks {
+		keys = append(keys, st.Key)
+	}
+	assert.ElementsMatch(t, []string{staging, vpc, eks, apps}, keys, "the run's graph carries the added stacks and their edges")
+	assert.Contains(t, stored.Edges, v1.Edge{From: v1.StackRef(eks), To: v1.StackRef(vpc), Type: v1.EdgeDependsOn})
+
+	_, err = e.svc.RecordResult(e.ctx, job.p, created.RunID, staging, planResult(staging, headSHA, 1))
+	require.NoError(t, err)
+	assert.Equal(t, v1.RunPlanning, e.run(created.RunID).Status, "the plan waits for the stacks the pull request tried to leave out")
+	e.comment(7, applier, "stackorder apply")
+	applies, _, err := e.st.ListRuns(e.ctx, store.RunFilter{RepoID: repoID, PRNumber: 7, Mode: v1.ModeApply})
+	require.NoError(t, err)
+	assert.Empty(t, applies, "no apply before every stack affected under the default branch planned")
+	assert.Contains(t, e.lastComment(7), vpc)
+
+	for _, key := range []string{vpc, eks, apps} {
+		_, err := e.svc.RecordResult(e.ctx, job.p, created.RunID, key, planResult(key, headSHA, 1))
+		require.NoError(t, err)
+	}
+	assert.Equal(t, v1.RunPlanned, e.run(created.RunID).Status)
+	e.comment(7, applier, "stackorder apply")
+	assert.Len(t, e.applyRun(7).Stacks, 4)
+	assert.Len(t, e.locks(), 4, "the apply locks every stack affected under the default branch")
+
+	e.openPull(8, newHeadSHA)
+	job8 := e.planJob(8)
+	created8, err := e.svc.CreateRun(e.ctx, job8.p, v1.CreateRunRequest{Repo: repoName, SHA: newHeadSHA, BaseSHA: baseSHA, PRNumber: 8, Mode: v1.ModePlan})
+	require.NoError(t, err)
+	same := baseConfig()
+	same.Stacks.Discover = []string{"stacks/**"}
+	resp8, err := e.svc.UploadGraph(e.ctx, job8.p, created8.RunID, v1.GraphUploadRequest{
+		Graph: testGraph(newHeadSHA), ChangedPaths: []string{"stacks/staging/vpc/main.tf"}, Config: same,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp8.Affected, 1)
+	for _, w := range resp8.Warnings {
+		assert.NotContains(t, w, "differs from the default branch", "a copy that spells out the defaults changes nothing")
 	}
 }
 
