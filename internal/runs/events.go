@@ -506,7 +506,7 @@ func carriedBy(rs store.RunStack, d store.Dispatch) bool {
 	if d.Mode != v1.ModeApply {
 		return true
 	}
-	return rs.Wave == d.Wave && strings.EqualFold(rs.Environment, d.Environment)
+	return rs.Status != v1.StackSkipped && rs.Wave == d.Wave && strings.EqualFold(rs.Environment, d.Environment)
 }
 
 func finishedFor(mode v1.RunMode, st v1.StackStatus) bool {

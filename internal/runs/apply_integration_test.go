@@ -710,6 +710,34 @@ func TestDeploymentProtectionRule(t *testing.T) {
 	assert.Contains(t, decisions[2].Comment, "did not dispatch")
 }
 
+func TestDeploymentProtectionRuleVetsOnlyTheStacksOfASubset(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Apply.AllowedTeams = []string{"platform"}
+	e := newEnv(t, cfg)
+	e.gh.SetTeamMembership("acme", "platform", applier, gh.MembershipActive)
+	g := testGraph(mainSHA)
+	for i := range g.Stacks {
+		if g.Stacks[i].Key == eks {
+			g.Stacks[i].Config = &v1.StackConfig{Apply: &v1.StackApplyConfig{AllowedTeams: []string{"acme/platform-prod"}}}
+		}
+	}
+	id, _, err := e.st.SaveGraph(e.ctx, repoID, &g)
+	require.NoError(t, err)
+	require.NoError(t, e.st.SetDefaultGraph(e.ctx, repoID, id))
+	e.planned(7, headSHA)
+	e.comment(7, applier, "stackorder apply "+vpc)
+	ds := e.gh.Dispatches()
+	require.Len(t, ds, 1)
+	require.Equal(t, []string{vpc}, entryKeys(entries(t, ds[0])))
+	e.gh.SetJobs(repoName, ds[0].RunID, nil)
+
+	require.NoError(t, e.svc.HandleDeploymentProtectionRule(e.ctx, e.gh.DeploymentProtectionRuleEvent(repoName, ds[0].RunID, "production", mainSHA)))
+	decisions := e.gh.ProtectionRuleDecisions()
+	require.Len(t, decisions, 1)
+	assert.Equal(t, gh.DeploymentApproved, decisions[0].State, decisions[0].Comment)
+	assert.Contains(t, decisions[0].Comment, "production deployment of "+vpc+" for run", "skipped stacks are not named as deployed")
+}
+
 func TestDeploymentProtectionRuleRefusesFinishedWork(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.planned(7, headSHA)
