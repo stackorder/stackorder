@@ -191,7 +191,7 @@ stackorder check \
   --summary "conftest: $status"
 ```
 
-As a `post-plan.sh` hook, this produces the check `stackorder/policy: stacks/prod/vpc` on every planned stack. `--details-url` can link to a full report and `--details-file` attaches one. `stackorder check` needs a run id, so skip it when `STACKORDER_RUN_ID` is empty if the hook also runs locally. See the [CLI reference](/reference/cli#check).
+As a `post-plan.sh` hook, this produces the check `stackorder/policy: stacks/prod/vpc` on every planned stack. The hook runs before `stackorder plan` reports the stack's result, which is what makes the verdict count: once every stack of a pull request's plan run has reported, the run is final and a later verdict from the pull request's jobs is refused. `--details-url` can link to a full report and `--details-file` attaches one. `stackorder check` needs a run id, so skip it when `STACKORDER_RUN_ID` is empty if the hook also runs locally. See the [CLI reference](/reference/cli#check).
 
 ## Fork pull requests {#forks}
 

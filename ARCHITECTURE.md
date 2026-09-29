@@ -397,7 +397,11 @@ per run kind:
   head SHA from the event payload). `pull_request` tokens reach only plan
   runs registered by a pull-request resolve job; every server-dispatched
   run, plan runs included, needs the `workflow_dispatch` binding. Results
-  for a terminal run are refused. Superseding compares against the PR head
+  for a terminal run are refused, and for a `pull_request` token a plan run
+  that is `planned` is final too: its results, check verdicts and
+  `GET /v1/runs/{id}` answer 409 `conflict` (`superseded` for a superseded
+  run), except a repeat of the recorded result or verdict, which gets the
+  stored row. Superseding compares against the PR head
   fetched from GitHub, never against an event's SHA, and default-branch
   pushes load `stackorder.yaml` at the branch head.
 - Dispatched runs: `event_name` is `workflow_dispatch`, `ref` is

@@ -170,6 +170,7 @@ The command is the first line whose first word is `stackorder` and second word a
 | Wrong environment | `403` | A dispatched apply job must run under the stack's environment, and a plan or drift job under `default`. |
 | Re-running a completed workflow run | `403` | A re-run of a workflow run whose dispatch already completed is refused. Start a new run: push, comment `stackorder plan` or `stackorder apply`. |
 | A superseded run | `409 superseded` | A newer commit replaced the run; its jobs' results are refused. |
+| A finished plan run | `409 conflict` | Once a pull request's plan run is `planned` or `failed`, its `pull_request` jobs can no longer post results or check verdicts. Post verdicts from a `post-plan.sh` hook, before the result. "Re-run failed jobs" reports to the finished run; re-run all jobs, push or comment `stackorder plan` to plan again. |
 | Fork pull request | | Forks get no `id-token` permission. Stackorder posts a neutral check and runs nothing. |
 
 ## Server start-up {#server-start}

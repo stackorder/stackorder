@@ -331,7 +331,7 @@ Other fields: `warnings`; `cycles`, set when resolution failed on a dependency c
 
 ### `POST /v1/runs/{id}/stacks/{key}/result` {#stack-result}
 
-Reports a plan, apply or drift outcome for one stack and answers with the stack's updated row. `mode` must match the run's mode. Posting the same result twice changes nothing. A result for a stack that already finished is `409 conflict`, and one for a superseded run is `409 superseded`. An API key may report only results of manual runs.
+Reports a plan, apply or drift outcome for one stack and answers with the stack's updated row. `mode` must match the run's mode. Posting the same result twice changes nothing. A result for a stack that already finished is `409 conflict`, and one for a superseded run is `409 superseded`. For a `pull_request` token a plan run is final once it is `planned`, `failed` or otherwise finished: any result other than a repeat of the recorded one is `409 conflict`, so a re-run of only the failed jobs of the plan workflow cannot report to it; re-run all jobs, push or comment `stackorder plan` for a new plan run. An API key may report only results of manual runs.
 
 ```json
 {
@@ -396,7 +396,7 @@ A row can also carry `workspace`, `truncated`, `checks` (the stack's named check
 
 ### `POST /v1/runs/{id}/stacks/{key}/checks/{name}` {#check-verdict}
 
-Records a named policy or cost check verdict from any tool the workflow runs, and answers with the stored check. The same caller rules as for results apply. The server shows the verdict as the check run `stackorder/<name>: <key>` and the apply gate honours it. `name` is letters, digits, `-`, `_` and `.`, up to 64 characters; `resolve`, `plan` and `apply` are reserved. Posting again replaces the verdict.
+Records a named policy or cost check verdict from any tool the workflow runs, and answers with the stored check. The same caller rules as for results apply. The server shows the verdict as the check run `stackorder/<name>: <key>` and the apply gate honours it. `name` is letters, digits, `-`, `_` and `.`, up to 64 characters; `resolve`, `plan` and `apply` are reserved. Posting again replaces the verdict until, for a `pull_request` token, the plan run is `planned` or finished; after that only a repeat of the recorded verdict is answered and anything else is `409 conflict`. Post verdicts before the stack's result, as a [`post-plan.sh` hook](/configuration/workflows#named-checks) does.
 
 ```json
 {
@@ -421,7 +421,7 @@ Records a named policy or cost check verdict from any tool the workflow runs, an
 
 ### `GET /v1/runs/{id}` {#get-run}
 
-The run with its per-stack rows. A `pull_request` token may read only its own pull request's plan run; a `workflow_dispatch` token is bound to its dispatch on first contact, as for `POST /v1/runs`.
+The run with its per-stack rows. A `pull_request` token may read only its own pull request's plan run, and only until it is `planned` or finished (`409 conflict`, or `409 superseded`); a `workflow_dispatch` token is bound to its dispatch on first contact, as for `POST /v1/runs`.
 
 ```json
 {
@@ -909,7 +909,7 @@ Then the run service binds the token to the run, according to how the job starte
 | Pull request plan job | `event_name` is `pull_request`, `ref` is `refs/pull/<n>/merge` | `<n>` is the run's pull request, the run is a plan run started by a pull request, and, when the run is created, the pull request's head SHA read from GitHub equals the SHA the CLI sent. Such a token can reach only plan runs registered by a pull request resolve job. |
 | Server-dispatched job | `event_name` is `workflow_dispatch`, `ref` is `refs/heads/<default branch>` | `run_id` is the workflow run of the dispatch that carries the stack, bound on first contact; `run_attempt` is recorded; `environment` equals the stack's environment for an apply, and `default` for a plan or drift dispatch. A workflow run whose dispatch is already bound to another workflow run is refused. |
 
-A failed binding is `403 forbidden`. `actor` is recorded as `requested_by`. Results for a finished stack are `409 conflict`, and for a superseded run `409 superseded`.
+A failed binding is `403 forbidden`. `actor` is recorded as `requested_by`. Results for a finished stack are `409 conflict`, and for a superseded run `409 superseded`. A `pull_request` token's plan run is final once it is `planned` or finished: its results, verdicts and reads are `409 conflict`, except a repeat of the recorded result or verdict.
 
 **Why `sha` is never compared.** GitHub's `sha` claim is the commit that triggered the workflow, not the commit being planned. For a `pull_request` event it is the merge commit of `refs/pull/<n>/merge`, which GitHub creates and changes whenever the base branch moves; for `workflow_dispatch` it is the head of the default branch the workflow was dispatched on, while the job checks out the `sha` input. Neither equals the run's SHA, the pull request head, so comparing them would refuse every legitimate job. The server binds to the commit through GitHub instead: it reads the pull request's current head when a plan run is registered, supersedes runs whose head moved, and dispatches applies only for the head that was planned, or, in `on_merge` mode, for the merge commit of that head. The CLI, in turn, refuses to apply unless the run's SHA equals the dispatch `sha` input and the checkout's `HEAD`.
 
