@@ -36,7 +36,7 @@ Security groups filter by address, not by host name, so the tasks' egress is HTT
 
 ## Inputs {#inputs}
 
-The tables are generated from `deploy/terraform/variables.tf`. Every input also has validation rules, which the descriptions summarise.
+The tables follow the descriptions in `deploy/terraform/variables.tf` and `deploy/terraform/outputs.tf`, and `docs/test` fails when they drift apart. Every input also has validation rules, which the descriptions summarise.
 
 ### Naming
 
@@ -69,6 +69,9 @@ The tables are generated from `deploy/terraform/variables.tf`. Every input also 
 | `ingress_cidrs` | `list(string)` | `["0.0.0.0/0"]` | IPv4 or IPv6 CIDRs allowed to reach the load balancer on ports 80 and 443. GitHub webhooks and GitHub-hosted runners need the default. Ignored when github_webhook_ip_ranges_only is true. |
 | `github_webhook_ip_ranges_only` | `bool` | `false` | Restrict the load balancer to GitHub's webhook source ranges (the hooks list of the GitHub meta API, read at plan time) plus admin_cidrs, instead of ingress_cidrs. |
 | `admin_cidrs` | `list(string)` | `[]` | CIDRs of people and self-hosted runners that need the UI and API when github_webhook_ip_ranges_only is true. |
+| `alb_access_logs_enabled` | `bool` | `false` | Write load balancer access logs to an S3 bucket the module creates, encrypted with SSE-S3 as ELB log delivery requires. |
+| `alb_access_logs_retention_days` | `number` | `90` | Days after which objects in the access log bucket expire. |
+| `waf_web_acl_arn` | `string` | `null` | ARN of a regional AWS WAFv2 web ACL in the module's region to associate with the load balancer. Null associates none. |
 
 ### Service
 
@@ -81,7 +84,8 @@ The tables are generated from `deploy/terraform/variables.tf`. Every input also 
 | `memory` | `number` | `512` | Fargate task memory in MiB; must be a valid combination with cpu. |
 | `cpu_architecture` | `string` | `"X86_64"` | CPU architecture of the task, X86_64 or ARM64. |
 | `enable_execute_command` | `bool` | `false` | Enable ECS Exec. The SSM agent needs a writable root file system, so this also turns readonlyRootFilesystem off and grants the task role the ssmmessages permissions. |
-| `health_check_command` | `list(string)` | `[]` | Container health check command, starting with CMD or CMD-SHELL. The distroless image has no shell or curl, so it must be a command the image itself provides. Empty, the default, leaves task health to the load balancer check on /readyz. |
+| `health_check_command` | `list(string)` | `["CMD", "/stackorder-server", "healthcheck"]` | Container health check command, starting with CMD or CMD-SHELL. The default runs the server's healthcheck subcommand, which GETs /healthz on the listen port. The distroless image has no shell or curl, so a replacement must be a command the image itself provides. Empty turns the container health check off and leaves task health to the load balancer check on /readyz. |
+| `stop_timeout_seconds` | `number` | `60` | Seconds ECS waits after SIGTERM before it kills the container (stopTimeout), 2 to 120 on Fargate. The server drains HTTP for up to 15 s, then its workers for up to 30 s plus 5 s for cancelled handlers, so a value under 50 can cut the drain short. |
 | `wait_for_steady_state` | `bool` | `true` | Make terraform apply wait until the new tasks pass /readyz, so an apply of an upgrade fails when the deployment rolls back. |
 | `log_retention_days` | `number` | `30` | Retention of the server log group in days. |
 | `log_level` | `string` | `"info"` | Server log level (STACKORDER_LOG_LEVEL). |
@@ -92,6 +96,8 @@ The tables are generated from `deploy/terraform/variables.tf`. Every input also 
 | Input | Type | Default | Description |
 | --- | --- | --- | --- |
 | `engine_version` | `string` | `"17"` | PostgreSQL major version, or major.minor. For Aurora a major version resolves to the AWS default minor of that major at plan time. |
+| `allow_major_version_upgrade` | `bool` | `false` | Allow a new major version in engine_version to upgrade the RDS instance or Aurora cluster in place. A major upgrade cannot be rolled back; take a snapshot first and set apply_immediately for the same apply. |
+| `apply_immediately` | `bool` | `false` | Apply database changes, such as engine_version, instance_class or the parameter group, at once instead of in the next maintenance window. Changes that need a restart then cause a short outage. |
 | `instance_class` | `string` | `"db.t4g.micro"` | RDS instance class. Ignored when use_aurora_serverless is true. |
 | `allocated_storage` | `number` | `20` | Initial RDS storage in GiB. Ignored when use_aurora_serverless is true. |
 | `max_allocated_storage` | `number` | `100` | Upper bound for RDS storage autoscaling in GiB; 0 disables autoscaling. Ignored when use_aurora_serverless is true. |
@@ -115,6 +121,7 @@ The tables are generated from `deploy/terraform/variables.tf`. Every input also 
 | `github_oauth_client_id` | `string` | `null` | OAuth client id of the GitHub App, for human sign-in (GITHUB_OAUTH_CLIENT_ID). |
 | `github_oauth_client_secret` | `string` (sensitive) | `null` | OAuth client secret of the GitHub App (GITHUB_OAUTH_CLIENT_SECRET). |
 | `session_key` | `string` (sensitive) | `null` | 32 byte hex key for cookie signing (STACKORDER_SESSION_KEY). Null generates one. |
+| `metrics_token` | `string` (sensitive) | `null` | Bearer token that GET /metrics requires (STACKORDER_METRICS_TOKEN), at least 16 printable ASCII characters without white space. Null generates 32 hexadecimal characters. |
 | `secret_recovery_window_days` | `number` | `30` | Days Secrets Manager keeps a deleted secret recoverable; 0 deletes immediately. |
 | `github_api_url` | `string` | `"https://api.github.com"` | GitHub API base URL (GITHUB_API_URL); GitHub Enterprise Server uses `https://<host>/api/v3`. |
 | `required_workflow_ref` | `string` | `null` | Glob that runner tokens' job_workflow_ref must match (STACKORDER_REQUIRED_WORKFLOW_REF), such as stackorder/actions/.github/workflows/*.yml@refs/tags/v1*. Null accepts any workflow. |
@@ -150,7 +157,7 @@ Everything else the server reads, such as `STACKORDER_WORKERS`, the retention du
 
 ### Container health check {#health-check}
 
-By default the container runs `stackorder-server healthcheck` every 30 s with a 5 s timeout, 3 retries and a 30 s start period. It asks `/healthz`, which does not touch the database, so a database outage does not by itself make ECS replace tasks; the load balancer's `/readyz` check still gates deployments and drives the circuit breaker. Set `health_check_command = []` to turn the container check off. `stop_timeout_seconds` (60 by default) gives the server time to drain HTTP and its workers before ECS sends SIGKILL.
+By default the container runs `stackorder-server healthcheck` every 30 s with a 5 s timeout, 3 retries and a 30 s start period. It asks `/healthz`, which does not touch the database, so the container check fails only when the process itself stops answering. The load balancer's `/readyz` check, database included, gates deployments and drives the circuit breaker, and ECS also replaces a task that fails it, so a database outage still makes ECS replace tasks, whatever `health_check_command` is. A replacement task then exits at start-up until the database answers again. Set `health_check_command = []` to turn the container check off. `stop_timeout_seconds` (60 by default) gives the server time to drain HTTP and its workers before ECS sends SIGKILL.
 
 ## Outputs {#outputs}
 
@@ -167,8 +174,9 @@ By default the container runs `stackorder-server healthcheck` every 30 s with a 
 | `db_endpoint` | Host name of the database writer endpoint. |
 | `db_secret_arn` | ARN of the Secrets Manager secret holding DATABASE_URL. |
 | `app_secret_arn` | ARN of the Secrets Manager secret holding the GitHub App credentials, the session key and the metrics token as JSON. |
-| `metrics_token_secret_arn` | ARN of the secret holding only the `/metrics` bearer token, for scrapers. |
+| `metrics_token_secret_arn` | ARN of the Secrets Manager secret holding only the `/metrics` bearer token, as plain text; grant Prometheus read access to this one rather than to the app secret. |
 | `artifact_bucket` | Name of the artifact bucket, or null when artifact_bucket_enabled is false. |
+| `alb_access_logs_bucket` | Name of the load balancer access log bucket, or null when alb_access_logs_enabled is false. |
 | `security_group_ids` | Security group ids of the load balancer, the service and the database. |
 | `log_group_name` | CloudWatch log group of the server. |
 
