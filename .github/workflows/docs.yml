@@ -7,6 +7,7 @@ on:
       - docs/**
       - ARCHITECTURE.md
       - CONTRIBUTING.md
+      - CHANGELOG.md
       - .github/workflows/docs.yml
   workflow_dispatch:
 
