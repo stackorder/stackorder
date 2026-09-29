@@ -478,8 +478,9 @@ longer lists and stored repositories of an unsuspended installation that
 no listing names, and when any listing fails it forgets nothing. Traces
 carry `stackorder.run_id`, `stackorder.event`, `stackorder.delivery`,
 `stackorder.job` and `stackorder.job_id`; `/healthz`, `/readyz` and
-`/metrics` are not traced. The pgx pool takes its size from the DSN's
-`pool_max_conns`; the scheduler's leader lock holds one connection.
+`/metrics` are not traced. The pgx pool has `STACKORDER_WORKERS` + 8
+connections (`server.PoolConnsBeyondWorkers`) unless the DSN's
+`pool_max_conns` sizes it; the scheduler's leader lock holds one connection.
 
 ## Store notes
 
