@@ -25,6 +25,7 @@ trap 'kill "$sleeper" 2>/dev/null; printf "interrupted\n" >&2; exit 130' INT
 } >> "$FAKE_TF_LOG"
 if [ -n "$FAKE_TF_STDOUT" ]; then cat "$FAKE_TF_STDOUT"; fi
 if [ -n "$FAKE_TF_STDERR" ]; then printf '%s\n' "$FAKE_TF_STDERR" >&2; fi
+if [ -n "$FAKE_TF_SIGNAL" ]; then kill -s "$FAKE_TF_SIGNAL" $$; fi
 if [ -n "$FAKE_TF_SLEEP" ]; then
   sleep "$FAKE_TF_SLEEP" >/dev/null 2>&1 &
   sleeper=$!

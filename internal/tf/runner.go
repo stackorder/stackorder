@@ -288,7 +288,7 @@ func (r *Runner) stream(ctx context.Context, args, env []string) (*runResult, er
 	stdout := &lockedWriter{mu: &mu, w: io.MultiWriter(&combined, orDiscard(r.Stdout))}
 	stderr := &lockedWriter{mu: &mu, w: io.MultiWriter(&combined, orDiscard(r.Stderr))}
 	code, err := r.run(ctx, args, env, stdout, stderr)
-	if code < 0 {
+	if code < 0 && err != nil {
 		return nil, err
 	}
 	res := &runResult{code: code, output: combined.String()}

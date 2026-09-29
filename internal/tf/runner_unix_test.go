@@ -380,6 +380,67 @@ func TestRunnerMissingBinary(t *testing.T) {
 	}
 }
 
+func TestRunnerKilledBySignal(t *testing.T) {
+	const progress = "aws_s3_bucket.logs: Creating..."
+	commands := []struct {
+		name    string
+		command string
+		run     func(t *testing.T, ctx context.Context, r *Runner) error
+	}{
+		{
+			name:    "init",
+			command: "terraform init",
+			run: func(_ *testing.T, ctx context.Context, r *Runner) error {
+				return r.Init(ctx, nil, InitOptions{})
+			},
+		},
+		{
+			name:    "workspace",
+			command: "terraform workspace select",
+			run: func(_ *testing.T, ctx context.Context, r *Runner) error {
+				return r.SelectWorkspace(ctx)
+			},
+		},
+		{
+			name:    "plan",
+			command: "terraform plan",
+			run: func(t *testing.T, ctx context.Context, r *Runner) error {
+				res, err := r.Plan(ctx, PlanOptions{DetailedExitCode: true})
+				require.NotNil(t, res, "the result is returned together with the error: %v", err)
+				assert.Equal(t, -1, res.ExitCode)
+				assert.False(t, res.HasChanges)
+				assert.Contains(t, res.Output, progress)
+				return err
+			},
+		},
+		{
+			name:    "apply",
+			command: "terraform apply",
+			run: func(t *testing.T, ctx context.Context, r *Runner) error {
+				res, err := r.Apply(ctx, "plan.tfplan", ApplyOptions{})
+				require.NotNil(t, res, "the result is returned together with the error: %v", err)
+				assert.Equal(t, -1, res.ExitCode)
+				assert.Contains(t, res.Output, progress)
+				return err
+			},
+		},
+	}
+	for _, signal := range []string{"KILL", "TERM"} {
+		for _, tt := range commands {
+			t.Run(signal+"/"+tt.name, func(t *testing.T) {
+				f := newFakeTF(t, "terraform")
+				r := f.runner("FAKE_TF_SIGNAL="+signal, f.stdoutFile(progress+"\n"))
+				err := tt.run(t, f.ctx(), r)
+				var exitErr *ExitError
+				require.ErrorAs(t, err, &exitErr, "a command killed by a signal must fail")
+				assert.Equal(t, tt.command, exitErr.Command)
+				assert.Equal(t, -1, exitErr.ExitCode)
+				assert.Contains(t, exitErr.Output, progress)
+			})
+		}
+	}
+}
+
 func TestRunnerInterruptOnCancel(t *testing.T) {
 	f := newFakeTF(t, "terraform")
 	var stderr bytes.Buffer
