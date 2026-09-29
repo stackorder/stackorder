@@ -64,9 +64,11 @@ and one JSON secret with a key per App variable plus
 `STACKORDER_SESSION_KEY` (generated when `session_key` is null) and
 `STACKORDER_METRICS_TOKEN` (generated when `metrics_token` is null). ECS
 injects them through `secrets` with `valueFrom = "<arn>:<KEY>::"`; nothing
-secret is in the image or in the task definition. The task definition carries the
-version ids of both secrets as docker labels, so changing a secret value
-rolls the service onto it.
+secret is in the image or in the task definition. The task definition
+carries the version ids of both secrets as docker labels, so changing a
+secret value rolls the service onto it. A third secret holds a copy of the
+metrics token alone, for scrapers (see [Metrics](#metrics)); the task does
+not read it.
 
 The values pass through Terraform state. Keep state encrypted and readable
 only by the roles that plan and apply this stack.
