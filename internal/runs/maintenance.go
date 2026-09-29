@@ -181,9 +181,16 @@ func (s *Service) abandonApply(ctx context.Context, repo store.Repo, run store.R
 	if err := s.st.AddRunWarning(ctx, run.ID, "the apply was never dispatched and was abandoned: "+reason); err != nil {
 		return storeErr(err, "record warning on run %s", run.ID)
 	}
-	released, err := s.st.ReleaseLocksForRun(ctx, run.ID)
+	deployed, err := s.earlierApplyDeployed(ctx, run)
 	if err != nil {
-		return storeErr(err, "release locks of run %s", run.ID)
+		return err
+	}
+	var released []store.Lock
+	if !deployed {
+		released, err = s.st.ReleaseLocksForRun(ctx, run.ID)
+		if err != nil {
+			return storeErr(err, "release locks of run %s", run.ID)
+		}
 	}
 	for _, l := range released {
 		s.audit(ctx, "", "unlock", v1.QualifiedStackKey(repo.FullName, l.StackKey), map[string]any{
@@ -195,17 +202,46 @@ func (s *Service) abandonApply(ctx context.Context, repo store.Repo, run store.R
 		s.refreshLocksGauge(ctx)
 	}
 	if run.PRNumber > 0 {
-		s.comment(ctx, repo, run.PRNumber, abandonedApplyComment(run, reason, len(released)))
+		s.comment(ctx, repo, run.PRNumber, abandonedApplyComment(run, reason, len(released), deployed))
 	}
 	s.renderQuiet(ctx, run.ID, renderOpts{allStacks: true})
 	return nil
 }
 
-func abandonedApplyComment(run store.Run, reason string, released int) string {
+func (s *Service) earlierApplyDeployed(ctx context.Context, run store.Run) (bool, error) {
+	if run.PRNumber <= 0 {
+		return false, nil
+	}
+	applies, _, err := s.st.ListRuns(ctx, store.RunFilter{RepoID: run.RepoID, PRNumber: run.PRNumber, Mode: v1.ModeApply, Limit: 20})
+	if err != nil {
+		return false, storeErr(err, "apply runs of #%d", run.PRNumber)
+	}
+	for _, r := range applies {
+		if r.ID == run.ID || !r.CreatedAt.Before(run.CreatedAt) {
+			continue
+		}
+		rows, err := s.st.GetRunStacks(ctx, r.ID)
+		if err != nil {
+			return false, storeErr(err, "stacks of run %s", r.ID)
+		}
+		for _, rs := range rows {
+			switch rs.Status {
+			case v1.StackApplying, v1.StackApplied, v1.StackFailed, v1.StackUnknown:
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func abandonedApplyComment(run store.Run, reason string, released int, deployed bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "**The apply of `%s` did not start.** Stackorder recorded apply run %s but never dispatched it, and %s, so it was abandoned.",
 		shortSHA(run.SHA), run.ID, reason)
-	if released > 0 {
+	switch {
+	case deployed:
+		b.WriteString(" The orchestration locks stay held, because an earlier apply of this pull request changed what is deployed.")
+	case released > 0:
 		fmt.Fprintf(&b, " Its %d orchestration lock(s) were released.", released)
 	}
 	if run.Trigger == v1.TriggerComment {

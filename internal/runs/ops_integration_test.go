@@ -513,6 +513,34 @@ func TestReconcileAbandonsAnApplyWhosePlansMovedOn(t *testing.T) {
 	})
 }
 
+func TestAbandonedApplyKeepsTheLocksOfAnEarlierPartialApply(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	planRun := e.planned(7, headSHA)
+	e.comment(7, applier, "stackorder apply")
+	first := e.applyRun(7)
+	for _, d := range e.gh.Dispatches() {
+		e.reportAll(d, map[string]bool{vpc: false})
+	}
+	require.Equal(t, v1.RunFailed, e.run(first.ID).Status)
+	require.Equal(t, v1.StackApplied, stackStatuses(e.run(first.ID))[staging])
+	require.Len(t, e.locks(), 4, "a failed before_merge apply keeps its locks")
+
+	applyID := e.stalledApply(7, planRun)
+	require.NoError(t, e.svc.HandlePullRequest(e.ctx, e.gh.PullRequestEvent("closed", repoName, gh.PullRequest{
+		Number: 7, State: gh.IssueClosed, HeadSHA: headSHA, BaseSHA: baseSHA, User: gh.User{Login: author},
+	})))
+	e.clock.Set(e.run(applyID).CreatedAt.Add(3 * time.Minute))
+	require.NoError(t, e.svc.Reconcile(e.ctx))
+
+	assert.Equal(t, v1.RunFailed, e.run(applyID).Status)
+	assert.Equal(t, map[string]int{vpc: 7, staging: 7, eks: 7, apps: 7}, e.locks(),
+		"the locks guarding the earlier partial apply stay held")
+	assert.Empty(t, e.audit("unlock"))
+	body := e.lastComment(7)
+	assert.Contains(t, body, "**The apply of `3333333` did not start.**")
+	assert.NotContains(t, body, "were released")
+}
+
 func TestReconcileRecoversAnApplyThatStartedApplyingWithoutDispatch(t *testing.T) {
 	applying := func(e *env, applyID string) {
 		e.t.Helper()

@@ -373,8 +373,9 @@ after it was created, still `pending` or `applying` with stacks of its
 current wave `planned`, has that wave dispatched by Reconcile while it is
 the pull request's newest apply, a comment apply's pull request is still
 open at the run's commit and every planned stack keeps the head's plan;
-otherwise it is failed, its locks are released and the pull request gets
-a comment. Each dispatch row binds at most one Actions `workflow_run_id`: a
+otherwise it is failed, its locks are released (unless an earlier apply of
+the pull request changed what is deployed) and the pull request gets a
+comment. Each dispatch row binds at most one Actions `workflow_run_id`: a
 `workflow_run` event's `display_title` binds only when it names a single
 dispatch of that (run, wave, mode); otherwise the stacks named by the run's
 jobs choose the dispatch, or the environment of a `deployment_protection_rule`
