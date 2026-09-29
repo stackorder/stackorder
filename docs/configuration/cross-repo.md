@@ -24,7 +24,7 @@ The server stores the edge and marks the upstream stack `external` in the depend
 `depends_on` edges to other repositories are stored but cannot order a single-repository run. Instead:
 
 1. When an upstream stack applies, the server lists its external dependents on the run. The run's resolution response carries them in `external`.
-2. With `propagate.cross_repo: plan`, the server also dispatches a plan-only run on each dependent stack, through the dependent repository's `stackorder-run.yml` with `mode: plan`.
+2. With `propagate.cross_repo: plan` in the upstream repository's default-branch `stackorder.yaml`, the server also starts a plan-only run in each downstream repository once the upstream apply finishes, for the dependent stacks of the stacks that applied. The run has trigger `push`, is for the head of the downstream default branch, carries a warning naming the upstream run, and is dispatched through the downstream repository's `stackorder-run.yml` with `mode: plan`, under the environment `default`. There is one such run per upstream run and downstream repository.
 
 Drift caused by the upstream change then shows up within minutes, rather than at the next scheduled drift check.
 

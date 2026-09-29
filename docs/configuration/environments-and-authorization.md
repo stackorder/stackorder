@@ -20,7 +20,7 @@ Layer 4 is the upgrade for teams that find the manual approval redundant with co
 
 ## Layer 1: team check on the request {#layer-1}
 
-On `stackorder apply`, the server checks the commenter's membership of each team in `apply.allowed_teams` and refuses with a comment naming the team unless the membership is `active`. Members of nested child teams count. Results are cached for 60 s to stay clear of rate limits.
+On `stackorder apply`, the server checks the commenter's membership of the teams in `apply.allowed_teams` and refuses with a comment naming the teams unless the commenter is an `active` member of one of them. Members of nested child teams count. A team is written as its slug, in the repository owner's organisation, or as `org/slug`, with or without `@`. Results are cached for 60 s to stay clear of rate limits.
 
 ```yaml
 # stackorder.yaml
@@ -36,7 +36,7 @@ apply:
 
 - The rule is per stack. A run touching `stacks/prod/**` and `stacks/staging/**` requires the commenter to satisfy every affected stack's `allowed_teams`, or to name a subset.
 - With no `allowed_teams`, the check falls back to push permission on the repository.
-- It needs the App's optional `Members: Read` permission.
+- It needs the App's `Members: Read` permission, which the App created by `/setup` has. Without it the gate refuses with a reason saying so.
 
 This layer fails fast with a good message, and nothing more. A bug or a compromised server skips it.
 
@@ -51,7 +51,7 @@ Map stack paths to owning teams in `CODEOWNERS`, and require code-owner review i
 ```
 
 - In `on_merge` mode that alone is a hard gate: apply follows merge, and GitHub will not merge without the owning team's approval.
-- In `before_merge` mode, set `apply.require_codeowner_review: true`. The apply gate then requires, for each affected stack, at least one `APPROVED` review on the current head SHA from a member of the owning team. Reviews on older commits do not count.
+- In `before_merge` mode, set `apply.require_codeowner_review: true`. The apply gate then requires, for each affected stack, at least one `APPROVED` review on the current head SHA from one of the stack's owners in the default branch's `CODEOWNERS`, a listed user or a member of a listed team, who has push permission. Reviews on older commits, and the author's own, do not count; a stack no rule owns passes.
 - `apply.four_eyes: true` refuses an apply requested by the PR author.
 
 ```yaml
@@ -80,6 +80,8 @@ In the repository settings, under **Environments**, configure `production`:
 - **Prevent self-review**: on, so the requester cannot approve their own deployment.
 - **Deployment branches**: the default branch only. Server-dispatched runs start from the default branch.
 
+Only apply jobs run under the stack's environment. The plans and drift checks the server dispatches run under the environment `default`, so a reviewer on `production` never holds them; give `default` no reviewers.
+
 The server cannot approve: the App has no Environments permission, and an App cannot be a required reviewer. This gate holds even if the server is fully compromised.
 
 Two consequences of the design:
@@ -93,9 +95,17 @@ Instead of a human clicking approve, register the App as a custom deployment pro
 
 That turns the server's policy into something GitHub enforces: the job does not run until the App says yes, and the App says yes only for a request from the right team on a PR with the right approvals.
 
+The server answers each request this way:
+
+| Request | Answer |
+| --- | --- |
+| A workflow run the server did not dispatch, a re-run of a dispatch that already completed, a run that already finished, or a different environment than the dispatch's | Rejected |
+| A plan or drift dispatch | Approved: read-only, nothing is applied |
+| An apply | Approved when layer 1 passes for the requester and, for an apply requested by a comment, layer 2 passes on the run's commit; otherwise rejected with the refusal as the comment |
+
 To enable it:
 
-1. In the App's settings, grant the optional `Deployments: Read and write` permission and subscribe to the `deployment_protection_rule` event. Each installation must accept the new permission.
+1. The App that `/setup` creates already has the `Deployments: Read and write` permission and the `deployment_protection_rule` event, except on GitHub Enterprise Server. Otherwise grant both in the App's settings; each installation must accept the new permission.
 2. In the environment's settings, enable the App under custom deployment protection rules.
 
 Layer 4 has the same plan constraint as layer 3. Layers 3 and 4 can be combined on one environment, in which case every rule must pass. Even with this permission the server cannot approve a human gate; it only answers for its own rule.
@@ -151,7 +161,7 @@ The subject then ends with the workflow reference, and the trust policy can requ
 }
 ```
 
-The customization applies to every workflow in the repository, so update the plan role's condition too, to `repo:acme/infra:pull_request:job_workflow_ref:stackorder/actions/.github/workflows/plan.yml@refs/tags/v1*`.
+The customization applies to every workflow in the repository, so update the plan role's condition too, to `repo:acme/infra:pull_request:job_workflow_ref:stackorder/actions/.github/workflows/plan.yml@refs/tags/v1*` and `repo:acme/infra:environment:default:job_workflow_ref:stackorder/actions/.github/workflows/run.yml@refs/tags/v1*`.
 
 Now the only path to production credentials runs through the environment gate, whatever the server or the PR's workflow file says. Pair it with `STACKORDER_REQUIRED_WORKFLOW_REF` on the server, so results are accepted only from the canonical workflows. See [Server configuration](/reference/server-configuration).
 
@@ -159,5 +169,5 @@ Now the only path to production credentials runs through the environment gate, w
 
 | Role | Trusted `sub` | Permissions |
 | --- | --- | --- |
-| Plan | `repo:acme/infra:pull_request` | Read state, write the state lock, and the read-only permissions providers need to plan |
+| Plan | `repo:acme/infra:pull_request` and `repo:acme/infra:environment:default` | Read state, write the state lock, and the read-only permissions providers need to plan |
 | Apply, per environment | `repo:acme/infra:environment:<name>` | Read and write state, and the write permissions the stacks need |
