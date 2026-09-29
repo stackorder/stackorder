@@ -244,6 +244,9 @@ func replay(run store.Run, rows []store.RunStack, g *v1.Graph) ([]v1.AffectedSta
 			Reasons:     append([]v1.Reason{}, rs.Reasons...),
 			Environment: rs.Environment,
 		}
+		if len(rs.Via) > 0 {
+			a.Via = slices.Clone(rs.Via)
+		}
 		if n, ok := nodes[rs.Key]; ok {
 			a.Tool, a.ToolVersion, a.PlanOutput = n.Tool, n.ToolVersion, n.PlanOutput
 		}

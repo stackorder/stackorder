@@ -432,6 +432,8 @@ type RunStack struct {
 	PlanOutput string `db:"plan_output"`
 	// BlockedBy lists the failed predecessors of a blocked stack.
 	BlockedBy []string `db:"blocked_by"`
+	// Via lists the node keys through which the change reached the stack.
+	Via []string `db:"via"`
 	// DispatchID is the workflow dispatch the stack was sent in, if any.
 	DispatchID *uuid.UUID `db:"dispatch_id"`
 	StartedAt  *time.Time `db:"started_at"`
@@ -507,7 +509,7 @@ const runStackColsHead = `rs.run_id, rs.stack_id, s.key, s.path, s.workspace, rs
 	rs.exit_code, rs.job_url, rs.plan_artifact, rs.plan_run_id, rs.summary, `
 
 const runStackColsTail = `, rs.plan_text_truncated, rs.error_text, rs.plan_url, rs.plan_output, rs.blocked_by,
-	rs.dispatch_id, rs.started_at, rs.finished_at, rs.updated_at`
+	rs.via, rs.dispatch_id, rs.started_at, rs.finished_at, rs.updated_at`
 
 const runStackCols = runStackColsHead + `COALESCE(rs.plan_text, '') AS plan_text` + runStackColsTail
 
@@ -517,7 +519,7 @@ const runStackColsNoText = runStackColsHead + `'' AS plan_text` + runStackColsTa
 // given status (pending by default) and mode (the run's by default), and
 // the given summary, change flag, plan artifact and plan run, which is how
 // an apply run inherits its plans; existing rows only have their wave,
-// reasons, environment and plan output refreshed, so results already
+// reasons, via, environment and plan output refreshed, so results already
 // reported are kept. An empty environment is v1.DefaultEnvironment.
 func (s *Store) UpsertRunStacks(ctx context.Context, runID uuid.UUID, stacks []RunStack) error {
 	if len(stacks) == 0 {
@@ -530,20 +532,22 @@ func (s *Store) UpsertRunStacks(ctx context.Context, runID uuid.UUID, stacks []R
 		for _, rs := range sorted {
 			b.Queue(`
 				INSERT INTO run_stacks (run_id, stack_id, wave, mode, status, reasons, environment, plan_output,
-				                        summary, adds, changes, destroys, replaces, has_changes, plan_artifact, plan_run_id)
+				                        summary, adds, changes, destroys, replaces, has_changes, plan_artifact, plan_run_id, via)
 				VALUES ($1, $2, $3,
 				        COALESCE(NULLIF($4::text, ''), (SELECT mode FROM runs WHERE id = $1), 'plan'),
 				        COALESCE(NULLIF($5::text, ''), 'pending'), $6::text[], $7, $8,
-				        $9::jsonb, $10, $11, $12, $13, $14, $15, $16)
+				        $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17::text[])
 				ON CONFLICT (run_id, stack_id) DO UPDATE SET
 					wave = EXCLUDED.wave,
 					reasons = EXCLUDED.reasons,
+					via = EXCLUDED.via,
 					environment = EXCLUDED.environment,
 					plan_output = EXCLUDED.plan_output,
 					updated_at = now()`,
 				runID, rs.StackID, rs.Wave, string(rs.Mode), string(rs.Status), strs(nonNil(rs.Reasons)),
 				environmentOrDefault(rs.Environment), rs.PlanOutput,
-				rs.Summary, rs.Adds, rs.Changes, rs.Destroys, rs.Replaces, rs.HasChanges, rs.PlanArtifact, rs.PlanRunID)
+				rs.Summary, rs.Adds, rs.Changes, rs.Destroys, rs.Replaces, rs.HasChanges, rs.PlanArtifact, rs.PlanRunID,
+				nonNil(rs.Via))
 		}
 		return tx.SendBatch(ctx, b).Close()
 	})

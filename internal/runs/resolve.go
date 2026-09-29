@@ -146,7 +146,7 @@ func (s *Service) UploadGraph(ctx context.Context, p principal.Principal, runID 
 		}
 		ids = append(ids, id)
 		rows = append(rows, store.RunStack{
-			StackID: id, Wave: a.Wave, Status: v1.StackPending, Reasons: a.Reasons,
+			StackID: id, Wave: a.Wave, Status: v1.StackPending, Reasons: a.Reasons, Via: a.Via,
 			Environment: a.Environment, PlanOutput: a.PlanOutput,
 		})
 	}

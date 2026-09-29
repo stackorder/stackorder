@@ -179,6 +179,12 @@ func TestHumanAPI(t *testing.T) {
 	assert.Equal(t, planWaves, replay.Waves, "the graph replays the run's affected set")
 	assert.Len(t, replay.Affected, 5)
 	assert.Len(t, replay.StackIDs, 6)
+	via := map[string][]string{}
+	for _, a := range replay.Affected {
+		via[a.Key] = a.Via
+	}
+	assert.Equal(t, []string{f.name + "//modules/vpc"}, via[prodVPC], "the replay says which module the change reached a stack through")
+	assert.Equal(t, []string{prodVPC}, via[prodEKS], "the replay says which stack the change reached a dependent through")
 
 	var run v1.Run
 	b.get("/v1/runs/"+p.runID, &run)

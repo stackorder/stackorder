@@ -300,9 +300,9 @@ func (s *Service) startServerPlan(ctx context.Context, req serverPlan) (store.Ru
 			return store.Run{}, "", storeErr(err, "stack %s", a.Key)
 		}
 		row := store.RunStack{StackID: st.ID, Wave: a.Wave, Status: v1.StackPending, Mode: v1.ModePlan,
-			Reasons: a.Reasons, Environment: a.Environment, PlanOutput: a.PlanOutput}
+			Reasons: a.Reasons, Via: a.Via, Environment: a.Environment, PlanOutput: a.PlanOutput}
 		if prior, ok := req.prior[a.Key]; ok {
-			row.Reasons, row.Environment = prior.Reasons, firstNonEmpty(prior.Environment, a.Environment)
+			row.Reasons, row.Via, row.Environment = prior.Reasons, prior.Via, firstNonEmpty(prior.Environment, a.Environment)
 		}
 		rows = append(rows, row)
 	}
@@ -449,7 +449,7 @@ func (s *Service) startApply(ctx context.Context, req applyRequest) (store.Run, 
 	for _, key := range req.view.keys() {
 		src := req.view.stored[key]
 		row := store.RunStack{
-			StackID: src.StackID, Mode: v1.ModeApply, Status: v1.StackSkipped, Reasons: src.Reasons,
+			StackID: src.StackID, Mode: v1.ModeApply, Status: v1.StackSkipped, Reasons: src.Reasons, Via: src.Via,
 			Environment: applyEnvironment(cfg, defaults, src), PlanOutput: src.PlanOutput,
 			Summary: src.Summary, Adds: src.Adds, Changes: src.Changes, Destroys: src.Destroys, Replaces: src.Replaces,
 			HasChanges: src.HasChanges, PlanArtifact: src.PlanArtifact, PlanRunID: src.PlanRunID,
