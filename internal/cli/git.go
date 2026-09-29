@@ -91,11 +91,11 @@ func (a *app) baseRef(ctx context.Context, gh *Context, flag string) (string, er
 }
 
 func (a *app) baseSHA(ctx context.Context, ref string) string {
-	if sha, err := revParse(ctx, a.root, ref); err == nil {
-		return sha
-	}
 	if hexSHA.MatchString(ref) {
 		return ref
+	}
+	if sha, err := revParse(ctx, a.root, ref); err == nil {
+		return sha
 	}
 	return ""
 }
