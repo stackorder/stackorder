@@ -74,7 +74,10 @@ const design: DefaultTheme.SidebarItem[] = [
   },
   {
     text: 'Project',
-    items: [{ text: 'Contributing', link: '/contributing' }],
+    items: [
+      { text: 'Contributing', link: '/contributing' },
+      { text: 'Changelog', link: '/changelog' },
+    ],
   },
 ]
 
@@ -105,6 +108,7 @@ export default withMermaid(
         { text: 'Reference', link: '/reference/cli', activeMatch: '^/reference/' },
         { text: 'Operations', link: '/operations/deploy-aws', activeMatch: '^/operations/' },
         { text: 'Design', link: '/design/', activeMatch: '^/(design/|contributing)' },
+        { text: 'Changelog', link: '/changelog', activeMatch: '^/changelog' },
       ],
       sidebar: {
         '/guide/': guide,
@@ -113,6 +117,7 @@ export default withMermaid(
         '/operations/': operations,
         '/design/': design,
         '/contributing': design,
+        '/changelog': design,
       },
       outline: [2, 3],
       search: { provider: 'local' },

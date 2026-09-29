@@ -5,6 +5,7 @@ type Token = ReturnType<MarkdownRenderer['parse']>[number]
 const sitePages: Record<string, string> = {
   'ARCHITECTURE.md': '/design/architecture',
   'CONTRIBUTING.md': '/contributing',
+  'CHANGELOG.md': '/changelog',
   'https://claude.ai/artifact/W3gQnvGu5Fw9DSXApYE766': '/design/',
 }
 

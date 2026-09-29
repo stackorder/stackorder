@@ -22,13 +22,13 @@ npm run docs:preview  # serve the built site
 - The build fails on dead internal links. Link to pages by path, such as `/reference/cli#exit-codes`.
 - `docs/test` checks pages against the code they describe, such as the module's inputs against `deploy/terraform/variables.tf`. Change both in the same commit.
 - Diagrams are fenced `mermaid` code blocks, rendered in the browser.
-- The [architecture contract](/design/architecture) and this page include `ARCHITECTURE.md` and `CONTRIBUTING.md` from the repository root. Edit those files, not the pages that include them.
+- The [architecture contract](/design/architecture), this page and the [changelog](/changelog) include `ARCHITECTURE.md`, `CONTRIBUTING.md` and `CHANGELOG.md` from the repository root. Edit those files, not the pages that include them.
 - Document what the code and the architecture contract define. Never document a flag, variable, endpoint or configuration key that does not exist.
 - Commits to the site use the scope `site`: `docs(site): …`.
 
 ## Publishing {#publishing}
 
-`.github/workflows/docs.yml` builds the site and deploys it to GitHub Pages on every push to `main` that touches `docs/`, `ARCHITECTURE.md`, `CONTRIBUTING.md` or the workflow itself, and on manual dispatch. Its jobs run only when the repository variable `DOCS_DEPLOY` is `true`; otherwise the workflow skips them.
+`.github/workflows/docs.yml` builds the site and deploys it to GitHub Pages on every push to `main` that touches `docs/`, `ARCHITECTURE.md`, `CONTRIBUTING.md`, `CHANGELOG.md` or the workflow itself, and on manual dispatch. Its jobs run only when the repository variable `DOCS_DEPLOY` is `true`; otherwise the workflow skips them.
 
 1. In the repository settings, under **Pages**, set the source to **GitHub Actions**.
 2. Under **Secrets and variables**, **Actions**, **Variables**, set `DOCS_DEPLOY` to `true`.
