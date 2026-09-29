@@ -375,6 +375,19 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	assert.Len(t, e.comments(7), n, "a redelivered merge changes nothing")
 }
 
+func TestApplyEnvironmentIsReadFromTheDefaultBranchBeforeTheFirstMerge(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.gh.SetContents(repoName, "main", eks+"/.stackorder.yaml", []byte("depends_on: [stacks/prod/vpc]\nenvironment: prod-eks\n"))
+	e.planned(7, headSHA)
+	e.comment(7, applier, "stackorder apply")
+	envs := map[string]string{}
+	for _, rs := range e.applyRun(7).Stacks {
+		envs[rs.Key] = rs.Environment
+	}
+	assert.Equal(t, map[string]string{vpc: "production", staging: "staging", eks: "prod-eks", apps: "production"}, envs,
+		"without a default-branch graph the stack's environment override is read at the default branch")
+}
+
 func TestConcurrentWorkersOnOneRun(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.openPull(7, headSHA)
