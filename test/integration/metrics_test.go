@@ -35,6 +35,7 @@ func (e *Env) metrics() map[string]float64 {
 func TestMetricsAfterTheFlows(t *testing.T) {
 	e := shared(t)
 	f := newFixture(t, e, "metrics")
+	before := e.metrics()
 	a := f.startApply(110, applyCommand)
 	for _, d := range a.wave0 {
 		for _, res := range f.apply(d, nil) {
@@ -51,10 +52,11 @@ func TestMetricsAfterTheFlows(t *testing.T) {
 	require.Len(t, f.locks(), 5)
 
 	m := e.metrics()
-	atLeast := map[string]float64{
+	increments := map[string]float64{
 		`stackorder_runs_total{mode="plan",status="pending",trigger="pull_request"}`:  2,
 		`stackorder_runs_total{mode="plan",status="planning",trigger="pull_request"}`: 2,
 		`stackorder_runs_total{mode="plan",status="planned",trigger="pull_request"}`:  2,
+		`stackorder_runs_total{mode="apply",status="pending",trigger="comment"}`:      2,
 		`stackorder_runs_total{mode="apply",status="applying",trigger="comment"}`:     2,
 		`stackorder_runs_total{mode="apply",status="applied",trigger="comment"}`:      1,
 		`stackorder_stack_finished_total{mode="plan",status="planned"}`:               10,
@@ -62,13 +64,13 @@ func TestMetricsAfterTheFlows(t *testing.T) {
 		`stackorder_dispatches_total{mode="apply",result="ok"}`:                       4,
 		`stackorder_commands_total{accepted="true",verb="apply"}`:                     2,
 		`stackorder_webhook_received_total{event="pull_request"}`:                     3,
+		`stackorder_webhook_received_total{event="pull_request_review"}`:              2,
 		`stackorder_webhook_received_total{event="issue_comment"}`:                    2,
 		`stackorder_webhook_received_total{event="workflow_run"}`:                     2,
 	}
-	for name, min := range atLeast {
-		v, ok := m[name]
-		if assert.True(t, ok, "%s is exported", name) {
-			assert.GreaterOrEqual(t, v, min, name)
+	for name, n := range increments {
+		if assert.Contains(t, m, name, "%s is exported", name) {
+			assert.Equal(t, n, m[name]-before[name], "increase of %s over the flow", name)
 		}
 	}
 	locks, err := e.Store.ListLocks(t.Context(), 0)
