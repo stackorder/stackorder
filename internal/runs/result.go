@@ -48,6 +48,12 @@ func (s *Service) RecordResult(ctx context.Context, p principal.Principal, runID
 		return nil, &principal.InvalidError{Field: "status", Reason: fmt.Sprintf("%q is not success, failure or error", res.Status)}
 	}
 	target := resultStatus(run.Mode, res)
+	if pullRequestJob(p) && planFinished(run.Status) {
+		if duplicateResult(row, target, res) {
+			return s.runStackView(ctx, run.ID, stack.ID)
+		}
+		return nil, finishedPlanError(run)
+	}
 	if duplicateResult(row, target, res) {
 		if err := s.advance(ctx, run.ID); err != nil {
 			return nil, err
@@ -309,6 +315,9 @@ func (s *Service) RecordCheck(ctx context.Context, p principal.Principal, runID,
 	if _, err := s.authorizeResult(ctx, p, run, repo, &row); err != nil {
 		return nil, err
 	}
+	if pullRequestJob(p) && planFinished(run.Status) {
+		return s.finishedCheck(ctx, run, stack.ID, name, verdict)
+	}
 	stored, err := s.st.UpsertCheck(ctx, store.Check{
 		RunID: run.ID, StackID: stack.ID, Name: name, Status: verdict.Status,
 		Summary: verdict.Summary, Details: verdict.Details, DetailsURL: verdict.DetailsURL,
@@ -320,6 +329,36 @@ func (s *Service) RecordCheck(ctx context.Context, p principal.Principal, runID,
 	s.renderQuiet(ctx, run.ID, renderOpts{stacks: []uuid.UUID{stack.ID}})
 	out := stored.ToV1()
 	return &out, nil
+}
+
+func (s *Service) finishedCheck(ctx context.Context, run store.Run, stackID uuid.UUID, name string, verdict v1.CheckVerdict) (*v1.Check, error) {
+	checks, err := s.st.ListChecks(ctx, run.ID)
+	if err != nil {
+		return nil, storeErr(err, "checks of run %s", run.ID)
+	}
+	for _, c := range checks {
+		if c.StackID == stackID && c.Name == name && c.Status == verdict.Status && c.Summary == verdict.Summary &&
+			c.Details == verdict.Details && c.DetailsURL == verdict.DetailsURL {
+			out := c.ToV1()
+			return &out, nil
+		}
+	}
+	return nil, finishedPlanError(run)
+}
+
+func pullRequestJob(p principal.Principal) bool {
+	return p.Kind == principal.OIDC && p.Claims != nil && p.Claims.EventName == eventPullRequest
+}
+
+func planFinished(status v1.RunStatus) bool {
+	return status == v1.RunPlanned || status.Terminal()
+}
+
+func finishedPlanError(run store.Run) error {
+	if run.Status == v1.RunSuperseded {
+		return principal.Wrap(principal.ErrSuperseded, "run %s was superseded by a newer commit", run.ID)
+	}
+	return principal.Wrap(principal.ErrConflict, "run %s is %s; the results of a finished plan run are final", run.ID, run.Status)
 }
 
 func validCheckName(name string) bool {

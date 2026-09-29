@@ -119,18 +119,75 @@ func TestPlanFlow(t *testing.T) {
 	require.ErrorIs(t, err, principal.ErrNotFound)
 }
 
-func TestPolicyCheckNamesLeaveServerChecksAlone(t *testing.T) {
+func TestFinishedPlanRunsRefusePullRequestJobs(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	runID := e.planned(7, headSHA)
+	require.Equal(t, v1.RunPlanned, e.run(runID).Status)
+	job := e.planJob(7)
+
+	row, err := e.svc.RecordResult(e.ctx, job.p, runID, vpc, planResult(vpc, headSHA, 1))
+	require.NoError(t, err, "a retried post of the recorded result is still answered")
+	assert.Equal(t, v1.StackPlanned, row.Status)
+	late := planResult(vpc, headSHA, 1)
+	late.Status, late.ExitCode, late.ErrorText = v1.ResultFailure, 1, "Error: boom"
+	_, err = e.svc.RecordResult(e.ctx, job.p, runID, vpc, late)
+	require.ErrorIs(t, err, principal.ErrConflict, "a late result cannot change a planned run")
+	_, err = e.svc.RecordResult(e.ctx, job.p, runID, vpc, planResult(vpc, headSHA, 5))
+	require.ErrorIs(t, err, principal.ErrConflict)
+	_, err = e.svc.RecordCheck(e.ctx, job.p, runID, vpc, "policy", v1.CheckVerdict{Status: v1.CheckFail, Summary: "late"})
+	require.ErrorIs(t, err, principal.ErrConflict, "nor can a late check verdict")
+	_, err = e.svc.GetRunForPrincipal(e.ctx, job.p, runID)
+	require.ErrorIs(t, err, principal.ErrConflict, "a pull_request token of a finished run is refused")
+	run := e.run(runID)
+	assert.Equal(t, v1.RunPlanned, run.Status)
+	assert.Equal(t, v1.StackPlanned, stackStatuses(run)[vpc])
+	for _, rs := range run.Stacks {
+		assert.Empty(t, rs.Checks, rs.Key)
+	}
+	_, err = e.svc.GetRunForPrincipal(e.ctx, apiKey(), runID)
+	require.NoError(t, err, "automation still reads the run")
+
+	e.openPull(8, newHeadSHA)
+	job8, failedRun, resp := e.startPlan(8, newHeadSHA)
+	broken := resp.Affected[0].Key
+	for _, a := range resp.Affected {
+		res := planResult(a.Key, newHeadSHA, 1)
+		if a.Key == broken {
+			res.Status, res.ExitCode, res.ErrorText = v1.ResultFailure, 1, "Error: boom"
+		}
+		_, err := e.svc.RecordResult(e.ctx, job8.p, failedRun, a.Key, res)
+		require.NoError(t, err)
+	}
+	require.Equal(t, v1.RunFailed, e.run(failedRun).Status)
+	_, err = e.svc.RecordResult(e.ctx, job8.p, failedRun, broken, planResult(broken, newHeadSHA, 1))
+	require.ErrorIs(t, err, principal.ErrConflict, "a re-run job cannot turn a failed plan run green")
+	assert.Equal(t, v1.RunFailed, e.run(failedRun).Status)
+	assert.Equal(t, v1.StackFailed, stackStatuses(e.run(failedRun))[broken])
+
+	e.openPull(7, mergeSHA)
+	e.startPlan(7, mergeSHA)
+	require.Equal(t, v1.RunSuperseded, e.run(runID).Status)
+	_, err = e.svc.RecordResult(e.ctx, job.p, runID, vpc, planResult(vpc, headSHA, 1))
+	require.ErrorIs(t, err, principal.ErrSuperseded)
+	_, err = e.svc.GetRunForPrincipal(e.ctx, job.p, runID)
+	require.ErrorIs(t, err, principal.ErrSuperseded)
+}
+
+func TestPolicyCheckNamesLeaveServerChecksAlone(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.openPull(7, headSHA)
+	job, runID, _ := e.startPlan(7, headSHA)
 	before := e.check(report.StackCheckName(report.CheckPlan, vpc)).Output
 	for _, name := range []string{"plan", "Apply", "resolve"} {
-		_, err := e.svc.RecordCheck(e.ctx, e.planJob(7).p, runID, vpc, name, v1.CheckVerdict{Status: v1.CheckFail, Summary: "overridden"})
+		_, err := e.svc.RecordCheck(e.ctx, job.p, runID, vpc, name, v1.CheckVerdict{Status: v1.CheckFail, Summary: "overridden"})
 		require.ErrorIs(t, err, principal.ErrInvalid, name)
 	}
 	assert.Equal(t, before, e.check(report.StackCheckName(report.CheckPlan, vpc)).Output)
-	assert.Empty(t, e.run(runID).Stacks[0].Checks)
+	for _, rs := range e.run(runID).Stacks {
+		assert.Empty(t, rs.Checks, rs.Key)
+	}
 
-	_, err := e.svc.RecordCheck(e.ctx, e.planJob(7).p, runID, vpc, "plan-cost", v1.CheckVerdict{Status: v1.CheckPass})
+	_, err := e.svc.RecordCheck(e.ctx, job.p, runID, vpc, "plan-cost", v1.CheckVerdict{Status: v1.CheckPass})
 	require.NoError(t, err, "a name that only starts like a server check is a policy check")
 	assert.Equal(t, gh.ConclusionSuccess, e.check(report.PolicyCheckName("plan-cost", vpc)).Conclusion)
 }

@@ -408,9 +408,17 @@ func (e *env) planned(pr int, head string) string {
 
 func (e *env) plannedGraph(pr int, g v1.Graph) string {
 	e.t.Helper()
+	return e.plannedGraphWith(pr, g, nil)
+}
+
+func (e *env) plannedGraphWith(pr int, g v1.Graph, hook func(job planJob, runID string)) string {
+	e.t.Helper()
 	head := g.SHA
 	e.openPull(pr, head)
 	job, runID, resp := e.startPlanGraph(pr, g)
+	if hook != nil {
+		hook(job, runID)
+	}
 	for _, a := range resp.Affected {
 		_, err := e.svc.RecordResult(e.ctx, job.p, runID, a.Key, planResult(a.Key, head, 1))
 		require.NoError(e.t, err)

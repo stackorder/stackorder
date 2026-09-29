@@ -25,11 +25,12 @@ import (
 
 func TestApplyGateLayers(t *testing.T) {
 	tests := []struct {
-		name  string
-		cfg   func(*v1.RepoConfig)
-		setup func(e *env)
-		by    string
-		want  []string
+		name     string
+		cfg      func(*v1.RepoConfig)
+		postPlan func(e *env, job planJob, runID string)
+		setup    func(e *env)
+		by       string
+		want     []string
 	}{
 		{
 			name: "layer 1 names the team",
@@ -155,15 +156,13 @@ func TestApplyGateLayers(t *testing.T) {
 		},
 		{
 			name: "layer 4 refuses a failing policy check",
-			setup: func(e *env) {
-				runs, _, err := e.st.ListRuns(e.ctx, store.RunFilter{RepoID: repoID, PRNumber: 7, Mode: v1.ModePlan})
-				require.NoError(e.t, err)
-				_, err = e.svc.RecordCheck(e.ctx, e.planJob(7).p, runs[0].ID.String(), vpc, "policy",
+			postPlan: func(e *env, job planJob, runID string) {
+				_, err := e.svc.RecordCheck(e.ctx, job.p, runID, vpc, "policy",
 					v1.CheckVerdict{Status: v1.CheckFail, Summary: "public bucket"})
 				require.NoError(e.t, err)
 				c := e.check(report.PolicyCheckName("policy", vpc))
 				assert.Equal(e.t, gh.ConclusionFailure, c.Conclusion)
-				_, err = e.svc.RecordCheck(e.ctx, e.planJob(7).p, runs[0].ID.String(), eks, "cost", v1.CheckVerdict{Status: v1.CheckWarn})
+				_, err = e.svc.RecordCheck(e.ctx, job.p, runID, eks, "cost", v1.CheckVerdict{Status: v1.CheckWarn})
 				require.NoError(e.t, err)
 			},
 			want: []string{"**Layer 4, policy checks** (`stacks/prod/vpc`)", "check `policy` failed: public bucket"},
@@ -197,7 +196,11 @@ func TestApplyGateLayers(t *testing.T) {
 				tt.cfg(cfg)
 			}
 			e := newEnv(t, cfg)
-			e.planned(7, headSHA)
+			var postPlan func(job planJob, runID string)
+			if tt.postPlan != nil {
+				postPlan = func(job planJob, runID string) { tt.postPlan(e, job, runID) }
+			}
+			e.plannedGraphWith(7, testGraph(headSHA), postPlan)
 			if tt.setup != nil {
 				tt.setup(e)
 			}

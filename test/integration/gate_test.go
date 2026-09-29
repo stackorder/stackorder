@@ -22,10 +22,11 @@ const codeowners = "stacks/prod/** @acme/platform-prod\nstacks/staging/** @acme/
 
 func TestApplyGateRefusals(t *testing.T) {
 	tests := []struct {
-		name  string
-		opts  []fixtureOption
-		setup func(t *testing.T, f *fixture, ev *gh.PullRequestEvent, p *planned)
-		want  []string
+		name       string
+		opts       []fixtureOption
+		beforePlan func(t *testing.T, p *planned, entry v1.MatrixEntry)
+		setup      func(t *testing.T, f *fixture, ev *gh.PullRequestEvent, p *planned)
+		want       []string
 	}{
 		{
 			name: "missing approvals",
@@ -56,12 +57,21 @@ func TestApplyGateRefusals(t *testing.T) {
 		},
 		{
 			name: "failing policy check",
+			beforePlan: func(t *testing.T, p *planned, entry v1.MatrixEntry) {
+				if entry.Key == prodVPC {
+					res := p.w.run("check", "--stack", prodVPC, "--run-id", p.runID, "--name", "policy", "--status", "fail", "--summary", "subnet d has no NACL")
+					requireExit(t, 0, res)
+				}
+			},
 			setup: func(t *testing.T, f *fixture, ev *gh.PullRequestEvent, p *planned) {
-				res := p.w.run("check", "--stack", prodVPC, "--run-id", p.runID, "--name", "policy", "--status", "fail", "--summary", "subnet d has no NACL")
-				requireExit(t, 0, res)
 				c := f.check(ev.PullRequest.HeadSHA, report.PolicyCheckName("policy", prodVPC))
 				assert.Equal(t, report.ConclusionFailure, c.Conclusion)
 				assert.Equal(t, "fail: subnet d has no NACL", c.Output.Title)
+				late := p.w.run("check", "--stack", prodVPC, "--run-id", p.runID, "--name", "policy", "--status", "pass", "--summary", "subnet d has a NACL")
+				requireExit(t, 3, late)
+				assert.Contains(t, late.stderr, "the results of a finished plan run are final")
+				assert.Equal(t, report.ConclusionFailure, f.check(ev.PullRequest.HeadSHA, report.PolicyCheckName("policy", prodVPC)).Conclusion,
+					"a verdict after the last plan result does not turn the check green")
 				f.approve(ev.Number, reviewer, ev.PullRequest.HeadSHA)
 			},
 			want: []string{"**Layer 4, policy checks** (`stacks/prod/vpc`): check `policy` failed: subnet d has no NACL"},
@@ -96,7 +106,11 @@ func TestApplyGateRefusals(t *testing.T) {
 			f := newFixture(t, e, "gate-"+strings.ReplaceAll(tt.name, " ", "-"), tt.opts...)
 			const pr = 20
 			ev := f.openPR(pr, f.co.head, "feature/vpc-subnet")
-			p := f.plan(ev)
+			var before func(p *planned, entry v1.MatrixEntry)
+			if tt.beforePlan != nil {
+				before = func(p *planned, entry v1.MatrixEntry) { tt.beforePlan(t, p, entry) }
+			}
+			p := f.planEach(ev, before)
 			if tt.setup != nil {
 				tt.setup(t, f, ev, p)
 			}

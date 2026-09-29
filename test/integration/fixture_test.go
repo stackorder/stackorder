@@ -366,6 +366,11 @@ type planned struct {
 
 func (f *fixture) plan(ev *gh.PullRequestEvent) *planned {
 	f.t.Helper()
+	return f.planEach(ev, nil)
+}
+
+func (f *fixture) planEach(ev *gh.PullRequestEvent, before func(p *planned, entry v1.MatrixEntry)) *planned {
+	f.t.Helper()
 	w := f.planWorkflow(ev)
 	res := w.run("resolve")
 	requireExit(f.t, 0, res)
@@ -373,6 +378,9 @@ func (f *fixture) plan(ev *gh.PullRequestEvent) *planned {
 	require.NotEmpty(f.t, p.runID, "resolve wrote the run-id output")
 	require.NoError(f.t, json.Unmarshal([]byte(res.outputs["matrix"]), &p.matrix))
 	for _, entry := range p.matrix.Include {
+		if before != nil {
+			before(p, entry)
+		}
 		r := w.run("plan", "--stack", entry.Key, "--run-id", p.runID)
 		requireExit(f.t, 0, r)
 		p.plans[entry.Key] = r

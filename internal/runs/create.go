@@ -208,6 +208,9 @@ func (s *Service) GetRunForPrincipal(ctx context.Context, p principal.Principal,
 			if err := checkPullClaims(c, run); err != nil {
 				return nil, err
 			}
+			if planFinished(run.Status) {
+				return nil, finishedPlanError(run)
+			}
 		case eventWorkflowDispatch:
 			if err := s.bindJob(ctx, run, repo, c, nil); err != nil {
 				return nil, err
