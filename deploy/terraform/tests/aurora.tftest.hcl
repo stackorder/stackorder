@@ -91,6 +91,35 @@ run "serverless_cluster" {
     condition     = output.db_endpoint == "stackorder.cluster-abcdefghijkl.eu-west-1.rds.amazonaws.com"
     error_message = "db_endpoint must be the cluster writer endpoint."
   }
+
+  assert {
+    condition = (
+      !aws_rds_cluster.this[0].allow_major_version_upgrade &&
+      !aws_rds_cluster.this[0].apply_immediately &&
+      !aws_rds_cluster_instance.this[0].apply_immediately
+    )
+    error_message = "Major version upgrades must be refused and changes wait for the maintenance window by default."
+  }
+}
+
+run "serverless_major_version_upgrade" {
+  command = plan
+
+  variables {
+    multi_az                    = true
+    allow_major_version_upgrade = true
+    apply_immediately           = true
+  }
+
+  assert {
+    condition     = aws_rds_cluster.this[0].allow_major_version_upgrade && aws_rds_cluster.this[0].apply_immediately
+    error_message = "allow_major_version_upgrade and apply_immediately must reach the cluster."
+  }
+
+  assert {
+    condition     = alltrue([for i in aws_rds_cluster_instance.this : i.apply_immediately])
+    error_message = "apply_immediately must reach every cluster instance."
+  }
 }
 
 run "serverless_multi_az" {

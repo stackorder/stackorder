@@ -240,6 +240,21 @@ moves the default, the plan shows the minor upgrade and RDS applies it in
 the maintenance window. Set `major.minor` to pin it instead. Switching
 between RDS and Aurora replaces the database.
 
+Changes to the database wait for its maintenance window unless
+`apply_immediately = true`, in which case changes that need a restart,
+such as a new `instance_class`, cause a short outage during the apply.
+
+A new major version in `engine_version` fails to apply until
+`allow_major_version_upgrade = true`. A major upgrade cannot be rolled
+back, so take a snapshot first, and set `apply_immediately = true` for the
+same apply: the module creates a parameter group of the new family and
+deletes the old one, which it can only do once the database has moved to
+the new one. The database is unavailable while RDS upgrades it, so the
+server fails `/readyz` and cannot record runs; in the
+[self-hosted](examples/self-hosted) setup, run a major upgrade from a
+workstation rather than through a Stackorder apply. Set both flags back to
+false afterwards.
+
 ## Alarms
 
 With `alarms_enabled` and `alarm_sns_topic_arn`, the module alarms on target
@@ -394,6 +409,8 @@ No modules.
 | <a name="input_log_level"></a> [log\_level](#input\_log\_level) | Server log level (STACKORDER\_LOG\_LEVEL). | `string` | `"info"` | no |
 | <a name="input_extra_environment"></a> [extra\_environment](#input\_extra\_environment) | Additional environment variables for the server, such as STACKORDER\_WORKERS or OTEL\_EXPORTER\_OTLP\_ENDPOINT. Variables the module sets itself are rejected. | `map(string)` | `{}` | no |
 | <a name="input_engine_version"></a> [engine\_version](#input\_engine\_version) | PostgreSQL major version, or major.minor. For Aurora a major version resolves to the AWS default minor of that major at plan time. | `string` | `"17"` | no |
+| <a name="input_allow_major_version_upgrade"></a> [allow\_major\_version\_upgrade](#input\_allow\_major\_version\_upgrade) | Allow a new major version in engine\_version to upgrade the RDS instance or Aurora cluster in place. A major upgrade cannot be rolled back; take a snapshot first and set apply\_immediately for the same apply. | `bool` | `false` | no |
+| <a name="input_apply_immediately"></a> [apply\_immediately](#input\_apply\_immediately) | Apply database changes, such as engine\_version, instance\_class or the parameter group, at once instead of in the next maintenance window. Changes that need a restart then cause a short outage. | `bool` | `false` | no |
 | <a name="input_instance_class"></a> [instance\_class](#input\_instance\_class) | RDS instance class. Ignored when use\_aurora\_serverless is true. | `string` | `"db.t4g.micro"` | no |
 | <a name="input_allocated_storage"></a> [allocated\_storage](#input\_allocated\_storage) | Initial RDS storage in GiB. Ignored when use\_aurora\_serverless is true. | `number` | `20` | no |
 | <a name="input_max_allocated_storage"></a> [max\_allocated\_storage](#input\_max\_allocated\_storage) | Upper bound for RDS storage autoscaling in GiB; 0 disables autoscaling. Ignored when use\_aurora\_serverless is true. | `number` | `100` | no |

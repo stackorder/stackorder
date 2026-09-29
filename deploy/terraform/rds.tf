@@ -42,6 +42,9 @@ resource "aws_db_instance" "this" {
   engine_version = var.engine_version
   instance_class = var.instance_class
 
+  allow_major_version_upgrade = var.allow_major_version_upgrade
+  apply_immediately           = var.apply_immediately
+
   db_name  = local.db_name
   username = local.db_username
   password = random_password.db.result
@@ -109,6 +112,9 @@ resource "aws_rds_cluster" "this" {
   engine_mode        = "provisioned"
   engine_version     = strcontains(var.engine_version, ".") ? var.engine_version : one(data.aws_rds_engine_version.aurora[*].version_actual)
 
+  allow_major_version_upgrade = var.allow_major_version_upgrade
+  apply_immediately           = var.apply_immediately
+
   database_name   = local.db_name
   master_username = local.db_username
   master_password = random_password.db.result
@@ -145,6 +151,7 @@ resource "aws_rds_cluster_instance" "this" {
   db_subnet_group_name = aws_db_subnet_group.this.name
   publicly_accessible  = false
   promotion_tier       = count.index
+  apply_immediately    = var.apply_immediately
 
   auto_minor_version_upgrade            = true
   performance_insights_enabled          = var.performance_insights

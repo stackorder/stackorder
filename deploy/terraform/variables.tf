@@ -309,6 +309,18 @@ variable "engine_version" {
   }
 }
 
+variable "allow_major_version_upgrade" {
+  description = "Allow a new major version in engine_version to upgrade the RDS instance or Aurora cluster in place. A major upgrade cannot be rolled back; take a snapshot first and set apply_immediately for the same apply."
+  type        = bool
+  default     = false
+}
+
+variable "apply_immediately" {
+  description = "Apply database changes, such as engine_version, instance_class or the parameter group, at once instead of in the next maintenance window. Changes that need a restart then cause a short outage."
+  type        = bool
+  default     = false
+}
+
 variable "instance_class" {
   description = "RDS instance class. Ignored when use_aurora_serverless is true."
   type        = string

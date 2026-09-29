@@ -194,6 +194,11 @@ run "defaults" {
   }
 
   assert {
+    condition     = !aws_db_instance.this[0].allow_major_version_upgrade && !aws_db_instance.this[0].apply_immediately
+    error_message = "Major version upgrades must be refused and changes wait for the maintenance window by default."
+  }
+
+  assert {
     condition     = length(aws_rds_cluster.this) == 0 && length(aws_rds_cluster_instance.this) == 0
     error_message = "No Aurora resources by default."
   }
@@ -440,6 +445,30 @@ run "deletion_protection_follows_variable" {
   assert {
     condition     = aws_db_instance.this[0].skip_final_snapshot && aws_db_instance.this[0].final_snapshot_identifier == null
     error_message = "skip_final_snapshot must drop the final snapshot identifier."
+  }
+}
+
+run "major_version_upgrade" {
+  command = plan
+
+  variables {
+    engine_version              = "18"
+    allow_major_version_upgrade = true
+    apply_immediately           = true
+  }
+
+  assert {
+    condition = (
+      aws_db_instance.this[0].engine_version == "18" &&
+      aws_db_instance.this[0].allow_major_version_upgrade &&
+      aws_db_instance.this[0].apply_immediately
+    )
+    error_message = "allow_major_version_upgrade and apply_immediately must reach the RDS instance."
+  }
+
+  assert {
+    condition     = aws_db_parameter_group.this[0].family == "postgres18"
+    error_message = "A major upgrade must come with a parameter group of the new family."
   }
 }
 
