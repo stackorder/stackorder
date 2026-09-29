@@ -84,3 +84,19 @@ func TestWriteAffectedTableErrors(t *testing.T) {
 	require.ErrorContains(t, err, "disk full")
 	require.ErrorContains(t, writeJSON(&failingWriter{}, 1), "writing JSON")
 }
+
+func TestWriteGraphTextPrintsAModuleRefOnce(t *testing.T) {
+	g := &v1.Graph{
+		Stacks:  []v1.Stack{{Key: "stacks/app", Path: "stacks/app"}},
+		Modules: []v1.Module{{Key: "registry:terraform-aws-modules/iam/aws//modules/iam-role@~>6.8.0"}, {Key: "local:modules/vpc"}},
+		Edges: []v1.Edge{
+			{Type: v1.EdgeUsesModule, From: v1.NodeRef{Key: "stacks/app"}, To: v1.NodeRef{Key: "registry:terraform-aws-modules/iam/aws//modules/iam-role@~>6.8.0"}, Meta: map[string]string{"ref": "~>6.8.0"}},
+			{Type: v1.EdgeUsesModule, From: v1.NodeRef{Key: "stacks/app"}, To: v1.NodeRef{Key: "local:modules/vpc"}, Meta: map[string]string{"ref": ""}},
+		},
+	}
+	var b strings.Builder
+	require.NoError(t, writeGraphText(&b, g))
+	assert.Contains(t, b.String(), "uses_module  registry:terraform-aws-modules/iam/aws//modules/iam-role@~>6.8.0\n")
+	assert.NotContains(t, b.String(), "@~>6.8.0 @~>6.8.0")
+	assert.Contains(t, b.String(), "uses_module  local:modules/vpc\n")
+}

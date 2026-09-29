@@ -201,7 +201,7 @@ func writeGraphText(w io.Writer, g *v1.Graph) error {
 			if e.Inferred {
 				suffix = " (inferred)"
 			}
-			if ref := e.Meta["ref"]; ref != "" {
+			if ref := e.Meta["ref"]; ref != "" && !strings.HasSuffix(e.To.Key, "@"+ref) {
 				suffix += " @" + ref
 			}
 			fmt.Fprintf(&b, "  %-12s %s%s\n", e.Type, e.To.Key, suffix)
