@@ -64,7 +64,79 @@ function AddressList({ summary }: { summary: PlanSummary | undefined }) {
   );
 }
 
-function StackDetails({ stack, onClose }: { stack: RunStack; onClose: () => void }) {
+interface PlanView {
+  text: string | undefined;
+  full: boolean;
+  loading: boolean;
+  error: Error | undefined;
+}
+
+function usePlanText(runId: string, stack: RunStack): PlanView {
+  const api = useApi();
+  const wanted = Boolean(stack.truncated && stack.plan_url);
+  const [state, setState] = useState<{ key: string; text?: string; error?: Error }>({ key: '' });
+  const key = `${runId} ${stack.key}`;
+  useEffect(() => {
+    if (!wanted) return;
+    const ctrl = new AbortController();
+    api.planText(runId, stack.key, { signal: ctrl.signal }).then(
+      (text) => {
+        if (!ctrl.signal.aborted) setState({ key, text });
+      },
+      (err: unknown) => {
+        if (!ctrl.signal.aborted) setState({ key, error: err instanceof Error ? err : new Error(String(err)) });
+      },
+    );
+    return () => {
+      ctrl.abort();
+    };
+  }, [api, runId, stack.key, key, wanted]);
+  const current = state.key === key ? state : { key };
+  if (!wanted) return { text: stack.plan_text, full: false, loading: false, error: undefined };
+  if (current.text !== undefined) return { text: current.text, full: true, loading: false, error: undefined };
+  return { text: stack.plan_text, full: false, loading: current.error === undefined, error: current.error };
+}
+
+function PlanOutput({ runId, stack, jobUrl }: { runId: string; stack: RunStack; jobUrl: string | undefined }) {
+  const plan = usePlanText(runId, stack);
+  const jobLog = jobUrl ? <a href={jobUrl}>The job log has the full plan.</a> : 'The job log has the full plan.';
+  if (!plan.text && !plan.loading && !plan.error) {
+    return (
+      <p class="empty">
+        No plan text was recorded. Stacks with <code>plan_output: summary</code> and stacks that did not run only report
+        counts.
+      </p>
+    );
+  }
+  return (
+    <>
+      {plan.full && <p class="muted">The full plan, from the server&apos;s artifact bucket.</p>}
+      {plan.loading && (
+        <p class="muted" role="status">
+          Loading the full plan from the server&apos;s artifact bucket…
+        </p>
+      )}
+      {plan.error && (
+        <p class="text-warning" role="status">
+          {plan.text ? 'Only the beginning of the plan is shown: the' : 'The'} full plan could not be loaded (
+          {plan.error.message}). {jobLog}
+        </p>
+      )}
+      {stack.truncated && !stack.plan_url && (
+        <p class="text-warning">
+          The plan text was truncated at 256 KB. {jobLog}
+        </p>
+      )}
+      {plan.text && (
+        <pre class="plan" tabindex={0} aria-label={`Plan output of ${stack.key}`}>
+          {plan.text}
+        </pre>
+      )}
+    </>
+  );
+}
+
+function StackDetails({ runId, stack, onClose }: { runId: string; stack: RunStack; onClose: () => void }) {
   const jobUrl = safeUrl(stack.job_url);
   return (
     <div class="drawer__body">
@@ -145,24 +217,7 @@ function StackDetails({ stack, onClose }: { stack: RunStack; onClose: () => void
       ) : null}
       <section class="drawer__section" aria-labelledby="drawer-plan">
         <h3 id="drawer-plan">Plan output</h3>
-        {stack.plan_text ? (
-          <>
-            {stack.truncated && (
-              <p class="text-warning">
-                The plan text was truncated at 256 KB.{' '}
-                {jobUrl ? <a href={jobUrl}>The job log has the full plan.</a> : 'The job log has the full plan.'}
-              </p>
-            )}
-            <pre class="plan" tabindex={0} aria-label={`Plan output of ${stack.key}`}>
-              {stack.plan_text}
-            </pre>
-          </>
-        ) : (
-          <p class="empty">
-            No plan text was recorded. Stacks with <code>plan_output: summary</code> and stacks that did not run only
-            report counts.
-          </p>
-        )}
+        <PlanOutput runId={runId} stack={stack} jobUrl={jobUrl} />
       </section>
     </div>
   );
@@ -389,6 +444,7 @@ function RunView({ id }: { id: string }) {
       >
         {selectedStack && (
           <StackDetails
+            runId={run.id}
             stack={selectedStack}
             onClose={() => {
               setSelected(undefined);

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Routes } from '../app';
 import type { Run } from '../api/types';
-import { clone, ids, run } from '../fixtures';
+import { clone, fullPlanText, ids, run, truncatedPlanStack } from '../fixtures';
 import { json, renderWithApp } from '../test/render';
 import { REFRESH_MS, RunPage, runWaves } from './RunPage';
 
@@ -102,6 +102,100 @@ describe('RunPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Details of stacks/prod/vpc' }));
     expect(screen.getByText(/truncated at 256 KB/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'The job log has the full plan.' })).toBeInTheDocument();
+  });
+
+  it('loads the full plan from the artifact bucket when the stored text was cut', async () => {
+    const { calls } = renderWithApp(page, { url });
+    fireEvent.click(await screen.findByRole('button', { name: `Details of ${truncatedPlanStack}` }));
+    const drawer = screen.getByRole('dialog', { name: truncatedPlanStack });
+    expect(await within(drawer).findByText("The full plan, from the server's artifact bucket.")).toBeInTheDocument();
+    expect(within(drawer).getByLabelText(`Plan output of ${truncatedPlanStack}`).textContent).toBe(fullPlanText);
+    expect(within(drawer).queryByText(/truncated at 256 KB/)).not.toBeInTheDocument();
+    const planPath = `/v1/runs/${ids.run}/stacks/${encodeURIComponent(truncatedPlanStack)}/plan`;
+    expect(calls.filter((c) => c.path === planPath)).toHaveLength(1);
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Details of stacks/prod/vpc' }));
+    const vpcDrawer = screen.getByRole('dialog', { name: 'stacks/prod/vpc' });
+    expect(within(vpcDrawer).getByLabelText('Plan output of stacks/prod/vpc')).toHaveTextContent('Plan: 0 to add, 2 to change, 0 to destroy.');
+    expect(calls.filter((c) => c.path.endsWith('/plan'))).toHaveLength(1);
+  });
+
+  it('keeps the stored beginning when the full plan cannot be loaded', async () => {
+    const message = `the full plan text of ${truncatedPlanStack} in run ${ids.run} is no longer in the artifact bucket`;
+    renderWithApp(page, {
+      url,
+      handler: (c) => (c.path.endsWith('/plan') ? json({ code: 'not_found', message }, 404) : undefined),
+    });
+    fireEvent.click(await screen.findByRole('button', { name: `Details of ${truncatedPlanStack}` }));
+    const drawer = screen.getByRole('dialog', { name: truncatedPlanStack });
+    expect(await within(drawer).findByText(/the full plan could not be loaded/)).toHaveTextContent(message);
+    expect(within(drawer).getByRole('link', { name: 'The job log has the full plan.' })).toBeInTheDocument();
+    expect(within(drawer).getByLabelText(`Plan output of ${truncatedPlanStack}`).textContent).not.toContain('Plan: 0 to add');
+  });
+
+  it('loads the full plan when Postgres no longer keeps its beginning', async () => {
+    const pruned = clone(run);
+    const cut = pruned.stacks?.find((s) => s.key === truncatedPlanStack);
+    if (cut) delete cut.plan_text;
+    renderWithApp(page, { url, handler: (c) => (c.path === `/v1/runs/${ids.run}` ? json(pruned) : undefined) });
+    fireEvent.click(await screen.findByRole('button', { name: `Details of ${truncatedPlanStack}` }));
+    const drawer = screen.getByRole('dialog', { name: truncatedPlanStack });
+    expect(within(drawer).getByRole('status')).toHaveTextContent("Loading the full plan from the server's artifact bucket");
+    expect(within(drawer).queryByText(/No plan text was recorded/)).not.toBeInTheDocument();
+    expect(await within(drawer).findByLabelText(`Plan output of ${truncatedPlanStack}`)).toHaveTextContent(
+      'Plan: 0 to add, 1 to change, 0 to destroy.',
+    );
+    expect(within(drawer).queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('says why nothing is shown when neither Postgres nor the bucket has the plan', async () => {
+    const pruned = clone(run);
+    const cut = pruned.stacks?.find((s) => s.key === truncatedPlanStack);
+    if (cut) delete cut.plan_text;
+    renderWithApp(page, {
+      url,
+      handler: (c) => {
+        if (c.path === `/v1/runs/${ids.run}`) return json(pruned);
+        return c.path.endsWith('/plan') ? json({ code: 'not_found', message: 'no longer in the artifact bucket' }, 404) : undefined;
+      },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: `Details of ${truncatedPlanStack}` }));
+    const drawer = screen.getByRole('dialog', { name: truncatedPlanStack });
+    expect(await within(drawer).findByText(/^The full plan could not be loaded/)).toHaveTextContent(
+      'The full plan could not be loaded (no longer in the artifact bucket).',
+    );
+    expect(within(drawer).queryByLabelText(`Plan output of ${truncatedPlanStack}`)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(/No plan text was recorded/)).not.toBeInTheDocument();
+  });
+
+  it('reads the full plan once while an in-flight run refreshes', async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    const live = clone(run);
+    live.status = 'applying';
+    live.current_wave = 1;
+    const later = clone(live);
+    later.current_wave = 2;
+    let refreshed = false;
+    const { calls } = renderWithApp(page, {
+      url,
+      handler: (c) => (c.path === `/v1/runs/${ids.run}` ? json(refreshed ? later : live) : undefined),
+    });
+    fireEvent.click(await screen.findByRole('button', { name: `Details of ${truncatedPlanStack}` }));
+    const drawer = screen.getByRole('dialog', { name: truncatedPlanStack });
+    expect(await within(drawer).findByText("The full plan, from the server's artifact bucket.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(setIntervalSpy.mock.calls.some(([, ms]) => ms === REFRESH_MS)).toBe(true);
+    });
+    const tick = setIntervalSpy.mock.calls.find(([, ms]) => ms === REFRESH_MS)?.[0] as () => void;
+    refreshed = true;
+    tick();
+    expect(await within(screen.getByRole('region', { name: /Wave 2/ })).findByText('current')).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(within(screen.getByRole('dialog', { name: truncatedPlanStack })).getByLabelText(`Plan output of ${truncatedPlanStack}`).textContent).toBe(
+      fullPlanText,
+    );
+    expect(calls.filter((c) => c.path.endsWith('/plan'))).toHaveLength(1);
   });
 
   it('never turns a runner-reported URL with another scheme into a link', async () => {

@@ -159,7 +159,8 @@
       "exit_code": 0,
       "job_url": "https://github.com/acme/infra/actions/runs/17438204/job/48902314",
       "plan_artifact": "stackorder-plan-stacks-staging-eks-4f9c2d1e8b7a6c5d3e2f1a0b9c8d7e6f5a4b3c2d",
-      "plan_text": "OpenTofu used the selected providers to generate the following execution\nplan. Resource actions are indicated with the following symbols:\n  ~ update in-place\n\nOpenTofu will perform the following actions:\n\n  # module.eks.aws_security_group_rule.nodes_ingress will be updated in-place\n  ~ resource \"aws_security_group_rule\" \"nodes_ingress\" {\n        id          = \"sgrule-3021987654\"\n      ~ description = \"Cluster to nodes\" -> \"Cluster API to nodes\"\n        # (8 unchanged attributes hidden)\n    }\n\nPlan: 0 to add, 1 to change, 0 to destroy.\n",
+      "plan_text": "OpenTofu used the selected providers to generate the following execution\nplan. Resource actions are indicated with the following symbols:\n  ~ update in-place\n\nOpenTofu will perform the following actions:\n\n  # module.eks.aws_security_group_rule.nodes_ingress will be updated in-place\n  ~ resource \"aws_security_group_rule\" \"nodes_ingress\" {\n        id          = \"sgrule-3021987654\"\n      ~ description = \"Cluster to nodes\" -> \"Cluster API to nodes\"\n        # (8 unchanged attributes hidden)\n    }\n",
+      "truncated": true,
       "checks": [
         {
           "name": "policy",
@@ -168,6 +169,7 @@
           "updated_at": "2026-09-28T08:41:12Z"
         }
       ],
+      "plan_url": "s3://stackorder-artifacts/runs/7d9f1b3c-5e7a-4b9c-8d1e-3f5a7b9c1d66/stacks-staging-eks/plan.txt",
       "started_at": "2026-09-28T08:53:08Z",
       "finished_at": "2026-09-28T08:55:40Z"
     },

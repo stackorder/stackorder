@@ -170,6 +170,11 @@ export class ApiClient {
     return this.get(`/v1/runs/${segment(id)}`, opts);
   }
 
+  /** GET /v1/runs/{id}/stacks/{key}/plan: the full plan text the server keeps in its artifact bucket. */
+  planText(runId: string, stackKey: string, opts?: RequestOptions): Promise<string> {
+    return this.text(`/v1/runs/${segment(runId)}/stacks/${segment(stackKey)}/plan`, opts);
+  }
+
   /** POST /v1/stacks/{id}/unlock: release the stack's orchestration lock; undefined when the server sends no body. */
   unlockStack(id: string, body: UnlockRequest, opts?: RequestOptions): Promise<UnlockResponse | undefined> {
     return this.send('POST', `/v1/stacks/${segment(id)}/unlock`, body, opts, true);
@@ -187,6 +192,17 @@ export class ApiClient {
 
   private get<T>(path: string, opts?: RequestOptions): Promise<T> {
     return this.send('GET', path, undefined, opts);
+  }
+
+  private async text(path: string, opts?: RequestOptions): Promise<string> {
+    const res = await this.request('GET', path, undefined, opts, 'text/plain');
+    try {
+      return await res.text();
+    } catch (err) {
+      if (isAbort(err)) throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      throw new ApiError(res.status, NETWORK_ERROR, `GET ${path}: ${message}`, { cause: err });
+    }
   }
 
   private async send<T>(method: string, path: string, body: unknown, opts?: RequestOptions, allowEmpty = false): Promise<T> {
@@ -210,8 +226,14 @@ export class ApiClient {
     }
   }
 
-  private async request(method: string, path: string, body: unknown, opts?: RequestOptions): Promise<Response> {
-    const headers: Record<string, string> = { Accept: 'application/json' };
+  private async request(
+    method: string,
+    path: string,
+    body: unknown,
+    opts?: RequestOptions,
+    accept = 'application/json',
+  ): Promise<Response> {
+    const headers: Record<string, string> = { Accept: accept };
     const init: RequestInit = { method, headers, credentials: 'same-origin' };
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json';

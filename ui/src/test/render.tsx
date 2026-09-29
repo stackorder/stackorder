@@ -23,6 +23,11 @@ export function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
+/** Builds a text/plain response. */
+export function text(body: string, status = 200): Response {
+  return new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+}
+
 /** A fetch that serves the fixtures and records every call. */
 export function fakeApi(handler?: Handler): { fetch: FetchLike; calls: Call[] } {
   const calls: Call[] = [];
@@ -38,6 +43,7 @@ export function fakeApi(handler?: Handler): { fetch: FetchLike; calls: Call[] } 
     if (found === undefined) {
       return Promise.resolve(json({ code: 'not_found', message: `${method} ${url.pathname} not found` }, 404));
     }
+    if (typeof found === 'string') return Promise.resolve(text(found));
     return Promise.resolve(json(found));
   };
   return { fetch, calls };

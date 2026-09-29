@@ -55,6 +55,10 @@ export async function mockApi(page: Page, override?: Override): Promise<Call[]> 
         await route.fulfill({ status: 404, json: { code: 'not_found', message: `${call.method} ${call.path} not found` } });
         return;
       }
+      if (typeof found === 'string') {
+        await route.fulfill({ contentType: 'text/plain; charset=utf-8', body: found });
+        return;
+      }
       await route.fulfill({ json: found });
     },
   );

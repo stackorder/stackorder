@@ -22,6 +22,8 @@ import (
 const (
 	apiDir      = "../../api/v1"
 	typesTS     = "../../ui/src/api/types.ts"
+	clientTS    = "../../ui/src/api/client.ts"
+	routesGo    = "../api/api.go"
 	fixturesDir = "../../ui/src/fixtures"
 )
 
@@ -378,4 +380,52 @@ func compact(t *testing.T, data []byte) string {
 		t.Fatalf("compact: %v", err)
 	}
 	return buf.String()
+}
+
+var (
+	serverRoute  = regexp.MustCompile(`s\.handle\(mux, "([A-Z]+) (/[^"]*)"`)
+	clientCall   = regexp.MustCompile("this\\.(get|text|send|request)\\((?:'([A-Z]+)', )?[`']([^`']+)")
+	segmentArg   = regexp.MustCompile(`\$\{segment\([^)]*\)\}`)
+	patternParam = regexp.MustCompile(`\{[^}]+\}`)
+)
+
+func readSource(t *testing.T, path string) string {
+	t.Helper()
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(src)
+}
+
+func TestClientCallsServerRoutes(t *testing.T) {
+	routes := map[string]bool{}
+	for _, m := range serverRoute.FindAllStringSubmatch(readSource(t, routesGo), -1) {
+		routes[m[1]+" "+patternParam.ReplaceAllString(m[2], "{}")] = true
+	}
+	if len(routes) == 0 {
+		t.Fatalf("no routes found in %s", routesGo)
+	}
+	calls := map[string]bool{}
+	for _, m := range clientCall.FindAllStringSubmatch(readSource(t, clientTS), -1) {
+		method := m[2]
+		if m[1] == "get" || m[1] == "text" {
+			method = "GET"
+		}
+		if method == "" {
+			continue
+		}
+		path, _, _ := strings.Cut(segmentArg.ReplaceAllString(m[3], "{}"), "${")
+		calls[method+" "+path] = true
+	}
+	for _, want := range []string{"GET /v1/runs/{}", "GET /v1/runs/{}/stacks/{}/plan", "POST /v1/runs/{}/rerun", "POST /auth/logout"} {
+		if !calls[want] {
+			t.Errorf("client.ts makes no %s call; the contract test lost track of it", want)
+		}
+	}
+	for call := range calls {
+		if !routes[call] {
+			t.Errorf("client.ts calls %s, which internal/api does not serve", call)
+		}
+	}
 }

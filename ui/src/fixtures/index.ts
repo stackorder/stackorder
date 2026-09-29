@@ -68,6 +68,15 @@ export const planRun: Run = {
   })),
 };
 
+const truncatedStack = run.stacks?.find((s) => s.truncated && s.plan_url);
+if (!truncatedStack?.plan_text) throw new Error('fixtures: run.json has no truncated stack with a plan_url');
+
+/** The stack of the run whose plan text was cut, with the full text in the artifact bucket. */
+export const truncatedPlanStack = truncatedStack.key;
+
+/** GET /v1/runs/{id}/stacks/{key}/plan for truncatedPlanStack: the full plan text. */
+export const fullPlanText = `${truncatedStack.plan_text}\nPlan: 0 to add, 1 to change, 0 to destroy.\n`;
+
 /** Identifiers the fixtures share, for building URLs in tests. */
 export const ids = {
   repo: 'acme/infra',
@@ -78,7 +87,7 @@ export const ids = {
   stacks: graph.stack_ids ?? {},
 };
 
-/** A canned API response keyed by method and path, without the query string. */
+/** A canned API response keyed by method and path, without the query string; a string body is served as text/plain. */
 export interface FixtureRoute {
   method: 'GET' | 'POST';
   pattern: RegExp;
@@ -103,6 +112,11 @@ export const routes: FixtureRoute[] = [
   { method: 'GET', pattern: new RegExp(`^/v1/modules/${moduleDetail.id}$`), body: () => moduleDetail },
   { method: 'GET', pattern: new RegExp(`^/v1/runs/${run.id}$`), body: () => run },
   { method: 'GET', pattern: new RegExp(`^/v1/runs/${planRun.id}$`), body: () => planRun },
+  {
+    method: 'GET',
+    pattern: new RegExp(`^/v1/runs/${run.id}/stacks/${encodeURIComponent(truncatedPlanStack)}/plan$`),
+    body: () => fullPlanText,
+  },
 ];
 
 /** Finds the canned body for a request, or undefined for a 404. */

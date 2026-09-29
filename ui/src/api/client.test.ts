@@ -51,6 +51,21 @@ describe('ApiClient requests', () => {
     expect(init.headers).toEqual({ Accept: 'application/json' });
   });
 
+  it('reads the full plan text as text', async () => {
+    const plan = '  # aws_route_table.private will be updated in-place\n{ not json';
+    const { api, fetch } = client(respond(plan, 200, 'text/plain; charset=utf-8'));
+    await expect(api.planText(id, 'stacks/prod/vpc')).resolves.toBe(plan);
+    const { url, init } = lastCall(fetch);
+    expect(url).toBe(`/v1/runs/${id}/stacks/stacks%2Fprod%2Fvpc/plan`);
+    expect(init.method).toBe('GET');
+    expect(init.headers).toEqual({ Accept: 'text/plain' });
+  });
+
+  it('maps a refused plan text request to an ApiError', async () => {
+    const { api } = client(respond({ code: 'not_found', message: 'no longer in the artifact bucket' }, 404));
+    await expect(api.planText(id, 'stacks/prod/vpc')).rejects.toMatchObject({ status: 404, code: 'not_found' });
+  });
+
   it('posts an unlock request as JSON', async () => {
     const { api, fetch } = client(respond({ released: [] }));
     await expect(api.unlockStack(id, { reason: 'runner died' })).resolves.toEqual({ released: [] });

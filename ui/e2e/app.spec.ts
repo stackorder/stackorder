@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import type { StackDetail } from '../src/api/types';
-import { clone, graph, ids, stack } from '../src/fixtures';
+import { clone, fullPlanText, graph, ids, stack, truncatedPlanStack } from '../src/fixtures';
 import { mockApi } from './mock-api';
 
 test.describe('signed in', () => {
@@ -132,6 +132,27 @@ test.describe('signed in', () => {
     await page.mouse.up();
     const moved = await viewport.getAttribute('transform');
     expect(moved).toMatch(/^translate\([1-9][\d.]*,-[1-9][\d.]*\) scale\(1\)$/);
+  });
+
+  test('run page reads a cut plan in full from the artifact bucket', async ({ page }) => {
+    const calls = await mockApi(page);
+    await page.goto(`/runs/${ids.run}`);
+    await page.getByRole('button', { name: `Details of ${truncatedPlanStack}` }).click();
+    const drawer = page.getByRole('dialog', { name: truncatedPlanStack });
+    await expect(drawer.getByText("The full plan, from the server's artifact bucket.")).toBeVisible();
+    await expect(drawer.locator('pre.plan')).toHaveText(fullPlanText);
+    const planPath = `/v1/runs/${ids.run}/stacks/${encodeURIComponent(truncatedPlanStack)}/plan`;
+    expect(calls.filter((c) => c.path === planPath)).toHaveLength(1);
+  });
+
+  test('run page keeps the stored beginning when the full plan is gone', async ({ page }) => {
+    const message = 'the full plan text is no longer in the artifact bucket';
+    await mockApi(page, (c) => (c.path.endsWith('/plan') ? { status: 404, body: { code: 'not_found', message } } : undefined));
+    await page.goto(`/runs/${ids.run}`);
+    await page.getByRole('button', { name: `Details of ${truncatedPlanStack}` }).click();
+    const drawer = page.getByRole('dialog', { name: truncatedPlanStack });
+    await expect(drawer.getByRole('status')).toContainText(`the full plan could not be loaded (${message})`);
+    await expect(drawer.locator('pre.plan')).not.toContainText('Plan: 0 to add');
   });
 
   test('run page shows waves and opens a stack’s details', async ({ page }) => {
