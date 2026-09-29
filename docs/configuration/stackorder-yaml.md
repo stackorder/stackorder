@@ -25,7 +25,7 @@ stacks:
   ignore: ["**/*.md", "**/README*"]
 
 modules:
-  paths: ["modules/**"]           # local modules whose changes propagate
+  paths: ["modules/**"]           # module directories, never discovered as stacks
 
 tool: tofu                        # or terraform; per-stack override allowed
 tool_version: "1.9.0"
@@ -79,7 +79,7 @@ plan_output: full                 # or summary
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `modules.paths` | list of directory globs | `["modules/**"]` | Local module directories whose changes propagate to the stacks that use them. An empty list falls back to the default. |
+| `modules.paths` | list of directory globs | `["modules/**"]` | Directories that hold modules. They are never discovered as stacks, even with a `backend` block, and every one with Terraform files is a local module node in the graph. Changes propagate from any local module a stack uses, inside these paths or not. An empty list falls back to the default. |
 
 ### `apply`
 

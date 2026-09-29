@@ -4,8 +4,8 @@ Stackorder decides **which** Terraform or OpenTofu stacks a change affects and *
 
 It is a GitHub App plus a small control-plane server. Execution, credentials, state and modules stay inside your GitHub org and your AWS account. The server only ever sees metadata.
 
-::: warning Status
-Stackorder is pre-alpha. These pages document the designed behaviour and the contract in the [architecture document](/design/architecture). The implementation is being built against both.
+::: info About these pages
+The guide, configuration, reference and operations pages describe the code as released. The [design document](/design/) explains why it works this way, with implementation notes where the code departs from it, and the [architecture contract](/design/architecture) pins the names and shapes.
 :::
 
 ## The two jobs of the server
@@ -58,3 +58,4 @@ The [comparison page](./comparison) goes through each row.
 - [How it works](./how-it-works): the trust zones, the execution model and the pull request lifecycle.
 - [Concepts](./concepts): stacks, modules, edges, waves, locks and drift.
 - [Getting started](./getting-started): from an empty AWS account to a first `stackorder apply`.
+- [Local demo](./local-demo): the server, the CLI and real plans on one machine, with no GitHub App or AWS account.

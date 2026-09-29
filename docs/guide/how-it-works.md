@@ -41,7 +41,7 @@ What crosses each boundary:
 | GitHub to server | Webhook payloads (HMAC-signed) and, from runners, JSON manifests and result summaries. No repository contents beyond file paths and parsed dependency edges. |
 | Server to GitHub | Calls made with App installation tokens, scoped to one installation and expiring within an hour: `workflow_dispatch`, check runs and comments. |
 | Runner to AWS | Your role, assumed with `aws-actions/configure-aws-credentials` and a trust policy pinned to the repository and environment. State, lock and plan files never leave this zone. |
-| Server to anything else | Nothing, except Postgres and an optional S3 bucket for the server's own plan text. This keeps the server's network rules and IAM role trivial. |
+| Server to anything else | Nothing, except Postgres, GitHub's OIDC signing keys, and, when enabled, an S3 bucket for the server's own plan text and an OTLP endpoint for traces. This keeps the server's network rules and IAM role trivial. |
 
 ## Execution model {#execution-model}
 
@@ -64,31 +64,30 @@ A dependency cycle fails the `stackorder/resolve` check with the cycle spelled o
 
 For each stack, `stackorder plan --stack <key>`:
 
-1. runs `init` against the stack's S3 backend;
-2. runs `plan -out` and `show -json`;
-3. builds a summary: adds, changes, destroys and replaced addresses;
-4. redacts the output and posts the summary and a size-capped plan text to the server;
-5. uploads the binary plan file as a workflow artifact.
+1. runs the `pre-plan` hook, then `init` against the stack's S3 backend;
+2. runs `plan -out` and `show -json`, then the `post-plan` hook;
+3. builds a summary: adds, changes, destroys, replaces and their addresses;
+4. redacts the output and posts the summary and a plan text capped at 256 KB to the server.
 
-The artifact is named `stackorder-plan-<key>-<sha>`, with `/` and `:` in the key replaced by `-`. The server creates one check run per stack, such as `stackorder/plan: stacks/prod/vpc`, plus a roll-up `stackorder/plan`. It keeps one sticky PR comment with a collapsible section per stack.
+The `plan` action then uploads the binary plan file as a workflow artifact, named `stackorder-plan-<key>-<sha>`, with `/` and `:` in the key replaced by `-`. The server creates one check run per stack, such as `stackorder/plan: stacks/prod/vpc`, plus a roll-up `stackorder/plan`. It keeps one sticky PR comment with a collapsible section per stack.
 
 ### Apply gate {#apply-gate}
 
 A `stackorder apply [stack…]` comment starts an apply in `before_merge` mode; a merge starts it in `on_merge` mode. The server checks, in order:
 
-1. The commenter may apply every affected stack: membership of `apply.allowed_teams`, or push permission when the list is empty.
-2. The PR has the required approvals and is mergeable, and satisfies `four_eyes` and `require_codeowner_review` when set.
-3. Every affected stack has a successful plan for the current head SHA.
+1. The commenter may apply every affected stack: active membership of `apply.allowed_teams` (nested teams count, cached 60 s), or push permission when the list is empty.
+2. The PR is open, not merged and mergeable (a `dirty` merge state refuses; `blocked` does not, since `stackorder/apply` is itself a required check), has `apply.require_approvals` approvals on the head commit from users with push permission, and satisfies `four_eyes` and `require_codeowner_review` when set.
+3. Every affected stack has a `planned` result for the current head SHA, with a plan artifact when `apply.from_plan` is true.
 4. Every named check on those stacks passes. `warn` passes; `fail` refuses.
-5. No affected stack is locked by another PR.
+5. No affected stack is locked by another PR, and no other apply of this PR is in flight.
 
-Each refusal is a PR comment naming the failing layer and the exact reason, never a silent no-op. Gate policy is read from `stackorder.yaml` on the default branch, never from the PR's copy.
+All failures are collected and reported together in one PR comment naming each failing layer and the exact reason, never a silent no-op. Gate policy is read from `stackorder.yaml` on the default branch, never from the PR's copy. In `on_merge` repositories `stackorder apply` comments are refused; the merge itself starts the apply of the merge commit with the head commit's plans, checking layers 1 (for the person who merged), 3, 4 and 5.
 
 These checks are the fast, friendly layer. The hard stops are the GitHub environment gate and the IAM trust policy. See [Environments and authorization](/configuration/environments-and-authorization).
 
 ### Waves {#waves}
 
-Waves are the longest-path layering of the affected stacks over `depends_on` and `reads_state` edges. The server dispatches `stackorder-run.yml` once per wave and environment, so a mixed run does not hold staging behind a production reviewer.
+Waves are the longest-path layering of the affected stacks over `depends_on` and `reads_state` edges. The server dispatches `stackorder-run.yml` once per wave and environment, so a mixed run does not hold staging behind a production reviewer, and splits a dispatch that would carry more than `apply.max_parallel` stacks.
 
 - Wave n+1 is dispatched only when every stack of wave n has finished and none failed.
 - Within a wave the matrix runs with `fail-fast: false`, so unrelated stacks complete.
@@ -98,13 +97,13 @@ With `apply.from_plan: true`, the default, the apply job applies the saved plan 
 
 ### Locks {#locks}
 
-A stack lock is an orchestration lock in Postgres, separate from the S3 state lock. The server takes locks on all affected stacks before it dispatches wave 0. It releases them when the PR merges (`before_merge`) or when the run completes (`on_merge`).
+A stack lock is an orchestration lock in Postgres, separate from the S3 state lock. The server takes locks on all affected stacks before it dispatches wave 0. It releases them when the PR merges (`before_merge`) or when the run completes (`on_merge` and manual runs).
 
-Plans on a locked stack still run, with a warning on the check. A PR closed without merging after an apply keeps its locks and gets a warning comment, because the default branch no longer matches what is deployed. `stackorder unlock` releases them; it needs write permission.
+Plans on a locked stack still run, with a warning on the check. A PR closed without merging after an apply keeps its locks and gets a warning comment, because the default branch no longer matches what is deployed, and a daily reminder at 08:00 UTC while its locks are more than a day old. A `stackorder unlock` comment (push permission required), the UI, or `stackorder unlock` with an API key releases them.
 
 ### Drift
 
-On `drift.schedule`, the server dispatches `mode: drift` per stack, staggered across the hour, at the head of the default branch. The CLI runs `plan -detailed-exitcode`. Exit code 2 marks the stack drifted and records the summary; the server can open or update one GitHub issue per stack. See [Drift detection](/configuration/drift).
+On `drift.schedule`, the server dispatches `mode: drift` per stack, staggered across the hour, at the head of the default branch, under the environment `default` and with the plan role. The CLI runs `plan -detailed-exitcode`. Exit code 2 marks the stack drifted and records the summary; the server can open or update one GitHub issue per stack. See [Drift detection](/configuration/drift).
 
 ## Pull request lifecycle {#pr-lifecycle}
 

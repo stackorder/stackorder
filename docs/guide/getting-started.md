@@ -212,7 +212,7 @@ apply:
   require_approvals: 1
 ```
 
-Everything else keeps its default: stacks under `stacks/**`, local modules under `modules/**`, applies before merge, dependents propagated. The full list is on the [`stackorder.yaml` page](/configuration/stackorder-yaml).
+Everything else keeps its default: stacks under `stacks/**`, `modules/**` treated as modules rather than stacks, applies before merge, dependents propagated. The full list is on the [`stackorder.yaml` page](/configuration/stackorder-yaml).
 
 Declare dependencies between stacks in the dependent stack's directory. In `stacks/prod/apps/.stackorder.yaml`:
 

@@ -45,7 +45,7 @@ A repository needs a root `stackorder.yaml`, two thin workflow files, and the St
 version: 1
 ```
 
-Stacks are discovered under `stacks/**` wherever a directory holds a `terraform` block with a `backend "s3"`. Local modules under `modules/**` propagate their changes to the stacks that use them. Explicit dependencies between stacks go in a `.stackorder.yaml` next to the stack:
+Stacks are discovered under `stacks/**` wherever a directory holds a `terraform` block with a `backend "s3"`. A change to a local module, a directory a `module` block points at with a relative `source`, reaches every stack that uses it. Explicit dependencies between stacks go in a `.stackorder.yaml` next to the stack:
 
 ```yaml
 depends_on:

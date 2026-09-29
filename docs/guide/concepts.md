@@ -36,7 +36,7 @@ gitlab.com/acme/modules//vpc@v1.2.0          git module on another host
 registry:terraform-aws-modules/vpc/aws@5.1   registry module
 ```
 
-Only local modules under `modules.paths` (default `modules/**`) propagate changes to the stacks that use them.
+Only local modules propagate changes: a changed path under a local module's directory affects every stack that reaches the module over `uses_module` edges, wherever the module lives in the repository. Directories matching `modules.paths` (default `modules/**`) are never discovered as stacks, and appear in the graph as local modules even when no stack uses them yet.
 
 ## Edges {#edges}
 
