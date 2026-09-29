@@ -241,6 +241,10 @@ A PR that edits `modules/vpc` affects both VPC stacks through their module edges
 | Git module | `owner/repo//path@ref` | A `module` block with a `git::` or `github.com/` source; `ref` is part of the identity |
 | Registry module | `registry:namespace/name/provider@version` | Recorded so the UI can list consumers; can never be "changed by a PR" |
 
+::: info Implementation note
+Inside its repository a stack is keyed by its path, or `path:workspace` for a workspace other than `default`, and `owner/repo//key` qualifies it across repositories. The directories "listed explicitly" are `stacks.include`, and directories under `modules.paths` are never stacks. A git module hosted off GitHub keeps its host, as `gitlab.com/acme/modules//vpc@v1.2.0`, and a private registry's module keeps its registry host. See [Concepts](/guide/concepts#modules).
+:::
+
 **Edges**
 
 | Edge | Direction | Source | Affects order | Propagates change |
@@ -267,6 +271,10 @@ A changed path belongs only to the deepest enclosing stack directory, and affect
 
 **Storage.** Graphs are stored per repo and SHA (`graphs`, `stacks`, `modules`, `edges` with an `inferred` flag and a `meta` JSON column). The resolve job sends a tree hash of the paths it scanned, so a re-run on the same tree is a cache hit and posts nothing. A 300-stack monorepo with 2,000 edges is well under a megabyte per graph.
 
+::: info Implementation note
+The resolve job always uploads its graph. When the tree hash, a SHA-256 over the repository's `.tf`, `.tf.json`, `stackorder.yaml` and `.stackorder.yaml` files, equals that of a stored graph of the repository, the server reuses the stored graph, stores nothing new and answers with `cached: true`. See [`POST /v1/runs/{id}/graph`](/reference/api#upload-graph).
+:::
+
 ## The server
 
 One Go binary, one distroless image of roughly 30 MB, one Postgres database, and nothing else required. It runs comfortably in a 0.25 vCPU / 512 MB Fargate task for an org with a few hundred stacks; a second task can be added for availability without any change, because all coordination goes through Postgres.
@@ -287,7 +295,7 @@ One Go binary, one distroless image of roughly 30 MB, one Postgres database, and
 | `store` | `pgx` queries and `golang-migrate` migrations, run automatically at start-up with a migration lock. |
 
 ::: info Implementation note
-The implementation has more packages: `config`, `scan`, `graph`, `report`, `command`, `tf`, `client` and `cli` on the runner side; `store`, `gh`, `oidc`, `principal`, `runs`, `webhook`, `worker`, `sched`, `metrics`, `api`, `ui`, `artifacts` and `server` on the server side. `oidc` never compares the `sha` claim (see the OIDC claims below). Runs can also be `superseded`, and stacks `unconfirmed`, `unknown` or `skipped`. See the [architecture contract](/design/architecture).
+The implementation has more packages: `config`, `scan`, `graph`, `report`, `command`, `tf`, `client` and `cli` on the runner side; `store`, `gh`, `oidc`, `principal`, `runs`, `webhook`, `worker`, `sched`, `metrics`, `api`, `ui`, `artifacts` and `server` on the server side. `oidc` never compares the `sha` claim (see the OIDC claims below). `sched` also schedules the reconciliation every minute, the hourly prune and the daily installation sync. Runs can also be `superseded`, and stacks `unconfirmed`, `unknown` or `skipped`. See the [architecture contract](/design/architecture).
 :::
 
 **Data model** (Postgres, all timestamps UTC)
@@ -504,6 +512,10 @@ Write access to the repo is the floor, not the ceiling: apply is gated by five l
 
 **3. GitHub Environments.** The reusable `run.yml` declares `environment: ${{ matrix.environment }}` on the apply job, and the server assigns each stack an environment from the `environments` prefix map in `stackorder.yaml` (overridable per stack). Required reviewers on that environment pause the job until a listed user or team member approves in the Actions UI; "prevent self-review" stops the requester approving their own deployment, and a deployment-branch rule limits the environment to the default branch. The server cannot approve, because the App has no Environments permission and an App cannot be a required reviewer, so this gate holds even if the server is fully compromised. Two design consequences: the server dispatches each wave as one run per environment it touches, so a mixed run does not hold staging behind the prod reviewer; and the sticky PR comment links straight to the pending approval so reviewers do not hunt for it. With one dispatch per wave, a three-wave prod apply asks for three approvals; collapsing an apply into a single run with waves as chained jobs is listed under open questions.
 
+::: info Implementation note
+A stack that matches no prefix and sets no `environment` of its own runs under the environment `default`, never under an empty name. Plan and drift dispatches always run under `default`. A dispatch carries at most `apply.max_parallel` stacks, so a large wave for one environment is several runs, each gated on its own. See [Workflows](/configuration/workflows#environments).
+:::
+
 **4. The App as a custom deployment protection rule.** Instead of a human clicking approve, the App can be registered as a protection rule on the environment. GitHub then sends a `deployment_protection_rule` webhook when the apply job wants to start, and the server approves or rejects through `POST /repos/{owner}/{repo}/actions/runs/{run_id}/deployment_protection_rule` using exactly the checks from layers 1 and 2. That turns the server's policy into something GitHub enforces: the job does not run until the App says yes, and the App only says yes for a request from the right team on a PR with the right approvals. It needs the `Deployments: Read and write` permission and the event subscription marked optional in the App section, and the same plan constraint as layer 3. Layers 3 and 4 can be combined on one environment, in which case every rule must pass.
 
 ::: info Implementation note
@@ -539,6 +551,10 @@ The design goal is that no single compromise reaches infrastructure: the server 
 - Runner OIDC tokens are short-lived and bound to a run; there is nothing to rotate on the runner side.
 
 **Secrets in plan output.** Terraform already masks values marked `sensitive`. The CLI additionally masks anything matching the runner's known secret patterns with `::add-mask::`, truncates plan text at 256 KB, and can be set to `plan_output: summary` per stack so only resource counts and addresses ever reach the server or the PR comment. The full plan lives only in the job log and the plan artifact, both governed by the repo's own access rules and artifact retention.
+
+::: info Implementation note
+The CLI does not use a list of the runner's secret patterns. It redacts everything it sends to the server, the step summary or a fallback check with its own rules: private key blocks, JSON web tokens, AWS keys, GitHub and Slack tokens, password and token assignments, and the values of environment variables whose names mark them as secrets. In Actions it registers those values with `::add-mask::` before Terraform runs and passes the job log output through the same redaction. See [CLI](/reference/cli#secrets).
+:::
 
 **Data retention.** Plan text is kept 30 days by default, summaries and run history indefinitely, events 7 days, drift history 90 days. All are configurable; nothing in the server is needed to operate Terraform, so wiping the database loses history and locks but never state.
 

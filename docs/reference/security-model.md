@@ -40,7 +40,7 @@ Rotating anything means rotating the App's private key, which runners never see.
 ## Secrets in plan output {#plan-secrets}
 
 - Terraform and OpenTofu already mask values marked `sensitive`.
-- The CLI also masks anything matching the runner's known secret patterns with `::add-mask::`.
+- The CLI redacts everything it sends to the server, the step summary or a fallback check: private keys, tokens, password assignments and the values of secret-named environment variables. In Actions it also registers those values with `::add-mask::`. See [CLI secrets](/reference/cli#secrets).
 - Plan text sent to the server is truncated at 256 KB.
 - `plan_output: summary`, per repository or per stack, sends only resource counts and addresses to the server and the PR comment.
 
