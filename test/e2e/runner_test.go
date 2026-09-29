@@ -40,15 +40,24 @@ const (
 
 var scrubbedPrefixes = []string{"GITHUB_", "ACTIONS_", "RUNNER_", "STACKORDER_", "AWS_", "TF_", "GIT_"}
 
-var keptVariables = []string{tf.EnvTerraformBin, tf.EnvTofuBin}
+var jobVariables = []string{"PATH", "HOME", "TMPDIR", "USER", "LANG", "LC_ALL", tf.EnvTerraformBin, tf.EnvTofuBin}
 
 func cleanEnv() []string {
 	var out []string
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		scrub := slices.ContainsFunc(scrubbedPrefixes, func(p string) bool { return strings.HasPrefix(name, p) })
-		if !scrub || slices.Contains(keptVariables, name) {
+		if !slices.ContainsFunc(scrubbedPrefixes, func(p string) bool { return strings.HasPrefix(name, p) }) {
 			out = append(out, kv)
+		}
+	}
+	return out
+}
+
+func jobEnviron() []string {
+	var out []string
+	for _, name := range jobVariables {
+		if v, ok := os.LookupEnv(name); ok {
+			out = append(out, name+"="+v)
 		}
 	}
 	return out
@@ -117,7 +126,7 @@ func (rn *runner) exec(t *testing.T, dir string, env map[string]string, args ...
 	defer cancel()
 	cmd := exec.CommandContext(ctx, rn.cli, args...)
 	cmd.Dir = dir
-	cmd.Env = cleanEnv()
+	cmd.Env = jobEnviron()
 	for k, v := range full {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

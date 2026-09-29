@@ -436,6 +436,9 @@ func (s *story) prPlan(t *testing.T) {
 	assert.Contains(t, vpcLog, banner[s.tool], "the plan job ran %s", s.tool)
 	assert.Contains(t, vpcLog, "::add-mask::"+plaintextSecret, "the plan job masks the secret in the job log")
 	assert.NotContains(t, withoutMaskCommands(vpcLog), plaintextSecret, "the job log never shows the secret")
+	for key, res := range pr.plans {
+		assert.NotContains(t, res.stdout+res.stderr, canaryValue, "the plan job of %s gets a runner's environment, not the test's", key)
+	}
 
 	run := s.runJSON(t, pr.runID)
 	require.Equal(t, v1.RunPlanned, run.Status)

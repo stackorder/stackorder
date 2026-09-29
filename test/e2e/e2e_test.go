@@ -9,7 +9,13 @@ import (
 	"github.com/stackorder/stackorder/internal/tf"
 )
 
+const (
+	canaryVariable = "E2E_CANARY_API_KEY"
+	canaryValue    = "e2e-canary-from-the-developer-shell"
+)
+
 func TestEndToEnd(t *testing.T) {
+	t.Setenv(canaryVariable, canaryValue)
 	if cfg, ok := liveConfig(t); ok {
 		t.Skipf("the live GitHub variant is configured for %s, so TestLiveGitHub runs instead of the fake GitHub", cfg.Org)
 	}
