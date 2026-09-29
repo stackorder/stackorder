@@ -52,7 +52,7 @@ Every minute the server also reconciles dispatches whose webhooks were lost: it 
 4. GitHub redirects to `/setup/callback`, which exchanges the one-time code for the App id, private key, webhook secret and OAuth client id and secret, and prints them **once**, as environment variables, with the next steps and a link to install the App.
 5. Store the values in your secret store, restart the server with them, and install the App on your repositories. GitHub then sends the browser to `/setup/installed`.
 
-Installations made while the server was in setup mode are learned at start-up: the server syncs the App's installations and repositories when it starts and daily at 04:00 UTC.
+Installations made while the server was in setup mode are learned at start-up: the server syncs the App's installations and repositories when it starts and daily at 04:00 UTC. The sync also forgets installations and repositories GitHub no longer lists, as a lost uninstall or removal webhook would have, but only after every listing succeeded.
 
 The manifest sets the webhook URL to `<base URL>/webhooks/github`, the setup redirect to `/setup/callback`, the sign-in callback to `/auth/callback` and the post-installation page to `/setup/installed`. The App is private. On GitHub Enterprise Server set `GITHUB_API_URL` and `GITHUB_WEB_URL` before opening `/setup`; the flow is the same.
 

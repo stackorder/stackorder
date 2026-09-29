@@ -466,7 +466,11 @@ for container health checks in images without a shell; the Dockerfile
 declares it as `HEALTHCHECK`. At start-up, and daily at 04:00 UTC, the server
 syncs installations and their repositories from the App API (adding and
 refreshing, reading `stackorder.yaml` only for repositories not seen before)
-so installations made in setup mode or lost webhooks are learned. Traces
+so installations made in setup mode or lost webhooks are learned; when the
+installation listing and the repository listing of every unsuspended
+installation succeed, it also forgets stored installations the App no
+longer lists and stored repositories of an unsuspended installation that
+no listing names, and when any listing fails it forgets nothing. Traces
 carry `stackorder.run_id`, `stackorder.event`, `stackorder.delivery`,
 `stackorder.job` and `stackorder.job_id`; `/healthz`, `/readyz` and
 `/metrics` are not traced. The pgx pool takes its size from the DSN's

@@ -51,7 +51,7 @@ Once the App variables are set, `/setup` only says so. Creating a replacement Ap
 
 1. Load and check the configuration.
 2. Connect to Postgres and run pending migrations under a migration lock, so several instances starting together apply each migration once.
-3. Outside setup mode: enqueue a sync of the App's installations and their repositories, then start the worker pool and the scheduler. The sync adds and refreshes installations and repositories, and reads `stackorder.yaml` only for repositories it has not seen before; the scheduler repeats it daily at 04:00 UTC. This is how installations made while the server was in setup mode, or whose webhooks were lost, are learned.
+3. Outside setup mode: enqueue a sync of the App's installations and their repositories, then start the worker pool and the scheduler. The sync adds and refreshes installations and repositories, and reads `stackorder.yaml` only for repositories it has not seen before; the scheduler repeats it daily at 04:00 UTC. This is how installations made while the server was in setup mode, or whose webhooks were lost, are learned. When GitHub lists every installation and the repositories of every unsuspended one, the sync also forgets the installations it no longer lists and the repositories of unsuspended installations that no listing names, with their history, as their deletion webhooks would have; when any listing fails it forgets nothing.
 4. Serve HTTP.
 
 On `SIGTERM` or `SIGINT` the server stops accepting connections, gives in-flight requests 15 s to finish, stops the scheduler, hands unstarted work back to the queue and gives running handlers 30 s to drain. A second signal stops it at once.
