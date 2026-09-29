@@ -141,7 +141,7 @@ The resolve job posts the repo's dependency graph for the commit; the server ans
 | File | Trigger | What it does |
 | --- | --- | --- |
 | `stackorder-plan.yml` | `pull_request` (opened, synchronize, reopened) | Job `resolve` scans and posts the graph, gets the matrix back. Job `plan` runs one stack per matrix entry. `concurrency` cancels superseded runs for the same PR. |
-| `stackorder-run.yml` | `workflow_dispatch` only, called by the server | Input `mode` is `resolve`, `apply` or `drift`; inputs `run_id`, `wave`, `stacks` (JSON, each entry carrying its GitHub environment). Never cancel-in-progress. |
+| `stackorder-run.yml` | `workflow_dispatch` only, called by the server | Input `mode` is `resolve`, `apply` or `drift`; inputs `run_id`, `wave`, `stacks` (JSON, each entry carrying its instance and GitHub environment). Never cancel-in-progress. |
 
 ::: info Implementation note
 `stackorder-run.yml` takes `mode` as `plan`, `apply` or `drift`, never `resolve`, and a fifth input, `sha`, the commit each job checks out; `stacks` is required. The server always sends all five inputs, and matches the workflow runs it dispatched by the title the wrapper sets with `run-name: stackorder ${{ inputs.mode }} ${{ inputs.run_id }} wave ${{ inputs.wave }}`. See [Workflows](/configuration/workflows#run).
@@ -236,17 +236,17 @@ A PR that edits `modules/vpc` affects both VPC stacks through their module edges
 
 | Kind | Identity | Discovered by |
 | --- | --- | --- |
-| Stack | `owner/repo//path` plus optional workspace | A directory matching `stacks.discover` that contains a `terraform` block with a `backend "s3"`, or any directory listed explicitly |
+| Stack | `owner/repo//path` plus optional instance | A directory matching `stacks.discover` that contains a `terraform` block with a `backend "s3"`, or any directory listed explicitly; a directory that declares instances is one stack per instance, keyed `path:instance` |
 | Local module | `owner/repo//path` | A `module` block whose `source` is a relative path |
 | Git module | `owner/repo//path@ref` | A `module` block with a `git::` or `github.com/` source; `ref` is part of the identity |
 | Registry module | `registry:namespace/name/provider@version` | Recorded so the UI can list consumers; can never be "changed by a PR" |
 
 ::: info Implementation note
-Inside its repository a stack is keyed by its path, or `path:instance` for an instance of the directory, and `owner/repo//key` qualifies it across repositories. The directories "listed explicitly" are `stacks.include`, and directories under `modules.paths` are never discovered as stacks, though one listed in `stacks.include` still is one. A git module hosted off the GitHub instance Stackorder is installed on (github.com, or the Enterprise Server host) keeps its host, as `gitlab.com/acme/modules//vpc@v1.2.0`, and a private registry's module keeps its registry host. See [Concepts](/guide/concepts#modules).
+A stack's key across repositories is qualified as `owner/repo//key`. The directories "listed explicitly" are `stacks.include`, and directories under `modules.paths` are never discovered as stacks, though one listed in `stacks.include` still is one. A git module hosted off the GitHub instance Stackorder is installed on (github.com, or the Enterprise Server host) keeps its host, as `gitlab.com/acme/modules//vpc@v1.2.0`, and a private registry's module keeps its registry host. See [Concepts](/guide/concepts#modules).
 :::
 
 ::: info Implementation note
-A stack's identity is its path plus an optional **instance**, not a workspace. A directory can declare several instances, each with its own state object, var files, environment variables and GitHub environment, and each is a stack of its own in the graph, runs, locks and checks. The suffix never selects a Terraform workspace by itself: an instance selects one only when its `workspace` is set, and a legacy stack with `workspace: blue` and no instances is the single instance `blue` with workspace `blue`. See [Stack instances](/configuration/instances) and the [architecture contract](/design/architecture#stack-instances).
+Instances are declared in `.stackorder.yaml` or derived from var files; see [Stack instances](/configuration/instances) and the [architecture contract](/design/architecture#stack-instances).
 :::
 
 **Edges**
@@ -261,18 +261,14 @@ Inferred edges are drawn dashed in the UI and carry `inferred: true`; a stack co
 
 **Resolution, given a graph at SHA and a list of changed paths**
 
-1. Directly changed stacks: any changed path under a stack directory, after `ignore` globs (`README.md`, `*.md`, `.terraform.lock.hcl` are ignored by default only if `ignore_lockfile` is set).
+1. Directly changed stacks: any changed path under a stack directory (every instance of that directory), after `ignore` globs (`README.md`, `*.md`, `.terraform.lock.hcl` are ignored by default only if `ignore_lockfile` is set). A file outside every stack directory that a stack names in its `backend_config` or `var_files` affects that stack too, with the reason `watch_path`.
 2. Module-affected stacks: for every changed path under a local module directory, every stack with a path to that module over `uses_module` edges. Git-pinned modules never match here: a change to the module repo does not change consumers until they bump `ref`.
 3. Propagation: dependents of the set above over `depends_on` and `reads_state`, transitively, when `propagate: dependents` (the default). These stacks are planned so reviewers see the downstream effect; at apply time a propagated stack whose plan is a no-op is recorded as `noop` and skipped.
 4. Ordering: topological sort of the affected set over `depends_on` and `reads_state`; edges to unaffected stacks are dropped. Waves are assigned by longest path from a root. A cycle fails the resolve check with the cycle spelled out.
 5. Cross-repo: `depends_on` edges to stacks in other repos are stored but cannot order a single-repo run. When an upstream stack applies, the server lists external dependents on the run and, if `propagate.cross_repo: plan` is set, dispatches a plan-only run on each so drift shows up within minutes rather than at the next scheduled drift check.
 
 ::: info Implementation note
-A changed path belongs only to the deepest enclosing stack directory, and affects every instance of it; paths under `.terraform` are ignored. The default `stacks.ignore` is `["**/*.md", "**/README*"]`, and `.terraform.lock.hcl` is added only with `ignore_lockfile`. Any local module a stack uses propagates, inside `modules.paths` or not: those globs only keep module directories from being discovered as stacks. Git and registry modules never match changed paths. Every edge points from the dependent to what it depends on, so `wave(To) < wave(From)`. Cross-repository plan runs have trigger `push` and run once per upstream run and downstream repository.
-:::
-
-::: info Implementation note
-"Every workspace of that directory" is every instance of it: instances of one directory cannot be told apart by path, since they run the same code. A stack is also affected, with the reason `watch_path`, when a file outside its directory that it reads at `init` or `plan` changes: a backend configuration file or a var file named in its `backend_config` or `var_files`. See [Change detection](/configuration/instances#change-detection).
+A changed path belongs only to the deepest enclosing stack directory; paths under `.terraform` are ignored. The default `stacks.ignore` is `["**/*.md", "**/README*"]`, and `.terraform.lock.hcl` is added only with `ignore_lockfile`. Any local module a stack uses propagates, inside `modules.paths` or not: those globs only keep module directories from being discovered as stacks. Git and registry modules never match changed paths. Every edge points from the dependent to what it depends on, so `wave(To) < wave(From)`. Cross-repository plan runs have trigger `push` and run once per upstream run and downstream repository. Watch paths are described under [Change detection](/configuration/instances#change-detection).
 :::
 
 **Module version tracking.** A git module edge carries its `ref`. When a module repo that has the App installed pushes a semver tag, the server records the version, and the UI shows every consumer stack with the ref it pins and how far behind it is. Bumping is left to Renovate or Dependabot; Stackorder only makes the lag visible.
@@ -461,7 +457,7 @@ The CLI detects the tool from `tool: terraform` or `tool: tofu` in the stack con
 
 The composite actions are each under 30 lines of YAML and contain no logic beyond argument passing, which makes them easy to audit and easy to replace with a direct `run: stackorder …` step for anyone who prefers that.
 
-**Reusable workflows.** The same repository publishes `plan.yml` and `run.yml` as reusable workflows, so a user's own workflow files are a dozen lines each (shown in the repository conventions section). Inputs: `aws-role-arn` (or `aws-role-arn-map`, a JSON map from stack path prefix to role), `tool`, `tool-version`, `stackorder-version`, `runner` (label), `max-parallel`, `working-directory`. In `run.yml` the apply job declares `environment: ${{ matrix.environment }}`, taking each stack's GitHub environment from the dispatched `stacks` JSON, which is what lets environment protection rules gate applies per stack. The job-level `permissions` block in the reusable workflow is the minimum needed:
+**Reusable workflows.** The same repository publishes `plan.yml` and `run.yml` as reusable workflows, so a user's own workflow files are a dozen lines each (shown in the repository conventions section). Inputs: `aws-role-arn` (or `aws-role-arn-map`, a JSON map to roles whose keys are a stack path prefix, an exact `path:instance` key or a bare `:instance`, the most specific key winning), `aws-role-session-name` (one name, or one per mode), `tool`, `tool-version`, `stackorder-version`, `runner` (label), `max-parallel`, `working-directory`. In `run.yml` the apply job declares `environment: ${{ matrix.environment }}`, taking each stack's GitHub environment from the dispatched `stacks` JSON, which is what lets environment protection rules gate applies per stack. The job-level `permissions` block in the reusable workflow is the minimum needed:
 
 ```yaml
 permissions:
@@ -475,7 +471,7 @@ permissions:
 Both reusable workflows require `server-url`. `plan.yml` also takes `aws-region`, `base-ref` and `stacks`, and its `resolve` job needs `pull-requests: read`; the calling job must grant every permission, since a called workflow cannot raise them. `run.yml` also takes `sha` and `aws-plan-role-arn`. Every `run.yml` job, not only applies, runs under `environment: ${{ matrix.environment }}`, which is `default` for plan and drift dispatches, and in the concurrency group `stackorder-stack-<key>`.
 :::
 
-Hooks: if `.stackorder/hooks/pre-plan.sh`, `post-plan.sh`, `pre-apply.sh` or `post-apply.sh` exist in the repo, the reusable workflow runs them with `STACKORDER_STACK`, `STACKORDER_RUN_ID` and `STACKORDER_PLAN_JSON` in the environment. This is where OPA, Checkov or Infracost run; each can post a named verdict with `stackorder check --name policy --status pass|fail --summary '…'`, which the server shows as its own check run on the stack and honours in the apply gate.
+Hooks: if `.stackorder/hooks/pre-plan.sh`, `post-plan.sh`, `pre-apply.sh` or `post-apply.sh` exist in the repo, the reusable workflow runs them with `STACKORDER_STACK`, `STACKORDER_STACK_PATH`, `STACKORDER_INSTANCE`, `STACKORDER_RUN_ID` and `STACKORDER_PLAN_JSON` in the environment, plus the stack's configured `env` variables for the mode. This is where OPA, Checkov or Infracost run; each can post a named verdict with `stackorder check --name policy --status pass|fail --summary '…'`, which the server shows as its own check run on the stack and honours in the apply gate.
 
 ::: info Implementation note
 The CLI runs the hooks itself, in CI and locally, and also sets `STACKORDER_PLAN_FILE`; `STACKORDER_PLAN_JSON` and `STACKORDER_PLAN_FILE` are file paths. `stackorder check` also accepts `--status warn`.
@@ -518,7 +514,7 @@ Write access to the repo is the floor, not the ceiling: apply is gated by five l
 
 **2. Code-owner approval as a prerequisite.** `CODEOWNERS` maps `stacks/prod/**` to `@acme/platform-prod`, and branch protection requires review from code owners. In `on_merge` mode that alone is a hard gate, since apply follows merge and GitHub will not merge without the owning team's approval. In `before_merge` mode, `apply.require_codeowner_review: true` makes the apply gate check that at least one `APPROVED` review on the current head SHA comes from a member of the owning team for each affected stack (`GET /repos/{owner}/{repo}/pulls/{n}/reviews`, filtered by `commit_id`), and `apply.four_eyes: true` refuses an apply requested by the PR author. Still a server check, but it reuses GitHub's review audit trail and pairs with the merge rule.
 
-**3. GitHub Environments.** The reusable `run.yml` declares `environment: ${{ matrix.environment }}` on the apply job, and the server assigns each stack an environment from the `environments` prefix map in `stackorder.yaml` (overridable per stack). Required reviewers on that environment pause the job until a listed user or team member approves in the Actions UI; "prevent self-review" stops the requester approving their own deployment, and a deployment-branch rule limits the environment to the default branch. The server cannot approve, because the App has no Environments permission and an App cannot be a required reviewer, so this gate holds even if the server is fully compromised. Two design consequences: the server dispatches each wave as one run per environment it touches, so a mixed run does not hold staging behind the prod reviewer; and the sticky PR comment links straight to the pending approval so reviewers do not hunt for it. With one dispatch per wave, a three-wave prod apply asks for three approvals; collapsing an apply into a single run with waves as chained jobs is listed under open questions.
+**3. GitHub Environments.** The reusable `run.yml` declares `environment: ${{ matrix.environment }}` on the apply job, and the server assigns each stack an environment from the `environments` map in `stackorder.yaml`, whose keys are a path prefix, `prefix:instance` or `:instance` (overridable per stack and per instance; an instance nothing maps runs under the environment of its own name). Required reviewers on that environment pause the job until a listed user or team member approves in the Actions UI; "prevent self-review" stops the requester approving their own deployment, and a deployment-branch rule limits the environment to the default branch. The server cannot approve, because the App has no Environments permission and an App cannot be a required reviewer, so this gate holds even if the server is fully compromised. Two design consequences: the server dispatches each wave as one run per environment it touches, so a mixed run does not hold staging behind the prod reviewer; and the sticky PR comment links straight to the pending approval so reviewers do not hunt for it. With one dispatch per wave, a three-wave prod apply asks for three approvals; collapsing an apply into a single run with waves as chained jobs is listed under open questions.
 
 ::: info Implementation note
 A stack that matches no prefix and sets no `environment` of its own runs under the environment `default`, never under an empty name. Plan and drift dispatches always run under `default`. A dispatch carries at most `apply.max_parallel` stacks, so a large wave for one environment is several runs, each gated on its own. See [Workflows](/configuration/workflows#environments).
@@ -585,7 +581,10 @@ version: 1
 
 stacks:
   discover: ["stacks/**"]        # dirs with a terraform { backend "s3" {} } block
+  exclude: []                    # directory globs that are never stacks
   ignore: ["**/*.md", "**/README*"]
+  instances:
+    from_var_files: "workspaces/*.tfvars.json"  # one instance per matching file, named by it
 
 modules:
   paths: ["modules/**"]           # local modules whose changes propagate
@@ -593,9 +592,13 @@ modules:
 tool: tofu                        # or terraform; per-stack override allowed
 tool_version: "1.9.0"
 
-environments:                     # stack path prefix -> GitHub environment
+environments:                     # path prefix, prefix:instance or :instance -> GitHub environment
   "stacks/prod/": production
   "stacks/staging/": staging
+
+env:                              # for the tool and the hooks; a value per mode where it differs
+  TF_VAR_environment: "{{ .Instance }}"
+  TF_VAR_role: { plan: reader, apply: deployer }
 
 apply:
   mode: before_merge              # or on_merge
@@ -627,9 +630,13 @@ Defaults when a key is absent: `tool: terraform`, `apply.mode: before_merge`, `r
 depends_on:
   - stacks/prod/vpc                       # same repo
   - acme/network-infra//stacks/prod/tgw   # another repo, same installation
-workspace: default
+instances: [production, staging]          # one stack per instance: <path>:production, <path>:staging
+workspace: default                        # the Terraform workspace of each instance; default means none
+backend_config:                           # -backend-config for init, after the root list; a file or name=value
+  - 'key={{ trimPrefix "stacks/" .Path }}/{{ .Instance }}.tfstate'
+var_files: ["workspaces/{{ .Instance }}.tfvars.json"]
 tool: terraform                           # override
-environment: production                   # override the prefix mapping
+environment: production                   # override the prefix mapping and the instance-name default
 apply:
   allowed_teams: [platform-prod]          # narrower than the root setting
 plan_output: summary                      # this stack's plans hold secrets
@@ -753,9 +760,5 @@ End-to-end tests run against a throwaway GitHub org and a LocalStack S3 bucket; 
 - [ ] Per-stack dispatch. Wave dispatch keeps the Actions tab readable; per-stack dispatch would shorten large runs. Offer as a config flag in phase 2 or wait for demand?
 - [ ] One run per apply. With one dispatch per wave, an environment with required reviewers asks for approval once per wave. A single run with waves as chained jobs (a fixed maximum, empty waves skipped) may reduce that to one approval; verify GitHub's reviewer behaviour for sequential jobs in a test repo.
 - [ ] Removed stacks. A stack deleted from the repo currently just disappears from the graph; a reverse-wave destroy flow is out of scope for v1 and needs a design of its own.
-- [ ] Workspaces. Supported as part of a stack's identity; multi-workspace stacks with a shared directory are untested territory.
-
-  ::: info Implementation note
-  A directory deployed several times is modelled as stack instances, `path:instance`, rather than workspaces: each instance has its own state key, var files, environment variables, GitHub environment and apply role, and selects a workspace only when configured to. Instances can share one checkout because `init` runs with `-reconfigure` whenever a backend configuration is set. See [Stack instances](/configuration/instances) and the [architecture contract](/design/architecture#stack-instances).
-  :::
+- [x] Workspaces. Settled: a directory deployed several times is a set of stack instances, path:instance, each with its own state key, var files, environment variables and GitHub environment; an instance selects a Terraform workspace only when its configuration names one.
 - [ ] Pre-dispatch shortcut. The server could use the last graph plus the PR's changed files to skip the resolve job on docs-only PRs. Worth the complexity only if runner minutes turn out to matter.
