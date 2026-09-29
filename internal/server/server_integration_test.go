@@ -145,6 +145,12 @@ func merge(maps ...map[string]any) map[string]any {
 	return out
 }
 
+func TestPoolIsSizedFromTheWorkers(t *testing.T) {
+	r := start(t, true)
+	assert.Equal(t, int32(2+server.PoolConnsBeyondWorkers), r.srv.Store().Pool().Config().MaxConns,
+		"a DSN without pool_max_conns gets STACKORDER_WORKERS plus eight connections")
+}
+
 func TestSetupModeRunsNoWorkers(t *testing.T) {
 	r := start(t, true)
 	assert.True(t, r.srv.Config().SetupMode)

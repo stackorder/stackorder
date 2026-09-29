@@ -159,7 +159,7 @@ func New(ctx context.Context, cfg Config, opts ...Option) (_ *Server, err error)
 			return nil, err
 		}
 	}
-	if s.st, err = store.Open(ctx, cfg.DatabaseURL); err != nil {
+	if s.st, err = store.Open(ctx, cfg.DatabaseURL, store.WithDefaultMaxConns(cfg.PoolMaxConns())); err != nil {
 		return nil, fmt.Errorf("server: open the database: %w", err)
 	}
 	if err := s.st.Migrate(ctx); err != nil {
@@ -284,6 +284,9 @@ func (s *Server) Addr() string { return s.ln.Addr().String() }
 // Config returns the configuration the server runs with, defaults filled
 // in.
 func (s *Server) Config() Config { return s.cfg }
+
+// Store returns the server's store, for in-process tests and diagnostics.
+func (s *Server) Store() *store.Store { return s.st }
 
 // Run serves until ctx ends, then shuts down: the listener stops
 // accepting and in-flight requests get up to ShutdownTimeout to finish,

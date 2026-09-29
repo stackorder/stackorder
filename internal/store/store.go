@@ -47,12 +47,33 @@ type Store struct {
 	db   dbtx
 }
 
+// Option changes how Open configures the connection pool.
+type Option func(*openOptions)
+
+type openOptions struct {
+	maxConns int32
+}
+
+// WithDefaultMaxConns sizes the pool to n connections unless the DSN sets
+// pool_max_conns itself, which always wins. Without it, and without
+// pool_max_conns, pgxpool's own default applies.
+func WithDefaultMaxConns(n int32) Option {
+	return func(o *openOptions) { o.maxConns = n }
+}
+
 // Open parses dsn, connects a pool and verifies that the database answers.
 // Sessions run in UTC and timestamps are returned in UTC.
-func Open(ctx context.Context, dsn string) (*Store, error) {
+func Open(ctx context.Context, dsn string, opts ...Option) (*Store, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("store: parse dsn: %w", err)
+	}
+	var o openOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	if o.maxConns > 0 && !setsPoolMaxConns(dsn) {
+		cfg.MaxConns = o.maxConns
 	}
 	cfg.ConnConfig.RuntimeParams["timezone"] = "UTC"
 	cfg.AfterConnect = func(_ context.Context, c *pgx.Conn) error {

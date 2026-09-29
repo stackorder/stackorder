@@ -130,7 +130,7 @@ Here the Secret `stackorder` holds `DATABASE_URL`, `STACKORDER_SESSION_KEY` and 
 ## Postgres {#postgres}
 
 - **One database, one owner role.** The server runs its migrations at start-up, so its role must be able to create and alter tables in the database.
-- **A DSN in `DATABASE_URL`**, such as `postgres://stackorder:secret@db.internal:5432/stackorder?sslmode=require`. Use TLS to a database outside the host. Add `pool_max_conns` to size the connection pool; the scheduler's leader lock holds one connection.
+- **A DSN in `DATABASE_URL`**, such as `postgres://stackorder:secret@db.internal:5432/stackorder?sslmode=require`. Use TLS to a database outside the host. The connection pool gets `STACKORDER_WORKERS` plus 8 connections; add `pool_max_conns` to size it yourself. The scheduler's leader lock holds one connection.
 - **A current version.** The development setup, the tests and the Terraform module default use Postgres 17, and the module accepts 14 or later. The schema relies on `gen_random_uuid()`, `SELECT ... FOR UPDATE SKIP LOCKED` and advisory locks.
 - **Small.** A 300-stack monorepo's graph is well under a megabyte, and old plan text, queue rows and drift history are pruned. `db.t4g.micro` on RDS is enough to start.
 - **Backed up.** It is the only stateful dependency. Point-in-time recovery is the simplest protection. See [Upgrades and backups](./upgrades-and-backups).

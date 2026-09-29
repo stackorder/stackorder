@@ -436,7 +436,7 @@ as `other`.
 | `STACKORDER_METRICS_TOKEN` | When set, `/metrics` requires this bearer token |
 | `STACKORDER_ALLOW_RESETUP` | `true` lets a server with App credentials create another App through `/setup?force=1`; default `false`, and then `/setup?force=1` and `/setup/callback` answer 404 outside setup mode |
 | `STACKORDER_PLAN_TEXT_RETENTION`, `STACKORDER_EVENT_RETENTION`, `STACKORDER_DRIFT_RETENTION` | Durations, defaults `720h`, `168h`, `2160h` |
-| `STACKORDER_WORKERS` | Worker goroutines, default 4 |
+| `STACKORDER_WORKERS` | Worker goroutines, default 4; the pgx pool gets this many connections plus 8 unless `DATABASE_URL` sets `pool_max_conns` |
 | `STACKORDER_LOG_LEVEL`, `STACKORDER_LOG_FORMAT` | `info` / `json` by default |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Enables tracing; spans carry `stackorder.run_id` |
 

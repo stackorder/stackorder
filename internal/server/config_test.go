@@ -339,6 +339,17 @@ func TestConfigDefaultsAndValidation(t *testing.T) {
 	}
 }
 
+func TestPoolMaxConns(t *testing.T) {
+	assert.Equal(t, int32(DefaultWorkers+PoolConnsBeyondWorkers), Config{}.PoolMaxConns())
+	assert.Equal(t, int32(12), Config{Workers: 4}.PoolMaxConns())
+	assert.Equal(t, int32(40), Config{Workers: 32}.PoolMaxConns())
+	cfg, err := LoadConfig(func(name string) string {
+		return map[string]string{EnvBaseURL: testBaseURL, EnvDatabaseURL: testDSN, EnvWorkers: "6"}[name]
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(14), cfg.PoolMaxConns(), "STACKORDER_WORKERS plus eight")
+}
+
 func TestAllowResetup(t *testing.T) {
 	load := func(v string) (Config, error) {
 		return LoadConfig(func(name string) string {

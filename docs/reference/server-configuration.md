@@ -29,7 +29,7 @@ Values are trimmed of surrounding white space, and an empty value counts as unse
 | `STACKORDER_PLAN_TEXT_RETENTION` | `720h` | How long stored plan text is kept (30 days). |
 | `STACKORDER_EVENT_RETENTION` | `168h` | How long webhook events and finished jobs are kept (7 days). |
 | `STACKORDER_DRIFT_RETENTION` | `2160h` | How long drift history is kept (90 days); the latest result of each stack is always kept. |
-| `STACKORDER_WORKERS` | `4` | Worker goroutines claiming events and jobs; a positive integer. |
+| `STACKORDER_WORKERS` | `4` | Worker goroutines claiming events and jobs; a positive integer. The database pool gets this many connections plus 8, for the API, the webhook receiver and the scheduler, unless `DATABASE_URL` sets `pool_max_conns`. |
 | `STACKORDER_ALLOW_RESETUP` | `false` | A boolean, such as `true` or `false`; other values are refused. `true` lets a server that already has App credentials create another App through `/setup?force=1`. See [below](#setup-mode). |
 | `STACKORDER_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 | `STACKORDER_LOG_FORMAT` | `json` | `json`, or `text` for human-readable lines. |

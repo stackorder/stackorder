@@ -27,6 +27,10 @@ const (
 	DefaultEventRetention    = 168 * time.Hour
 	DefaultDriftRetention    = 2160 * time.Hour
 	DefaultLogFormat         = LogFormatJSON
+	// PoolConnsBeyondWorkers is how many pgx pool connections the server
+	// keeps on top of one per worker, for the API, the webhook receiver,
+	// the scheduler and its leader lock.
+	PoolConnsBeyondWorkers = 8
 )
 
 // Log formats accepted in STACKORDER_LOG_FORMAT.
@@ -162,7 +166,11 @@ type Config struct {
 // Values are trimmed of surrounding white space and empty ones count as
 // unset. Every invalid or missing variable is reported, each error naming
 // its variable, and a random session key is generated when
-// STACKORDER_SESSION_KEY is unset.
+// STACKORDER_SESSION_KEY is unset. The pgx pool the server opens on
+// DATABASE_URL has STACKORDER_WORKERS + PoolConnsBeyondWorkers connections
+// (Config.PoolMaxConns) unless the DSN sets pool_max_conns, which then
+// wins; the scheduler's leader lock holds one of them for as long as the
+// server leads.
 func LoadConfig(getenv func(string) string) (Config, error) {
 	e := &env{get: getenv}
 	cfg := Config{
@@ -214,6 +222,17 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("server: invalid configuration:\n%w", err)
 	}
 	return cfg, nil
+}
+
+// PoolMaxConns is the size of the database pool the server asks for when
+// DATABASE_URL does not set pool_max_conns: one connection per worker plus
+// PoolConnsBeyondWorkers. Workers below one count as DefaultWorkers.
+func (c Config) PoolMaxConns() int32 {
+	workers := c.Workers
+	if workers <= 0 {
+		workers = DefaultWorkers
+	}
+	return int32(min(workers, 1<<20) + PoolConnsBeyondWorkers) //nolint:gosec
 }
 
 func generateSessionKey() ([]byte, error) {

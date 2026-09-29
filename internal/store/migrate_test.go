@@ -107,6 +107,31 @@ func TestMigrateWithSingleConnectionPool(t *testing.T) {
 	assert.False(t, dirty)
 }
 
+func withDSNParam(dsn, param string) string {
+	switch {
+	case !strings.Contains(dsn, "://"):
+		return dsn + " " + param
+	case strings.Contains(dsn, "?"):
+		return dsn + "&" + param
+	}
+	return dsn + "?" + param
+}
+
+func TestOpenSizesThePool(t *testing.T) {
+	ctx := t.Context()
+	dsn := pgtest.DSN(t)
+	sized, err := store.Open(ctx, dsn, store.WithDefaultMaxConns(12))
+	require.NoError(t, err)
+	t.Cleanup(sized.Close)
+	assert.Equal(t, int32(12), sized.Pool().Config().MaxConns)
+
+	pinned, err := store.Open(ctx, withDSNParam(dsn, "pool_max_conns=3"), store.WithDefaultMaxConns(12))
+	require.NoError(t, err)
+	t.Cleanup(pinned.Close)
+	assert.Equal(t, int32(3), pinned.Pool().Config().MaxConns, "the DSN's pool_max_conns wins over the default")
+	require.NoError(t, pinned.Ping(ctx))
+}
+
 func TestPingAndInTx(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.s.Ping(f.ctx))
