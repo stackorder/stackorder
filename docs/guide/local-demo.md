@@ -175,7 +175,7 @@ stackorder plan --stack stacks/prod/vpc
 echo "exit $?"
 ```
 
-The CLI runs `init` against LocalStack, `plan`, `show -json`, the example `post-plan` hook, and prints a summary line:
+The CLI runs `init` against LocalStack, `plan`, `show -json` and the example `post-plan` hook, passing Terraform's own output through, and ends with the hook's line and a summary:
 
 ```text
 post-plan: stacks/prod/vpc: 4 resources in plan, 4 with changes
