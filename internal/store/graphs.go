@@ -260,6 +260,24 @@ func (s *Store) FindGraphByTreeHash(ctx context.Context, repoID int64, treeHash 
 		repoID, treeHash)
 }
 
+// GraphSHAsWithPrefix returns, in order, up to limit commit SHAs of the
+// graphs stored for a repository that start with prefix. An empty prefix
+// or a limit below one returns nothing.
+func (s *Store) GraphSHAsWithPrefix(ctx context.Context, repoID int64, prefix string, limit int) ([]string, error) {
+	const op = "graph shas with prefix"
+	if prefix == "" || limit < 1 {
+		return nil, nil
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT sha FROM graphs WHERE repo_id = $1 AND starts_with(sha, $2)
+		ORDER BY sha LIMIT $3`, repoID, prefix, limit)
+	if err != nil {
+		return nil, wrap(op, err)
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	return out, wrap(op, err)
+}
+
 // GraphStackIDs maps the key of every local stack of a graph to its id.
 func (s *Store) GraphStackIDs(ctx context.Context, graphID uuid.UUID) (map[string]uuid.UUID, error) {
 	rows, err := s.db.Query(ctx, `

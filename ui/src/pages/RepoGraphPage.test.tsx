@@ -60,39 +60,55 @@ describe('RepoGraphPage', () => {
   });
 
   it('selecting a run puts it in the URL and fetches its replay', async () => {
-    const { calls } = renderWithApp(page, { url: '/repos/acme/infra?ref=main' });
+    const { calls } = renderWithApp(page, { url: '/repos/acme/infra?ref=3f2a9c1' });
     const select = await screen.findByLabelText('Replay run');
     await waitFor(() => {
       expect(within(select).getAllByRole('option')).toHaveLength(6);
     });
     fireEvent.change(select, { target: { value: ids.planRun } });
     await waitFor(() => {
-      expect(window.location.search).toBe(`?ref=main&run=${ids.planRun}`);
+      expect(window.location.search).toBe(`?ref=3f2a9c1&run=${ids.planRun}`);
     });
     await screen.findByRole('region', { name: 'Affected set' });
-    expect(calls.some((c) => c.path === '/v1/repos/acme/infra/graph' && c.search === `?ref=main&run=${ids.planRun}`)).toBe(true);
+    expect(calls.some((c) => c.path === '/v1/repos/acme/infra/graph' && c.search === `?ref=3f2a9c1&run=${ids.planRun}`)).toBe(true);
   });
 
   it('submitting a ref reloads the graph at that ref', async () => {
     const { calls } = renderWithApp(page, { url: '/repos/acme/infra' });
     const input = await screen.findByLabelText('Ref');
-    fireEvent.input(input, { target: { value: ' release/2026-09 ' } });
+    expect(input).toHaveAttribute('placeholder', 'commit SHA or default');
+    expect(input).toHaveAccessibleDescription(
+      'A full commit SHA, a unique prefix of at least 7 characters, or default for the default branch. Branch names are not supported; leave it empty for the current graph.',
+    );
+    fireEvent.input(input, { target: { value: ' 3f2a9c1 ' } });
     fireEvent.submit(input);
     await waitFor(() => {
-      expect(window.location.search).toBe('?ref=release%2F2026-09');
+      expect(window.location.search).toBe('?ref=3f2a9c1');
     });
     await waitFor(() => {
-      expect(calls.some((c) => c.search === '?ref=release%2F2026-09')).toBe(true);
+      expect(calls.some((c) => c.search === '?ref=3f2a9c1')).toBe(true);
     });
+  });
+
+  it('shows why the server refused a ref', async () => {
+    const reason = '"main" is not a commit SHA, a SHA prefix of at least 7 characters or "default"; branch names are not supported';
+    renderWithApp(page, {
+      url: '/repos/acme/infra?ref=main',
+      handler: (c) =>
+        c.path === '/v1/repos/acme/infra/graph'
+          ? json({ code: 'invalid', message: `invalid ref: ${reason}`, details: { field: 'ref', reason } }, 400)
+          : undefined,
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(`invalid ref: ${reason}`);
   });
 
   it('shows the ref of the current address after going back', async () => {
     renderWithApp(<Routes />, { url: '/repos/acme/infra' });
     const input = await screen.findByLabelText('Ref');
-    fireEvent.input(input, { target: { value: 'release/2026-09' } });
+    fireEvent.input(input, { target: { value: 'default' } });
     fireEvent.submit(input);
     await waitFor(() => {
-      expect(window.location.search).toBe('?ref=release%2F2026-09');
+      expect(window.location.search).toBe('?ref=default');
     });
     window.history.back();
     await waitFor(() => {

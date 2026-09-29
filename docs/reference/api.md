@@ -614,7 +614,7 @@ The repository's graph as JSON, for tooling, with the server's stack ids.
 
 | Parameter | Meaning |
 | --- | --- |
-| `ref` | A full commit SHA the server has a graph for. Without it: the default-branch graph (the latest graph of a merged pull request) when known, else the latest graph. |
+| `ref` | The commit: a full commit SHA the server has a graph for, a prefix of at least 7 characters that only one recorded graph starts with, or `default` for the default-branch graph (`404` before the first merge). A prefix several graphs share, or anything else, is refused with `invalid` (`details.field` is `ref`); branch names are not supported, because the server records graphs by commit only. Without it: the default-branch graph (the latest graph of a merged pull request) when known, else the latest graph. |
 | `run` | A run of this repository. The graph is then that run's graph, unless `ref` is given, and the response adds the run's `affected` stacks and `waves`, to replay its resolution. |
 
 ```json

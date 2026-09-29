@@ -128,7 +128,8 @@ export function RepoGraphPage({ owner, repo }: { owner: string; repo: string }) 
             name="ref"
             type="text"
             value={refDraft}
-            placeholder="default branch"
+            placeholder="commit SHA or default"
+            aria-describedby="graph-ref-help"
             spellcheck={false}
             onInput={(e) => {
               setRefDraft(e.currentTarget.value);
@@ -137,6 +138,10 @@ export function RepoGraphPage({ owner, repo }: { owner: string; repo: string }) 
           <button type="submit" class="button">
             Show
           </button>
+          <p id="graph-ref-help" class="controls__help">
+            A full commit SHA, a unique prefix of at least 7 characters, or <code>default</code> for the default
+            branch. Branch names are not supported; leave it empty for the current graph.
+          </p>
         </form>
         <div class="controls__run">
           <label for="graph-run">Replay run</label>

@@ -141,6 +141,7 @@ type dataStore interface {
 	GetDefaultGraph(ctx context.Context, repoID int64) (*v1.Graph, uuid.UUID, error)
 	LatestGraph(ctx context.Context, repoID int64) (*v1.Graph, uuid.UUID, error)
 	GraphStackIDs(ctx context.Context, graphID uuid.UUID) (map[string]uuid.UUID, error)
+	GraphSHAsWithPrefix(ctx context.Context, repoID int64, prefix string, limit int) ([]string, error)
 
 	GetRun(ctx context.Context, id uuid.UUID) (store.Run, error)
 	ListRuns(ctx context.Context, f store.RunFilter) ([]store.Run, string, error)

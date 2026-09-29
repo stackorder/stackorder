@@ -67,6 +67,31 @@ test.describe('signed in', () => {
     expect(calls.some((c) => c.path === '/v1/repos/acme/infra/graph' && c.search === `?run=${ids.run}`)).toBe(true);
   });
 
+  test('reads the graph at a commit prefix from the ref box and explains refused refs', async ({ page }) => {
+    const reason = '"main" is not a commit SHA, a SHA prefix of at least 7 characters or "default"; branch names are not supported';
+    const calls = await mockApi(page, (c) =>
+      c.path === '/v1/repos/acme/infra/graph' && c.search === '?ref=main'
+        ? { status: 400, body: { code: 'invalid', message: `invalid ref: ${reason}`, details: { field: 'ref', reason } } }
+        : undefined,
+    );
+    await page.goto('/repos/acme/infra');
+    const ref = page.getByLabel('Ref');
+    await expect(ref).toHaveAttribute('placeholder', 'commit SHA or default');
+    await expect(ref).toHaveAccessibleDescription(
+      'A full commit SHA, a unique prefix of at least 7 characters, or default for the default branch. Branch names are not supported; leave it empty for the current graph.',
+    );
+    await ref.fill('3f2a9c1');
+    await page.getByRole('button', { name: 'Show' }).click();
+    await expect(page).toHaveURL('/repos/acme/infra?ref=3f2a9c1');
+    await expect(page.getByRole('group', { name: 'Dependency graph of acme/infra' })).toBeVisible();
+    expect(calls.some((c) => c.path === '/v1/repos/acme/infra/graph' && c.search === '?ref=3f2a9c1')).toBe(true);
+
+    await ref.fill('main');
+    await page.getByRole('button', { name: 'Show' }).click();
+    await expect(page).toHaveURL('/repos/acme/infra?ref=main');
+    await expect(page.getByRole('alert')).toContainText(`invalid ref: ${reason}`);
+  });
+
   test('draws inferred edges dashed and explicit edges solid', async ({ page }) => {
     const view = clone(graph);
     const edges = view.graph.edges ?? [];

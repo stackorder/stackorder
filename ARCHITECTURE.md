@@ -245,7 +245,7 @@ with `next_cursor`.
 | `GET /v1/me` | `v1.Whoami`; for an API key `login` is `apikey:<name>` and `admin` is true |
 | `GET /v1/overview` | `v1.Overview` |
 | `GET /v1/repos` | `v1.Page[v1.RepoSummary]` |
-| `GET /v1/repos/{owner}/{repo}/graph?ref=&run=` | `v1.GraphView`; without `ref` the repo's default-branch graph when known, else the latest |
+| `GET /v1/repos/{owner}/{repo}/graph?ref=&run=` | `v1.GraphView`; `ref` is a full commit SHA, a unique prefix of at least 7 characters of a recorded graph's SHA (ambiguous: 400 `invalid`) or `default` (the default-branch graph), never a branch name; without `ref` the repo's default-branch graph when known, else the latest |
 | `GET /v1/repos/{owner}/{repo}/runs?status=&pr=&mode=` | `v1.Page[v1.Run]`, newest first |
 | `GET /v1/repos/{owner}/{repo}/stacks` | `v1.Page[v1.StackDetail]` |
 | `GET /v1/stacks/{id}` | `v1.StackDetail` |

@@ -704,6 +704,13 @@ label {
   max-width: min(100%, 36rem);
 }
 
+.controls__help {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 .table-wrap {
   overflow-x: auto;
   background: var(--surface);

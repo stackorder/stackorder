@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
 	"time"
@@ -48,6 +49,11 @@ type world struct {
 	key     string
 	session *http.Cookie
 }
+
+const (
+	mergedSHA = "abcdef0111111111111111111111111111111111"
+	prHeadSHA = "abcdef0222222222222222222222222222222222"
+)
 
 func ptr[T any](v T) *T { return &v }
 
@@ -103,9 +109,9 @@ func newWorld(t *testing.T) *world {
 		}
 	}
 	var ids map[string]uuid.UUID
-	w.mergedGraph, w.stacks, err = w.st.SaveGraph(ctx, w.infra.ID, graph("merged", "v1.2.0"))
+	w.mergedGraph, w.stacks, err = w.st.SaveGraph(ctx, w.infra.ID, graph(mergedSHA, "v1.2.0"))
 	require.NoError(t, err)
-	w.prGraph, ids, err = w.st.SaveGraph(ctx, w.infra.ID, graph("pr-head", "v1.4.1", v1.Stack{Key: "stacks/prod/new", Path: "stacks/prod/new"}))
+	w.prGraph, ids, err = w.st.SaveGraph(ctx, w.infra.ID, graph(prHeadSHA, "v1.4.1", v1.Stack{Key: "stacks/prod/new", Path: "stacks/prod/new"}))
 	require.NoError(t, err)
 	w.stacks["stacks/prod/new"] = ids["stacks/prod/new"]
 	require.NoError(t, w.st.SetDefaultGraph(ctx, w.infra.ID, w.mergedGraph))
@@ -134,7 +140,7 @@ func newWorld(t *testing.T) *world {
 		require.NoError(t, w.st.RecordModuleVersion(ctx, w.eksPinned.ID, v.version, "sha-"+v.version, v.at))
 	}
 
-	w.planRun, err = w.st.CreateRun(ctx, store.CreateRunParams{RepoID: w.infra.ID, SHA: "pr-head", PRNumber: 7, Trigger: v1.TriggerPullRequest, Mode: v1.ModePlan, Status: v1.RunPlanning, RequestedBy: "octocat"})
+	w.planRun, err = w.st.CreateRun(ctx, store.CreateRunParams{RepoID: w.infra.ID, SHA: prHeadSHA, PRNumber: 7, Trigger: v1.TriggerPullRequest, Mode: v1.ModePlan, Status: v1.RunPlanning, RequestedBy: "octocat"})
 	require.NoError(t, err)
 	require.NoError(t, w.st.SetRunGraph(ctx, w.planRun.ID, w.prGraph, 3, nil))
 	require.NoError(t, w.st.UpsertRunStacks(ctx, w.planRun.ID, []store.RunStack{
@@ -150,7 +156,7 @@ func newWorld(t *testing.T) *world {
 	}
 
 	time.Sleep(5 * time.Millisecond)
-	w.applyRun, err = w.st.CreateRun(ctx, store.CreateRunParams{RepoID: w.infra.ID, SHA: "merged", PRNumber: 5, Trigger: v1.TriggerComment, Mode: v1.ModeApply, Status: v1.RunApplying, RequestedBy: "hubot"})
+	w.applyRun, err = w.st.CreateRun(ctx, store.CreateRunParams{RepoID: w.infra.ID, SHA: mergedSHA, PRNumber: 5, Trigger: v1.TriggerComment, Mode: v1.ModeApply, Status: v1.RunApplying, RequestedBy: "hubot"})
 	require.NoError(t, err)
 	require.NoError(t, w.st.SetRunGraph(ctx, w.applyRun.ID, w.mergedGraph, 2, nil))
 	require.NoError(t, w.st.UpsertRunStacks(ctx, w.applyRun.ID, []store.RunStack{
@@ -246,8 +252,8 @@ func TestRepoGraph(t *testing.T) {
 
 	view := decodeBody[v1.GraphView](t, w.ok("/v1/repos/acme/infra/graph", true))
 	assert.Equal(t, "acme/infra", view.Repo)
-	assert.Equal(t, "merged", view.SHA, "the default-branch graph wins over the newer PR graph")
-	assert.Equal(t, "merged", view.Graph.SHA)
+	assert.Equal(t, mergedSHA, view.SHA, "the default-branch graph wins over the newer PR graph")
+	assert.Equal(t, mergedSHA, view.Graph.SHA)
 	assert.Len(t, view.Graph.Stacks, 4)
 	assert.Len(t, view.Graph.Edges, 5)
 	assert.Equal(t, map[string]string{
@@ -257,12 +263,30 @@ func TestRepoGraph(t *testing.T) {
 	}, view.StackIDs)
 	assert.Empty(t, view.Affected)
 
-	view = decodeBody[v1.GraphView](t, w.ok("/v1/repos/acme/infra/graph?ref=pr-head", true))
-	assert.Equal(t, "pr-head", view.SHA)
+	view = decodeBody[v1.GraphView](t, w.ok("/v1/repos/acme/infra/graph?ref="+prHeadSHA, true))
+	assert.Equal(t, prHeadSHA, view.SHA)
 	assert.Contains(t, view.StackIDs, "stacks/prod/new")
+	for ref, sha := range map[string]string{"abcdef02": prHeadSHA, "ABCDEF01": mergedSHA, "abcdef0111": mergedSHA, "default": mergedSHA} {
+		view = decodeBody[v1.GraphView](t, w.ok("/v1/repos/acme/infra/graph?ref="+ref, true))
+		assert.Equal(t, sha, view.SHA, "ref %s", ref)
+	}
+	for ref, reason := range map[string]string{
+		"abcdef0":         "is ambiguous: graphs are recorded for " + mergedSHA + " and " + prHeadSHA,
+		"abcdef":          "a SHA prefix of at least 7 characters",
+		"main":            "branch names are not supported",
+		"release/2026-09": "branch names are not supported",
+	} {
+		rec := w.get("/v1/repos/acme/infra/graph?ref="+url.QueryEscape(ref), true)
+		require.Equal(t, http.StatusBadRequest, rec.Code, ref)
+		body := decodeBody[v1.Error](t, rec)
+		assert.Equal(t, "invalid", body.Code, ref)
+		details, _ := body.Details.(map[string]any)
+		assert.Equal(t, "ref", details["field"], ref)
+		assert.Contains(t, details["reason"], reason, ref)
+	}
 
 	view = decodeBody[v1.GraphView](t, w.ok("/v1/repos/acme/infra/graph?run="+w.planRun.ID.String(), true))
-	assert.Equal(t, "pr-head", view.SHA, "a replay shows the graph the run resolved against")
+	assert.Equal(t, prHeadSHA, view.SHA, "a replay shows the graph the run resolved against")
 	assert.Equal(t, [][]string{{"stacks/prod/vpc"}, {"stacks/prod/eks"}, {"stacks/prod/apps:blue"}}, view.Waves)
 	require.Len(t, view.Affected, 3)
 	assert.Equal(t, v1.AffectedStack{
@@ -272,12 +296,13 @@ func TestRepoGraph(t *testing.T) {
 	assert.Equal(t, "blue", view.Affected[2].Workspace)
 	assert.Equal(t, "summary", view.Affected[2].PlanOutput)
 
-	view = decodeBody[v1.GraphView](t, w.ok("/v1/repos/acme/infra/graph?ref=merged&run="+w.planRun.ID.String(), false))
-	assert.Equal(t, "merged", view.SHA)
+	view = decodeBody[v1.GraphView](t, w.ok("/v1/repos/acme/infra/graph?ref="+mergedSHA[:10]+"&run="+w.planRun.ID.String(), false))
+	assert.Equal(t, mergedSHA, view.SHA)
 	assert.Len(t, view.Affected, 3)
 
 	for target, status := range map[string]int{
-		"/v1/repos/acme/infra/graph?ref=nope":                          404,
+		"/v1/repos/acme/infra/graph?ref=0123456":                       404,
+		"/v1/repos/acme/modules/graph?ref=default":                     404,
 		"/v1/repos/acme/infra/graph?run=" + w.globexRun.ID.String():    404,
 		"/v1/repos/acme/infra/graph?run=not-a-uuid":                    404,
 		"/v1/repos/acme/infra/graph?run=" + uuid.NewString():           404,
@@ -418,7 +443,7 @@ func TestRepoStacksAndHistory(t *testing.T) {
 	require.Len(t, history.Items, 2)
 	assert.Equal(t, w.applyRun.ID.String(), history.Items[0].RunID, "newest first")
 	assert.Equal(t, v1.StackApplied, history.Items[0].Status)
-	assert.Equal(t, "merged", history.Items[0].SHA)
+	assert.Equal(t, mergedSHA, history.Items[0].SHA)
 	assert.Equal(t, w.planRun.ID.String(), history.Items[1].RunID)
 	assert.Equal(t, "https://github.com/acme/infra/actions/runs/1/job/stacks/prod/vpc", history.Items[1].JobURL)
 

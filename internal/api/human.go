@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -145,9 +146,9 @@ func (s *server) repoGraph(w http.ResponseWriter, r *http.Request, id identity) 
 	)
 	switch {
 	case ref != "":
-		g, graphID, err = s.db.GetGraph(ctx, repo.ID, ref)
-		if errors.Is(err, store.ErrNotFound) {
-			return notFound("no graph recorded for " + repo.FullName + " at " + ref)
+		g, graphID, err = s.graphAtRef(ctx, repo, ref)
+		if err != nil {
+			return err
 		}
 	case run != nil && run.GraphID != nil:
 		graphID = *run.GraphID
@@ -182,6 +183,49 @@ func (s *server) repoGraph(w http.ResponseWriter, r *http.Request, id identity) 
 	}
 	s.writeJSON(w, r, http.StatusOK, view)
 	return nil
+}
+
+const (
+	defaultGraphRef = "default"
+	minSHAPrefix    = 7
+	maxSHALength    = 64
+)
+
+func (s *server) graphAtRef(ctx context.Context, repo store.Repo, ref string) (*v1.Graph, uuid.UUID, error) {
+	if ref == defaultGraphRef {
+		g, id, err := s.db.GetDefaultGraph(ctx, repo.ID)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, uuid.Nil, notFound("no default-branch graph recorded for " + repo.FullName + " yet")
+		}
+		if err != nil {
+			return nil, uuid.Nil, fmt.Errorf("load default graph: %w", err)
+		}
+		return g, id, nil
+	}
+	prefix := strings.ToLower(ref)
+	if len(prefix) < minSHAPrefix || len(prefix) > maxSHALength || strings.Trim(prefix, "0123456789abcdef") != "" {
+		return nil, uuid.Nil, &principal.InvalidError{Field: "ref",
+			Reason: fmt.Sprintf("%q is not a commit SHA, a SHA prefix of at least %d characters or %q; branch names are not supported", ref, minSHAPrefix, defaultGraphRef)}
+	}
+	shas, err := s.db.GraphSHAsWithPrefix(ctx, repo.ID, prefix, 2)
+	if err != nil {
+		return nil, uuid.Nil, fmt.Errorf("graph shas: %w", err)
+	}
+	if len(shas) == 0 {
+		return nil, uuid.Nil, notFound("no graph recorded for " + repo.FullName + " at " + ref)
+	}
+	if len(shas) > 1 {
+		return nil, uuid.Nil, &principal.InvalidError{Field: "ref",
+			Reason: fmt.Sprintf("%s is ambiguous: graphs are recorded for %s and %s at least; give more characters", ref, shas[0], shas[1])}
+	}
+	g, id, err := s.db.GetGraph(ctx, repo.ID, shas[0])
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, uuid.Nil, notFound("no graph recorded for " + repo.FullName + " at " + ref)
+	}
+	if err != nil {
+		return nil, uuid.Nil, fmt.Errorf("load graph: %w", err)
+	}
+	return g, id, nil
 }
 
 func replay(run store.Run, rows []store.RunStack, g *v1.Graph) ([]v1.AffectedStack, [][]string) {

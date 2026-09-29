@@ -154,6 +154,31 @@ func TestGraphLookupsNotFound(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrNotFound)
 }
 
+func TestGraphSHAsWithPrefix(t *testing.T) {
+	f := newFixture(t)
+	other := f.addRepo(2, 200, "globex", "globex/platform")
+	for _, sha := range []string{"abcdef0111", "abcdef0222", "abcd999999"} {
+		f.saveGraph(f.repo.ID, sampleGraph(f.repo.FullName, sha))
+	}
+	f.saveGraph(other.ID, sampleGraph(other.FullName, "abcdef0333"))
+
+	shas, err := f.s.GraphSHAsWithPrefix(f.ctx, f.repo.ID, "abcdef0", 5)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"abcdef0111", "abcdef0222"}, shas, "only the repository's own graphs, in order")
+	shas, err = f.s.GraphSHAsWithPrefix(f.ctx, f.repo.ID, "abcdef0", 1)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"abcdef0111"}, shas)
+	shas, err = f.s.GraphSHAsWithPrefix(f.ctx, f.repo.ID, "abcdef0222", 2)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"abcdef0222"}, shas, "a full sha is its own prefix")
+	shas, err = f.s.GraphSHAsWithPrefix(f.ctx, f.repo.ID, "fff", 2)
+	require.NoError(t, err)
+	assert.Empty(t, shas)
+	shas, err = f.s.GraphSHAsWithPrefix(f.ctx, f.repo.ID, "", 2)
+	require.NoError(t, err)
+	assert.Empty(t, shas)
+}
+
 func TestDefaultGraphAccessors(t *testing.T) {
 	f := newFixture(t)
 	other := f.addRepo(2, 200, "globex", "globex/platform")
