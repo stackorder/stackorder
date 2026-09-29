@@ -117,6 +117,35 @@ export interface StackApplyConfig {
   allowed_teams?: string[];
 }
 
+/** The per-mode values of an environment variable; drift falls back to plan. */
+export interface EnvModes {
+  plan?: string;
+  apply?: string;
+  drift?: string;
+}
+
+/** The value of one environment variable: a string for every mode, or per-mode values. */
+export type EnvValue = string | EnvModes;
+
+/** Environment variable names mapped to their values. */
+export type EnvConfig = Record<string, EnvValue>;
+
+/** The overrides of one instance of a stack. */
+export interface InstanceConfig {
+  environment?: string;
+  workspace?: string;
+  backend_config?: string[];
+  var_files?: string[];
+  env?: EnvConfig;
+  plan_output?: string;
+  apply?: StackApplyConfig;
+  depends_on?: string[];
+  ignore_inferred?: string[];
+}
+
+/** Instance names mapped to their overrides; JSON always uses this map form. */
+export type Instances = Record<string, InstanceConfig>;
+
 /** A per-stack .stackorder.yaml. */
 export interface StackConfig {
   depends_on?: string[];
@@ -127,12 +156,17 @@ export interface StackConfig {
   apply?: StackApplyConfig;
   plan_output?: string;
   ignore_inferred?: string[];
+  instances?: Instances;
+  backend_config?: string[];
+  var_files?: string[];
+  env?: EnvConfig;
 }
 
 /** A node of the graph that Terraform runs in. */
 export interface Stack {
   key: string;
   path: string;
+  instance?: string;
   workspace?: string;
   repo?: string;
   backend?: Backend;
@@ -142,6 +176,7 @@ export interface Stack {
   plan_output?: string;
   config?: StackConfig;
   external?: boolean;
+  watch_paths?: string[];
 }
 
 /** A node of the graph that stacks and other modules consume. */
@@ -193,6 +228,7 @@ export interface LockInfo {
 export interface AffectedStack {
   key: string;
   path: string;
+  instance?: string;
   workspace?: string;
   wave: number;
   reasons: Reason[] | null;
@@ -208,6 +244,7 @@ export interface AffectedStack {
 export interface MatrixEntry {
   stack: string;
   key: string;
+  instance?: string;
   workspace: string;
   environment: string;
   wave: number;
@@ -253,6 +290,7 @@ export interface RunStack {
   stack_id: string;
   key: string;
   path: string;
+  instance?: string;
   workspace?: string;
   environment?: string;
   wave: number;
@@ -336,6 +374,7 @@ export interface StackDetail {
   repo: string;
   key: string;
   path: string;
+  instance?: string;
   workspace?: string;
   environment?: string;
   backend?: Backend;

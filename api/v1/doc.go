@@ -8,14 +8,19 @@
 //
 // # Identities
 //
-// A stack is identified inside its repository by its Key: the repository
-// relative directory path, followed by ":" and the workspace when the
-// workspace is not "default". Across repositories the identity is
-// "owner/repo//key".
+// A stack is one instance of a stack directory, identified inside its
+// repository by its Key: the repository relative directory path, followed
+// by ":" and the instance name when the directory has named instances
+// ("path:instance"). The suffix names an instance, never by itself a
+// Terraform workspace; Stack.Workspace carries the workspace. An object
+// whose Instance is empty but whose Workspace is set comes from a client
+// older than instances, and its workspace is its instance. Across
+// repositories the identity is "owner/repo//key".
 //
 //	stacks/prod/vpc
 //	stacks/prod/vpc:blue
 //	acme/network-infra//stacks/prod/tgw
+//	acme/network-infra//stacks/prod/tgw:eu-west-1
 //
 // A module is identified by its Key, whose shape depends on its kind:
 //

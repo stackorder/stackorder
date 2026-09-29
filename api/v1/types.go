@@ -136,17 +136,20 @@ const (
 	CheckWarn CheckStatus = "warn"
 )
 
-// StackKey builds the in-repository identity of a stack.
-func StackKey(path, workspace string) string {
+// StackKey builds the in-repository identity of a stack: the path, then
+// ":" and the instance name when there is one. An instance of "default"
+// counts as none.
+func StackKey(path, instance string) string {
 	path = strings.Trim(strings.TrimPrefix(path, "./"), "/")
-	if workspace == "" || workspace == "default" {
+	if instance == "" || instance == "default" {
 		return path
 	}
-	return path + ":" + workspace
+	return path + ":" + instance
 }
 
-// SplitStackKey is the inverse of StackKey.
-func SplitStackKey(key string) (path, workspace string) {
+// SplitStackKey is the inverse of StackKey: it splits "path:instance" at
+// the last ":" and returns an empty instance for a key without a suffix.
+func SplitStackKey(key string) (path, instance string) {
 	if i := strings.LastIndex(key, ":"); i >= 0 {
 		return key[:i], key[i+1:]
 	}
@@ -180,13 +183,19 @@ type Backend struct {
 	WorkspaceKeyPrefix string `json:"workspace_key_prefix,omitempty"`
 }
 
-// Stack is a node of the graph that Terraform runs in.
+// Stack is a node of the graph that Terraform runs in: one instance of a
+// stack directory.
 type Stack struct {
-	// Key is StackKey(Path, Workspace).
+	// Key is StackKey(Path, Instance).
 	Key string `json:"key"`
 	// Path is the repository relative directory, slash separated, no leading
 	// "./" and no trailing "/".
-	Path      string `json:"path"`
+	Path string `json:"path"`
+	// Instance names the instance of the directory; empty for a directory
+	// with a single unnamed instance.
+	Instance string `json:"instance,omitempty"`
+	// Workspace is the Terraform workspace selected after init; empty means
+	// none.
 	Workspace string `json:"workspace,omitempty"`
 	// Repo is "owner/repo". Empty means the repository the graph belongs to.
 	Repo        string   `json:"repo,omitempty"`
@@ -200,6 +209,9 @@ type Stack struct {
 	// External marks a stack referenced by a cross-repo depends_on edge that
 	// is not part of this graph's repository.
 	External bool `json:"external,omitempty"`
+	// WatchPaths lists repository relative files outside the stack
+	// directory that the stack reads at init or plan, sorted and unique.
+	WatchPaths []string `json:"watch_paths,omitempty"`
 }
 
 // Module is a node of the graph that stacks and other modules consume.
@@ -264,6 +276,7 @@ const (
 type AffectedStack struct {
 	Key         string   `json:"key"`
 	Path        string   `json:"path"`
+	Instance    string   `json:"instance,omitempty"`
 	Workspace   string   `json:"workspace,omitempty"`
 	Wave        int      `json:"wave"`
 	Reasons     []Reason `json:"reasons"`
@@ -287,6 +300,7 @@ const DefaultEnvironment = "default"
 type MatrixEntry struct {
 	Stack       string `json:"stack"`
 	Key         string `json:"key"`
+	Instance    string `json:"instance,omitempty"`
 	Workspace   string `json:"workspace"`
 	Environment string `json:"environment"`
 	Wave        int    `json:"wave"`
@@ -477,6 +491,7 @@ type RunStack struct {
 	StackID      string       `json:"stack_id"`
 	Key          string       `json:"key"`
 	Path         string       `json:"path"`
+	Instance     string       `json:"instance,omitempty"`
 	Workspace    string       `json:"workspace,omitempty"`
 	Environment  string       `json:"environment,omitempty"`
 	Wave         int          `json:"wave"`
@@ -511,6 +526,7 @@ type StackDetail struct {
 	Repo        string          `json:"repo"`
 	Key         string          `json:"key"`
 	Path        string          `json:"path"`
+	Instance    string          `json:"instance,omitempty"`
 	Workspace   string          `json:"workspace,omitempty"`
 	Environment string          `json:"environment,omitempty"`
 	Backend     *Backend        `json:"backend,omitempty"`
