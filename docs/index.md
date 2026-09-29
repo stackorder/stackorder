@@ -28,7 +28,7 @@ features:
     link: /configuration/environments-and-authorization
     linkText: Apply authorization
   - title: Heavy work on the runner, one binary each side
-    details: HCL parsing, git diffing, terraform plan, redaction and artifact upload run in your Actions job, in one Go CLI that behaves the same on a laptop. The server is one Go binary with an embedded UI, plus Postgres. No Docker on the runner.
+    details: HCL parsing, git diffing, terraform plan and redaction run in your Actions job, in one Go CLI that behaves the same on a laptop, and the plan action uploads the plan file. The server is one Go binary with an embedded UI, plus Postgres. No Docker on the runner.
     link: /guide/how-it-works
     linkText: How it works
   - title: Degrade gracefully, never silently
