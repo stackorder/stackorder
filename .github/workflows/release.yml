@@ -53,7 +53,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ steps.meta.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha
