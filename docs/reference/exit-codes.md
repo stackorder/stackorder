@@ -21,7 +21,7 @@ Every `stackorder` command exits with one of four codes. Scripts and hooks can r
 | `graph` | Graph printed | Scan or config error | | |
 | `affected` | No stack affected | Scan or config error, cycle | At least one stack affected | |
 | `unlock` | Every named lock released, or none was held | No server, no API key, unknown repository or stack | | The server refused the unlock |
-| `version` | Always | `--format dot` | | |
+| `version` | Version printed | `--format dot`, which only `graph` and `affected` support | | |
 
 ## How server answers map to exit codes {#server-answers}
 
