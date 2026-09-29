@@ -11,7 +11,7 @@ LDFLAGS := -s -w -X github.com/stackorder/stackorder/internal/version.Version=$(
 GOLANGCI_LINT_VERSION ?= v2.14.0
 E2E_TIMEOUT ?= 40m
 
-.PHONY: all build build-cli build-server test test-integration test-e2e lint fmt vet ui ui-test docs docs-dev dev down docker clean tidy
+.PHONY: all build build-cli build-server test test-integration test-e2e sync-example lint fmt vet ui ui-test docs docs-dev dev down docker clean tidy
 
 all: build
 
@@ -31,6 +31,13 @@ test-integration:
 
 test-e2e:
 	go test -count=1 -tags e2e -timeout $(E2E_TIMEOUT) ./test/e2e/...
+
+EXAMPLE_INFRA ?= ../example-infra
+
+sync-example:
+	rm -rf test/integration/testdata/example-infra
+	mkdir -p test/integration/testdata/example-infra
+	git -C $(EXAMPLE_INFRA) ls-files -z | grep -zv '^\.github/' | rsync -a --files-from=- --from0 $(EXAMPLE_INFRA)/ test/integration/testdata/example-infra/
 
 lint: fmt vet
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...

@@ -23,6 +23,13 @@ make dev              # Postgres + LocalStack via docker compose, then the serve
 Set `TEST_DATABASE_URL` to reuse an existing Postgres instead of starting a
 container.
 
+`test/integration/testdata/example-infra` is a copy of the
+[example monorepo](https://github.com/stackorder/example-infra) without its
+workflow files; the integration suite always uses it and the e2e suite falls
+back to it when no checkout is available. Refresh it with `make sync-example`
+(`EXAMPLE_INFRA=<path>` points at another checkout) whenever the example
+changes.
+
 ## End-to-end tests
 
 `make test-e2e` runs `test/e2e` with the `e2e` build tag: the real
