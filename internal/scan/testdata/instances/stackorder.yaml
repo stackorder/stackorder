@@ -1,0 +1,8 @@
+version: 1
+stacks:
+  discover: ["infra/*"]
+  exclude: ["infra/state-backend"]
+  instances:
+    from_var_files: "workspaces/*.tfvars.json"
+backend_config:
+  - infra/state.s3.tfbackend

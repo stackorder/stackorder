@@ -172,38 +172,66 @@ func (r *hclReader) readS3Backend(block *hcl.Block) *v1.Backend {
 	content, _, diags := block.Body.PartialContent(s3Schema)
 	r.diagnostics(diags)
 	be := &v1.Backend{Type: backendS3}
+	r.overlayS3(content.Attributes, be, fmt.Sprintf("backend %q", backendS3), "left empty")
+	return be
+}
+
+func (r *hclReader) overlayBackendFile(rel string, src []byte, be *v1.Backend) {
+	var (
+		file  *hcl.File
+		diags hcl.Diagnostics
+	)
+	if strings.HasSuffix(rel, ".json") {
+		file, diags = r.parser.ParseJSON(src, rel)
+	} else {
+		file, diags = r.parser.ParseHCL(src, rel)
+	}
+	r.diagnostics(diags)
+	if file == nil || file.Body == nil {
+		return
+	}
+	content, _, diags := file.Body.PartialContent(s3Schema)
+	r.diagnostics(diags)
+	r.overlayS3(content.Attributes, be, "backend config", "skipped")
+}
+
+func (r *hclReader) overlayS3(attrs hcl.Attributes, be *v1.Backend, what, outcome string) {
 	for _, name := range s3Attributes {
-		attr, ok := content.Attributes[name]
+		attr, ok := attrs[name]
 		if !ok {
 			continue
 		}
 		if name == "use_lockfile" {
 			v, ok := literalBool(attr.Expr)
 			if !ok {
-				r.warn("%s: backend %q attribute %q is not a literal value; left empty", location(attr.Range), backendS3, name)
+				r.warn("%s: %s attribute %q is not a literal value; %s", location(attr.Range), what, name, outcome)
+				continue
 			}
 			be.UseLockfile = v
 			continue
 		}
 		v, ok := literalString(attr.Expr)
 		if !ok {
-			r.warn("%s: backend %q attribute %q is not a literal value; left empty", location(attr.Range), backendS3, name)
+			r.warn("%s: %s attribute %q is not a literal value; %s", location(attr.Range), what, name, outcome)
 			continue
 		}
-		switch name {
-		case "bucket":
-			be.Bucket = v
-		case "key":
-			be.Key = v
-		case "region":
-			be.Region = v
-		case "dynamodb_table":
-			be.DynamoDBTable = v
-		case "workspace_key_prefix":
-			be.WorkspaceKeyPrefix = v
-		}
+		setS3String(be, name, v)
 	}
-	return be
+}
+
+func setS3String(be *v1.Backend, name, value string) {
+	switch name {
+	case "bucket":
+		be.Bucket = value
+	case "key":
+		be.Key = value
+	case "region":
+		be.Region = value
+	case "dynamodb_table":
+		be.DynamoDBTable = value
+	case "workspace_key_prefix":
+		be.WorkspaceKeyPrefix = value
+	}
 }
 
 func (r *hclReader) readRemoteState(block *hcl.Block) remoteState {

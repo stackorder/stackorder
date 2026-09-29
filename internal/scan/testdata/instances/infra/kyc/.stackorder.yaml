@@ -1,0 +1,5 @@
+backend_config:
+  - 'key=kyc/{{ .Instance }}.tfstate'
+var_files:
+  - ../../vars/common.tfvars
+  - missing.tfvars

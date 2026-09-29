@@ -1,0 +1,2 @@
+instances: [blue, green]
+backend_config: ["key=dup.tfstate"]

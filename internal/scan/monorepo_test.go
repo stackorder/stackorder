@@ -197,8 +197,23 @@ func TestScanTreeHash(t *testing.T) {
 			mutate: func(t *testing.T, root string) { appendFile(t, root, "README.md", "more\n") },
 		},
 		{
-			name:   "variable files and lock files",
-			mutate: func(t *testing.T, root string) { writeFile(t, root, "stacks/prod/vpc/prod.tfvars", "x = 1\n") },
+			name:    "a .tfvars file",
+			mutate:  func(t *testing.T, root string) { writeFile(t, root, "stacks/prod/vpc/prod.tfvars", "x = 1\n") },
+			changed: true,
+		},
+		{
+			name:    "a .tfvars.json file",
+			mutate:  func(t *testing.T, root string) { writeFile(t, root, "vars/prod.tfvars.json", "{}\n") },
+			changed: true,
+		},
+		{
+			name:    "a .tfbackend file",
+			mutate:  func(t *testing.T, root string) { writeFile(t, root, "infra/state.s3.tfbackend", "bucket = \"b\"\n") },
+			changed: true,
+		},
+		{
+			name:   "lock files",
+			mutate: func(t *testing.T, root string) { writeFile(t, root, "stacks/prod/vpc/.terraform.lock.hcl", "# lock\n") },
 		},
 		{
 			name: "files under .terraform, node_modules and .git",

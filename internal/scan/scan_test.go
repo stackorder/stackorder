@@ -206,7 +206,7 @@ module "b_long" {
 			},
 			want: &v1.Graph{
 				Stacks: []v1.Stack{
-					{Key: "other/repo//stacks/x:blue", Path: "stacks/x", Workspace: "blue", Repo: "other/repo", External: true},
+					{Key: "other/repo//stacks/x:blue", Path: "stacks/x", Instance: "blue", Repo: "other/repo", External: true},
 					defaultStack("stacks/a", state("b", "a.tfstate"), &v1.StackConfig{
 						DependsOn: []string{"acme/infra//stacks/b", "./stacks/b/", "ACME/Infra//stacks/b", "other/repo//stacks/x:blue", "other/repo//stacks/x:blue"},
 					}),
@@ -294,6 +294,23 @@ module "b_long" {
 			},
 		},
 		{
+			name: "exclude beats discover and include",
+			files: map[string]string{
+				"stackorder.yaml":    "version: 1\nstacks:\n  include: [tools/x]\n  exclude: [\"./stacks/b/\", \"tools/*\"]\n",
+				"stacks/a/main.tf":   s3Block("b", "a.tfstate"),
+				"stacks/b/main.tf":   s3Block("b", "b.tfstate"),
+				"stacks/b/c/main.tf": s3Block("b", "c.tfstate"),
+				"tools/x/main.tf":    s3Block("b", "x.tfstate"),
+			},
+			want: &v1.Graph{
+				Stacks: []v1.Stack{
+					defaultStack("stacks/a", state("b", "a.tfstate"), nil),
+					defaultStack("stacks/b/c", state("b", "c.tfstate"), nil),
+				},
+				Warnings: []string{"stacks.include: tools/x: excluded by stacks.exclude"},
+			},
+		},
+		{
 			name:  "the repository root is never an included stack",
 			files: map[string]string{"stackorder.yaml": "version: 1\nstacks:\n  include: [\".\"]\n"},
 			want: &v1.Graph{
@@ -358,6 +375,86 @@ module "b_long" {
 				Warnings: []string{
 					"stacks stacks/a:dev, stacks/a:prod share the state object s3://b/a.tfstate",
 					`stacks/b/workspaces/north.tfvars: names instance "north", which stacks/b/.stackorder.yaml does not declare; the file is not used`,
+				},
+			},
+		},
+		{
+			name: "bare depends_on paths resolve against instances",
+			files: map[string]string{
+				"stacks/a/main.tf":          s3Block("b", "a.tfstate"),
+				"stacks/a/.stackorder.yaml": "instances: [dev, prod]\nworkspace: \"{{ .Instance }}\"\ndepends_on: [stacks/a, stacks/b, stacks/c, stacks/c:east]\n",
+				"stacks/b/main.tf":          s3Block("b", "b.tfstate"),
+				"stacks/b/.stackorder.yaml": "workspace: blue\n",
+				"stacks/c/main.tf":          s3Block("b", "c.tfstate"),
+				"stacks/c/.stackorder.yaml": "instances: [east, west]\nworkspace: \"{{ .Instance }}\"\n",
+			},
+			want: &v1.Graph{
+				Stacks: []v1.Stack{
+					{
+						Key: "stacks/a:dev", Path: "stacks/a", Instance: "dev", Workspace: "dev", Backend: state("b", "a.tfstate"),
+						Environment: "dev", Tool: v1.ToolTerraform, PlanOutput: "full",
+						Config: &v1.StackConfig{Instances: v1.Instances{"dev": {}, "prod": {}}, Workspace: "{{ .Instance }}", DependsOn: []string{"stacks/a", "stacks/b", "stacks/c", "stacks/c:east"}},
+					},
+					{
+						Key: "stacks/a:prod", Path: "stacks/a", Instance: "prod", Workspace: "prod", Backend: state("b", "a.tfstate"),
+						Environment: "prod", Tool: v1.ToolTerraform, PlanOutput: "full",
+						Config: &v1.StackConfig{Instances: v1.Instances{"dev": {}, "prod": {}}, Workspace: "{{ .Instance }}", DependsOn: []string{"stacks/a", "stacks/b", "stacks/c", "stacks/c:east"}},
+					},
+					defaultStack("stacks/b:blue", state("b", "b.tfstate"), &v1.StackConfig{Workspace: "blue"}),
+					{
+						Key: "stacks/c:east", Path: "stacks/c", Instance: "east", Workspace: "east", Backend: state("b", "c.tfstate"),
+						Environment: "east", Tool: v1.ToolTerraform, PlanOutput: "full",
+						Config: &v1.StackConfig{Instances: v1.Instances{"east": {}, "west": {}}, Workspace: "{{ .Instance }}"},
+					},
+					{
+						Key: "stacks/c:west", Path: "stacks/c", Instance: "west", Workspace: "west", Backend: state("b", "c.tfstate"),
+						Environment: "west", Tool: v1.ToolTerraform, PlanOutput: "full",
+						Config: &v1.StackConfig{Instances: v1.Instances{"east": {}, "west": {}}, Workspace: "{{ .Instance }}"},
+					},
+				},
+				Edges: []v1.Edge{
+					dependsOn("stacks/a:dev", "stacks/b:blue"),
+					dependsOn("stacks/a:dev", "stacks/c"),
+					dependsOn("stacks/a:dev", "stacks/c:east"),
+					dependsOn("stacks/a:prod", "stacks/b:blue"),
+					dependsOn("stacks/a:prod", "stacks/c"),
+					dependsOn("stacks/a:prod", "stacks/c:east"),
+				},
+				Warnings: []string{
+					"stacks/a:dev: depends_on names the stack itself; ignored",
+					"stacks/a:dev: depends_on stacks/c: no such stack in this repository",
+					"stacks/a:prod: depends_on names the stack itself; ignored",
+					"stacks/a:prod: depends_on stacks/c: no such stack in this repository",
+				},
+			},
+		},
+		{
+			name: "bare ignore_inferred paths resolve against instances",
+			files: map[string]string{
+				"stacks/a/main.tf":          s3Block("b", "a.tfstate") + remoteStateBlock("x", "b", "x.tfstate") + remoteStateBlock("y", "b", "y.tfstate"),
+				"stacks/a/.stackorder.yaml": "ignore_inferred: [stacks/x]\n",
+				"stacks/x/main.tf":          s3Block("b", "x.tfstate"),
+				"stacks/x/.stackorder.yaml": "instances: [main]\n",
+				"stacks/y/main.tf":          s3Block("b", "y.tfstate"),
+				"stacks/y/.stackorder.yaml": "instances: [main]\n",
+			},
+			want: &v1.Graph{
+				Stacks: []v1.Stack{
+					defaultStack("stacks/a", state("b", "a.tfstate"), &v1.StackConfig{IgnoreInferred: []string{"stacks/x"}}),
+					{
+						Key: "stacks/x:main", Path: "stacks/x", Instance: "main", Backend: state("b", "x.tfstate"),
+						Environment: "main", Tool: v1.ToolTerraform, PlanOutput: "full",
+						Config: &v1.StackConfig{Instances: v1.Instances{"main": {}}},
+					},
+					{
+						Key: "stacks/y:main", Path: "stacks/y", Instance: "main", Backend: state("b", "y.tfstate"),
+						Environment: "main", Tool: v1.ToolTerraform, PlanOutput: "full",
+						Config: &v1.StackConfig{Instances: v1.Instances{"main": {}}},
+					},
+				},
+				Edges: []v1.Edge{readsState("stacks/a", "stacks/y:main", "b", "y.tfstate")},
+				Warnings: []string{
+					"stacks/a: inferred reads_state edge to stacks/x:main suppressed by ignore_inferred",
 				},
 			},
 		},

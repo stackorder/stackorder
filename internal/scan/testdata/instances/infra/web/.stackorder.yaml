@@ -1,0 +1,7 @@
+backend_config:
+  - 'key=web/{{ .Instance }}.tfstate'
+depends_on:
+  - infra/kyc
+  - infra/single
+  - infra/dup
+  - 'acme/network//infra/tgw:{{ .Instance }}'
