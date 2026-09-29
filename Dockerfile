@@ -20,7 +20,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
 
 FROM gcr.io/distroless/static:nonroot
 COPY --from=build /out/stackorder-server /stackorder-server
-USER nonroot:nonroot
+USER 65532:65532
 EXPOSE 8080
 ENV STACKORDER_LISTEN=:8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["/stackorder-server", "healthcheck"]
