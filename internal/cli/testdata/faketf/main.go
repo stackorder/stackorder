@@ -25,11 +25,6 @@ type fakeTFConfig struct {
 	FailOutput  string          `json:"fail_output"`
 }
 
-type tfCall struct {
-	Dir  string   `json:"dir"`
-	Args []string `json:"args"`
-}
-
 func main() {
 	os.Exit(run(os.Getenv("STACKORDER_TEST_FAKE_TF"), os.Args[1:]))
 }
@@ -45,12 +40,14 @@ func run(cfgPath string, args []string) int {
 		fmt.Fprintln(os.Stderr, "fake terraform:", err)
 		return 97
 	}
-	dir, _ := os.Getwd()
 	if cfg.Log != "" {
-		line, _ := json.Marshal(tfCall{Dir: dir, Args: args})
+		var line strings.Builder
+		for _, a := range args {
+			line.WriteString(a + "\x1f")
+		}
 		f, err := os.OpenFile(cfg.Log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err == nil {
-			_, _ = f.Write(append(line, '\n'))
+			_, _ = f.WriteString(line.String() + "\n")
 			_ = f.Close()
 		}
 	}

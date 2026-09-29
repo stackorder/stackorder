@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -163,10 +164,18 @@ func newTestApp(w io.Writer) *app {
 	return &app{stdout: w, stderr: w, log: slog.New(slog.NewTextHandler(w, nil)), format: formatText}
 }
 
+const cliTimeout = 3 * time.Minute
+
 func runCLI(t *testing.T, args ...string) result {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), cliTimeout)
+	defer cancel()
 	var stdout, stderr bytes.Buffer
-	err := Run(context.Background(), args, &stdout, &stderr)
+	err := Run(ctx, args, &stdout, &stderr)
+	if ctx.Err() != nil {
+		t.Fatalf("stackorder %s did not finish within %s: %v\nstdout:\n%s\nstderr:\n%s",
+			strings.Join(args, " "), cliTimeout, err, stdout.String(), stderr.String())
+	}
 	return result{code: ExitCode(err), err: err, stdout: stdout.String(), stderr: stderr.String()}
 }
 

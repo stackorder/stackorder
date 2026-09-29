@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +20,10 @@ import (
 	"github.com/stackorder/stackorder/internal/tf"
 )
 
-const fakeTFEnv = "STACKORDER_TEST_FAKE_TF"
+const (
+	fakeTFEnv        = "STACKORDER_TEST_FAKE_TF"
+	fakeBuildTimeout = 5 * time.Minute
+)
 
 var fakeTFBin string
 
@@ -33,17 +38,116 @@ func runTests(m *testing.M) int {
 		return 1
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	fakeTFBin = filepath.Join(dir, "terraform")
-	if runtime.GOOS == "windows" {
-		fakeTFBin += ".exe"
-	}
-	build := exec.Command("go", "build", "-o", fakeTFBin, "./testdata/faketf")
-	if out, err := build.CombinedOutput(); err != nil {
-		fmt.Fprintf(os.Stderr, "building the fake terraform: %v\n%s", err, out)
+	if fakeTFBin, err = installFakeTerraform(dir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	clientOptions = []client.Option{client.WithBackoff(time.Millisecond), client.WithTimeout(10 * time.Second)}
 	return m.Run()
+}
+
+const fakeTFScript = `#!/bin/sh
+if [ -z "$STACKORDER_TEST_FAKE_TF" ] || [ ! -r "$STACKORDER_TEST_FAKE_TF" ]; then
+  echo "fake terraform: STACKORDER_TEST_FAKE_TF names no configuration" >&2
+  exit 97
+fi
+. "$STACKORDER_TEST_FAKE_TF"
+if [ -n "$FAKE_LOG" ]; then
+  { for a in "$@"; do printf '%s\037' "$a"; done; printf '\n'; } >> "$FAKE_LOG"
+fi
+fail() {
+  printf '\nError: %s\n' "$FAKE_FAIL_OUTPUT" >&2
+  exit "$1"
+}
+last=
+for a in "$@"; do last=$a; done
+case "$1" in
+  "")
+    exit 1 ;;
+  version)
+    if [ "$FAKE_TOFU" = true ]; then
+      printf '{"terraform_version":"%s","platform":"linux_amd64","provider_selections":{}}\n' "$FAKE_VERSION"
+    else
+      printf '{"terraform_version":"%s","platform":"linux_amd64","provider_selections":{},"terraform_outdated":false}\n' "$FAKE_VERSION"
+    fi ;;
+  init)
+    echo "Terraform has been successfully initialized!"
+    if [ "$FAKE_INIT_EXIT" -ne 0 ]; then fail "$FAKE_INIT_EXIT"; fi
+    if [ -n "$FAKE_BACKEND" ]; then
+      mkdir -p .terraform && printf '%s' "$FAKE_BACKEND" > .terraform/terraform.tfstate
+    fi ;;
+  workspace)
+    printf 'Switched to workspace "%s".\n' "$last" ;;
+  plan)
+    printf '%s' "$FAKE_PLAN_OUTPUT"
+    if [ "$FAKE_PLAN_EXIT" -eq 1 ]; then fail 1; fi
+    for a in "$@"; do
+      case "$a" in -out=*) printf 'fake plan' > "${a#-out=}" ;; esac
+    done
+    exit "$FAKE_PLAN_EXIT" ;;
+  show)
+    if [ ! -e "$last" ]; then
+      printf 'Error: Failed to read the given file %s as a state or plan file\n' "$last" >&2
+      exit 1
+    fi
+    if [ "$FAKE_SHOW_EXIT" -ne 0 ]; then fail "$FAKE_SHOW_EXIT"; fi
+    src=$FAKE_SHOW_TEXT
+    for a in "$@"; do
+      if [ "$a" = -json ]; then src=$FAKE_SHOW_JSON; fi
+    done
+    if [ ! -r "$src" ]; then
+      echo "fake terraform: cannot read $src" >&2
+      exit 97
+    fi
+    cat "$src" ;;
+  apply)
+    if [ ! -e "$last" ]; then
+      printf 'Error: Failed to load "%s" as a plan file\n' "$last" >&2
+      exit 1
+    fi
+    printf '%s' "$FAKE_APPLY_OUTPUT"
+    if [ "$FAKE_APPLY_EXIT" -ne 0 ]; then fail "$FAKE_APPLY_EXIT"; fi
+    echo "Apply complete! Resources: 1 added, 0 changed, 0 destroyed." ;;
+  output)
+    echo "{}" ;;
+esac
+exit 0
+`
+
+func installFakeTerraform(dir string) (string, error) {
+	bin := filepath.Join(dir, "terraform")
+	if runtime.GOOS != "windows" {
+		return bin, os.WriteFile(bin, []byte(fakeTFScript), 0o755) //nolint:gosec
+	}
+	bin += ".exe"
+	ctx, cancel := context.WithTimeout(context.Background(), fakeBuildTimeout)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "go", "build", "-o", bin, "./testdata/faketf").CombinedOutput(); err != nil {
+		return "", fmt.Errorf("building the fake terraform: %w\n%s", err, out)
+	}
+	return bin, nil
+}
+
+func (c fakeTFConfig) shellEnv() string {
+	var b strings.Builder
+	for _, kv := range [][2]string{
+		{"FAKE_LOG", c.Log},
+		{"FAKE_TOFU", strconv.FormatBool(c.Tofu)},
+		{"FAKE_VERSION", c.Version},
+		{"FAKE_INIT_EXIT", strconv.Itoa(c.InitExit)},
+		{"FAKE_BACKEND", string(c.Backend)},
+		{"FAKE_PLAN_EXIT", strconv.Itoa(c.PlanExit)},
+		{"FAKE_PLAN_OUTPUT", c.PlanOutput},
+		{"FAKE_SHOW_JSON", c.ShowJSON},
+		{"FAKE_SHOW_TEXT", c.ShowText},
+		{"FAKE_SHOW_EXIT", strconv.Itoa(c.ShowExit)},
+		{"FAKE_APPLY_EXIT", strconv.Itoa(c.ApplyExit)},
+		{"FAKE_APPLY_OUTPUT", c.ApplyOutput},
+		{"FAKE_FAIL_OUTPUT", c.FailOutput},
+	} {
+		b.WriteString(kv[0] + "='" + strings.ReplaceAll(kv[1], "'", `'\''`) + "'\n")
+	}
+	return b.String()
 }
 
 type fakeTFConfig struct {
@@ -60,11 +164,6 @@ type fakeTFConfig struct {
 	ApplyExit   int             `json:"apply_exit"`
 	ApplyOutput string          `json:"apply_output"`
 	FailOutput  string          `json:"fail_output"`
-}
-
-type tfCall struct {
-	Dir  string   `json:"dir"`
-	Args []string `json:"args"`
 }
 
 type harness struct {
@@ -110,8 +209,12 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) run(args ...string) result {
 	h.t.Helper()
-	data, err := json.Marshal(h.tf)
-	require.NoError(h.t, err)
+	data := []byte(h.tf.shellEnv())
+	if runtime.GOOS == "windows" {
+		var err error
+		data, err = json.Marshal(h.tf)
+		require.NoError(h.t, err)
+	}
 	require.NoError(h.t, os.WriteFile(h.tfCfg, data, 0o600))
 	if !slices.Contains(args, "--repo-root") && os.Getenv("GITHUB_WORKSPACE") == "" {
 		args = append([]string{"--repo-root", h.root}, args...)
@@ -174,10 +277,8 @@ func (h *harness) tfCalls() [][]string {
 	}
 	require.NoError(h.t, err)
 	var out [][]string
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		var c tfCall
-		require.NoError(h.t, json.Unmarshal([]byte(line), &c))
-		out = append(out, c.Args)
+	for _, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
+		out = append(out, strings.Split(strings.TrimSuffix(line, "\x1f"), "\x1f"))
 	}
 	return out
 }
