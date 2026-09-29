@@ -26,10 +26,11 @@ npm run docs:preview  # serve the built site
 
 ## Publishing {#publishing}
 
-`.github/workflows/docs.yml` builds the site and deploys it to GitHub Pages on every push to `main` that touches `docs/`, `ARCHITECTURE.md` or `CONTRIBUTING.md`, and on manual dispatch.
+`.github/workflows/docs.yml` builds the site and deploys it to GitHub Pages on every push to `main` that touches `docs/`, `ARCHITECTURE.md`, `CONTRIBUTING.md` or the workflow itself, and on manual dispatch. Its jobs run only when the repository variable `DOCS_DEPLOY` is `true`; otherwise the workflow skips them.
 
 1. In the repository settings, under **Pages**, set the source to **GitHub Actions**.
-2. Push to `main` or run the **docs** workflow by hand.
+2. Under **Secrets and variables**, **Actions**, **Variables**, set `DOCS_DEPLOY` to `true`.
+3. Push to `main` or run the **docs** workflow by hand.
 
 Without a custom domain the site is served from `https://<owner>.github.io/<repo>/`, and the workflow builds it with the base path `/<repo>/`.
 
