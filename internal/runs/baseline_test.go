@@ -84,7 +84,7 @@ func TestWithDefaultBranchStacks(t *testing.T) {
 
 	got := withDefaultBranchStacks(uploaded, baseline, in, pr, base)
 	require.NotNil(t, got)
-	var keys []string
+	keys := make([]string, 0, len(got.Stacks))
 	for _, st := range got.Stacks {
 		keys = append(keys, st.Key)
 	}

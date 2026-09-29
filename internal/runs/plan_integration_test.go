@@ -302,7 +302,7 @@ func TestPullRequestCannotNarrowItsAffectedSet(t *testing.T) {
 	assert.Len(t, run.Stacks, 4)
 	stored, _, err := e.st.GetGraph(e.ctx, repoID, headSHA)
 	require.NoError(t, err)
-	var keys []string
+	keys := make([]string, 0, len(stored.Stacks))
 	for _, st := range stored.Stacks {
 		keys = append(keys, st.Key)
 	}
