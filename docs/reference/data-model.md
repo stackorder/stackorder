@@ -2,7 +2,7 @@
 
 Postgres is the server's only stateful dependency. It holds the graphs, the run history, the locks, the audit log and the work queue. Nothing in it is needed to operate Terraform: wiping the database loses history and locks, never state.
 
-All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.id`, `modules.id`, `graphs.id`, `dispatches.id`) are UUIDs; `installations.id` and `repos.id` are GitHub's numeric ids. The schema is created by the migrations in `migrations/`, `0001_graph` to `0005_run_service`.
+All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.id`, `modules.id`, `graphs.id`, `dispatches.id`) are UUIDs; `installations.id` and `repos.id` are GitHub's numeric ids. The schema is created by the migrations in `migrations/`, `0001_graph` to `0006_run_stack_via`.
 
 ## Tables {#tables}
 
@@ -25,7 +25,7 @@ All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.i
 | Table | Key columns | Notes |
 | --- | --- | --- |
 | `runs` | `id`, `repo_id`, `sha`, `base_sha`, `pr_number`, `trigger`, `mode`, `status`, `requested_by`, `graph_id`, `waves`, `current_wave`, `warnings`, `workflow_run_id`, `workflow_run_attempt`, `check_runs` (jsonb), `created_at`, `started_at`, `finished_at` | `trigger` is `pull_request`, `comment`, `push`, `schedule`, `rerequest` or `manual`; `check_runs` records the GitHub check run ids the server created |
-| `run_stacks` | `run_id`, `stack_id`, `wave`, `mode`, `status`, `reasons`, `environment`, `adds`, `changes`, `destroys`, `replaces`, `has_changes`, `exit_code`, `job_url`, `plan_artifact`, `plan_run_id`, `summary` (jsonb), `plan_text`, `plan_text_truncated`, `plan_url`, `plan_output`, `error_text`, `blocked_by`, `dispatch_id`, `started_at`, `finished_at`, `updated_at` | One row per stack per run; the observability core. `plan_text` is capped at 256 KB, or 8 KB with the artifact bucket |
+| `run_stacks` | `run_id`, `stack_id`, `wave`, `mode`, `status`, `reasons`, `via`, `environment`, `adds`, `changes`, `destroys`, `replaces`, `has_changes`, `exit_code`, `job_url`, `plan_artifact`, `plan_run_id`, `summary` (jsonb), `plan_text`, `plan_text_truncated`, `plan_url`, `plan_output`, `error_text`, `blocked_by`, `dispatch_id`, `started_at`, `finished_at`, `updated_at` | One row per stack per run; the observability core. `via` lists the modules or stacks the change reached the stack through, as the graph replay shows it. `plan_text` is capped at 256 KB, or 8 KB with the artifact bucket |
 | `checks` | `run_id`, `stack_id`, `name`, `status`, `summary`, `details`, `details_url`, `updated_at` | Named check verdicts, one per stack, run and name |
 | `dispatches` | `id`, `run_id`, `wave`, `environment`, `mode`, `chunk`, `workflow_run_id`, `dispatched_at`, `sent_at`, `completed_at`, `conclusion` | One row per `workflow_dispatch`, unique per (run, wave, environment, mode, chunk); a workflow run id belongs to at most one dispatch |
 | `locks` | `stack_id`, `run_id`, `pr_number`, `taken_at`, `reason` | Primary key on `stack_id`, so a lock is unique by construction |

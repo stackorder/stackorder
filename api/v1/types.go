@@ -559,8 +559,7 @@ type ModuleDetail struct {
 	Key    string     `json:"key"`
 	Kind   ModuleKind `json:"kind"`
 	Source string     `json:"source"`
-	// Latest is the newest stable version by semver precedence, or the
-	// newest pre-release when no stable version is released.
+	// Latest is the newest stable version by semver, else the newest pre-release.
 	Latest    string           `json:"latest,omitempty"`
 	Versions  []ModuleVersion  `json:"versions,omitempty"`
 	Consumers []ModuleConsumer `json:"consumers,omitempty"`
