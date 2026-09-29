@@ -10,12 +10,6 @@ import { Table } from '../components/Table';
 import { moduleBaseKey } from '../format';
 import { usePageTitle } from '../usePageTitle';
 
-/** The newest version of a module, from its versions list. */
-export function latestVersion(m: Pick<ModuleDetail, 'versions'>): string | undefined {
-  const sorted = [...(m.versions ?? [])].sort((a, b) => b.tagged_at.localeCompare(a.tagged_at));
-  return sorted[0]?.version;
-}
-
 /** Number of consumers pinned behind the latest version. */
 export function consumersBehind(m: Pick<ModuleDetail, 'consumers'>): number {
   return (m.consumers ?? []).filter((c) => (c.behind ?? 0) > 0).length;
@@ -74,7 +68,7 @@ export function ModulesPage() {
           { key: 'key', header: 'Module', render: (m) => <a href={`/modules/${encodeURIComponent(m.id)}`}>{m.key}</a> },
           { key: 'kind', header: 'Kind', render: (m) => m.kind },
           { key: 'source', header: 'Source', render: (m) => <code class="wrap">{m.source}</code> },
-          { key: 'latest', header: 'Latest', render: (m) => latestVersion(m) ?? <span class="muted">—</span> },
+          { key: 'latest', header: 'Latest', render: (m) => m.latest ?? <span class="muted">—</span> },
           { key: 'consumers', header: 'Consumers', numeric: true, render: (m) => (m.consumers ?? []).length },
           {
             key: 'behind',

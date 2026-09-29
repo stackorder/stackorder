@@ -371,6 +371,7 @@ export interface ModuleDetail {
   key: string;
   kind: ModuleKind;
   source: string;
+  latest?: string;
   versions?: ModuleVersion[];
   consumers?: ModuleConsumer[];
 }

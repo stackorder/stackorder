@@ -62,6 +62,7 @@ func (s *server) moduleDetail(ctx context.Context, id identity, fam store.Module
 		Kind:   fam.Kind,
 		Source: familySource(fam, pinned),
 	}
+	d.Latest, _ = versionLag(versions, "")
 	for _, v := range versions {
 		d.Versions = append(d.Versions, v.ToV1())
 	}

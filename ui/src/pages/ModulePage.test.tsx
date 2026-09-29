@@ -1,7 +1,7 @@
 import { screen, within } from '@testing-library/preact';
 import { describe, expect, it } from 'vitest';
 
-import { ids } from '../fixtures';
+import { clone, ids, moduleDetail } from '../fixtures';
 import { json, nth, renderWithApp } from '../test/render';
 import { ModulePage } from './ModulePage';
 
@@ -37,6 +37,23 @@ describe('ModulePage', () => {
       'href',
       '/repos/acme/platform-infra',
     );
+  });
+
+  it('names the latest version the server picks, not the last one tagged', async () => {
+    const m = clone(moduleDetail);
+    m.latest = 'v1.4.1';
+    m.versions = [
+      { version: 'v1.2.0', tagged_at: '2026-08-01T00:00:00Z' },
+      { version: 'v1.4.1', tagged_at: '2026-08-10T00:00:00Z' },
+      { version: 'v2.0.0-rc.1', tagged_at: '2026-08-20T00:00:00Z' },
+      { version: 'v1.3.0', tagged_at: '2026-09-01T00:00:00Z' },
+    ];
+    renderWithApp(<ModulePage id={ids.module} />, {
+      url: `/modules/${ids.module}`,
+      handler: (c) => (c.path === `/v1/modules/${ids.module}` ? json(m) : undefined),
+    });
+    await screen.findByRole('heading', { level: 1 });
+    expect(screen.getByText('Latest').nextElementSibling).toHaveTextContent('v1.4.1');
   });
 
   it('explains missing versions for local modules', async () => {

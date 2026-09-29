@@ -467,6 +467,7 @@ func TestModules(t *testing.T) {
 	assert.Equal(t, v1.ModuleLocal, local.Kind)
 	assert.Equal(t, "../../modules/vpc", local.Source)
 	assert.Empty(t, local.Versions)
+	assert.Empty(t, local.Latest)
 	require.Len(t, local.Consumers, 1)
 	assert.Equal(t, v1.ModuleConsumer{StackID: w.stacks["stacks/prod/vpc"].String(), Repo: "acme/infra", StackKey: "stacks/prod/vpc"}, local.Consumers[0])
 
@@ -479,6 +480,7 @@ func TestModules(t *testing.T) {
 		versions[i] = v.Version
 	}
 	assert.Equal(t, []string{"v1.3.0", "v2.0.0-rc.1", "v1.4.1", "v1.2.0"}, versions)
+	assert.Equal(t, "v1.4.1", eks.Latest, "the latest version is the newest stable one by semver, not the last tagged")
 	assert.Equal(t, []v1.ModuleConsumer{{StackID: w.stacks["stacks/prod/eks"].String(), Repo: "acme/infra", StackKey: "stacks/prod/eks", Ref: "v1.2.0", Behind: 2}}, eks.Consumers)
 
 	all := decodeBody[v1.Page[v1.ModuleDetail]](t, w.ok("/v1/modules", false))

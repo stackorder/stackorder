@@ -555,10 +555,13 @@ type ModuleConsume struct {
 
 // ModuleDetail is the body of GET /v1/modules/{id}.
 type ModuleDetail struct {
-	ID        string           `json:"id"`
-	Key       string           `json:"key"`
-	Kind      ModuleKind       `json:"kind"`
-	Source    string           `json:"source"`
+	ID     string     `json:"id"`
+	Key    string     `json:"key"`
+	Kind   ModuleKind `json:"kind"`
+	Source string     `json:"source"`
+	// Latest is the newest stable version by semver precedence, or the
+	// newest pre-release when no stable version is released.
+	Latest    string           `json:"latest,omitempty"`
 	Versions  []ModuleVersion  `json:"versions,omitempty"`
 	Consumers []ModuleConsumer `json:"consumers,omitempty"`
 }

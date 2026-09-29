@@ -3,6 +3,7 @@
   "key": "acme/terraform-modules//eks-addons",
   "kind": "git",
   "source": "git::https://github.com/acme/terraform-modules.git//eks-addons",
+  "latest": "v0.10.0",
   "versions": [
     {
       "version": "v0.10.0",

@@ -771,6 +771,7 @@ A page of modules, ordered by key, each in the [`ModuleDetail`](#module) shape. 
       "key": "acme/modules//tags",
       "kind": "git",
       "source": "git::https://github.com/acme/modules.git//tags?ref=v1.4.1",
+      "latest": "v1.4.1",
       "consumers": [
         { "stack_id": "3d6f0a2e-1b4c-4d8e-9f10-2a3b4c5d6e7f", "repo": "acme/infra", "stack_key": "stacks/prod/vpc", "ref": "v1.2.0", "behind": 2 }
       ]
@@ -782,7 +783,7 @@ A page of modules, ordered by key, each in the [`ModuleDetail`](#module) shape. 
 
 ### `GET /v1/modules/{id}` {#module}
 
-One module with its released versions and its consumers across repositories. Each consumer carries the `ref` it pins and how many released versions it is `behind`. An id of a pinned module (`key@ref`) answers with its family.
+One module with its released versions and its consumers across repositories. `latest` is the newest stable version by semantic version precedence, whatever order the tags were pushed in, or the newest pre-release when no stable version is released. Each consumer carries the `ref` it pins and how many released versions it is `behind`. An id of a pinned module (`key@ref`) answers with its family.
 
 ```json
 {
@@ -790,6 +791,7 @@ One module with its released versions and its consumers across repositories. Eac
   "key": "acme/modules//tags",
   "kind": "git",
   "source": "git::https://github.com/acme/modules.git//tags?ref=v1.4.1",
+  "latest": "v1.4.1",
   "versions": [
     { "version": "v1.4.1", "sha": "c0ffee1234567890c0ffee1234567890c0ffee12", "tagged_at": "2026-09-20T12:00:00Z" },
     { "version": "v1.3.0", "sha": "decafbad1234567890decafbad1234567890deca", "tagged_at": "2026-08-02T08:30:00Z" }

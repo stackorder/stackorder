@@ -7,7 +7,6 @@ import { Table } from '../components/Table';
 import { TimeAgo } from '../components/TimeAgo';
 import { plural, repoPath, shortSha } from '../format';
 import { usePageTitle } from '../usePageTitle';
-import { latestVersion } from './ModulesPage';
 
 /** One module: its released versions and every stack that consumes it at which ref. */
 export function ModulePage({ id }: { id: string }) {
@@ -17,7 +16,7 @@ export function ModulePage({ id }: { id: string }) {
   if (res.error && !res.data) return <ErrorState error={res.error} onRetry={res.reload} what="module" />;
   if (!res.data) return <Loading />;
   const m = res.data;
-  const latest = latestVersion(m);
+  const latest = m.latest;
   const versions = [...(m.versions ?? [])].sort((a, b) => b.tagged_at.localeCompare(a.tagged_at));
   return (
     <div class="page">

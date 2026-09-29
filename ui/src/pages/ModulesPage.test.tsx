@@ -1,16 +1,11 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/preact';
 import { describe, expect, it } from 'vitest';
 
-import { moduleDetail } from '../fixtures';
-import { nth, paged, renderWithApp } from '../test/render';
-import { consumersBehind, latestVersion, matchesModule, ModulesPage } from './ModulesPage';
+import { clone, moduleDetail } from '../fixtures';
+import { json, nth, paged, renderWithApp } from '../test/render';
+import { consumersBehind, matchesModule, ModulesPage } from './ModulesPage';
 
 describe('module helpers', () => {
-  it('finds the latest version by tag time', () => {
-    expect(latestVersion(moduleDetail)).toBe('v0.10.0');
-    expect(latestVersion({})).toBeUndefined();
-  });
-
   it('counts consumers behind', () => {
     expect(consumersBehind(moduleDetail)).toBe(2);
     expect(consumersBehind({})).toBe(0);
@@ -47,6 +42,19 @@ describe('ModulesPage', () => {
     ]);
     expect(within(nth(rows, 2)).getByRole('link')).toHaveAttribute('href', `/modules/${moduleDetail.id}`);
     expect(screen.getByText('4 of 4')).toBeInTheDocument();
+  });
+
+  it('shows the latest version the server picks, not the last one tagged', async () => {
+    const m = clone(moduleDetail);
+    m.latest = 'v1.4.1';
+    m.versions = [
+      { version: 'v1.3.0', tagged_at: '2026-09-20T00:00:00Z' },
+      { version: 'v2.0.0-rc.1', tagged_at: '2026-09-10T00:00:00Z' },
+      { version: 'v1.4.1', tagged_at: '2026-09-01T00:00:00Z' },
+    ];
+    renderWithApp(<ModulesPage />, { url: '/modules', handler: (c) => (c.path === '/v1/modules' ? json({ items: [m] }) : undefined) });
+    const table = await screen.findByRole('table', { name: 'Modules' });
+    expect(nth(within(table).getAllByRole('row'), 1).querySelectorAll('td')[3]?.textContent).toBe('v1.4.1');
   });
 
   it('finds a module past the first page from a ?q= link', async () => {
