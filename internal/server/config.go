@@ -63,6 +63,7 @@ const (
 	EnvEventRetention      = "STACKORDER_EVENT_RETENTION"
 	EnvDriftRetention      = "STACKORDER_DRIFT_RETENTION"
 	EnvWorkers             = "STACKORDER_WORKERS"
+	EnvAllowResetup        = "STACKORDER_ALLOW_RESETUP"
 	EnvLogLevel            = "STACKORDER_LOG_LEVEL"
 	EnvLogFormat           = "STACKORDER_LOG_FORMAT"
 	EnvOTLPEndpoint        = "OTEL_EXPORTER_OTLP_ENDPOINT"
@@ -150,6 +151,11 @@ type Config struct {
 	// server then migrates the database and serves only /setup*, /healthz
 	// and /readyz.
 	SetupMode bool
+	// AllowResetup is STACKORDER_ALLOW_RESETUP, false by default. Only
+	// when it is true does a server with App credentials serve
+	// /setup?force=1 and /setup/callback to create another App; otherwise
+	// they answer 404.
+	AllowResetup bool
 }
 
 // LoadConfig reads the configuration from getenv, normally os.Getenv.
@@ -178,6 +184,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		EventRetention:      e.duration(EnvEventRetention, DefaultEventRetention),
 		DriftRetention:      e.duration(EnvDriftRetention, DefaultDriftRetention),
 		Workers:             e.positiveInt(EnvWorkers, DefaultWorkers),
+		AllowResetup:        e.boolean(EnvAllowResetup),
 		LogLevel:            e.logLevel(EnvLogLevel),
 		LogFormat:           e.logFormat(EnvLogFormat),
 		OTLPEndpoint:        e.absoluteURL(EnvOTLPEndpoint, ""),
@@ -392,6 +399,19 @@ func (e *env) positiveInt(name string, def int) int {
 		return 0
 	}
 	return n
+}
+
+func (e *env) boolean(name string) bool {
+	v := e.str(name)
+	if v == "" {
+		return false
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		e.fail(name, "must be true or false, got %q", v)
+		return false
+	}
+	return b
 }
 
 func (e *env) hexKey(name string, size int) []byte {

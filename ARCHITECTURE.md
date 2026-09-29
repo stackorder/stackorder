@@ -434,6 +434,7 @@ as `other`.
 | `STACKORDER_ARTIFACT_BUCKET`, `STACKORDER_ARTIFACT_PREFIX` | Optional S3 bucket (and key prefix) for full plan text |
 | `STACKORDER_SESSION_KEY` | 32 byte hex key for cookie signing; generated and logged as a warning when absent |
 | `STACKORDER_METRICS_TOKEN` | When set, `/metrics` requires this bearer token |
+| `STACKORDER_ALLOW_RESETUP` | `true` lets a server with App credentials create another App through `/setup?force=1`; default `false`, and then `/setup?force=1` and `/setup/callback` answer 404 outside setup mode |
 | `STACKORDER_PLAN_TEXT_RETENTION`, `STACKORDER_EVENT_RETENTION`, `STACKORDER_DRIFT_RETENTION` | Durations, defaults `720h`, `168h`, `2160h` |
 | `STACKORDER_WORKERS` | Worker goroutines, default 4 |
 | `STACKORDER_LOG_LEVEL`, `STACKORDER_LOG_FORMAT` | `info` / `json` by default |

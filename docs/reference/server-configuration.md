@@ -30,6 +30,7 @@ Values are trimmed of surrounding white space, and an empty value counts as unse
 | `STACKORDER_EVENT_RETENTION` | `168h` | How long webhook events and finished jobs are kept (7 days). |
 | `STACKORDER_DRIFT_RETENTION` | `2160h` | How long drift history is kept (90 days); the latest result of each stack is always kept. |
 | `STACKORDER_WORKERS` | `4` | Worker goroutines claiming events and jobs; a positive integer. |
+| `STACKORDER_ALLOW_RESETUP` | `false` | A boolean, such as `true` or `false`; other values are refused. `true` lets a server that already has App credentials create another App through `/setup?force=1`. See [below](#setup-mode). |
 | `STACKORDER_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 | `STACKORDER_LOG_FORMAT` | `json` | `json`, or `text` for human-readable lines. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP HTTP base URL, such as `http://otel-collector:4318`; spans go to `<endpoint>/v1/traces`. Unset disables tracing. See [Metrics and tracing](/reference/metrics#tracing). |
@@ -43,6 +44,8 @@ Retention values are positive Go durations, such as `720h` or `90m`. URL variabl
 With none of them the server starts in **setup mode**. It connects to the database and runs the migrations, then serves only `/setup`, `/setup/callback`, `/setup/installed`, `/healthz` and `/readyz`; everything else answers `503` with code `unavailable`. It runs no workers, no scheduler and no GitHub client. `/healthz` and `/readyz` report `"setup_mode": true`.
 
 Open `/setup`, create the App, set the printed variables and restart. See [Getting started](/guide/getting-started#create-app) and the [setup endpoints](/reference/api#setup).
+
+Once the App variables are set, `/setup` only says so. Creating a replacement App, for instance after moving the server to a new URL, needs `STACKORDER_ALLOW_RESETUP=true`; without it `/setup?force=1` and `/setup/callback` answer 404, so nobody can start a second App on a running server. Unset it again once the new credentials are loaded.
 
 ## Start-up and shutdown {#lifecycle}
 

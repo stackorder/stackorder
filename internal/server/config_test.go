@@ -338,3 +338,27 @@ func TestConfigDefaultsAndValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestAllowResetup(t *testing.T) {
+	load := func(v string) (Config, error) {
+		return LoadConfig(func(name string) string {
+			return map[string]string{EnvBaseURL: testBaseURL, EnvDatabaseURL: testDSN, EnvAllowResetup: v}[name]
+		})
+	}
+	cfg, err := load("")
+	require.NoError(t, err)
+	assert.False(t, cfg.AllowResetup, "re-running setup is off by default")
+	for _, v := range []string{"true", "TRUE", "1"} {
+		cfg, err = load(v)
+		require.NoError(t, err, v)
+		assert.True(t, cfg.AllowResetup, v)
+	}
+	cfg, err = load("false")
+	require.NoError(t, err)
+	assert.False(t, cfg.AllowResetup)
+	_, err = load("yes please")
+	require.ErrorContains(t, err, EnvAllowResetup+" must be true or false")
+
+	s := &Server{cfg: Config{BaseURL: testBaseURL, AllowResetup: true}}
+	assert.True(t, s.apiConfig().AllowResetup, "the flag reaches the API")
+}

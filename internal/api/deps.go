@@ -46,6 +46,10 @@ type Config struct {
 	// SetupMode serves only /setup*, /healthz and /readyz, for a server
 	// started without App credentials.
 	SetupMode bool
+	// AllowResetup lets a configured server create another App through
+	// /setup?force=1 and /setup/callback, STACKORDER_ALLOW_RESETUP. When
+	// false both answer 404 outside setup mode.
+	AllowResetup bool
 	// AppSlug is the App's slug, used for install links. When empty it is
 	// read once from Deps.GitHub, if set.
 	AppSlug string

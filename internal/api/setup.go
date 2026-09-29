@@ -78,17 +78,31 @@ func (s *server) defaultAppName() string {
 	return strings.TrimRight(name, "-")
 }
 
+func (s *server) resetupClosed(w http.ResponseWriter, r *http.Request) {
+	s.renderMessage(w, r, http.StatusNotFound, "Not found", message{
+		Heading: "Setup is closed",
+		Lines:   []string{"This server already has a GitHub App, and creating another one is disabled."},
+		Links:   []pageLink{{Href: "/", Text: "Open Stackorder"}},
+	})
+}
+
 func (s *server) setup(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	if !s.cfg.SetupMode && q.Get("force") != "1" {
-		s.renderMessage(w, r, http.StatusOK, "Already configured", message{
+		m := message{
 			Heading: "This server already has a GitHub App",
-			Lines: []string{
-				"It was started with GitHub App credentials, so there is nothing to set up.",
-				"Creating another App is only useful to replace the current one, for instance after moving the server to a new URL; the new App's credentials then replace the configured ones.",
-			},
-			Links: []pageLink{{Href: "/", Text: "Open Stackorder"}, {Href: "/setup?force=1", Text: "Create another App anyway"}},
-		})
+			Lines:   []string{"It was started with GitHub App credentials, so there is nothing to set up."},
+			Links:   []pageLink{{Href: "/", Text: "Open Stackorder"}},
+		}
+		if s.cfg.AllowResetup {
+			m.Lines = append(m.Lines, "Creating another App is only useful to replace the current one, for instance after moving the server to a new URL; the new App's credentials then replace the configured ones.")
+			m.Links = append(m.Links, pageLink{Href: "/setup?force=1", Text: "Create another App anyway"})
+		}
+		s.renderMessage(w, r, http.StatusOK, "Already configured", m)
+		return
+	}
+	if !s.cfg.SetupMode && !s.cfg.AllowResetup {
+		s.resetupClosed(w, r)
 		return
 	}
 	org := q.Get("org")
@@ -146,6 +160,10 @@ func (s *server) setup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.SetupMode && !s.cfg.AllowResetup {
+		s.resetupClosed(w, r)
+		return
+	}
 	q := r.URL.Query()
 	c, err := r.Cookie(setupCookie)
 	var st sealed

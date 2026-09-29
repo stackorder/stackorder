@@ -149,10 +149,30 @@ func TestSetupWhenAlreadyConfigured(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "This server already has a GitHub App")
 	assert.NotContains(t, rec.Body.String(), "manifest-form")
+	assert.NotContains(t, rec.Body.String(), "force=1", "no link to a re-setup that is disabled")
 	assert.Nil(t, cookieNamed(rec.Result(), setupCookie))
 
-	f := e.open(t, "/setup?force=1")
-	assert.NotEmpty(t, f.action.Query().Get("state"))
+	rec = e.do(newRequest(t, http.MethodGet, "/setup?force=1", nil))
+	assert.Equal(t, http.StatusNotFound, rec.Code, "creating another App needs STACKORDER_ALLOW_RESETUP")
+	assert.NotContains(t, rec.Body.String(), "manifest-form")
+	assert.Nil(t, cookieNamed(rec.Result(), setupCookie))
+	e.gh.SetManifestConversion("code-3", gh.AppCredentials{ID: 3, Slug: "s", PEM: "pem", WebhookSecret: "w"})
+	forged := &http.Cookie{Name: setupCookie, Value: e.srv.seal(setupPurpose, sealed{Value: "st", Expires: time.Now().Add(time.Hour).Unix()})}
+	rec = e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-3&state=st", nil), forged))
+	assert.Equal(t, http.StatusNotFound, rec.Code, "nor does the callback convert a code")
+	assert.NotContains(t, rec.Body.String(), "GITHUB_APP_ID=")
+
+	allowed := newSetupEnv(t, func(c *Config, _ *Deps) { c.SetupMode, c.AllowResetup = false, true })
+	rec = allowed.do(newRequest(t, http.MethodGet, "/setup", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `href="/setup?force=1"`)
+	f := allowed.open(t, "/setup?force=1")
+	state := f.action.Query().Get("state")
+	assert.NotEmpty(t, state)
+	allowed.gh.SetManifestConversion("code-4", gh.AppCredentials{ID: 4, Slug: "s", PEM: "pem", WebhookSecret: "w"})
+	rec = allowed.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-4&state="+url.QueryEscape(state), nil), f.cookie))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "GITHUB_APP_ID=4")
 }
 
 func TestSetupCallbackPrintsTheCredentialsOnce(t *testing.T) {

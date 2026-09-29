@@ -835,7 +835,7 @@ Without `GITHUB_OAUTH_CLIENT_ID` and `GITHUB_OAUTH_CLIENT_SECRET`, `/auth/login`
 
 ## Setup {#setup}
 
-`GET /setup` renders a page that posts the GitHub App manifest (webhook URL, callback URLs, [permissions and events](/reference/github-app#permissions)) to GitHub's App creation page, on your personal account or, with `?org=<organisation>`, on an organisation. `?name=` chooses the App name, up to 34 characters; the default is `stackorder-<host>`. Outside setup mode the page explains that an App is already configured, unless `?force=1` is given.
+`GET /setup` renders a page that posts the GitHub App manifest (webhook URL, callback URLs, [permissions and events](/reference/github-app#permissions)) to GitHub's App creation page, on your personal account or, with `?org=<organisation>`, on an organisation. `?name=` chooses the App name, up to 34 characters; the default is `stackorder-<host>`. Outside setup mode the page explains that an App is already configured; `?force=1` creates another App only when [`STACKORDER_ALLOW_RESETUP`](/reference/server-configuration#setup-mode) is `true`, and otherwise `GET /setup?force=1` and `GET /setup/callback` answer `404`.
 
 GitHub redirects back to `GET /setup/callback`, which converts the one-time code into the App's credentials and prints them once as environment variables: `GITHUB_APP_ID`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` and the PEM for `GITHUB_APP_PRIVATE_KEY`, plus `GITHUB_API_URL` and `GITHUB_WEB_URL` on Enterprise Server, with a link to install the App and the next steps. The code works once and for an hour, and only from the browser that started the flow. GitHub sends the browser to `GET /setup/installed` after an installation.
 

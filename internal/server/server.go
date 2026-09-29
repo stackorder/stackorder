@@ -267,6 +267,7 @@ func (s *Server) apiConfig() api.Config {
 		GitHubWebURL:        s.cfg.GitHubWebURL,
 		GitHubAPIURL:        s.cfg.GitHubAPIURL,
 		SetupMode:           s.cfg.SetupMode,
+		AllowResetup:        s.cfg.AllowResetup,
 		OIDCAudience:        s.cfg.OIDCAudience,
 		RequiredWorkflowRef: s.cfg.RequiredWorkflowRef,
 		MetricsToken:        s.cfg.MetricsToken,
