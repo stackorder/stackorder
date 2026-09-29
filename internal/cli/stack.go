@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,7 +40,7 @@ type stack struct {
 
 func loadStack(root, key string) (*stack, error) {
 	key = config.NormalizePath(key)
-	p, ws := v1.SplitStackKey(key)
+	p, suffix := v1.SplitStackKey(key)
 	if p == "" || p == ".." || strings.HasPrefix(p, "../") {
 		return nil, fmt.Errorf("stack %q: not a repository relative directory", key)
 	}
@@ -59,13 +60,37 @@ func loadStack(root, key string) (*stack, error) {
 	if err != nil {
 		return nil, fmt.Errorf("stack %s: loading %s: %w", key, config.StackFile, err)
 	}
-	eff := config.Resolve(cfg, p, sc)
-	if ws == "" {
-		ws = eff.Workspace
+	matched, err := config.MatchVarFiles(cfg, dir)
+	if err != nil {
+		return nil, fmt.Errorf("stack %s: %w", key, err)
 	}
-	eff.Workspace = ws
-	eff.Key = v1.StackKey(p, ws)
-	return &stack{key: eff.Key, path: p, workspace: ws, dir: dir, cfg: cfg, eff: eff}, nil
+	names, err := config.InstanceNames(cfg, p, sc, matched)
+	if err != nil {
+		return nil, fmt.Errorf("stack %s: %w", key, err)
+	}
+	hasInstances := len(sc.Instances) > 0 || len(matched) > 0
+	instance, resolved := suffix, sc
+	switch {
+	case hasInstances && suffix == "":
+		return nil, fmt.Errorf("stack %s has instances; name one as %s:<instance> (%s)", p, p, strings.Join(names, ", "))
+	case hasInstances && !slices.Contains(names, suffix):
+		return nil, fmt.Errorf("stack %s has no instance %q; its instances are %s", p, suffix, strings.Join(names, ", "))
+	case hasInstances:
+	case suffix == "":
+		instance = names[0]
+	case suffix != names[0]:
+		if err := config.ValidateInstanceName(suffix); err != nil {
+			return nil, fmt.Errorf("stack %s: %w", key, err)
+		}
+		adHoc := *sc
+		adHoc.Workspace = suffix
+		resolved = &adHoc
+	}
+	eff, err := config.ResolveMatched(cfg, p, resolved, instance, matched)
+	if err != nil {
+		return nil, fmt.Errorf("stack %s: %w", key, err)
+	}
+	return &stack{key: eff.Key, path: p, workspace: eff.Workspace, dir: dir, cfg: cfg, eff: eff}, nil
 }
 
 func backendConfig() []string {
