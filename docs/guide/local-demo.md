@@ -85,6 +85,7 @@ stackorder graph
 ```
 
 ```text
+level=WARN msg="stacks/legacy/dns: inferred reads_state edge to stacks/prod/vpc suppressed by ignore_inferred"
 6 stacks, 3 modules, 7 edges
 
 stacks/legacy/dns
@@ -115,7 +116,7 @@ stackorder/example-infra//modules/vpc (local module)
 warning: stacks/legacy/dns: inferred reads_state edge to stacks/prod/vpc suppressed by ignore_inferred
 ```
 
-Module keys start with `owner/repo`, taken from the `origin` remote. `stacks/prod/apps` has no `.stackorder.yaml`: its edge exists only because its `terraform_remote_state` block reads `prod/vpc.tfstate` in `stackorder-example-state`, the backend of `stacks/prod/vpc`. `stacks/legacy/dns` reads the same state but suppresses the edge with `ignore_inferred`, which the scan reports as a warning.
+Module keys start with `owner/repo`, taken from the `origin` remote. `stacks/prod/apps` has no `.stackorder.yaml`: its edge exists only because its `terraform_remote_state` block reads `prod/vpc.tfstate` in `stackorder-example-state`, the backend of `stacks/prod/vpc`. `stacks/legacy/dns` reads the same state but suppresses the edge with `ignore_inferred`, which the scan logs as a warning on standard error and `graph` repeats after the graph.
 
 ```sh
 stackorder graph --format dot | dot -Tsvg > graph.svg
@@ -135,6 +136,7 @@ echo "exit $?"
 ```
 
 ```text
+level=WARN msg="stacks/legacy/dns: inferred reads_state edge to stacks/prod/vpc suppressed by ignore_inferred"
 WAVE  STACK                REASONS      ENVIRONMENT
 0     stacks/prod/vpc      module       production
 0     stacks/staging/vpc   module       staging
