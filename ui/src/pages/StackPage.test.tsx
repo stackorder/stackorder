@@ -261,6 +261,46 @@ describe('StackPage', () => {
     expect(screen.getByText('default')).toBeInTheDocument();
   });
 
+  it('shows the instance next to the workspace', async () => {
+    const instance: StackDetail = {
+      id: ids.stack,
+      repo: 'acme/infra',
+      key: 'infra/kyc:production',
+      path: 'infra/kyc',
+      instance: 'production',
+      workspace: 'prod',
+      environment: 'kyc-production',
+      backend: { type: 's3', bucket: 'acme-tfstate', region: 'eu-west-1' },
+    };
+    renderWithApp(page, { url, handler: (c) => (c.path === `/v1/stacks/${ids.stack}` ? json(instance) : undefined) });
+    expect(await screen.findByRole('heading', { level: 1, name: 'infra/kyc:production' })).toBeInTheDocument();
+    expect(screen.getByText('Instance').nextElementSibling).toHaveTextContent('production');
+    expect(screen.getByText('Workspace').nextElementSibling).toHaveTextContent('prod');
+    expect(screen.getByText('kyc-production')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 's3://acme-tfstate' })).toHaveAttribute(
+      'href',
+      'https://s3.console.aws.amazon.com/s3/buckets/acme-tfstate?region=eu-west-1',
+    );
+  });
+
+  it('links the state object of an instance whose backend key is known', async () => {
+    const instance: StackDetail = {
+      id: ids.stack,
+      repo: 'acme/infra',
+      key: 'infra/kyc:staging',
+      path: 'infra/kyc',
+      instance: 'staging',
+      backend: { type: 's3', bucket: 'acme-tfstate', key: 'kyc/staging.tfstate', region: 'eu-west-1' },
+    };
+    renderWithApp(page, { url, handler: (c) => (c.path === `/v1/stacks/${ids.stack}` ? json(instance) : undefined) });
+    expect(await screen.findByRole('link', { name: 's3://acme-tfstate/kyc/staging.tfstate' })).toHaveAttribute(
+      'href',
+      'https://s3.console.aws.amazon.com/s3/object/acme-tfstate?region=eu-west-1&bucketType=general&prefix=kyc%2Fstaging.tfstate',
+    );
+    expect(screen.getByText('Instance').nextElementSibling).toHaveTextContent('staging');
+    expect(screen.queryByText('Workspace')).not.toBeInTheDocument();
+  });
+
   it('shows not found for an unknown stack', async () => {
     renderWithApp(<StackPage id="00000000-0000-4000-8000-000000000000" />, { url: '/stacks/00000000-0000-4000-8000-000000000000' });
     expect(await screen.findByText('This stack does not exist or you do not have access to it.')).toBeInTheDocument();

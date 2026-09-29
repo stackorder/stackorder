@@ -154,6 +154,18 @@ function StackDetails({ runId, stack, onClose }: { runId: string; stack: RunStac
         <dd>{stack.wave}</dd>
         <dt>Environment</dt>
         <dd>{stack.environment ?? 'default'}</dd>
+        {stack.instance && (
+          <>
+            <dt>Instance</dt>
+            <dd>{stack.instance}</dd>
+          </>
+        )}
+        {stack.workspace && (
+          <>
+            <dt>Workspace</dt>
+            <dd>{stack.workspace}</dd>
+          </>
+        )}
         {stack.reasons?.length ? (
           <>
             <dt>Affected because</dt>

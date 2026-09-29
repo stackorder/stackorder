@@ -248,6 +248,12 @@ function StackView({ id }: { id: string }) {
             <dt>Environment</dt>
             <dd>{s.environment ?? 'default'}</dd>
           </div>
+          {s.instance && (
+            <div>
+              <dt>Instance</dt>
+              <dd>{s.instance}</dd>
+            </div>
+          )}
           {s.workspace && (
             <div>
               <dt>Workspace</dt>

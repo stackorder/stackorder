@@ -101,6 +101,28 @@ describe('RunPage', () => {
     });
   });
 
+  it('shows the instance and workspace of a stack in the details drawer', async () => {
+    const withInstance: Run = clone(run);
+    const eks = withInstance.stacks?.find((s) => s.key === 'stacks/prod/eks');
+    if (eks) {
+      eks.instance = 'blue';
+      eks.workspace = 'blue-ws';
+    }
+    renderWithApp(page, { url, handler: (c) => (c.path === `/v1/runs/${ids.run}` ? json(withInstance) : undefined) });
+    fireEvent.click(await screen.findByRole('button', { name: 'Details of stacks/prod/eks' }));
+    const drawer = screen.getByRole('dialog', { name: 'stacks/prod/eks' });
+    expect(within(drawer).getByText('Instance').nextElementSibling).toHaveTextContent('blue');
+    expect(within(drawer).getByText('Workspace').nextElementSibling).toHaveTextContent('blue-ws');
+  });
+
+  it('leaves out the instance and workspace of a stack that has neither', async () => {
+    renderWithApp(page, { url });
+    fireEvent.click(await screen.findByRole('button', { name: 'Details of stacks/prod/eks' }));
+    const drawer = screen.getByRole('dialog', { name: 'stacks/prod/eks' });
+    expect(within(drawer).queryByText('Instance')).not.toBeInTheDocument();
+    expect(within(drawer).queryByText('Workspace')).not.toBeInTheDocument();
+  });
+
   it('explains why a stack has no plan text', async () => {
     renderWithApp(page, { url });
     fireEvent.click(await screen.findByRole('button', { name: 'Details of stacks/prod/apps' }));

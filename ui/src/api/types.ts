@@ -50,7 +50,7 @@ export type ResultStatus = 'success' | 'failure' | 'error';
 export type CheckStatus = 'pass' | 'fail' | 'warn';
 
 /** Why a stack is in the affected set. */
-export type Reason = 'changed' | 'module' | 'dependent' | 'requested' | 'reads_state';
+export type Reason = 'changed' | 'watch_path' | 'module' | 'reads_state' | 'dependent' | 'requested';
 
 /** Every run status in state machine order. */
 export const RUN_STATUSES: readonly RunStatus[] = [
