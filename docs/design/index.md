@@ -8,20 +8,8 @@ outline: [2, 3]
 
 Sep 28, 2026 · @Francis Dortort
 
-::: info Contract refinements
-This is the design document, and it is the source of truth for behaviour. The [architecture contract](./architecture) pins names, shapes and library choices, and refines a few details written here:
-
-- `stackorder-run.yml` takes `mode` as `plan`, `apply` or `drift`, and an extra `sha` input with the commit to check out.
-- Named checks accept `warn` as well as `pass` and `fail`; `warn` passes the apply gate.
-- The CLI itself runs the hooks, in CI and locally, and also sets `STACKORDER_PLAN_FILE`.
-- The CLI also has `check` and `version` commands.
-- A run can also be `superseded` or triggered `manual`; a stack can also be `unconfirmed`, `unknown` or `skipped`.
-- Stacks with no environment mapping run under the environment `default`.
-- Locks are taken on every affected stack before wave 0 is dispatched.
-- `POST /v1/unlock` releases a lock by repository and stack key, and the human API has more read endpoints.
-- The plan artifact name replaces `/` and `:` in the stack key with `-`.
-
-The guide, configuration and reference pages follow the contract.
+::: info Implementation notes
+This is the design document, the source of truth for behaviour, reproduced as written. Where the implementation departs from it, a note like this one next to the affected paragraph says how, following the decisions recorded in the [architecture contract](./architecture). The guide, configuration, reference and operations pages describe the code.
 :::
 
 ## Summary and positioning
@@ -105,6 +93,10 @@ What crosses each boundary:
 - **Runner to AWS**: the user's role, assumed with `aws-actions/configure-aws-credentials` and a trust policy pinned to the repo and environment. State, lock and plan files never leave this zone.
 - **Server to nothing else**: no outbound calls except `api.github.com` and Postgres. This is the property that keeps the Fargate task's security group and IAM role trivial.
 
+::: info Implementation note
+The server also fetches GitHub's OIDC signing keys, from `https://token.actions.githubusercontent.com/.well-known/jwks` or `GITHUB_OIDC_JWKS_URL`, and, when they are configured, writes to the artifact bucket and exports traces to `OTEL_EXPORTER_OTLP_ENDPOINT`. See [Server configuration](/reference/server-configuration#network).
+:::
+
 ## Execution model
 
 Plans are triggered natively by GitHub on every PR push; applies are dispatched by the server one dependency wave at a time. That split is what lets the server stay small and lets plans keep working when it is down.
@@ -151,15 +143,39 @@ The resolve job posts the repo's dependency graph for the commit; the server ans
 | `stackorder-plan.yml` | `pull_request` (opened, synchronize, reopened) | Job `resolve` scans and posts the graph, gets the matrix back. Job `plan` runs one stack per matrix entry. `concurrency` cancels superseded runs for the same PR. |
 | `stackorder-run.yml` | `workflow_dispatch` only, called by the server | Input `mode` is `resolve`, `apply` or `drift`; inputs `run_id`, `wave`, `stacks` (JSON, each entry carrying its GitHub environment). Never cancel-in-progress. |
 
+::: info Implementation note
+`stackorder-run.yml` takes `mode` as `plan`, `apply` or `drift`, never `resolve`, and a fifth input, `sha`, the commit each job checks out; `stacks` is required. The server always sends all five inputs, and matches the workflow runs it dispatched by the title the wrapper sets with `run-name: stackorder ${{ inputs.mode }} ${{ inputs.run_id }} wave ${{ inputs.wave }}`. See [Workflows](/configuration/workflows#run).
+:::
+
 **Plan step, per stack.** `stackorder plan --stack <dir>` runs `init` against the S3 backend, `plan -out`, `show -json`, builds a summary (adds, changes, destroys, replaced addresses), redacts, posts the summary and a size-capped plan text to the server, and uploads the binary plan file as a workflow artifact named `stackorder-plan-<stack>-<sha>`. The server creates one check run per stack (`stackorder/plan: stacks/prod/vpc`) plus a roll-up (`stackorder/plan`), and maintains one sticky PR comment with a collapsible section per stack.
+
+::: info Implementation note
+The CLI writes the plan file and its JSON under `STACKORDER_PLAN_DIR`; the `plan` action uploads the artifact. The artifact name replaces `/` and `:` in the stack key with `-`: `stackorder-plan-<key with / and : replaced by ->-<sha>`, holding `<artifact name>.tfplan`.
+:::
 
 **Apply gate.** On a `stackorder apply [stack…]` comment (or on merge, in `on_merge` mode) the server verifies, in order: the commenter is allowed to apply every affected stack (see Apply authorization below); the PR has the configured approvals and is mergeable; every affected stack has a plan for the current head SHA; every named policy check on those stacks is green; no affected stack is locked by another PR. Any failure is a comment with the exact reason, not a silent no-op. The server-side checks are the fast, friendly layer; the hard stops are the GitHub environment gate and the IAM trust policy described in that section.
 
+::: info Implementation note
+Every layer is evaluated and all failures are reported together in one comment. Approvals count only on the head commit and from users with push permission; a `dirty` merge state refuses and `blocked` does not; with `apply.from_plan` every stack needs a plan artifact; a pull request has at most one apply in flight. Named checks also accept `warn`, which passes. In `on_merge` repositories `stackorder apply` comments are refused, and the merge applies the merge commit with the head commit's plans, checking layers 1 (for the person who merged), 3, 4 and 5. See [How it works](/guide/how-it-works#apply-gate).
+:::
+
 **Waves.** Waves are the longest-path layering of the affected subgraph over `depends_on` edges. Wave n is dispatched only after wave n-1 has fully finished; within a wave the matrix runs with `fail-fast: false` so unrelated stacks complete. A failed stack marks every transitive dependent `blocked`, and the run ends after the current wave. `apply.from_plan: true` (default) applies the saved plan file; if the artifact has expired the CLI re-plans and refuses to apply unless the new plan's resource-address set matches the recorded one.
+
+::: info Implementation note
+Waves are layered over `depends_on` and `reads_state` edges, as step 4 of the resolution says. The server dispatches once per wave and environment, and splits a dispatch into chunks of at most `apply.max_parallel` stacks; the caller's `max-parallel` input limits the jobs of one dispatch.
+:::
 
 **Locks.** A stack lock is an orchestration lock in Postgres, distinct from the S3 state lock. It is taken when an apply is dispatched and released when the PR merges or the apply run in `on_merge` mode completes. A PR closed without merging after an apply keeps its locks and gets a warning comment, because main no longer matches what is deployed; `stackorder unlock` (write permission required) releases them explicitly. Plans on a locked stack still run, with a warning on the check.
 
+::: info Implementation note
+Locks are taken on every affected stack before wave 0 is dispatched, and released on merge (`before_merge`) or when the run completes (`on_merge` and manual runs). A closed pull request that still holds locks older than a day gets a reminder every day at 08:00 UTC. A `stackorder unlock` comment needs push permission and releases that pull request's locks; the CLI's `stackorder unlock` needs an API key; `--force-state` only annotates the release.
+:::
+
 **Drift.** The server's scheduler dispatches `mode: drift` per stack on `drift.schedule`, staggered across the hour. The CLI runs `plan -detailed-exitcode` on the default branch; exit code 2 marks the stack drifted, records the summary, and optionally opens or updates a single GitHub issue per stack.
+
+::: info Implementation note
+Drift checks are dispatched under the environment `default`, never the stack's own, with `sha` set to the default branch head, and assume the plan role (`aws-plan-role-arn`). Drift issues are titled `Drift detected in <key>`, labelled `stackorder-drift`, and closed with a comment when a later check finds no drift.
+:::
 
 **Failure handling.**
 
@@ -172,6 +188,10 @@ The resolve job posts the repo's dependency graph for the commit; the server ans
 | Webhook lost | Server polls `workflow_run` state for in-flight runs every 60 s; the CLI's result call is the source of truth |
 | Runner dies mid-apply | Stack marked `unknown`; S3 lock left as is; human `stackorder unlock --force-state` required |
 | Head SHA changes after plan | Plans invalidated, `stackorder apply` refuses, new push re-plans |
+
+::: info Implementation note
+The reconciliation runs every minute: it resends dispatches GitHub never accepted, binds workflow runs to dispatches by their title and job names, marks the stacks of a dispatch no workflow run picked up within 30 minutes `unknown`, and closes dispatches whose workflow run completed without every stack reporting. A 5xx answer counts as an unreachable server once three retries have failed.
+:::
 
 ## Dependency model
 
@@ -239,6 +259,10 @@ Inferred edges are drawn dashed in the UI and carry `inferred: true`; a stack co
 4. Ordering: topological sort of the affected set over `depends_on` and `reads_state`; edges to unaffected stacks are dropped. Waves are assigned by longest path from a root. A cycle fails the resolve check with the cycle spelled out.
 5. Cross-repo: `depends_on` edges to stacks in other repos are stored but cannot order a single-repo run. When an upstream stack applies, the server lists external dependents on the run and, if `propagate.cross_repo: plan` is set, dispatches a plan-only run on each so drift shows up within minutes rather than at the next scheduled drift check.
 
+::: info Implementation note
+A changed path belongs only to the deepest enclosing stack directory, and affects every workspace of it; paths under `.terraform` are ignored. The default `stacks.ignore` is `["**/*.md", "**/README*"]`, and `.terraform.lock.hcl` is added only with `ignore_lockfile`. Any local module a stack uses propagates, inside `modules.paths` or not: those globs only keep module directories from being discovered as stacks. Git and registry modules never match changed paths. Every edge points from the dependent to what it depends on, so `wave(To) < wave(From)`. Cross-repository plan runs have trigger `push` and run once per upstream run and downstream repository.
+:::
+
 **Module version tracking.** A git module edge carries its `ref`. When a module repo that has the App installed pushes a semver tag, the server records the version, and the UI shows every consumer stack with the ref it pins and how far behind it is. Bumping is left to Renovate or Dependabot; Stackorder only makes the lag visible.
 
 **Storage.** Graphs are stored per repo and SHA (`graphs`, `stacks`, `modules`, `edges` with an `inferred` flag and a `meta` JSON column). The resolve job sends a tree hash of the paths it scanned, so a re-run on the same tree is a cache hit and posts nothing. A 300-stack monorepo with 2,000 edges is well under a megabyte per graph.
@@ -262,6 +286,10 @@ One Go binary, one distroless image of roughly 30 MB, one Postgres database, and
 | `ui` | Embedded single-page app (Preact + a graph renderer), served from the same binary with `embed.FS`. No separate frontend deployment. |
 | `store` | `pgx` queries and `golang-migrate` migrations, run automatically at start-up with a migration lock. |
 
+::: info Implementation note
+The implementation has more packages: `config`, `scan`, `graph`, `report`, `command`, `tf`, `client` and `cli` on the runner side; `store`, `gh`, `oidc`, `principal`, `runs`, `webhook`, `worker`, `sched`, `metrics`, `api`, `ui`, `artifacts` and `server` on the server side. `oidc` never compares the `sha` claim (see the OIDC claims below). Runs can also be `superseded`, and stacks `unconfirmed`, `unknown` or `skipped`. See the [architecture contract](/design/architecture).
+:::
+
 **Data model** (Postgres, all timestamps UTC)
 
 | Table | Key columns | Notes |
@@ -280,6 +308,10 @@ One Go binary, one distroless image of roughly 30 MB, one Postgres database, and
 | `events`, `jobs` | `id`, `kind`, `payload`, `claimed_by`, `attempts`, `run_after` | The queue; rows older than 7 days are pruned |
 | `sessions`, `api_keys` |  | Human and automation auth |
 
+::: info Implementation note
+The schema stores a stack's backend as one `backend` jsonb column, edges by `from_key` and `to_key` so they can point at other repositories, and a ref-less `base_key` family row per module. It adds `graph_stacks`, `graph_modules`, `checks`, `dispatches`, `oidc_jtis` and `audit`, and the trigger `manual`. With the artifact bucket, Postgres keeps only the first 8 KB of plan text. See [Data model](/reference/data-model).
+:::
+
 Plan text beyond 256 KB is truncated with a pointer to the Actions job log. An optional `STACKORDER_ARTIFACT_BUCKET` moves full plan text and JSON into an S3 bucket owned by the server's task role, with lifecycle expiry; this is the only optional AWS dependency and it is for Stackorder's own artifacts, never for Terraform state.
 
 **API surface**
@@ -297,7 +329,15 @@ Plan text beyond 256 KB is truncated with a pointer to the Actions job log. An o
 | `POST /v1/stacks/{id}/unlock` | Human with write permission | Explicit lock release, audited |
 | `GET /healthz`, `GET /readyz`, `GET /metrics` | ALB, Prometheus | Liveness, readiness (DB reachable), metrics |
 
+::: info Implementation note
+Stack keys in runner paths are percent-encoded (`{key}`). `GET /v1/runs/{id}` also accepts runner tokens. `POST /v1/unlock` releases a lock by repository and stack key, and the human API has more endpoints: `/v1/me`, `/v1/overview`, `/v1/repos`, the repository runs and stacks, modules, `/v1/runs/{id}/rerun` and `/v1/audit`. See [API](/reference/api).
+:::
+
 Metrics worth having from day one: runs by status and trigger, plan and apply duration per stack, drifted stacks gauge, locks held gauge, webhook lag, GitHub API rate-limit remaining. Traces are OpenTelemetry with the run id as a span attribute so a run can be followed from webhook to check run.
+
+::: info Implementation note
+The metric names are listed on [Metrics and tracing](/reference/metrics); spans carry `stackorder.run_id`, `stackorder.event`, `stackorder.delivery`, `stackorder.job` and `stackorder.job_id`.
+:::
 
 **Web UI pages**: org overview (stacks by status, drifted count, locks held); repo graph with affected-set replay for any run; stack page (last apply, history, drift, consumers of and by, pinned module versions); run page (waves, per-stack results, links to the job log and the PR); module page (versions and consumers). Read-only except unlock and re-run, both of which post back through the API and are audited.
 
@@ -308,6 +348,10 @@ Metrics worth having from day one: runs by status and trigger, plan and apply du
 - AWS footprint: one ECS service (1 to 2 tasks) behind an ALB with an ACM certificate; RDS Postgres (`db.t4g.micro` is enough to start) or Aurora Serverless v2; a task role with no permissions unless the artifact bucket is enabled; a security group allowing only ALB ingress and egress to `api.github.com` and RDS. Stackorder ships a Terraform module for all of this so it can deploy itself.
 - Behaviour on scale-out: webhook handling, workers and API are stateless; the scheduler is single-leader by advisory lock; sessions live in Postgres. Nothing on local disk matters.
 - Upgrades: migrations run at start-up under a lock; the previous image keeps serving until the new task passes `/readyz`.
+
+::: info Implementation note
+The image is built on `gcr.io/distroless/static:nonroot` and declares `HEALTHCHECK CMD ["/stackorder-server", "healthcheck"]`. The server also reads `STACKORDER_LISTEN`, `GITHUB_WEB_URL`, `GITHUB_OIDC_ISSUER`, `GITHUB_OIDC_JWKS_URL`, `STACKORDER_ARTIFACT_PREFIX`, `STACKORDER_SESSION_KEY`, `STACKORDER_METRICS_TOKEN`, the three retention durations, `STACKORDER_WORKERS`, the log settings and `OTEL_EXPORTER_OTLP_ENDPOINT`; without the App variables it starts in setup mode. The Terraform module's task egress is HTTPS to anywhere through NAT, since security groups cannot name hosts. See [Server configuration](/reference/server-configuration).
+:::
 
 ## The GitHub App
 
@@ -326,17 +370,41 @@ The App is the server's only identity towards GitHub and the only way GitHub rea
 | Members | Read (optional) | Only if `apply.allowed_teams` or code-owner team checks are used |
 | Deployments | Read and write (optional) | Only if the App is registered as a custom deployment protection rule (see Apply authorization) |
 
+::: info Implementation note
+The manifest `/setup` generates requests the Issues, Members and Deployments permissions too, so turning those features on needs no change to the App; on GitHub Enterprise Server it leaves out Deployments. See [GitHub App](/reference/github-app#permissions).
+:::
+
 No `Secrets`, `Administration`, `Environments` or `Workflows` permission: the App cannot change workflow files, secrets, environments or protection rules, which keeps a compromised server from widening its own access. An App also cannot be a required reviewer on an environment, so even the optional Deployments permission never lets the server approve a human gate; it only lets the server answer for its own protection rule.
 
 **Webhook events subscribed**: `installation`, `installation_repositories`, `pull_request`, `pull_request_review`, `issue_comment`, `push`, `check_run` (for `rerequested`), `check_suite`, `workflow_run`, `workflow_job`, and optionally `deployment_protection_rule`. `workflow_job` is what gives the UI live per-job progress and runner queue time; `workflow_run` closes the loop on each wave.
 
+::: info Implementation note
+The manifest subscribes to `deployment_protection_rule` by default, except on GitHub Enterprise Server, and does not list `installation` and `installation_repositories`, which GitHub delivers to every App. `workflow_job` moves stacks to `planning` and `applying`.
+:::
+
 **Install flow.** The server serves `GET /setup`, which renders a GitHub App manifest with the right webhook URL, permissions and events and posts it to GitHub's manifest-creation endpoint. GitHub returns the App id, private key, webhook secret and OAuth client id and secret in one exchange; the page prints them once as the environment variables to load into Secrets Manager. The whole setup takes one browser visit and no hand-copying of permission checkboxes. Enterprise Server is the same flow with `GITHUB_API_URL` set.
+
+::: info Implementation note
+`/setup?org=<organisation>` creates the App in an organisation and `&name=` names it. On Enterprise Server set `GITHUB_WEB_URL` as well as `GITHUB_API_URL`. After a restart with the credentials, the server syncs the App's installations at start-up and daily, so installations made during setup are learned.
+:::
 
 **Token handling.** The App's private key signs a 10-minute JWT; the server exchanges it for installation tokens (1 hour) cached per installation. Every call to GitHub uses an installation token scoped to that installation, so a repo in one org can never be touched with another org's token. Human sign-in uses the App's user-authorization flow with `login` and `read:org` scope only; a session is issued only if the user is a member of an org where the App is installed, and the UI shows only that org's repos.
 
+::: info Implementation note
+Sign-in asks GitHub for the `read:org` scope only. A session is issued to a user whose own account, or one of whose organisations, has the App installed.
+:::
+
 **Comment commands** (posted on the PR by anyone the apply policy allows; see Apply authorization): `stackorder plan [stack…]` re-plans; `stackorder apply [stack…]` applies, optionally a subset (dependency waves are still honoured within the subset); `stackorder unlock [stack…]` releases orchestration locks; `stackorder help` prints the list. The App reacts with an eyes emoji on receipt and a rocket when dispatched, so a dropped command is visible.
 
+::: info Implementation note
+Commands are accepted only from users with push permission, whatever the apply policy; the gate then applies `allowed_teams`. `stackorder unlock` releases only the locks of the pull request it is posted on, and `stackorder plan` dispatches `mode: plan` under the environment `default`. The rate limit is counted from the audit log.
+:::
+
 **Fork pull requests.** The plan workflow's `pull_request` trigger gives forks a read-only `GITHUB_TOKEN` and no `id-token` permission, so neither the AWS role nor the Stackorder API can be reached from a fork. Default behaviour is to post a single neutral check explaining this and to run nothing; maintainers who want fork plans can switch the workflow to `pull_request_target` with a label gate, which Stackorder documents but does not encourage.
+
+::: info Implementation note
+`pull_request_target` plans are not supported: the reusable `plan.yml` skips forks whatever the event, and the server accepts plan results only from `pull_request` tokens. The server posts the neutral check when it receives the fork's `pull_request` webhook.
+:::
 
 ## The CLI and GitHub Actions
 
@@ -355,6 +423,10 @@ All runner-side logic lives in one static Go binary, `stackorder`, and the Actio
 | `stackorder graph`, `stackorder affected` | Used by `resolve` internally | Inspection and debugging; `--format dot` for Graphviz |
 | `stackorder unlock` | Not used | Releases an orchestration lock through the API, audited |
 
+::: info Implementation note
+The CLI also has `check` and `version`. The `plan` and `apply` actions upload and download the plan artifact; the CLI does neither. `stackorder unlock` needs an API key. See [CLI](/reference/cli).
+:::
+
 The CLI detects the tool from `tool: terraform` or `tool: tofu` in the stack config and expects that binary on `PATH`; installing it is left to `hashicorp/setup-terraform` or `opentofu/setup-opentofu` in the workflow, both of which are already JavaScript actions. Provider plugins are cached with `actions/cache` keyed on `.terraform.lock.hcl`.
 
 **Actions in the `stackorder/actions` repository**
@@ -366,6 +438,10 @@ The CLI detects the tool from `tool: terraform` or `tool: tofu` in the stack con
 | `plan` | Composite | `stackorder plan --stack ${{ inputs.stack }}` followed by `actions/upload-artifact` of the plan file |
 | `apply` | Composite | `actions/download-artifact` by run id, then `stackorder apply --stack` |
 | `drift` | Composite | `stackorder drift --stack` |
+
+::: info Implementation note
+`resolve` also outputs `affected`, `count` and `unconfirmed`; the composite actions take `server-url` and `working-directory`, and all but `apply` a `github-token` for the fallback check; `drift` also outputs `exit-code`. See [Actions and reusable workflows](/reference/actions).
+:::
 
 The composite actions are each under 30 lines of YAML and contain no logic beyond argument passing, which makes them easy to audit and easy to replace with a direct `run: stackorder …` step for anyone who prefers that.
 
@@ -379,7 +455,15 @@ permissions:
   checks: write        # fallback check when the server is unreachable
 ```
 
+::: info Implementation note
+Both reusable workflows require `server-url`. `plan.yml` also takes `aws-region`, `base-ref` and `stacks`, and its `resolve` job needs `pull-requests: read`; the calling job must grant every permission, since a called workflow cannot raise them. `run.yml` also takes `sha` and `aws-plan-role-arn`. Every `run.yml` job, not only applies, runs under `environment: ${{ matrix.environment }}`, which is `default` for plan and drift dispatches, and in the concurrency group `stackorder-stack-<key>`.
+:::
+
 Hooks: if `.stackorder/hooks/pre-plan.sh`, `post-plan.sh`, `pre-apply.sh` or `post-apply.sh` exist in the repo, the reusable workflow runs them with `STACKORDER_STACK`, `STACKORDER_RUN_ID` and `STACKORDER_PLAN_JSON` in the environment. This is where OPA, Checkov or Infracost run; each can post a named verdict with `stackorder check --name policy --status pass|fail --summary '…'`, which the server shows as its own check run on the stack and honours in the apply gate.
+
+::: info Implementation note
+The CLI runs the hooks itself, in CI and locally, and also sets `STACKORDER_PLAN_FILE`; `STACKORDER_PLAN_JSON` and `STACKORDER_PLAN_FILE` are file paths. `stackorder check` also accepts `--status warn`.
+:::
 
 **Authentication to the server with GitHub OIDC.** The CLI requests an ID token from the runner (`ACTIONS_ID_TOKEN_REQUEST_URL`) with `audience` set to the server's base URL and sends it as a bearer token. The server verifies the signature against GitHub's JWKS and then binds the request to the run using the claims:
 
@@ -393,6 +477,10 @@ Hooks: if `.stackorder/hooks/pre-plan.sh`, `post-plan.sh`, `pre-apply.sh` or `po
 | `environment` | For an apply, equals the environment the server assigned to that stack, so a result cannot be posted by a job that ran outside the gate |
 | `job_workflow_ref` | If `STACKORDER_REQUIRED_WORKFLOW_REF` is set, must match `stackorder/actions/.github/workflows/*.yml@refs/tags/v1*`, so results can only be posted by the canonical reusable workflow, not by a locally edited copy |
 | `actor` | Recorded as `requested_by` on the run |
+
+::: info Implementation note
+The `sha` claim is never compared with the run's SHA: GitHub sets it to the merge commit of `refs/pull/<n>/merge` for `pull_request` events and to the default branch head for `workflow_dispatch`, neither of which is the commit being planned. Plan runs are bound by `event_name` `pull_request`, `ref` `refs/pull/<n>/merge` and the pull request's head SHA read from GitHub; dispatched runs by `event_name` `workflow_dispatch`, the default branch `ref`, the dispatch's `run_id` and, for applies, the stack's environment (`default` for plan and drift dispatches). The server also checks `iss`, that `iat` is within 10 minutes, and that the `jti` is new. `STACKORDER_REQUIRED_WORKFLOW_REF` is a glob the operator chooses, validated at start-up. See [OIDC binding](/reference/api#oidc-binding).
+:::
 
 There are no shared secrets between the runner and the server. Rotating anything means rotating the App's private key, which the runner never sees.
 
@@ -418,9 +506,17 @@ Write access to the repo is the floor, not the ceiling: apply is gated by five l
 
 **4. The App as a custom deployment protection rule.** Instead of a human clicking approve, the App can be registered as a protection rule on the environment. GitHub then sends a `deployment_protection_rule` webhook when the apply job wants to start, and the server approves or rejects through `POST /repos/{owner}/{repo}/actions/runs/{run_id}/deployment_protection_rule` using exactly the checks from layers 1 and 2. That turns the server's policy into something GitHub enforces: the job does not run until the App says yes, and the App only says yes for a request from the right team on a PR with the right approvals. It needs the `Deployments: Read and write` permission and the event subscription marked optional in the App section, and the same plan constraint as layer 3. Layers 3 and 4 can be combined on one environment, in which case every rule must pass.
 
+::: info Implementation note
+The server approves plan and drift dispatches as read-only, rejects workflow runs it did not dispatch, re-runs of completed dispatches and environment mismatches, and for applies checks layer 1 and, for applies requested by a comment, layer 2. See [layer 4](/configuration/environments-and-authorization#layer-4).
+:::
+
 **5. The AWS trust policy.** None of the above matters if a tampered workflow can assume the apply role directly. The role's trust policy conditions `token.actions.githubusercontent.com:sub` on `repo:acme/infra:environment:production`, a value that appears in the token only when the job actually ran under that environment, and therefore only after its protection rules passed. Adding a `job_workflow_ref` condition pins it further to the canonical reusable workflow at a `v1*` tag (the claim is added to `sub` through the repo's OIDC subject customization endpoint). Now the only path to production credentials runs through the environment gate, whatever the server or the PR's workflow file says.
 
 **Recommended default.** Layer 1 for the error message, layer 3 with a team as required reviewer for the hard stop, and layer 5 to make it airtight. Layer 4 is the upgrade for teams that find the manual approval redundant with code review. The plan role stays open to anyone with write access, since planning is read-only and the plan role has no write permissions.
+
+::: info Implementation note
+The plan role must trust `repo:<owner>/<repo>:environment:default` as well as `repo:<owner>/<repo>:pull_request`, because server-dispatched plans and drift checks run under the environment `default`. See [Security hardening](/operations/security-hardening#trust-policies).
+:::
 
 ## Security model
 
@@ -449,6 +545,10 @@ The design goal is that no single compromise reaches infrastructure: the server 
 **Availability and failure modes.** The server is not in the path of `terraform plan`, so a server outage degrades to plans with `unconfirmed` checks and refused applies. Postgres is the only stateful dependency; point-in-time recovery on RDS covers it. If GitHub webhooks are delayed, the 60-second `workflow_run` reconciliation catches finished waves. If GitHub Actions itself is down, nothing runs, exactly as with any Actions-based tool.
 
 **Abuse limits.** Comment commands are rate-limited per PR (10 per minute) and ignored from users without write access; webhook deliveries are deduplicated by id; the API refuses OIDC tokens older than 10 minutes and any token whose `run_id` the server has already seen complete.
+
+::: info Implementation note
+The API refuses tokens older than 10 minutes and tokens already seen, results for stacks that already finished or for superseded runs, and tokens from workflow runs whose dispatch already completed or is bound to another workflow run.
+:::
 
 ## Repository conventions
 
@@ -493,6 +593,10 @@ drift:
 plan_output: full                 # or summary
 ```
 
+::: info Implementation note
+Defaults when a key is absent: `tool: terraform`, `apply.mode: before_merge`, `require_approvals: 0`, `max_parallel: 6`, `from_plan: true`, `propagate.dependents: true`, `cross_repo: off`, `plan_output: full`, no drift schedule. `apply.max_parallel` caps the stacks in one dispatch rather than concurrent jobs. `allowed_teams` entries are `slug` or `org/slug`, with or without `@`. `modules.paths` keeps module directories from being discovered as stacks; it does not limit which local modules propagate. `drift.schedule` is evaluated in UTC unless it starts with `CRON_TZ=`. Unknown keys are errors. See [`stackorder.yaml`](/configuration/stackorder-yaml).
+:::
+
 **Per-stack `.stackorder.yaml`** (in the stack directory)
 
 ```yaml
@@ -507,6 +611,10 @@ apply:
 plan_output: summary                      # this stack's plans hold secrets
 ignore_inferred: [stacks/legacy/dns]      # suppress a remote_state edge
 ```
+
+::: info Implementation note
+A stack's non-empty `apply.allowed_teams` replaces the root list rather than narrowing it, and is read from the default branch, like `plan_output: summary`.
+:::
 
 **`.github/workflows/stackorder-plan.yml`**
 
@@ -551,6 +659,10 @@ jobs:
     # each apply job runs under the GitHub environment from stackorder.yaml,
     # so the environment's protection rules gate it
 ```
+
+::: info Implementation note
+As written, the two files do not run: both reusable workflows require `server-url`, the calling jobs must grant the permissions, and the dispatch wrapper must declare the `sha` input, set `run-name` and pass `aws-plan-role-arn`. The complete files are on [Workflows](/configuration/workflows).
+:::
 
 Branch protection on the default branch requires the `stackorder/plan` and `stackorder/apply` checks. The plan role needs read access to state and the read-only permissions the providers need to plan; the apply role has the write permissions. Both trust the GitHub OIDC provider with `sub` restricted to the repo and, for apply, the environment.
 
