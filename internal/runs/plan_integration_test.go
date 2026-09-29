@@ -3,6 +3,7 @@
 package runs_test
 
 import (
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -506,6 +507,24 @@ func TestForkPullRequestNotice(t *testing.T) {
 	runs, _, err := e.st.ListRuns(e.ctx, store.RunFilter{RepoID: repoID, PRNumber: 9})
 	require.NoError(t, err)
 	assert.Empty(t, runs, "nothing runs for a fork")
+}
+
+func TestUndispatchedPlanLeavesTheHeadPlanAlone(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.planned(7, headSHA)
+	before := e.check(report.CheckPlan)
+	require.Equal(t, gh.ConclusionSuccess, before.Conclusion)
+	e.gh.FailNext("POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches", http.StatusUnprocessableEntity, 1)
+	e.comment(7, applier, "stackorder plan "+vpc)
+	assert.Contains(t, e.lastComment(7), "could not start the plan")
+
+	after := e.check(report.CheckPlan)
+	assert.Equal(t, gh.CheckRunCompleted, after.Status, "no plan is running")
+	assert.Equal(t, gh.ConclusionSuccess, after.Conclusion)
+	assert.Equal(t, before.Output.Title, after.Output.Title)
+	e.comment(7, applier, "stackorder apply")
+	assert.NotContains(t, e.lastComment(7), "still running")
+	assert.Equal(t, v1.RunApplying, e.applyRun(7).Status, "the head's plan still stands")
 }
 
 func TestWorkflowJobProgress(t *testing.T) {

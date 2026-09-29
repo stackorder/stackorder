@@ -356,12 +356,12 @@ func planViewAt(ctx context.Context, db *store.Store, repoID int64, pr int, sha 
 			return planView{}, storeErr(err, "stacks of run %s", r.ID)
 		}
 		for _, rs := range rows {
-			if _, ok := v.stored[rs.Key]; !ok {
+			if _, ok := v.stored[rs.Key]; !ok && !neverPlanned(r, rs.Status) {
 				v.stored[rs.Key] = rs
 			}
 		}
 		for _, rs := range detail.Stacks {
-			if !seen[rs.Key] {
+			if !seen[rs.Key] && !neverPlanned(r, rs.Status) {
 				seen[rs.Key] = true
 				rs.PlanText = v.stored[rs.Key].PlanText
 				v.rows = append(v.rows, rs)
@@ -375,6 +375,10 @@ func planViewAt(ctx context.Context, db *store.Store, repoID int64, pr int, sha 
 		return strings.Compare(a.Key, b.Key)
 	})
 	return v, nil
+}
+
+func neverPlanned(r store.Run, st v1.StackStatus) bool {
+	return r.Status == v1.RunFailed && st == v1.StackPending
 }
 
 func (v planView) row(key string) (v1.RunStack, bool) {
