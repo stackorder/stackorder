@@ -5,6 +5,8 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -515,6 +517,11 @@ func (s *story) prPlan(t *testing.T) {
 	assert.Contains(t, string(full), "module.vpc.terraform_data.route_table will be created")
 	assert.Contains(t, string(full), `admin_password = "***"`)
 	assert.NotContains(t, string(full), plaintextSecret)
+	status, served := s.cp.do(t, http.MethodGet, "/v1/runs/"+run.ID+"/stacks/"+url.PathEscape(prodVPC)+"/plan", nil, true)
+	require.Equal(t, http.StatusOK, status, "GET the full plan of %s: %s", prodVPC, served)
+	assert.Equal(t, string(full), string(served), "the API serves the full plan text from the bucket")
+	status, _ = s.cp.do(t, http.MethodGet, "/v1/runs/"+run.ID+"/stacks/"+url.PathEscape(stagingApps)+"/plan", nil, true)
+	assert.Equal(t, http.StatusNotFound, status, "a plan_output: summary stack has no full plan text to serve")
 
 	for _, key := range vpcChange {
 		c := s.checkRun(t, "stackorder/plan: "+key, head)

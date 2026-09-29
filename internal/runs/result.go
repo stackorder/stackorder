@@ -208,8 +208,7 @@ func (s *Service) resultPatch(ctx context.Context, run store.Run, row store.RunS
 }
 
 func (s *Service) storeArtifacts(ctx context.Context, run store.Run, key, text string, summary *v1.PlanSummary) (string, bool) {
-	prefix := "runs/" + run.ID.String() + "/" + strings.ReplaceAll(key, "/", "-") + "/"
-	url, err := s.artifacts.Put(ctx, prefix+"plan.txt", "text/plain; charset=utf-8", []byte(text))
+	url, err := s.artifacts.Put(ctx, store.PlanTextArtifactKey(run.ID, key), "text/plain; charset=utf-8", []byte(text))
 	if err != nil {
 		s.log.WarnContext(ctx, "store plan text", "run_id", run.ID, "stack", key, "error", err)
 		return "", false
@@ -217,7 +216,7 @@ func (s *Service) storeArtifacts(ctx context.Context, run store.Run, key, text s
 	if summary != nil {
 		body, err := json.Marshal(summary)
 		if err == nil {
-			_, err = s.artifacts.Put(ctx, prefix+"plan.json", "application/json", body)
+			_, err = s.artifacts.Put(ctx, store.PlanJSONArtifactKey(run.ID, key), "application/json", body)
 		}
 		if err != nil {
 			s.log.WarnContext(ctx, "store plan json", "run_id", run.ID, "stack", key, "error", err)

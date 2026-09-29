@@ -91,6 +91,7 @@ The CLI maps these to [exit codes](/reference/exit-codes#server-answers).
 | [`POST /v1/runs/{id}/stacks/{key}/result`](#stack-result) | Runner; API key for manual runs | `StackResult` | `RunStack` |
 | [`POST /v1/runs/{id}/stacks/{key}/checks/{name}`](#check-verdict) | Runner; API key for manual runs | `CheckVerdict` | `Check` |
 | [`GET /v1/runs/{id}`](#get-run) | Runner, person, API key | | `Run` |
+| [`GET /v1/runs/{id}/stacks/{key}/plan`](#plan-text) | Person, API key | | `text/plain`, the full plan text |
 | [`POST /v1/runs/{id}/rerun`](#rerun) | Person with push permission, API key | | `201` or `200`, `CreateRunResponse` |
 | [`POST /v1/unlock`](#unlock-by-key) | Person with push permission, API key | `UnlockRequest` | `UnlockResponse` |
 | [`POST /v1/stacks/{id}/unlock`](#unlock-by-id) | Person with push permission, API key | `UnlockRequest`, optional | `UnlockResponse` |
@@ -468,6 +469,12 @@ The run with its per-stack rows. A `pull_request` token may read only its own pu
 `html_url` links to the run's page in the web UI; `warnings` lists anything the server wants people to see, such as a dispatch GitHub refused. Run `status` is `pending`, `planning`, `planned`, `applying`, `applied`, `failed`, `unconfirmed` or `superseded`. Stack `status` adds `blocked`, `noop`, `unknown` and `skipped`. See [Run states](/guide/how-it-works#run-states).
 
 ## Human and automation endpoints {#human}
+
+### `GET /v1/runs/{id}/stacks/{key}/plan` {#plan-text}
+
+The full plan text of a stack of a run, as `text/plain; charset=utf-8`, read from the [artifact bucket](/reference/server-configuration#artifact-bucket). Use it when the run's stack row has `truncated` and `plan_url` set: its `plan_text` then holds only the first 8 KB, and this endpoint returns everything the CLI sent, up to 256 KB. `{key}` is percent-encoded like the runner endpoints' keys. A person sees the runs of the repositories they see; API keys see every run.
+
+`404` with code `not_found` when the run is unknown or hidden, the stack is not part of the run, the row has no `plan_url` (its `plan_text` is all the server keeps, as for every stack without a bucket and for `plan_output: summary` stacks), the server has no artifact bucket, or the object has expired from the bucket. Runner tokens are refused with `401`.
 
 ### `POST /v1/runs/{id}/rerun` {#rerun}
 

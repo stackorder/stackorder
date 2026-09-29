@@ -8,11 +8,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stackorder/stackorder/internal/api"
 	"github.com/stackorder/stackorder/internal/artifacts"
 	"github.com/stackorder/stackorder/internal/runs"
 )
 
-var _ runs.ArtifactStore = (*artifacts.S3Store)(nil)
+var (
+	_ runs.ArtifactStore = (*artifacts.S3Store)(nil)
+	_ api.ArtifactReader = (*artifacts.S3Store)(nil)
+)
 
 func offline(t *testing.T, bucket, prefix string) (*artifacts.S3Store, error) {
 	t.Helper()

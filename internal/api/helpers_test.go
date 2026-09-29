@@ -55,6 +55,7 @@ type fakeStore struct {
 	installations []store.Installation
 	stacks        map[uuid.UUID]store.Stack
 	runs          map[uuid.UUID]store.Run
+	runStacks     map[uuid.UUID][]store.RunStack
 	sessionReads  int
 	created       []store.NewSession
 	deleted       []string
@@ -62,11 +63,12 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		keys:     map[string]store.APIKey{},
-		sessions: map[string]store.Session{},
-		jtis:     map[string]bool{},
-		stacks:   map[uuid.UUID]store.Stack{},
-		runs:     map[uuid.UUID]store.Run{},
+		keys:      map[string]store.APIKey{},
+		sessions:  map[string]store.Session{},
+		jtis:      map[string]bool{},
+		stacks:    map[uuid.UUID]store.Stack{},
+		runs:      map[uuid.UUID]store.Run{},
+		runStacks: map[uuid.UUID][]store.RunStack{},
 	}
 }
 
@@ -172,6 +174,12 @@ func (f *fakeStore) GetRun(_ context.Context, id uuid.UUID) (store.Run, error) {
 		return store.Run{}, store.ErrNotFound
 	}
 	return r, nil
+}
+
+func (f *fakeStore) GetRunStacks(_ context.Context, runID uuid.UUID) ([]store.RunStack, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]store.RunStack(nil), f.runStacks[runID]...), nil
 }
 
 func (f *fakeStore) addRepo(id, installationID int64, account, fullName string) store.Repo {

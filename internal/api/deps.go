@@ -91,6 +91,13 @@ type RunService interface {
 	CanActOnRepo(ctx context.Context, login string, repoID int64) (bool, error)
 }
 
+// ArtifactReader reads what the run service keeps in the optional
+// artifact bucket. *artifacts.S3Store satisfies it; Get reports a missing
+// object with an error wrapping artifacts.ErrNotFound.
+type ArtifactReader interface {
+	Get(ctx context.Context, key string) (body []byte, contentType string, err error)
+}
+
 // Deps are the collaborators of the API handler.
 type Deps struct {
 	// Store is required.
@@ -112,6 +119,9 @@ type Deps struct {
 	Metrics http.Handler
 	// Webhook serves POST /webhooks/github; 503 when nil.
 	Webhook http.Handler
+	// Artifacts serves the full plan text of GET
+	// /v1/runs/{id}/stacks/{key}/plan; that endpoint answers 404 when nil.
+	Artifacts ArtifactReader
 	// Instrument, when set, wraps the handler of every route with the
 	// middleware it returns for that route's pattern.
 	Instrument func(route string) func(http.Handler) http.Handler

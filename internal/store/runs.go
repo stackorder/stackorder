@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -14,6 +15,23 @@ import (
 
 	v1 "github.com/stackorder/stackorder/api/v1"
 )
+
+// PlanTextArtifactKey is the key, relative to the artifact store's prefix,
+// under which the full plan text of a stack of a run is kept when the
+// server has an artifact bucket.
+func PlanTextArtifactKey(runID uuid.UUID, stackKey string) string {
+	return runStackArtifactDir(runID, stackKey) + "plan.txt"
+}
+
+// PlanJSONArtifactKey is the artifact store key of the plan summary JSON
+// kept next to PlanTextArtifactKey.
+func PlanJSONArtifactKey(runID uuid.UUID, stackKey string) string {
+	return runStackArtifactDir(runID, stackKey) + "plan.json"
+}
+
+func runStackArtifactDir(runID uuid.UUID, stackKey string) string {
+	return "runs/" + runID.String() + "/" + strings.ReplaceAll(stackKey, "/", "-") + "/"
+}
 
 // MaxPlanTextBytes caps the plan text stored per stack; longer text is cut
 // at a UTF-8 boundary and flagged as truncated.

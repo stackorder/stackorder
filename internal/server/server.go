@@ -240,6 +240,7 @@ func (s *Server) compose(ctx context.Context, deps *api.Deps) error {
 			return fmt.Errorf("server: artifact bucket %s: %w", cfg.ArtifactBucket, err)
 		}
 		runOpts = append(runOpts, runs.WithArtifactStore(a))
+		deps.Artifacts = a
 	}
 	s.runs = runs.New(s.st, app, runs.Config{BaseURL: cfg.BaseURL, Clock: s.now}, s.log.With("component", "runs"), s.metrics, runOpts...)
 	s.register(s.runs)

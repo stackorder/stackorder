@@ -23,6 +23,7 @@ type server struct {
 	ui         http.Handler
 	metrics    http.Handler
 	webhook    http.Handler
+	artifacts  ArtifactReader
 	instrument func(route string) func(http.Handler) http.Handler
 	log        *slog.Logger
 	now        func() time.Time
@@ -72,6 +73,7 @@ func newServer(cfg Config, d Deps, db dataStore) *server {
 		ui:         d.UI,
 		metrics:    d.Metrics,
 		webhook:    d.Webhook,
+		artifacts:  d.Artifacts,
 		instrument: d.Instrument,
 		log:        d.Logger,
 		now:        d.Clock,
@@ -153,6 +155,7 @@ func (s *server) routes() http.Handler {
 	s.handle(mux, "POST /v1/runs/{id}/stacks/{key}/result", maxBodyBytes, s.with(runnerAuth, s.recordResult))
 	s.handle(mux, "POST /v1/runs/{id}/stacks/{key}/checks/{name}", maxBodyBytes, s.with(runnerAuth, s.recordCheck))
 	s.handle(mux, "GET /v1/runs/{id}", 0, s.with(anyAuth, s.getRun))
+	s.handle(mux, "GET /v1/runs/{id}/stacks/{key}/plan", 0, s.with(humanAuth, s.planText))
 	s.handle(mux, "POST /v1/unlock", maxBodyBytes, s.with(humanAuth|sameOrigin, s.unlockByKey))
 	s.handle(mux, "POST /v1/stacks/{id}/unlock", maxBodyBytes, s.with(humanAuth|sameOrigin, s.unlockStack))
 	s.handle(mux, "POST /v1/runs/{id}/rerun", maxBodyBytes, s.with(humanAuth|sameOrigin, s.rerun))

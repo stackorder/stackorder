@@ -42,6 +42,7 @@ Rotating anything means rotating the App's private key, which runners never see.
 - Terraform and OpenTofu already mask values marked `sensitive`.
 - The CLI redacts everything it sends to the server, the step summary or a fallback check: private keys, tokens, password assignments and the values of secret-named environment variables. In Actions it also registers those values with `::add-mask::`. See [CLI secrets](/reference/cli#secrets).
 - Plan text sent to the server is truncated at 256 KB.
+- The API returns that redacted text, from Postgres or from the [artifact bucket](/reference/server-configuration#artifact-bucket), only to people who can see the repository, to API keys and to the jobs of the run itself.
 - `plan_output: summary`, per repository or per stack, sends only resource counts and addresses to the server and the PR comment.
 
 The full plan lives only in the job log and the plan artifact, both governed by the repository's own access rules and artifact retention.

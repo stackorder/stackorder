@@ -3,12 +3,14 @@
 package api
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -575,4 +577,63 @@ func TestRunnerAuthWithTheRealStore(t *testing.T) {
 	rec = httptest.NewRecorder()
 	w.h.ServeHTTP(rec, withCookie(newRequest(t, http.MethodGet, "/v1/me", nil), &http.Cookie{Name: sessionCookie, Value: w.srv.sessionCookieValue("unknown")}))
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestPlanText(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+	const vpc, eks = "stacks/prod/vpc", "stacks/prod/eks"
+	full := strings.Repeat("  # aws_route_table.private will be updated in-place\n", 400)
+	_, err := w.st.UpdateRunStack(ctx, w.planRun.ID, w.stacks[vpc], store.RunStackPatch{
+		PlanText: ptr(full[:512]), PlanTextTruncated: ptr(true),
+		PlanURL: ptr("s3://stackorder-artifacts/" + store.PlanTextArtifactKey(w.planRun.ID, vpc)),
+	})
+	require.NoError(t, err)
+	mem := &memArtifacts{items: map[string]string{store.PlanTextArtifactKey(w.planRun.ID, vpc): full}}
+	w.srv.artifacts = mem
+
+	for _, asSession := range []bool{true, false} {
+		rec := w.ok(planTarget(w.planRun.ID, vpc), asSession)
+		assert.Equal(t, "text/plain; charset=utf-8", rec.Header().Get("Content-Type"))
+		assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+		assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+		assert.Equal(t, full, rec.Body.String(), "the whole plan, not the stored beginning")
+	}
+
+	for name, tc := range map[string]struct {
+		target    string
+		asSession bool
+		status    int
+		message   string
+	}{
+		"a stack without plan_url":    {planTarget(w.planRun.ID, eks), true, http.StatusNotFound, "keeps no full plan text"},
+		"a stack outside the run":     {planTarget(w.planRun.ID, "stacks/prod/new"), true, http.StatusNotFound, "is not part of run"},
+		"a run the person cannot see": {planTarget(w.globexRun.ID, vpc), true, http.StatusNotFound, "not found"},
+		"an unknown run":              {planTarget(uuid.New(), vpc), false, http.StatusNotFound, "not found"},
+	} {
+		rec := w.get(tc.target, tc.asSession)
+		require.Equal(t, tc.status, rec.Code, name)
+		assert.Contains(t, errorOf(t, rec).Message, tc.message, name)
+	}
+
+	r := newRequest(t, http.MethodGet, planTarget(w.planRun.ID, vpc), nil)
+	rec := httptest.NewRecorder()
+	w.h.ServeHTTP(rec, r)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "sessions and API keys only")
+	r = newRequest(t, http.MethodGet, planTarget(w.planRun.ID, vpc), nil)
+	r.Header.Set("Authorization", "Bearer "+w.issuer.Token(w.issuer.PlanClaims("acme/infra", "100", 7, prHeadSHA)))
+	rec = httptest.NewRecorder()
+	w.h.ServeHTTP(rec, r)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "runner tokens do not read plan text")
+
+	delete(mem.items, store.PlanTextArtifactKey(w.planRun.ID, vpc))
+	rec = w.get(planTarget(w.planRun.ID, vpc), true)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, errorOf(t, rec).Message, "no longer in the artifact bucket")
+	mem.err = errors.New("s3 is down")
+	assert.Equal(t, http.StatusInternalServerError, w.get(planTarget(w.planRun.ID, vpc), true).Code)
+	w.srv.artifacts = nil
+	rec = w.get(planTarget(w.planRun.ID, vpc), true)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, errorOf(t, rec).Message, "no artifact bucket")
 }

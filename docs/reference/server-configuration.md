@@ -111,7 +111,7 @@ Pair it with a `job_workflow_ref` condition in the AWS role trust policy. See [S
 
 ## Artifact bucket {#artifact-bucket}
 
-The CLI sends at most 256 KB of redacted plan text per stack, and without a bucket the server keeps it in Postgres. With `STACKORDER_ARTIFACT_BUCKET` set, the server writes that text to `<prefix>runs/<run id>/<key>/plan.txt` in the bucket, and the plan summary to `plan.json` next to it (the key with `/` replaced by `-`), keeps only the first 8 KB in Postgres, and links the object from the run's stack row as `plan_url` (`s3://bucket/key`). When the upload fails it falls back to Postgres. Stacks with `plan_output: summary` store no text anywhere.
+The CLI sends at most 256 KB of redacted plan text per stack, and without a bucket the server keeps it in Postgres. With `STACKORDER_ARTIFACT_BUCKET` set, the server writes that text to `<prefix>runs/<run id>/<key>/plan.txt` in the bucket, and the plan summary to `plan.json` next to it (the key with `/` replaced by `-`), keeps only the first 8 KB in Postgres, and links the object from the run's stack row as `plan_url` (`s3://bucket/key`). [`GET /v1/runs/{id}/stacks/{key}/plan`](/reference/api#plan-text) reads the full text back from the bucket, so the server's role needs `s3:GetObject` as well as `s3:PutObject` on the prefix. When the upload fails it falls back to Postgres. Stacks with `plan_output: summary` store no text anywhere.
 
 The server's AWS credentials come from the standard SDK chain, such as the ECS task role. It is the only AWS access the server ever has, and it is for Stackorder's own artifacts, never for Terraform state. Give the bucket a lifecycle expiry; the [Terraform module](/operations/deploy-aws) does.
 

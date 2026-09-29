@@ -253,6 +253,7 @@ with `next_cursor`.
 | `GET /v1/modules?q=` | `v1.Page[v1.ModuleDetail]` |
 | `GET /v1/modules/{id}` | `v1.ModuleDetail` |
 | `GET /v1/runs/{id}` | `v1.Run` |
+| `GET /v1/runs/{id}/stacks/{key}/plan` | `text/plain`: the run stack's full plan text, read from the artifact bucket at `store.PlanTextArtifactKey`; 404 `not_found` when the row has no `plan_url`, the server has no artifact bucket or the object is gone |
 | `POST /v1/stacks/{id}/unlock` | `v1.UnlockResponse` |
 | `POST /v1/runs/{id}/rerun` | `v1.CreateRunResponse` |
 | `GET /v1/audit` | `v1.Page[v1.AuditEntry]` |
