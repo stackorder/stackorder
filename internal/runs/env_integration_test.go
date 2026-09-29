@@ -641,3 +641,14 @@ func (e *env) planRunIDs(runID string) map[string]int64 {
 	}
 	return out
 }
+
+func (e *env) via(runID string) map[string][]string {
+	e.t.Helper()
+	rows, err := e.st.GetRunStacks(e.ctx, uuid.MustParse(runID))
+	require.NoError(e.t, err)
+	out := map[string][]string{}
+	for _, rs := range rows {
+		out[rs.Key] = rs.Via
+	}
+	return out
+}

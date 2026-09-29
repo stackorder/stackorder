@@ -284,6 +284,8 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	cm := e.comment(7, applier, "stackorder apply")
 	assert.Equal(t, []string{gh.ReactionEyes, gh.ReactionRocket}, e.gh.Reactions(cm.ID))
 	apply := e.applyRun(7)
+	assert.Equal(t, e.via(planRun)[eks], e.via(apply.ID)[eks], "the apply carries the via of its plan")
+	assert.Equal(t, []string{vpc}, e.via(apply.ID)[eks])
 	assert.Equal(t, v1.RunApplying, apply.Status)
 	assert.Equal(t, v1.TriggerComment, apply.Trigger)
 	assert.Equal(t, applier, apply.RequestedBy)

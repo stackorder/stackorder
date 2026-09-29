@@ -182,6 +182,8 @@ func TestCommentCommands(t *testing.T) {
 	assert.Equal(t, headSHA, replan.SHA)
 	assert.Equal(t, v1.RunPlanning, replan.Status)
 	assert.Equal(t, []v1.Reason{v1.ReasonDependent}, replan.Stacks[0].Reasons, "the reasons of the earlier plan are kept")
+	assert.Equal(t, []string{vpc}, e.via(planRun)[eks])
+	assert.Equal(t, []string{vpc}, e.via(replan.ID)[eks], "the via of the earlier plan is kept with its reasons")
 	assert.Contains(t, strings.Join(replan.Warnings, "\n"), "stacks/none")
 
 	rollup := e.check(report.CheckPlan)
