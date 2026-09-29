@@ -190,6 +190,12 @@ group `stackorder-stack-<key>` without cancel-in-progress. Role selection:
 to `aws-role-arn`; `plan` and `drift` use `aws-plan-role-arn`, falling back
 to `aws-role-arn`.
 
+Job names carry the stack key last: `run.yml` names its jobs
+`<mode> wave <n> <key>` and `plan.yml` its plan jobs `plan <key>`. The
+server reads the key from these names, after the caller's `<job> / `
+prefix, or from GitHub's default matrix form `<job> (<key>, …)`, to match
+`workflow_job` events and to choose among dispatches that share a title.
+
 `apply.max_parallel` in `stackorder.yaml` caps the number of stacks the
 server puts in one dispatch; job level parallelism is the caller's
 `max-parallel` input, because dispatch inputs are fixed by the wrapper file.
