@@ -281,6 +281,54 @@ func TestHealthcheckCommand(t *testing.T) {
 	assert.True(t, strings.HasPrefix(out, "stackorder-server "), out)
 }
 
+func TestSecondSignalStopsTheServerAtOnce(t *testing.T) {
+	bin := buildServer(t)
+	free := mustListen(t)
+	addr := free.Addr().String()
+	require.NoError(t, free.Close())
+	cmd := exec.CommandContext(t.Context(), bin)
+	cmd.Env = append(os.Environ(),
+		server.EnvDatabaseURL+"="+pgtest.DSN(t),
+		server.EnvBaseURL+"=http://"+addr,
+		server.EnvListen+"="+addr,
+	)
+	require.NoError(t, cmd.Start())
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
+	client := &http.Client{Timeout: time.Second}
+	require.Eventually(t, func() bool {
+		resp, err := client.Get("http://" + addr + "/readyz")
+		if err != nil {
+			return false
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	}, waitFor, 50*time.Millisecond, "the binary answers /readyz")
+
+	conn, err := net.Dial("tcp", addr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	_, err = conn.Write([]byte("GET /healthz HTTP/1.1\r\nHost: " + addr + "\r\n"))
+	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+
+	require.NoError(t, cmd.Process.Signal(os.Interrupt))
+	select {
+	case <-exited:
+		t.Fatal("the server stopped while a request was still being read")
+	case <-time.After(time.Second):
+	}
+	require.NoError(t, cmd.Process.Signal(os.Interrupt))
+	select {
+	case <-exited:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a second interrupt did not stop the server at once")
+	}
+}
+
 func TestGracefulShutdown(t *testing.T) {
 	e := NewEnv(t)
 	installAcme(e.GH)

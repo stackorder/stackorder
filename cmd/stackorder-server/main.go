@@ -65,6 +65,7 @@ func serve(getenv func(string) string, stderr io.Writer) int {
 	logger := server.NewLogger(stderr, cfg.LogLevel, cfg.LogFormat)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	context.AfterFunc(ctx, stop)
 	srv, err := server.New(ctx, cfg, server.WithLogger(logger))
 	if err != nil {
 		logger.Error("stackorder server failed to start", "error", err)
