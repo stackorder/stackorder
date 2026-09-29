@@ -861,7 +861,7 @@ func TestResolveWorkspaces(t *testing.T) {
 	}, got)
 }
 
-func TestResolveWorkspaceFromKeyOnly(t *testing.T) {
+func TestResolveInstanceFromKeyNotWorkspace(t *testing.T) {
 	g := newGraph().
 		stack(v1.Stack{Key: "stacks/app:blue"}).
 		stack(v1.Stack{Key: "stacks/db", Path: "stacks/db", Workspace: "default"}).
@@ -870,9 +870,41 @@ func TestResolveWorkspaceFromKeyOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.Affected, 2)
 	require.Equal(t, "stacks/app", resp.Affected[0].Path)
-	require.Equal(t, "blue", resp.Affected[0].Workspace)
+	require.Equal(t, "blue", resp.Affected[0].Instance)
+	require.Empty(t, resp.Affected[0].Workspace)
+	require.Equal(t, "blue", resp.Affected[0].Environment)
+	require.Equal(t, "blue", resp.Matrix.Include[0].Instance)
 	require.Equal(t, "stacks/db", resp.Affected[1].Path)
+	require.Empty(t, resp.Affected[1].Instance)
 	require.Empty(t, resp.Affected[1].Workspace)
+}
+
+func TestResolveEnvironmentIsRendered(t *testing.T) {
+	cfg := config.Default()
+	cfg.Environments = map[string]string{"stacks/": "env-{{ .Instance }}"}
+	g := newGraph().
+		stack(v1.Stack{Key: "stacks/app:prod", Path: "stacks/app", Instance: "prod", Environment: "prod"}).
+		stack(v1.Stack{
+			Key: "stacks/web:blue", Path: "stacks/web", Instance: "blue", Environment: "blue",
+			Config: &v1.StackConfig{Instances: v1.Instances{"blue": {Environment: "web-{{ .Instance }}"}}},
+		}).
+		build()
+	resp, err := Resolve(g, Input{Config: cfg, ChangedPaths: []string{"stacks/app/main.tf", "stacks/web/main.tf"}})
+	require.NoError(t, err)
+	require.Len(t, resp.Affected, 2)
+	require.Equal(t, "env-prod", resp.Affected[0].Environment)
+	require.Equal(t, "web-blue", resp.Affected[1].Environment)
+	require.Empty(t, resp.Warnings)
+}
+
+func TestResolveWarnsAboutAScannedUnmappedStack(t *testing.T) {
+	g := newGraph().
+		stack(v1.Stack{Key: "stacks/app", Path: "stacks/app", Environment: v1.DefaultEnvironment}).
+		stack(v1.Stack{Key: "stacks/web", Path: "stacks/web", Environment: v1.DefaultEnvironment, Config: &v1.StackConfig{Environment: "default"}}).
+		build()
+	resp, err := Resolve(g, Input{ChangedPaths: []string{"stacks/app/main.tf", "stacks/web/main.tf"}})
+	require.NoError(t, err)
+	require.Equal(t, []string{`stack stacks/app has no environment mapping; it runs under environment "default"`}, resp.Warnings)
 }
 
 func TestResolveIgnore(t *testing.T) {

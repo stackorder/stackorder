@@ -405,20 +405,25 @@ func (r *resolver) affectedStack(key string, wave int) v1.AffectedStack {
 	if sc == nil {
 		sc = &v1.StackConfig{}
 	}
+	_, instance := v1.SplitStackKey(key)
 	a := v1.AffectedStack{
 		Key:         key,
 		Path:        stackDir(s),
+		Instance:    instance,
 		Workspace:   s.Workspace,
 		Wave:        wave,
 		Reasons:     r.reasons[key].list(),
-		Environment: firstNonEmpty(sc.Environment, config.EnvironmentFor(r.cfg.Environments, stackDir(s)), s.Environment),
+		Environment: s.Environment,
 		Tool:        v1.Tool(firstNonEmpty(string(s.Tool), string(sc.Tool), string(r.cfg.Tool))),
 		ToolVersion: firstNonEmpty(s.ToolVersion, sc.ToolVersion, r.cfg.ToolVersion),
 		PlanOutput:  firstNonEmpty(s.PlanOutput, string(sc.PlanOutput), string(r.cfg.PlanOutput)),
 		Via:         keysOf(r.via[key]),
 	}
-	if a.Workspace == "" {
-		_, a.Workspace = v1.SplitStackKey(key)
+	configured := false
+	if eff, err := config.Resolve(r.cfg, a.Path, sc, instance); err != nil {
+		r.warn("stack %s: %v", key, err)
+	} else if eff.EnvironmentConfigured || a.Environment == "" {
+		a.Environment, configured = eff.Environment, eff.EnvironmentConfigured
 	}
 	if a.Workspace == "default" {
 		a.Workspace = ""
@@ -428,6 +433,8 @@ func (r *resolver) affectedStack(key string, wave int) v1.AffectedStack {
 	}
 	if a.Environment == "" {
 		a.Environment = v1.DefaultEnvironment
+	}
+	if !configured && a.Environment == v1.DefaultEnvironment {
 		r.warn("stack %s has no environment mapping; it runs under environment %q", key, v1.DefaultEnvironment)
 	}
 	if lock, ok := r.in.Locks[key]; ok {

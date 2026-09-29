@@ -30,6 +30,7 @@ func BuildMatrix(affected []v1.AffectedStack, sha string) v1.Matrix {
 		m.Include = append(m.Include, v1.MatrixEntry{
 			Stack:       dir,
 			Key:         a.Key,
+			Instance:    a.Instance,
 			Workspace:   workspace,
 			Environment: env,
 			Wave:        a.Wave,
