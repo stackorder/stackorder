@@ -78,7 +78,7 @@ func (s *Service) bindJob(ctx context.Context, run store.Run, repo store.Repo, c
 		}
 		env = want
 	}
-	if err := s.bindDispatch(ctx, run, row, env, wr); err != nil {
+	if err := s.bindDispatch(ctx, run, repo, row, env, wr); err != nil {
 		return err
 	}
 	attempt, _ := strconv.Atoi(c.RunAttempt)
@@ -90,7 +90,7 @@ func (s *Service) bindJob(ctx context.Context, run store.Run, repo store.Repo, c
 	return nil
 }
 
-func (s *Service) bindDispatch(ctx context.Context, run store.Run, row *store.RunStack, env string, wr int64) error {
+func (s *Service) bindDispatch(ctx context.Context, run store.Run, repo store.Repo, row *store.RunStack, env string, wr int64) error {
 	for range 2 {
 		dispatches, err := s.st.ListDispatches(ctx, run.ID)
 		if err != nil {
@@ -126,6 +126,17 @@ func (s *Service) bindDispatch(ctx context.Context, run store.Run, row *store.Ru
 				candidates = append(candidates, d)
 			}
 		}
+		if row == nil && len(candidates) > 1 {
+			picked, ok, err := s.dispatchByJobs(ctx, repo, run.ID, wr, candidates)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return principal.Wrap(principal.ErrForbidden,
+					"the jobs of workflow run %d name no single dispatch of run %s in environment %s", wr, run.ID, env)
+			}
+			candidates = []store.Dispatch{picked}
+		}
 		var unbound []store.Dispatch
 		for _, d := range candidates {
 			if d.WorkflowRunID == nil && d.CompletedAt == nil {
@@ -135,9 +146,6 @@ func (s *Service) bindDispatch(ctx context.Context, run store.Run, row *store.Ru
 		if len(unbound) == 0 {
 			return principal.Wrap(principal.ErrForbidden,
 				"claim run_id %d matches no workflow run dispatched for run %s in environment %s", wr, run.ID, env)
-		}
-		if len(unbound) > 1 && row == nil {
-			return nil
 		}
 		err = s.st.SetDispatchWorkflowRun(ctx, unbound[0].ID, wr)
 		switch {

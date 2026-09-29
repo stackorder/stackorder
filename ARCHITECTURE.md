@@ -379,7 +379,8 @@ a comment. Each dispatch row binds at most one Actions `workflow_run_id`: a
 dispatch of that (run, wave, mode); otherwise the stacks named by the run's
 jobs choose the dispatch, or the environment of a `deployment_protection_rule`
 does, and Reconcile never binds by position. The first OIDC call of a job
-also binds. A workflow run whose dispatch is already bound binds nothing and
+also binds; a call that names no stack, where the environment has several
+dispatches in the wave, binds by the stacks the workflow run's jobs name. A workflow run whose dispatch is already bound binds nothing and
 its jobs are refused, which makes a duplicated dispatch (a retried POST
 after a processed 5xx) harmless. Cross-repo plan runs use trigger `push` and
 are deduplicated per upstream run and repository.

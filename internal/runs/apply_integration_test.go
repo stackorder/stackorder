@@ -4,6 +4,7 @@ package runs_test
 
 import (
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"sync"
@@ -708,6 +709,85 @@ func TestDeploymentProtectionRule(t *testing.T) {
 	require.Len(t, decisions, 3)
 	assert.Equal(t, gh.DeploymentRejected, decisions[2].State)
 	assert.Contains(t, decisions[2].Comment, "did not dispatch")
+}
+
+func TestStacklessFirstContactBindsOnlyTheDispatchItsJobsCarry(t *testing.T) {
+	const dns = "stacks/prod/dns"
+	setup := func(t *testing.T) (*env, string, ghfake.Dispatch, ghfake.Dispatch) {
+		cfg := baseConfig()
+		cfg.Apply.MaxParallel = 1
+		e := newEnv(t, cfg)
+		g := testGraph(headSHA)
+		g.Stacks = append(g.Stacks, v1.Stack{Key: dns, Path: dns})
+		e.openPull(7, headSHA)
+		job, runID, resp := e.startPlanGraph(7, g, "modules/vpc/main.tf", dns+"/main.tf")
+		for _, a := range resp.Affected {
+			_, err := e.svc.RecordResult(e.ctx, job.p, runID, a.Key, planResult(a.Key, headSHA, 1))
+			require.NoError(t, err)
+		}
+		e.comment(7, applier, "stackorder apply")
+		apply := e.applyRun(7)
+		var p0, p1 *ghfake.Dispatch
+		for _, d := range e.gh.Dispatches() {
+			switch entryKeys(entries(t, d))[0] {
+			case dns:
+				p0 = &d
+			case vpc:
+				p1 = &d
+			}
+		}
+		require.NotNil(t, p0)
+		require.NotNil(t, p1)
+		return e, apply.ID, *p0, *p1
+	}
+	duplicate := func(e *env, applyID string, of ghfake.Dispatch) int64 {
+		dup := e.gh.AddWorkflowRun(repoName, gh.WorkflowRun{Path: ".github/workflows/stackorder-run.yml", Event: "workflow_dispatch",
+			DisplayTitle: "stackorder apply " + applyID + " wave 0"})
+		e.gh.SetJobs(repoName, dup.ID, matrixJobs(of))
+		return dup.ID
+	}
+	boundTo := func(e *env, workflowRunID int64) []string {
+		d, err := e.st.FindDispatchByWorkflowRun(e.ctx, workflowRunID)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
+		require.NoError(e.t, err)
+		rows, err := e.st.GetRunStacks(e.ctx, d.RunID)
+		require.NoError(e.t, err)
+		var keys []string
+		for _, rs := range rows {
+			if rs.DispatchID != nil && *rs.DispatchID == d.ID {
+				keys = append(keys, rs.Key)
+			}
+		}
+		return keys
+	}
+
+	t.Run("the sibling chunk is still unbound", func(t *testing.T) {
+		e, applyID, p0, p1 := setup(t)
+		require.NoError(t, e.svc.HandleWorkflowRun(e.ctx, e.gh.WorkflowRunEvent("requested", repoName, gh.WorkflowRun{ID: p0.RunID})))
+		require.Equal(t, []string{dns}, boundTo(e, p0.RunID))
+		dup := duplicate(e, applyID, p0)
+		_, err := e.svc.GetRunForPrincipal(e.ctx, e.dispatchJob(dup, "production"), applyID)
+		require.ErrorIs(t, err, principal.ErrForbidden, "a duplicated dispatch's jobs are refused")
+		assert.Nil(t, boundTo(e, dup))
+		_, err = e.svc.GetRunForPrincipal(e.ctx, e.dispatchJob(p1.RunID, "production"), applyID)
+		require.NoError(t, err, "the real sibling chunk keeps its dispatch")
+		assert.Equal(t, []string{vpc}, boundTo(e, p1.RunID))
+	})
+
+	t.Run("both chunks are unbound", func(t *testing.T) {
+		e, applyID, p0, p1 := setup(t)
+		_, err := e.svc.GetRunForPrincipal(e.ctx, e.dispatchJob(p1.RunID, "production"), applyID)
+		require.NoError(t, err)
+		assert.Equal(t, []string{vpc}, boundTo(e, p1.RunID), "the jobs of the workflow run choose its dispatch")
+		_, err = e.svc.GetRunForPrincipal(e.ctx, e.dispatchJob(p0.RunID, "production"), applyID)
+		require.NoError(t, err)
+		assert.Equal(t, []string{dns}, boundTo(e, p0.RunID))
+		dup := duplicate(e, applyID, p0)
+		_, err = e.svc.GetRunForPrincipal(e.ctx, e.dispatchJob(dup, "production"), applyID)
+		require.ErrorIs(t, err, principal.ErrForbidden)
+	})
 }
 
 func TestDeploymentProtectionRuleVetsOnlyTheStacksOfASubset(t *testing.T) {
