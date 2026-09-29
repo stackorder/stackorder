@@ -8,7 +8,7 @@ What it shows: the server starting, migrating and answering in setup mode; the d
 
 - Docker with Compose.
 - Go, for building the CLI and running the server. The version is the one in `go.mod`; with `GOTOOLCHAIN=auto` Go downloads it.
-- Terraform or OpenTofu 1.10 or later, since the example stacks use S3-native locking (`use_lockfile = true`).
+- Terraform or OpenTofu 1.10 or later, since the example stacks use S3-native locking (`use_lockfile = true`). The example's `stackorder.yaml` says `tool: terraform`; with only OpenTofu installed, `export STACKORDER_TOOL=tofu` and use `tofu` where the page says `terraform`.
 - git, and optionally `jq` (for the example hook) and Graphviz (for `dot`).
 
 Ports 5432, 4566 and 8080 must be free.
@@ -196,7 +196,7 @@ docker compose -f ../stackorder/docker-compose.yml exec localstack \
 stackorder plan --stack stacks/prod/apps
 ```
 
-Use `tofu` instead of `terraform` if that is your tool; the CLI's `init` has already configured the backend in `stacks/prod/vpc/.terraform`. The bucket now holds `prod/vpc.tfstate`, and the `stacks/prod/apps` plan reads the VPC id and subnets from it.
+The CLI's `init` has already configured the backend in `stacks/prod/vpc/.terraform`, so Terraform (or `tofu`) applies the saved plan directly. The bucket now holds `prod/vpc.tfstate`, and the `stacks/prod/apps` plan reads the VPC id and subnets from it.
 
 To see the fail-closed rule, try the CLI's own apply against the setup-mode server:
 
