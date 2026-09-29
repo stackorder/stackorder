@@ -24,9 +24,9 @@ The API between the CLI and the server is `v1`. Fields are only ever added and b
 
 On AWS with the Terraform module, this is a change of the image tag and an apply. See [Deploy on AWS](./deploy-aws#upgrades).
 
-In-flight runs survive an upgrade. Work is queued in Postgres and every handler is idempotent, so anything the old instance had claimed is claimed again by the new one. The 60-second `workflow_run` reconciliation catches any wave that finished during the switch. GitHub does not retry a failed webhook delivery by itself; redeliver it from the App's delivery log if needed.
+In-flight runs survive an upgrade. Work is queued in Postgres and every handler is idempotent: on `SIGTERM` an instance hands unstarted work back to the queue and gives running handlers 30 s, and anything a killed instance had claimed is claimed again after 10 minutes. The per-minute reconciliation catches any wave that finished during the switch. GitHub does not retry a failed webhook delivery by itself; redeliver it from the App's delivery log if needed.
 
-To go back, deploy the previous image. If the new version ran migrations the previous one does not understand, restore the snapshot from step 2.
+To go back, deploy the previous image. The server never runs down migrations, so if the new version ran migrations the previous one does not understand, restore the snapshot from step 2.
 
 ## Upgrading the CLI and actions {#cli}
 
@@ -59,6 +59,6 @@ What a lost database costs you: history, drift results and locks. Plans and appl
 | Webhook secret | Change it in the App settings and in `GITHUB_WEBHOOK_SECRET` together; deliveries in between fail signature checks and can be redelivered from the App's delivery log. |
 | OAuth client secret | Generate a new one in the App settings, update `GITHUB_OAUTH_CLIENT_SECRET`, redeploy. |
 | Session key | Change `STACKORDER_SESSION_KEY` on every instance at once. Everyone is signed out. |
-| API keys | API keys are stored hashed; replace them and revoke the old ones. |
+| API keys | Only their SHA-256 is stored. Create a new key, switch the automation to it, then revoke the old one; see [API keys](/reference/server-configuration#api-keys). |
 
 There are no runner-side secrets to rotate: runners authenticate with short-lived OIDC tokens.

@@ -8,6 +8,7 @@ The server is one image, `ghcr.io/stackorder/stackorder`, plus a Postgres databa
 - Built from `gcr.io/distroless/static:nonroot`: no shell, runs as a non-root user.
 - Works with a read-only root filesystem. Nothing on local disk matters, so no volume is needed.
 - Listens on port 8080 (`STACKORDER_LISTEN`), plain HTTP. Terminate TLS in front of it.
+- Declares `HEALTHCHECK CMD ["/stackorder-server", "healthcheck"]`, which requests `/healthz` on the listen port, so `docker ps` shows the container's health. Platforms that ignore image health checks, such as ECS and Kubernetes, can run the same command.
 - The web UI is embedded; there is no separate frontend to deploy.
 
 ## `docker run` {#docker-run}
@@ -127,8 +128,8 @@ Here the Secret `stackorder` holds `DATABASE_URL`, `STACKORDER_SESSION_KEY` and 
 ## Postgres {#postgres}
 
 - **One database, one owner role.** The server runs its migrations at start-up, so its role must be able to create and alter tables in the database.
-- **A DSN in `DATABASE_URL`**, such as `postgres://stackorder:secret@db.internal:5432/stackorder?sslmode=require`. Use TLS to a database outside the host.
-- **A current version.** The development setup uses Postgres 17. The server relies on `SELECT ... FOR UPDATE SKIP LOCKED` and advisory locks, which every supported Postgres release has.
+- **A DSN in `DATABASE_URL`**, such as `postgres://stackorder:secret@db.internal:5432/stackorder?sslmode=require`. Use TLS to a database outside the host. Add `pool_max_conns` to size the connection pool; the scheduler's leader lock holds one connection.
+- **A current version.** The development setup, the tests and the Terraform module default use Postgres 17, and the module accepts 14 or later. The schema relies on `gen_random_uuid()`, `SELECT ... FOR UPDATE SKIP LOCKED` and advisory locks.
 - **Small.** A 300-stack monorepo's graph is well under a megabyte, and old plan text, queue rows and drift history are pruned. `db.t4g.micro` on RDS is enough to start.
 - **Backed up.** It is the only stateful dependency. Point-in-time recovery is the simplest protection. See [Upgrades and backups](./upgrades-and-backups).
 
