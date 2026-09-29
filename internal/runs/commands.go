@@ -275,7 +275,10 @@ type serverPlan struct {
 	trigger   v1.Trigger
 	requester string
 	warnings  []string
+	claim     func(ctx context.Context, tx *store.Store) (bool, error)
 }
+
+var errPlanClaimed = errors.New("runs: plan already started")
 
 func (s *Service) startServerPlan(ctx context.Context, req serverPlan) (store.Run, string, error) {
 	locks, err := s.lockMap(ctx, req.repo.ID, req.pr)
@@ -306,6 +309,15 @@ func (s *Service) startServerPlan(ctx context.Context, req serverPlan) (store.Ru
 	warnings := slices.Concat(req.warnings, resp.Warnings)
 	var run store.Run
 	err = s.st.InTx(ctx, func(tx *store.Store) error {
+		if req.claim != nil {
+			first, err := req.claim(ctx, tx)
+			if err != nil {
+				return err
+			}
+			if !first {
+				return errPlanClaimed
+			}
+		}
 		var err error
 		run, err = tx.CreateRun(ctx, store.CreateRunParams{
 			RepoID: req.repo.ID, SHA: req.sha, BaseSHA: req.baseSHA, PRNumber: req.pr,
@@ -319,6 +331,9 @@ func (s *Service) startServerPlan(ctx context.Context, req serverPlan) (store.Ru
 		}
 		return tx.SetRunGraph(ctx, run.ID, req.graphID, len(resp.Waves), warnings)
 	})
+	if errors.Is(err, errPlanClaimed) {
+		return store.Run{}, "", nil
+	}
 	if err != nil {
 		return store.Run{}, "", storeErr(err, "plan run on %s", req.repo.FullName)
 	}

@@ -5,6 +5,7 @@ package runs_test
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -944,6 +945,33 @@ func TestHumanAuditRowsNameTheirRepository(t *testing.T) {
 	help := e.comment(7, applier, "stackorder help")
 	assert.Equal(t, []string{gh.ReactionEyes}, e.gh.Reactions(help.ID),
 		"the rate limit of another pull request of the same repository leaves this one alone")
+}
+
+func TestCrossRepoPlanIsRetriedAfterAFailedFirstAttempt(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	const downstream = "acme/apps"
+	e.gh.SetRepo(downstream, gh.Repository{ID: 300, DefaultBranch: "main"})
+	e.gh.AddInstallation(instID, "acme", downstream)
+	e.gh.SetRef(downstream, "heads/main", baseSHA)
+	down, err := e.st.UpsertRepo(e.ctx, store.RepoParams{ID: 300, InstallationID: instID, FullName: downstream, DefaultBranch: "main"})
+	require.NoError(t, err)
+	_, _, err = e.st.SaveGraph(e.ctx, down.ID, &v1.Graph{Repo: downstream, SHA: baseSHA, Stacks: []v1.Stack{{Key: "stacks/api", Path: "stacks/api"}}})
+	require.NoError(t, err)
+	job := runs.CrossRepoPlanJob{Repo: downstream, StackKeys: []string{"stacks/api"}, UpstreamRunID: uuid.NewString()}
+	downstreamRuns := func() int {
+		rs, _, err := e.st.ListRuns(e.ctx, store.RunFilter{RepoID: down.ID, Mode: v1.ModePlan})
+		require.NoError(t, err)
+		return len(rs)
+	}
+
+	e.gh.FailNext("GET /repos/{owner}/{repo}/contents/{path...}", http.StatusServiceUnavailable, 5)
+	require.Error(t, e.svc.RunCrossRepoPlan(e.ctx, job))
+	assert.Zero(t, downstreamRuns())
+
+	require.NoError(t, e.svc.RunCrossRepoPlan(e.ctx, job))
+	assert.Equal(t, 1, downstreamRuns(), "the retry plans what the failed attempt did not")
+	require.NoError(t, e.svc.RunCrossRepoPlan(e.ctx, job))
+	assert.Equal(t, 1, downstreamRuns(), "the plan is still started once per upstream run")
 }
 
 func TestCrossRepoPlanJob(t *testing.T) {

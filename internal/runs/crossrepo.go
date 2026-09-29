@@ -80,29 +80,21 @@ func (s *Service) RunCrossRepoPlan(ctx context.Context, job CrossRepoPlanJob) er
 		return fmt.Errorf("runs: head of %s: %w", repo.FullName, err)
 	}
 	target := "run:" + job.UpstreamRunID + ":" + strings.ToLower(repo.FullName)
-	first := false
-	err = s.st.InTx(ctx, func(tx *store.Store) error {
+	claim := func(ctx context.Context, tx *store.Store) (bool, error) {
 		if err := tx.LockKey(ctx, "crossrepo:"+target); err != nil {
-			return err
+			return false, err
 		}
 		n, err := tx.CountAudit(ctx, "cross_repo_plan", target, time.Time{})
 		if err != nil || n > 0 {
-			return err
+			return false, err
 		}
-		first = true
 		_, err = tx.RecordAudit(ctx, store.AuditEntry{Actor: schedulerActor, Action: "cross_repo_plan", Target: target,
 			Details: map[string]any{"stacks": job.StackKeys}})
-		return err
-	})
-	if err != nil {
-		return storeErr(err, "claim cross-repo plan %s", target)
-	}
-	if !first {
-		return nil
+		return err == nil, err
 	}
 	_, refusal, err := s.startServerPlan(ctx, serverPlan{
 		repo: repo, sha: head, graph: g, graphID: graphID, keys: job.StackKeys,
-		trigger: v1.TriggerPush, requester: schedulerActor,
+		trigger: v1.TriggerPush, requester: schedulerActor, claim: claim,
 		warnings: []string{"planned because upstream run " + job.UpstreamRunID + " applied stacks these depend on"},
 	})
 	if err != nil {
