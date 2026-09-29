@@ -1,6 +1,7 @@
 package runs
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -448,9 +449,13 @@ func (s *Service) startApply(ctx context.Context, req applyRequest) (store.Run, 
 	)
 	for _, key := range req.view.keys() {
 		src := req.view.stored[key]
+		env, err := applyEnvironment(cfg, defaults, src)
+		if err != nil {
+			return store.Run{}, nil, err
+		}
 		row := store.RunStack{
 			StackID: src.StackID, Mode: v1.ModeApply, Status: v1.StackSkipped, Reasons: src.Reasons, Via: src.Via,
-			Environment: applyEnvironment(cfg, defaults, src), PlanOutput: src.PlanOutput,
+			Environment: env, PlanOutput: src.PlanOutput,
 			Summary: src.Summary, Adds: src.Adds, Changes: src.Changes, Destroys: src.Destroys, Replaces: src.Replaces,
 			HasChanges: src.HasChanges, PlanArtifact: src.PlanArtifact, PlanRunID: src.PlanRunID,
 		}
@@ -549,12 +554,17 @@ func activeApply(ctx context.Context, db *store.Store, repoID int64, pr int, now
 	return store.Run{}, false, nil
 }
 
-func applyEnvironment(cfg *v1.RepoConfig, defaults map[string]*v1.StackConfig, src store.RunStack) string {
-	var override string
-	if sc := defaults[src.Key]; sc != nil {
-		override = sc.Environment
+func applyEnvironment(cfg *v1.RepoConfig, defaults map[string]*v1.StackConfig, src store.RunStack) (string, error) {
+	dir, instance := v1.SplitStackKey(src.Key)
+	sc := defaults[src.Key]
+	eff, err := config.Resolve(cfg, cmp.Or(src.Path, dir), sc, instance)
+	if err != nil {
+		return "", fmt.Errorf("runs: environment of %s: %w", src.Key, err)
 	}
-	return firstNonEmpty(override, config.EnvironmentFor(cfg.Environments, src.Path), src.Environment, v1.DefaultEnvironment)
+	if sc == nil && !eff.EnvironmentConfigured && src.Environment != "" {
+		return src.Environment, nil
+	}
+	return eff.Environment, nil
 }
 
 func (s *Service) commandUnlock(ctx context.Context, repo store.Repo, pr int, cmd *command.Command, login string) (commandOutcome, error) {
