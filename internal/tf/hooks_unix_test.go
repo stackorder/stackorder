@@ -4,7 +4,6 @@ package tf
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -88,7 +87,7 @@ func TestRunHook(t *testing.T) {
 			root := t.TempDir()
 			tt.setup(t, root)
 			var stdout, stderr bytes.Buffer
-			ran, err := RunHook(context.Background(), root, tt.hook, tt.env, &stdout, &stderr)
+			ran, err := RunHook(execContext(t), root, tt.hook, tt.env, &stdout, &stderr)
 			assert.Equal(t, tt.wantRan, ran)
 			switch {
 			case tt.wantErr != nil:
@@ -110,7 +109,7 @@ func TestRunHook(t *testing.T) {
 func TestRunHookDirectory(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(HookPath(root, HookPrePlan), 0o755))
-	ran, err := RunHook(context.Background(), root, HookPrePlan, nil, nil, nil)
+	ran, err := RunHook(execContext(t), root, HookPrePlan, nil, nil, nil)
 	assert.False(t, ran)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a regular file")
@@ -119,7 +118,7 @@ func TestRunHookDirectory(t *testing.T) {
 func TestRunHookNilWriters(t *testing.T) {
 	root := t.TempDir()
 	writeHook(t, root, HookPrePlan, "echo out\necho err >&2\n", 0o755)
-	ran, err := RunHook(context.Background(), root, HookPrePlan, nil, nil, nil)
+	ran, err := RunHook(execContext(t), root, HookPrePlan, nil, nil, nil)
 	require.NoError(t, err)
 	assert.True(t, ran)
 }

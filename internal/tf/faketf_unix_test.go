@@ -3,10 +3,14 @@
 package tf
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -47,11 +51,41 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+const (
+	execTimeout      = 30 * time.Second
+	interruptTimeout = 5 * time.Second
+)
+
+func execContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), execTimeout)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 type fakeTF struct {
-	t   *testing.T
-	bin string
-	dir string
-	log string
+	t      *testing.T
+	bin    string
+	dir    string
+	log    string
+	output *syncBuffer
 }
 
 type invocation struct {
@@ -62,19 +96,35 @@ type invocation struct {
 
 func newFakeTF(t *testing.T, name string) *fakeTF {
 	t.Helper()
-	return &fakeTF{
-		t:   t,
-		bin: filepath.Join(fakeBinDir, name),
-		dir: t.TempDir(),
-		log: filepath.Join(t.TempDir(), "argv.log"),
+	f := &fakeTF{
+		t:      t,
+		bin:    filepath.Join(fakeBinDir, name),
+		dir:    t.TempDir(),
+		log:    filepath.Join(t.TempDir(), "argv.log"),
+		output: &syncBuffer{},
 	}
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		argv, _ := os.ReadFile(f.log)
+		t.Logf("fake %s invocations:\n%s\noutput:\n%s", name, argv, f.output.String())
+	})
+	return f
+}
+
+func (f *fakeTF) ctx() context.Context {
+	return execContext(f.t)
 }
 
 func (f *fakeTF) runner(env ...string) *Runner {
 	return &Runner{
-		Bin: f.bin,
-		Dir: f.dir,
-		Env: append([]string{"FAKE_TF_LOG=" + f.log}, env...),
+		Bin:              f.bin,
+		Dir:              f.dir,
+		Env:              append([]string{"FAKE_TF_LOG=" + f.log}, env...),
+		Stdout:           f.output,
+		Stderr:           f.output,
+		InterruptTimeout: interruptTimeout,
 	}
 }
 

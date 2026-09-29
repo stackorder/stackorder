@@ -3,7 +3,6 @@
 package tf
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,7 +99,7 @@ func TestVersion(t *testing.T) {
 				_, v, _ := strings.Cut(f.stdoutFile(tt.stdout), "=")
 				t.Setenv("FAKE_TF_STDOUT", v)
 			}
-			got, isTofu, err := Version(context.Background(), f.bin)
+			got, isTofu, err := Version(f.ctx(), f.bin)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)

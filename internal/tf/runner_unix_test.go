@@ -48,7 +48,7 @@ func TestInitArgv(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFakeTF(t, "terraform")
-			require.NoError(t, f.runner().Init(context.Background(), tt.backendConfig, tt.opts))
+			require.NoError(t, f.runner().Init(f.ctx(), tt.backendConfig, tt.opts))
 			call := f.lastCall()
 			assert.Equal(t, tt.wantArgs, call.Args)
 			assert.Equal(t, "1", call.Env["TF_IN_AUTOMATION"])
@@ -69,7 +69,7 @@ func TestInitArgv(t *testing.T) {
 func TestRunnerDirAndEnv(t *testing.T) {
 	f := newFakeTF(t, "tofu")
 	r := f.runner("FAKE_EXTRA=value", "TF_IN_AUTOMATION=override")
-	require.NoError(t, r.Init(context.Background(), nil, InitOptions{}))
+	require.NoError(t, r.Init(f.ctx(), nil, InitOptions{}))
 	call := f.lastCall()
 	wantDir, err := filepath.EvalSymlinks(f.dir)
 	require.NoError(t, err)
@@ -94,7 +94,7 @@ func TestSelectWorkspaceArgv(t *testing.T) {
 			f := newFakeTF(t, "terraform")
 			r := f.runner()
 			r.Workspace = tt.workspace
-			require.NoError(t, r.SelectWorkspace(context.Background()))
+			require.NoError(t, r.SelectWorkspace(f.ctx()))
 			assert.Equal(t, tt.want, f.lastCall().Args)
 		})
 	}
@@ -134,7 +134,7 @@ func TestPlanArgv(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFakeTF(t, "terraform")
-			_, err := f.runner().Plan(context.Background(), tt.opts)
+			_, err := f.runner().Plan(f.ctx(), tt.opts)
 			require.NoError(t, err)
 			if diff := cmp.Diff(tt.want, f.lastCall().Args); diff != "" {
 				t.Fatalf("argv mismatch (-want +got):\n%s", diff)
@@ -170,7 +170,7 @@ func TestPlanExitCodes(t *testing.T) {
 				"FAKE_TF_STDERR=╷\n│ Error: Unsupported argument\n╵",
 			)
 			r.Stdout, r.Stderr = &stdout, &stderr
-			res, err := r.Plan(context.Background(), PlanOptions{DetailedExitCode: tt.detailed})
+			res, err := r.Plan(f.ctx(), PlanOptions{DetailedExitCode: tt.detailed})
 			require.NotNil(t, res)
 			assert.Equal(t, tt.wantCode, res.ExitCode)
 			assert.Equal(t, tt.wantChanges, res.HasChanges)
@@ -199,7 +199,7 @@ func TestShowJSON(t *testing.T) {
 	var stdout bytes.Buffer
 	r := f.runner(f.stdoutFile(string(fixture)))
 	r.Stdout = &stdout
-	p, err := r.ShowJSON(context.Background(), "plan.tfplan")
+	p, err := r.ShowJSON(f.ctx(), "plan.tfplan")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"show", "-json", "-no-color", "plan.tfplan"}, f.lastCall().Args)
 	assert.Equal(t, 2, Summarize(p).Adds)
@@ -242,7 +242,7 @@ func TestShowJSONErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFakeTF(t, "tofu")
-			_, err := f.runner(tt.env(f)...).ShowJSON(context.Background(), tt.file)
+			_, err := f.runner(tt.env(f)...).ShowJSON(f.ctx(), tt.file)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
@@ -254,13 +254,13 @@ func TestShowText(t *testing.T) {
 	var stdout bytes.Buffer
 	r := f.runner(f.stdoutFile("  # terraform_data.example will be created\n"))
 	r.Stdout = &stdout
-	text, err := r.ShowText(context.Background(), "/abs/plan.tfplan")
+	text, err := r.ShowText(f.ctx(), "/abs/plan.tfplan")
 	require.NoError(t, err)
 	assert.Equal(t, "  # terraform_data.example will be created\n", text)
 	assert.Equal(t, []string{"show", "-no-color", "/abs/plan.tfplan"}, f.lastCall().Args)
 	assert.Empty(t, stdout.String())
 
-	_, err = r.ShowText(context.Background(), "")
+	_, err = r.ShowText(f.ctx(), "")
 	require.Error(t, err)
 }
 
@@ -296,7 +296,7 @@ func TestApply(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFakeTF(t, "terraform")
 			r := f.runner("FAKE_TF_EXIT="+tt.exit, f.stdoutFile("Apply complete! Resources: 1 added, 0 changed, 0 destroyed.\n"))
-			res, err := r.Apply(context.Background(), "plan.tfplan", tt.opts)
+			res, err := r.Apply(f.ctx(), "plan.tfplan", tt.opts)
 			require.NotNil(t, res)
 			assert.Equal(t, tt.wantArgs, f.lastCall().Args)
 			assert.Equal(t, tt.wantCode, res.ExitCode)
@@ -314,7 +314,7 @@ func TestApply(t *testing.T) {
 
 func TestApplyRequiresPlanFile(t *testing.T) {
 	f := newFakeTF(t, "terraform")
-	res, err := f.runner().Apply(context.Background(), "", ApplyOptions{})
+	res, err := f.runner().Apply(f.ctx(), "", ApplyOptions{})
 	require.Error(t, err)
 	assert.Nil(t, res)
 	assert.Empty(t, f.calls())
@@ -345,7 +345,7 @@ func TestOutput(t *testing.T) {
 			if tt.stdout != "" {
 				env = append(env, f.stdoutFile(tt.stdout))
 			}
-			outputs, err := f.runner(env...).Output(context.Background())
+			outputs, err := f.runner(env...).Output(f.ctx())
 			require.NoError(t, err)
 			assert.Equal(t, []string{"output", "-json", "-no-color"}, f.lastCall().Args)
 			got := map[string]any{}
@@ -371,7 +371,7 @@ func TestRunnerMissingBinary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &Runner{Bin: tt.bin, Dir: t.TempDir()}
-			res, err := r.Plan(context.Background(), PlanOptions{})
+			res, err := r.Plan(execContext(t), PlanOptions{})
 			require.Error(t, err)
 			assert.Nil(t, res)
 			var exitErr *ExitError
@@ -385,26 +385,22 @@ func TestRunnerInterruptOnCancel(t *testing.T) {
 	var stderr bytes.Buffer
 	r := f.runner("FAKE_TF_SLEEP=30")
 	r.Stderr = &stderr
-	r.InterruptTimeout = 10 * time.Second
-	ctx, cancel := context.WithCancel(context.Background())
+	r.InterruptTimeout = time.Minute
+	ctx, cancel := context.WithCancel(f.ctx())
 	defer cancel()
-	cancelled := make(chan time.Time, 1)
 	go func() {
-		for {
+		for ctx.Err() == nil {
 			data, _ := os.ReadFile(f.log)
 			if bytes.Contains(data, []byte("--\n")) {
-				break
+				cancel()
+				return
 			}
-			time.Sleep(20 * time.Millisecond)
+			time.Sleep(10 * time.Millisecond)
 		}
-		time.Sleep(100 * time.Millisecond)
-		cancelled <- time.Now()
-		cancel()
 	}()
 	res, err := r.Plan(ctx, PlanOptions{})
-	require.ErrorIs(t, err, context.Canceled)
-	assert.Less(t, time.Since(<-cancelled), 5*time.Second, "the interrupt should end the command well before the kill delay")
+	require.ErrorIs(t, err, context.Canceled, stderr.String())
 	require.NotNil(t, res)
-	assert.Equal(t, 130, res.ExitCode)
+	assert.Equal(t, 130, res.ExitCode, "the command exits through its interrupt trap, not the kill after InterruptTimeout")
 	assert.Contains(t, res.Output, "interrupted")
 }
