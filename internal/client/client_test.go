@@ -395,11 +395,23 @@ func TestUnreachableTimeout(t *testing.T) {
 }
 
 func TestCallerCancellationIsNotUnreachable(t *testing.T) {
+	arrived := make(chan struct{}, 1)
 	s := newAPIServer(t, func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case arrived <- struct{}{}:
+		default:
+		}
 		<-r.Context().Done()
 	})
-	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(100*time.Millisecond, cancel)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() {
+		select {
+		case <-arrived:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	_, err := fastClient(s.srv.URL, StaticTokenSource("tok")).GetRun(ctx, testRunID)
 	require.ErrorIs(t, err, context.Canceled)
 	assert.False(t, IsUnreachable(err))
