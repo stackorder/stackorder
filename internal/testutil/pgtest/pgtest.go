@@ -85,10 +85,15 @@ func DSN(t testing.TB) string {
 	return dsn
 }
 
-// Main runs the tests of a package and then stops the container, if one
-// was started. Call it from TestMain.
-func Main(m *testing.M) int {
+// Main runs the tests of a package, then the teardown functions in reverse
+// order, and then stops the container, if one was started. Call it from
+// TestMain; teardown releases what the package's tests share, such as a
+// server on one of the databases, while Postgres still answers.
+func Main(m *testing.M, teardown ...func()) int {
 	code := m.Run()
+	for i := len(teardown) - 1; i >= 0; i-- {
+		teardown[i]()
+	}
 	if container != nil {
 		if err := testcontainers.TerminateContainer(container); err != nil {
 			fmt.Fprintf(os.Stderr, "pgtest: terminate container: %v\n", err)
