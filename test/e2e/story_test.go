@@ -653,9 +653,22 @@ func (s *story) lockSafety(t *testing.T) {
 	assert.ElementsMatch(t, []string{stagingVPC, stagingApps}, unlocked, "the unlock is audited")
 
 	s.closePull(t, pr)
+	seen := len(s.comments(2))
 	s.mergePull(t, s.pulls[2])
 	assert.Empty(t, s.locks(t), "merging #2 released its remaining locks")
-	assert.NotEmpty(t, s.commentsContaining(2, prodVPC), "the merge comment lists the released locks")
+	var posted []string
+	for _, c := range s.comments(2)[seen:] {
+		if !strings.HasPrefix(c.Body, stickyMarker) {
+			posted = append(posted, c.Body)
+		}
+	}
+	require.Len(t, posted, 1, "the merge posts one comment about the locks it released")
+	for _, key := range []string{prodVPC, prodEKS, prodApps} {
+		assert.Contains(t, posted[0], key, "the merge comment lists the released lock on %s", key)
+	}
+	for _, key := range []string{stagingVPC, stagingApps} {
+		assert.NotContains(t, posted[0], key, "the lock on %s was already released by unlock", key)
+	}
 }
 
 func (s *story) expiredArtifact(t *testing.T) {
