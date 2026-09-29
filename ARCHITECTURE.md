@@ -47,11 +47,12 @@ internal/artifacts/        optional S3 store for full plan text (STACKORDER_ARTI
 internal/testutil/pgtest/  Postgres for tests: TEST_DATABASE_URL or testcontainers, one database per test
 internal/testutil/ghfake/  in-memory fake of the GitHub API with inspection and payload builders
 internal/testutil/oidcfake/ fake OIDC issuer and runner token endpoint
+internal/testutil/faketf/  fake terraform and tofu binary answering per stack from a JSON config, for CLI end-to-end tests
 migrations/                golang-migrate SQL files, NNNN_name.up.sql / .down.sql, embedded as migrations.FS
 ui/                        Preact + Vite + TypeScript app; `npm run build` writes internal/ui/dist
 docs/                      VitePress documentation site
 deploy/terraform/          ECS Fargate + RDS + ALB module; examples/ and tests/
-test/integration/          server + Postgres + fake GitHub, whole-flow tests (build tag `integration`)
+test/integration/          server + Postgres + fake GitHub + the CLI on faketf, whole-flow tests (build tag `integration`)
 test/e2e/                  real terraform + LocalStack + example-infra + server (build tag `e2e`)
 Dockerfile                 multi-stage: node (ui) -> go -> gcr.io/distroless/static:nonroot
 .goreleaser.yaml           CLI releases for linux/darwin/windows, amd64/arm64, checksums; server image
