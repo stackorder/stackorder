@@ -432,7 +432,7 @@ All runner-side logic lives in one static Go binary, `stackorder`, and the Actio
 | `stackorder unlock` | Not used | Releases an orchestration lock through the API, audited |
 
 ::: info Implementation note
-The CLI also has `check` and `version`. The `plan` and `apply` actions upload and download the plan artifact; the CLI does neither. `stackorder unlock` needs an API key. See [CLI](/reference/cli).
+The CLI also has `check` and `version`. The `plan` and `apply` actions upload and download the plan artifact; the CLI does neither. `apply` in CI checks the run's SHA against the dispatch's `sha` input and the checkout's `HEAD`. On a laptop, `plan` and `drift` report to the server only when a server, a run id and `STACKORDER_API_KEY` are all set, and `stackorder unlock` needs an API key. See [CLI](/reference/cli).
 :::
 
 The CLI detects the tool from `tool: terraform` or `tool: tofu` in the stack config and expects that binary on `PATH`; installing it is left to `hashicorp/setup-terraform` or `opentofu/setup-opentofu` in the workflow, both of which are already JavaScript actions. Provider plugins are cached with `actions/cache` keyed on `.terraform.lock.hcl`.
