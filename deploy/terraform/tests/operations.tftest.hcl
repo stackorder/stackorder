@@ -181,18 +181,31 @@ run "health_check_command" {
   command = plan
 
   variables {
-    health_check_command = ["CMD", "/stackorder-server", "healthcheck"]
+    health_check_command = ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz"]
   }
 
   assert {
     condition = jsondecode(aws_ecs_task_definition.this.container_definitions)[0].healthCheck == {
-      command     = ["CMD", "/stackorder-server", "healthcheck"]
+      command     = ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz"]
       interval    = 30
       timeout     = 5
       retries     = 3
       startPeriod = 30
     }
-    error_message = "A health_check_command must become the container health check."
+    error_message = "A health_check_command must replace the default container health check command."
+  }
+}
+
+run "health_check_disabled" {
+  command = plan
+
+  variables {
+    health_check_command = []
+  }
+
+  assert {
+    condition     = !contains(keys(jsondecode(aws_ecs_task_definition.this.container_definitions)[0]), "healthCheck")
+    error_message = "An empty health_check_command must leave the container without a health check, so the load balancer's /readyz check alone decides task health."
   }
 }
 
@@ -201,6 +214,16 @@ run "health_check_command_not_exec_form" {
 
   variables {
     health_check_command = ["/stackorder-server", "healthcheck"]
+  }
+
+  expect_failures = [var.health_check_command]
+}
+
+run "health_check_command_without_command" {
+  command = plan
+
+  variables {
+    health_check_command = ["CMD"]
   }
 
   expect_failures = [var.health_check_command]

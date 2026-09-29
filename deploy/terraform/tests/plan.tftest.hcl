@@ -58,8 +58,14 @@ run "defaults" {
   }
 
   assert {
-    condition     = !contains(keys(jsondecode(aws_ecs_task_definition.this.container_definitions)[0]), "healthCheck")
-    error_message = "The distroless image has no health check command, so by default the load balancer's /readyz check alone decides task health."
+    condition = jsondecode(aws_ecs_task_definition.this.container_definitions)[0].healthCheck == {
+      command     = ["CMD", "/stackorder-server", "healthcheck"]
+      interval    = 30
+      timeout     = 5
+      retries     = 3
+      startPeriod = 30
+    }
+    error_message = "By default the container health check must run the server's healthcheck subcommand every 30 s with a 5 s timeout, 3 retries and a 30 s start period."
   }
 
   assert {

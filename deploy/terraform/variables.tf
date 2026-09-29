@@ -242,13 +242,13 @@ variable "enable_execute_command" {
 }
 
 variable "health_check_command" {
-  description = "Container health check command, starting with CMD or CMD-SHELL. The distroless image has no shell or curl, so it must be a command the image itself provides. Empty, the default, leaves task health to the load balancer check on /readyz."
+  description = "Container health check command, starting with CMD or CMD-SHELL. The default runs the server's healthcheck subcommand, which GETs /healthz on the listen port. The distroless image has no shell or curl, so a replacement must be a command the image itself provides. Empty turns the container health check off and leaves task health to the load balancer check on /readyz."
   type        = list(string)
-  default     = []
+  default     = ["CMD", "/stackorder-server", "healthcheck"]
 
   validation {
-    condition     = length(var.health_check_command) == 0 || contains(["CMD", "CMD-SHELL"], try(var.health_check_command[0], ""))
-    error_message = "health_check_command must be empty or start with CMD or CMD-SHELL."
+    condition     = length(var.health_check_command) == 0 || (length(var.health_check_command) >= 2 && contains(["CMD", "CMD-SHELL"], try(var.health_check_command[0], "")))
+    error_message = "health_check_command must be empty, or CMD or CMD-SHELL followed by the command."
   }
 }
 
