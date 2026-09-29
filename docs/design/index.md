@@ -190,7 +190,7 @@ Drift checks are dispatched under the environment `default`, never the stack's o
 | Head SHA changes after plan | Plans invalidated, `stackorder apply` refuses, new push re-plans |
 
 ::: info Implementation note
-The reconciliation runs every minute: it resends dispatches GitHub never accepted, binds workflow runs to dispatches by their title and job names, marks the stacks of a dispatch no workflow run picked up within 30 minutes `unknown`, and closes dispatches whose workflow run completed without every stack reporting. A 5xx answer counts as an unreachable server once three retries have failed.
+The reconciliation runs every minute: it resends dispatches GitHub never accepted, binds workflow runs to dispatches by the title the wrapper's `run-name` sets, marks the stacks of a dispatch no workflow run picked up within 30 minutes `unknown`, and closes dispatches whose workflow run completed without every stack reporting. A 5xx answer counts as an unreachable server once three retries have failed.
 :::
 
 ## Dependency model
@@ -379,7 +379,7 @@ No `Secrets`, `Administration`, `Environments` or `Workflows` permission: the Ap
 **Webhook events subscribed**: `installation`, `installation_repositories`, `pull_request`, `pull_request_review`, `issue_comment`, `push`, `check_run` (for `rerequested`), `check_suite`, `workflow_run`, `workflow_job`, and optionally `deployment_protection_rule`. `workflow_job` is what gives the UI live per-job progress and runner queue time; `workflow_run` closes the loop on each wave.
 
 ::: info Implementation note
-The manifest subscribes to `deployment_protection_rule` by default, except on GitHub Enterprise Server, and does not list `installation` and `installation_repositories`, which GitHub delivers to every App. `workflow_job` moves stacks to `planning` and `applying`.
+The manifest subscribes to `deployment_protection_rule` by default, except on GitHub Enterprise Server, and does not list `installation` and `installation_repositories`, which GitHub delivers to every App. `workflow_job` moves stacks to `planning` and `applying` only for jobs named in GitHub's default matrix form, `<job> (<stack>, …)`; the reusable workflows name their jobs `plan <key>` and `<mode> wave <n> <key>`, so their stacks move on when their results arrive.
 :::
 
 **Install flow.** The server serves `GET /setup`, which renders a GitHub App manifest with the right webhook URL, permissions and events and posts it to GitHub's manifest-creation endpoint. GitHub returns the App id, private key, webhook secret and OAuth client id and secret in one exchange; the page prints them once as the environment variables to load into Secrets Manager. The whole setup takes one browser visit and no hand-copying of permission checkboxes. Enterprise Server is the same flow with `GITHUB_API_URL` set.

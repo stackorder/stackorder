@@ -268,3 +268,7 @@ To run the example against a real server, its workflows read these Actions varia
 | `STACKORDER_APPLY_ROLE_ARN_DEFAULT` | run | Apply role for `stacks/legacy/`, trusted for `environment:default` |
 
 The last role shares its subject with the plan and drift jobs; see the warning in [Security hardening](/operations/security-hardening#trust-policies) before copying that layout. The repository also needs the environments `production` and `staging`, branch protection requiring `stackorder/plan` and `stackorder/apply`, and the teams its `CODEOWNERS` names.
+
+::: warning Add `run-name` first
+The example's `stackorder-run.yml` does not set `run-name`. Add the `run-name` line from [Workflows](/configuration/workflows#run) before pointing it at a real server; without it the server binds a dispatch only when a job first calls it, which is too late for an apply waiting on reviewers or for a deployment protection rule.
+:::

@@ -92,7 +92,7 @@ Gate policy comes from `stackorder.yaml` on the default branch. Changing it in t
 
 **Symptom.** A stack is `unknown` in the run. Its orchestration lock is held, and the S3 state lock may be too.
 
-**Why.** The job vanished before reporting a result: its workflow run completed without the stack reporting, or no workflow run picked the dispatch up within 30 minutes. Nobody knows how far `apply` got. Stackorder leaves the S3 lock as is; it never touches state locks. A result that arrives late still lands on an `unknown` stack.
+**Why.** The job vanished before reporting a result: its workflow run completed without the stack reporting, or no workflow run picked the dispatch up within 30 minutes. If the stacks became `unknown` while the apply was still waiting for an environment's reviewers, with the warning `workflow run not found`, the wrapper lacks the [`run-name` line](/configuration/workflows#run) and nothing was applied. Otherwise nobody knows how far `apply` got. Stackorder leaves the S3 lock as is; it never touches state locks. A result that arrives late still lands on an `unknown` stack.
 
 **Fix.**
 

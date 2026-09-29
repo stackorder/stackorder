@@ -67,7 +67,10 @@ jobs:
 
 The server dispatches this workflow by its file name, `stackorder-run.yml`, on the default branch, so keep that name and keep the file on the default branch. It sends all five inputs, `run_id`, `mode`, `wave`, `sha` and `stacks`, so the file must declare all five: GitHub refuses a dispatch with an input the workflow does not declare, and the server then records a warning on the run naming the inputs it expects.
 
-The `run-name` line matters. The server recognises the workflow runs it dispatched by their title, `stackorder <mode> <run id> wave <n>`, and binds each one to its dispatch as soon as GitHub reports it. Without it the server falls back to the stack keys in the job names and to the first call each job makes, which still works but binds later.
+The `run-name` line matters. The server recognises the workflow runs it dispatched by their title, `stackorder <mode> <run id> wave <n>`, and binds each one to its dispatch as soon as GitHub reports it. Without it, a dispatch is bound only when one of its jobs first calls the server, which is too late in two cases:
+
+- An App registered as a [deployment protection rule](/configuration/environments-and-authorization#layer-4) rejects the deployment, because GitHub asks it before any job has run.
+- A dispatch that no job has called within 30 minutes, such as an apply waiting for an environment's reviewers, is taken for lost: its stacks become `unknown` and the run gets the warning `workflow run not found`.
 
 The file has no `concurrency` group and is never cancelled in progress. Inside `run.yml`, each stack's job joins the concurrency group `stackorder-stack-<key>` without `cancel-in-progress`, so two jobs never run on the same stack at once; keep your own concurrency groups clear of that prefix.
 
