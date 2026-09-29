@@ -355,6 +355,8 @@ func (s *story) adopt(t *testing.T) {
 	run := s.runJSON(t, pr.runID)
 	assert.Equal(t, v1.RunPlanned, run.Status)
 	assert.Empty(t, run.Stacks)
+	assert.Equal(t, gh.ConclusionSuccess, s.checkRun(t, report.CheckApply, head).Conclusion,
+		"a before_merge pull request that affects nothing gets a green apply check so branch protection can pass")
 	known := s.stacks(t)
 	for _, key := range bootstrapOrder {
 		assert.Contains(t, known, key, "the resolve job registered the graph")
