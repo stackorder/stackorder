@@ -1,0 +1,29 @@
+version: 1
+
+stacks:
+  discover: ["stacks/**"]
+
+modules:
+  paths: ["modules/**"]
+
+tool: terraform
+
+environments:
+  "stacks/prod/": production
+  "stacks/staging/": staging
+
+apply:
+  mode: before_merge
+  require_approvals: 1
+  four_eyes: false
+  from_plan: true
+
+propagate:
+  dependents: true
+  cross_repo: plan
+
+drift:
+  schedule: "0 6 * * 1-5"
+  open_issue: true
+
+plan_output: full

@@ -1,0 +1,3 @@
+depends_on:
+  - stacks/staging/vpc
+plan_output: summary

@@ -1,0 +1,14 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.14.0",
+  "resource_changes": [
+    {
+      "address": "terraform_data.app",
+      "mode": "managed",
+      "type": "terraform_data",
+      "name": "app",
+      "provider_name": "terraform.io/builtin/terraform",
+      "change": {"actions": ["no-op"], "before": {"input": {"name": "storefront"}}, "after": {"input": {"name": "storefront"}}}
+    }
+  ]
+}

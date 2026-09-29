@@ -33,7 +33,11 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(pgtest.Main(m))
+	code := pgtest.Main(m, closeSuite)
+	if suite.failed && code == 0 {
+		code = 1
+	}
+	os.Exit(code)
 }
 
 const waitFor = 20 * time.Second

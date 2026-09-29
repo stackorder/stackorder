@@ -1,0 +1,24 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.14.0",
+  "resource_changes": [
+    {
+      "address": "module.eks.terraform_data.cluster",
+      "module_address": "module.eks",
+      "mode": "managed",
+      "type": "terraform_data",
+      "name": "cluster",
+      "provider_name": "terraform.io/builtin/terraform",
+      "change": {"actions": ["update"], "before": {"input": {"subnet_ids": ["a", "b", "c"]}}, "after": {"input": {"subnet_ids": ["a", "b", "c", "d"]}}}
+    },
+    {
+      "address": "module.eks.terraform_data.node_group",
+      "module_address": "module.eks",
+      "mode": "managed",
+      "type": "terraform_data",
+      "name": "node_group",
+      "provider_name": "terraform.io/builtin/terraform",
+      "change": {"actions": ["no-op"], "before": {"input": {"cluster": "prod"}}, "after": {"input": {"cluster": "prod"}}}
+    }
+  ]
+}

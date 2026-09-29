@@ -86,7 +86,11 @@ type Env struct {
 	// Vars are the environment variables the server was configured from.
 	Vars map[string]string
 
-	t        testing.TB
+	t    testing.TB
+	life *lifecycle
+}
+
+type lifecycle struct {
 	cancel   context.CancelFunc
 	done     chan error
 	stopOnce sync.Once
@@ -196,10 +200,9 @@ func NewEnv(t testing.TB, opts ...EnvOption) *Env {
 		DSN:     dsn,
 		Vars:    setup.vars,
 		t:       t,
-		cancel:  cancel,
-		done:    make(chan error, 1),
+		life:    &lifecycle{cancel: cancel, done: make(chan error, 1)},
 	}
-	go func() { e.done <- srv.Run(ctx) }()
+	go func() { e.life.done <- srv.Run(ctx) }()
 	t.Cleanup(func() {
 		if err := e.Stop(); err != nil {
 			t.Errorf("integration: server stopped with an error: %v", err)
@@ -228,15 +231,24 @@ func NewEnv(t testing.TB, opts ...EnvOption) *Env {
 // Stop cancels the server's context and waits for Run to return, and
 // returns its error. Later calls return the same error.
 func (e *Env) Stop() error {
-	e.stopOnce.Do(func() {
-		e.cancel()
+	l := e.life
+	l.stopOnce.Do(func() {
+		l.cancel()
 		select {
-		case e.stopErr = <-e.done:
+		case l.stopErr = <-l.done:
 		case <-time.After(stopTimeout):
-			e.stopErr = fmt.Errorf("integration: the server did not stop within %s", stopTimeout)
+			l.stopErr = fmt.Errorf("integration: the server did not stop within %s", stopTimeout)
 		}
 	})
-	return e.stopErr
+	return l.stopErr
+}
+
+// For returns a view of the Env whose helpers report to t, so that tests
+// can share one Env; stopping any view stops the shared server.
+func (e *Env) For(t testing.TB) *Env {
+	view := *e
+	view.t = t
+	return &view
 }
 
 // URL returns the absolute URL of path on the server.

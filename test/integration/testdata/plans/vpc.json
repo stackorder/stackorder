@@ -1,0 +1,35 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.14.0",
+  "resource_changes": [
+    {
+      "address": "module.vpc.terraform_data.subnet[\"a\"]",
+      "module_address": "module.vpc",
+      "mode": "managed",
+      "type": "terraform_data",
+      "name": "subnet",
+      "index": "a",
+      "provider_name": "terraform.io/builtin/terraform",
+      "change": {"actions": ["no-op"], "before": {"input": {"zone": "a"}}, "after": {"input": {"zone": "a"}}}
+    },
+    {
+      "address": "module.vpc.terraform_data.subnet[\"d\"]",
+      "module_address": "module.vpc",
+      "mode": "managed",
+      "type": "terraform_data",
+      "name": "subnet",
+      "index": "d",
+      "provider_name": "terraform.io/builtin/terraform",
+      "change": {"actions": ["create"], "before": null, "after": {"input": {"zone": "d"}}, "after_unknown": {"id": true, "output": true}}
+    },
+    {
+      "address": "module.vpc.terraform_data.vpc",
+      "module_address": "module.vpc",
+      "mode": "managed",
+      "type": "terraform_data",
+      "name": "vpc",
+      "provider_name": "terraform.io/builtin/terraform",
+      "change": {"actions": ["no-op"], "before": {"input": {"name": "vpc"}}, "after": {"input": {"name": "vpc"}}}
+    }
+  ]
+}
