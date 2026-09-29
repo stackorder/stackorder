@@ -596,6 +596,9 @@ func (s *story) apply(t *testing.T) {
 		prodEKS: v1.StackNoop, stagingApps: v1.StackNoop,
 	}, statuses(run))
 	assert.Equal(t, gh.ConclusionSuccess, s.checkRun(t, report.CheckApply, pr.head).Conclusion)
+	stickies := s.stickies(pr.number)
+	require.Len(t, stickies, 1, "the apply updates the one sticky comment instead of adding another")
+	assert.Contains(t, strings.SplitN(stickies[0], "\n", 3)[1], string(v1.RunApplied), "the sticky comment shows the applied run")
 
 	for _, key := range []string{prodVPC, stagingVPC, prodApps} {
 		st := s.ls.requireState(t, stateKeys[key])
