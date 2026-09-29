@@ -114,3 +114,56 @@ func TestSyncInstallationsReportsFailures(t *testing.T) {
 	require.NoError(t, err, "the installation is recorded even when its repositories fail")
 	assert.Equal(t, "beta", beta.Account)
 }
+
+func TestSyncInstallationsForgetsWhatGitHubNoLongerLists(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.gh.SetRepo("gamma/infra", gh.Repository{ID: 800, DefaultBranch: "main"})
+	e.gh.AddInstallation(3, "gamma", "gamma/infra")
+	e.gh.SuspendInstallation(3)
+	stale := func() {
+		t.Helper()
+		for _, inst := range []store.Installation{{ID: 9, Account: "gone"}, {ID: 3, Account: "gamma"}} {
+			_, err := e.st.UpsertInstallation(e.ctx, inst)
+			require.NoError(t, err)
+		}
+		for _, r := range []store.RepoParams{
+			{ID: 900, InstallationID: 9, FullName: "gone/infra"},
+			{ID: 101, InstallationID: instID, FullName: "acme/old"},
+			{ID: 800, InstallationID: 3, FullName: "gamma/infra"},
+		} {
+			_, err := e.st.UpsertRepo(e.ctx, r)
+			require.NoError(t, err)
+		}
+	}
+	stale()
+
+	e.gh.FailNext("GET /installation/repositories", 404, 1)
+	require.Error(t, e.svc.SyncInstallations(e.ctx))
+	for _, id := range []int64{900, 101, 800, repoID} {
+		_, err := e.st.GetRepo(e.ctx, id)
+		require.NoError(t, err, "a failed repository listing forgets nothing, repository %d included", id)
+	}
+	_, err := e.st.GetInstallation(e.ctx, 9)
+	require.NoError(t, err, "nor any installation")
+
+	e.gh.FailNext("GET /app/installations", 404, 1)
+	require.Error(t, e.svc.SyncInstallations(e.ctx))
+	_, err = e.st.GetInstallation(e.ctx, 9)
+	require.NoError(t, err, "a failed installation listing forgets nothing")
+
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+	_, err = e.st.GetInstallation(e.ctx, 9)
+	require.ErrorIs(t, err, store.ErrNotFound, "an installation GitHub no longer lists is forgotten")
+	_, err = e.st.GetRepo(e.ctx, 900)
+	require.ErrorIs(t, err, store.ErrNotFound, "with its repositories")
+	_, err = e.st.GetRepo(e.ctx, 101)
+	require.ErrorIs(t, err, store.ErrNotFound, "a repository its installation no longer lists is forgotten")
+	known, err := e.st.GetRepo(e.ctx, repoID)
+	require.NoError(t, err, "a listed repository is kept")
+	assert.Equal(t, e.repo.Config, known.Config)
+	_, err = e.st.GetRepo(e.ctx, 800)
+	require.NoError(t, err, "a suspended installation's repositories cannot be listed, so they are kept")
+	gamma, err := e.st.GetInstallation(e.ctx, 3)
+	require.NoError(t, err)
+	assert.NotNil(t, gamma.SuspendedAt)
+}

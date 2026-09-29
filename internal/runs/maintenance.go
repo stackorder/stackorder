@@ -330,44 +330,108 @@ func (s *Service) timeOut(ctx context.Context, d store.Dispatch) error {
 // commit to read it at, so a sync makes no configuration reads for known
 // repositories, with the file or without it; push events keep those
 // current. It learns installations made while the server ran in setup mode
-// and repairs installation webhooks lost during downtime. It never forgets
-// an installation or a repository; only their deletion webhooks do. An
-// installation that fails does not stop the others, and every failure is
-// returned.
+// and repairs installation webhooks lost during downtime, deletion ones
+// included: when GitHub listed every installation and the repositories of
+// every active one, stored installations it no longer lists are forgotten,
+// and so are stored repositories of a listed installation that no listing
+// names. When any listing fails nothing is forgotten. An installation that
+// fails does not stop the others, and every failure is returned.
 func (s *Service) SyncInstallations(ctx context.Context) error {
 	insts, err := s.gh.ListInstallations(ctx)
 	if err != nil {
 		return fmt.Errorf("runs: list installations: %w", err)
 	}
 	var errs []error
+	listing := installationListing{installations: map[int64]bool{}, listed: map[int64]bool{}, repos: map[int64]bool{}}
+	complete := true
 	for _, inst := range insts {
-		if err := s.syncInstallation(ctx, inst); err != nil {
+		if inst.ID == 0 {
+			continue
+		}
+		listing.installations[inst.ID] = true
+		repos, listed, err := s.syncInstallation(ctx, inst)
+		if err != nil {
 			errs = append(errs, err)
 		}
+		if !listed && inst.SuspendedAt == nil {
+			complete = false
+			continue
+		}
+		if listed {
+			listing.listed[inst.ID] = true
+		}
+		for _, r := range repos {
+			listing.repos[r.ID] = true
+		}
 	}
-	s.log.InfoContext(ctx, "installations synced", "installations", len(insts), "failed", len(errs))
+	forgotten := 0
+	if complete {
+		n, err := s.forgetUnlisted(ctx, listing)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		forgotten = n
+	}
+	s.log.InfoContext(ctx, "installations synced", "installations", len(insts), "failed", len(errs),
+		"forgotten", forgotten, "complete_listing", complete)
 	return errors.Join(errs...)
 }
 
-func (s *Service) syncInstallation(ctx context.Context, inst gh.Installation) error {
-	if inst.ID == 0 {
-		return nil
-	}
+type installationListing struct {
+	installations map[int64]bool
+	listed        map[int64]bool
+	repos         map[int64]bool
+}
+
+func (s *Service) syncInstallation(ctx context.Context, inst gh.Installation) ([]gh.Repository, bool, error) {
 	if _, err := s.st.UpsertInstallation(ctx, store.Installation{ID: inst.ID, Account: inst.Account.Login, AccountType: inst.Account.Type}); err != nil {
-		return storeErr(err, "record installation %d", inst.ID)
+		return nil, false, storeErr(err, "record installation %d", inst.ID)
 	}
 	suspended := inst.SuspendedAt != nil
 	if err := s.st.SuspendInstallation(ctx, inst.ID, suspended); err != nil {
-		return storeErr(err, "record suspension of installation %d", inst.ID)
+		return nil, false, storeErr(err, "record suspension of installation %d", inst.ID)
 	}
 	if suspended {
-		return nil
+		return nil, false, nil
 	}
 	repos, err := s.gh.InstallationRepos(ctx, inst.ID)
 	if err != nil {
-		return fmt.Errorf("runs: repositories of installation %d: %w", inst.ID, err)
+		return nil, false, fmt.Errorf("runs: repositories of installation %d: %w", inst.ID, err)
 	}
-	return s.recordRepos(ctx, inst.ID, repos, func(r store.Repo) bool { return r.Config == nil && r.ConfigSHA == "" })
+	return repos, true, s.recordRepos(ctx, inst.ID, repos, func(r store.Repo) bool { return r.Config == nil && r.ConfigSHA == "" })
+}
+
+func (s *Service) forgetUnlisted(ctx context.Context, l installationListing) (int, error) {
+	stored, err := s.st.ListInstallations(ctx)
+	if err != nil {
+		return 0, storeErr(err, "installations")
+	}
+	forgotten := 0
+	for _, inst := range stored {
+		if l.installations[inst.ID] {
+			continue
+		}
+		if err := s.st.DeleteInstallation(ctx, inst.ID); err != nil {
+			return forgotten, storeErr(err, "forget installation %d", inst.ID)
+		}
+		forgotten++
+		s.log.InfoContext(ctx, "forgot an installation GitHub no longer lists", "installation", inst.ID, "account", inst.Account)
+	}
+	repos, err := s.st.ListRepos(ctx)
+	if err != nil {
+		return forgotten, storeErr(err, "repositories")
+	}
+	for _, r := range repos {
+		if !l.listed[r.InstallationID] || l.repos[r.ID] {
+			continue
+		}
+		if err := s.st.DeleteRepo(ctx, r.ID); err != nil {
+			return forgotten, storeErr(err, "forget repository %s", r.FullName)
+		}
+		forgotten++
+		s.log.InfoContext(ctx, "forgot a repository its installation no longer lists", "repo", r.FullName, "installation", r.InstallationID)
+	}
+	return forgotten, nil
 }
 
 // RemindStaleLocks posts a reminder on closed pull requests that still
