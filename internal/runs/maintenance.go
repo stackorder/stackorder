@@ -379,9 +379,9 @@ func (s *Service) Unlock(ctx context.Context, actor string, stackID string, req 
 		return nil, storeErr(err, "release lock of %s", stack.Key)
 	}
 	resp.Released = append(resp.Released, lock.ToV1())
-	s.audit(ctx, actor, "unlock", "stack:"+stack.ID.String(), map[string]any{
-		"repo": repo.FullName, "stack": stack.Key, "pr": lock.PRNumber, "run_id": lock.RunID.String(),
-		"reason": req.Reason, "force_state": req.ForceState,
+	s.audit(ctx, actor, "unlock", v1.QualifiedStackKey(repo.FullName, stack.Key), map[string]any{
+		"repo": repo.FullName, "stack": stack.Key, "stack_id": stack.ID.String(), "pr": lock.PRNumber,
+		"run_id": lock.RunID.String(), "reason": req.Reason, "force_state": req.ForceState,
 	})
 	s.refreshLocksGauge(ctx)
 	if lock.PRNumber > 0 {
@@ -457,7 +457,9 @@ func (s *Service) Rerun(ctx context.Context, actor string, runID string) (*v1.Ru
 	if refusal != "" {
 		return nil, principal.Wrap(principal.ErrConflict, "%s", refusal)
 	}
-	s.audit(ctx, actor, "rerun", "run:"+run.ID.String(), map[string]any{"repo": repo.FullName, "new_run_id": next.ID.String()})
+	s.audit(ctx, actor, "rerun", repo.FullName, map[string]any{
+		"repo": repo.FullName, "pr": run.PRNumber, "run_id": run.ID.String(), "new_run_id": next.ID.String(),
+	})
 	detail, err := s.st.RunDetail(ctx, next.ID)
 	if err != nil {
 		return nil, storeErr(err, "run %s", next.ID)

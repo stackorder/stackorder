@@ -54,8 +54,9 @@ func (s *Service) HandleIssueComment(ctx context.Context, ev *gh.IssueCommentEve
 	}
 	login := firstNonEmpty(ev.Comment.User.Login, ev.Sender.Login)
 	pr := ev.Issue.Number
-	target := fmt.Sprintf("pr:%s#%d", repo.FullName, pr)
-	details := map[string]any{"verb": string(cmd.Verb), "stacks": cmd.Stacks, "comment_id": ev.Comment.ID}
+	target := repo.FullName
+	prDetail := strconv.Itoa(pr)
+	details := map[string]any{"repo": repo.FullName, "pr": pr, "verb": string(cmd.Verb), "stacks": cmd.Stacks, "comment_id": ev.Comment.ID}
 	perm, err := s.permission(ctx, c, repo, login)
 	if err != nil {
 		return err
@@ -70,19 +71,19 @@ func (s *Service) HandleIssueComment(ctx context.Context, ev *gh.IssueCommentEve
 		return err
 	}
 	since := s.now().Add(-commentWindow)
-	n, err := s.st.CountAudit(ctx, "command", target, since)
+	n, err := s.st.CountAuditDetail(ctx, "command", target, "pr", prDetail, since)
 	if err != nil {
-		return storeErr(err, "count commands on %s", target)
+		return storeErr(err, "count commands on %s#%d", target, pr)
 	}
 	if n >= s.cfg.CommentRateLimit {
 		s.m.CommandReceived(string(cmd.Verb), false)
 		s.audit(ctx, login, "command", target, withDetail(withDetail(details, "accepted", false), "reason", "rate limited"))
-		warned, err := s.st.CountAudit(ctx, "command_rate_limited", target, since)
+		warned, err := s.st.CountAuditDetail(ctx, "command_rate_limited", target, "pr", prDetail, since)
 		if err != nil {
-			return storeErr(err, "count rate limit notices on %s", target)
+			return storeErr(err, "count rate limit notices on %s#%d", target, pr)
 		}
 		if warned == 0 {
-			s.audit(ctx, login, "command_rate_limited", target, nil)
+			s.audit(ctx, login, "command_rate_limited", target, map[string]any{"repo": repo.FullName, "pr": pr})
 			s.comment(ctx, repo, pr, fmt.Sprintf("**`%s` was refused.** This pull request sent more than %d Stackorder commands in the last minute; wait a minute and comment again.\n",
 				cmd.String(), s.cfg.CommentRateLimit))
 		}
@@ -569,8 +570,9 @@ func (s *Service) commandUnlock(ctx context.Context, repo store.Repo, pr int, cm
 		}
 	}
 	for _, l := range released {
-		s.audit(ctx, login, "unlock", "stack:"+l.StackID.String(), map[string]any{
-			"repo": repo.FullName, "stack": l.StackKey, "pr": l.PRNumber, "run_id": l.RunID.String(), "via": "comment",
+		s.audit(ctx, login, "unlock", v1.QualifiedStackKey(repo.FullName, l.StackKey), map[string]any{
+			"repo": repo.FullName, "stack": l.StackKey, "stack_id": l.StackID.String(), "pr": l.PRNumber,
+			"run_id": l.RunID.String(), "via": "comment",
 		})
 	}
 	s.refreshLocksGauge(ctx)

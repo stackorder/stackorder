@@ -732,6 +732,49 @@ func TestUnlock(t *testing.T) {
 	assert.Len(t, e.audit("unlock"), 4)
 }
 
+func TestHumanAuditRowsNameTheirRepository(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.gh.SetCollaboratorPermission(repoName, "reader", "read")
+	planRun := e.planned(7, headSHA)
+	e.comment(7, applier, "stackorder apply")
+	e.comment(7, "reader", "stackorder help")
+	_, err := e.svc.UnlockByKey(e.ctx, applier, v1.UnlockRequest{Repo: repoName, StackKey: vpc, Reason: "runner died"})
+	require.NoError(t, err)
+	st, err := e.st.GetStackByKey(e.ctx, repoID, eks)
+	require.NoError(t, err)
+	_, err = e.svc.Unlock(e.ctx, "apikey:ops", st.ID.String(), v1.UnlockRequest{})
+	require.NoError(t, err)
+	e.comment(7, applier, "stackorder unlock")
+	_, err = e.svc.Rerun(e.ctx, applier, planRun)
+	require.NoError(t, err)
+	for range 11 {
+		e.comment(8, applier, "stackorder help")
+	}
+
+	rows, _, err := e.st.ListAudit(e.ctx, store.AuditFilter{Limit: 500})
+	require.NoError(t, err)
+	seen := map[string]int{}
+	for _, r := range rows {
+		switch r.Action {
+		case "unlock":
+			key, _ := r.Details["stack"].(string)
+			assert.Equal(t, v1.QualifiedStackKey(repoName, key), r.Target, "an unlock names the stack as owner/repo//key")
+		case "rerun", "command", "command_ignored", "command_rate_limited":
+			assert.Equal(t, repoName, r.Target, "%s names the repository", r.Action)
+			assert.NotNil(t, r.Details["pr"], "%s keeps its pull request", r.Action)
+		default:
+			continue
+		}
+		assert.Equal(t, repoName, r.Details["repo"], "%s carries details.repo", r.Action)
+		seen[r.Action]++
+	}
+	assert.Equal(t, map[string]int{"unlock": 4, "rerun": 1, "command": 13, "command_ignored": 1, "command_rate_limited": 1}, seen)
+
+	help := e.comment(7, applier, "stackorder help")
+	assert.Equal(t, []string{gh.ReactionEyes}, e.gh.Reactions(help.ID),
+		"the rate limit of another pull request of the same repository leaves this one alone")
+}
+
 func TestCrossRepoPlanJob(t *testing.T) {
 	cfg := baseConfig()
 	cfg.Propagate.CrossRepo = v1.CrossRepoPlan

@@ -70,6 +70,19 @@ func (s *Store) ListAudit(ctx context.Context, f AuditFilter) ([]AuditEntry, str
 	return out, next, nil
 }
 
+// CountAuditDetail counts the entries with an action and target whose
+// details hold value under key, as text, recorded at or after since. It
+// enforces rate limits on part of a target, such as one pull request of a
+// repository.
+func (s *Store) CountAuditDetail(ctx context.Context, action, target, key, value string, since time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRow(ctx, `
+		SELECT count(*) FROM audit
+		WHERE action = $1 AND target = $2 AND details->>$3 = $4 AND at >= $5`,
+		action, target, key, value, since).Scan(&n)
+	return n, wrap("count audit by detail", err)
+}
+
 // CountAudit counts the entries with an action and target recorded at or
 // after since, which is how per-target rate limits are enforced.
 func (s *Store) CountAudit(ctx context.Context, action, target string, since time.Time) (int, error) {

@@ -108,8 +108,9 @@ func (s *Service) onFinished(ctx context.Context, repo store.Repo, run store.Run
 			return
 		}
 		for _, l := range released {
-			s.audit(ctx, run.RequestedBy, "unlock", "stack:"+l.StackID.String(), map[string]any{
-				"repo": repo.FullName, "stack": l.StackKey, "run_id": run.ID.String(), "reason": "run " + string(status),
+			s.audit(ctx, run.RequestedBy, "unlock", v1.QualifiedStackKey(repo.FullName, l.StackKey), map[string]any{
+				"repo": repo.FullName, "stack": l.StackKey, "stack_id": l.StackID.String(), "run_id": run.ID.String(),
+				"reason": "run " + string(status),
 			})
 		}
 		if len(released) > 0 {

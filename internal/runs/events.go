@@ -112,8 +112,9 @@ func (s *Service) onMerged(ctx context.Context, repo store.Repo, ev *gh.PullRequ
 		return nil
 	}
 	for _, l := range released {
-		s.audit(ctx, ev.Sender.Login, "unlock", "stack:"+l.StackID.String(), map[string]any{
-			"repo": repo.FullName, "stack": l.StackKey, "pr": pr.Number, "run_id": l.RunID.String(), "via": "merge",
+		s.audit(ctx, ev.Sender.Login, "unlock", v1.QualifiedStackKey(repo.FullName, l.StackKey), map[string]any{
+			"repo": repo.FullName, "stack": l.StackKey, "stack_id": l.StackID.String(), "pr": pr.Number,
+			"run_id": l.RunID.String(), "via": "merge",
 		})
 	}
 	s.refreshLocksGauge(ctx)
@@ -283,8 +284,8 @@ func (s *Service) HandleCheckRun(ctx context.Context, ev *gh.CheckRunEvent) erro
 	if err != nil {
 		return err
 	}
-	s.audit(ctx, ev.Sender.Login, "rerun", fmt.Sprintf("pr:%s#%d", repo.FullName, pr), map[string]any{
-		"check": name, "accepted": out.accepted, "reason": out.reason,
+	s.audit(ctx, ev.Sender.Login, "rerun", repo.FullName, map[string]any{
+		"repo": repo.FullName, "pr": pr, "check": name, "accepted": out.accepted, "reason": out.reason,
 	})
 	return nil
 }

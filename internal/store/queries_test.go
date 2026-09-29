@@ -32,6 +32,26 @@ func TestCountAudit(t *testing.T) {
 	assert.Zero(t, n, "entries before since are not counted")
 }
 
+func TestCountAuditDetail(t *testing.T) {
+	f := newFixture(t)
+	before := time.Now().Add(-time.Minute)
+	for _, pr := range []int{1, 1, 2} {
+		_, err := f.s.RecordAudit(f.ctx, store.AuditEntry{Actor: "octocat", Action: "command", Target: "acme/infra",
+			Details: map[string]any{"repo": "acme/infra", "pr": pr}})
+		require.NoError(t, err)
+	}
+	_, err := f.s.RecordAudit(f.ctx, store.AuditEntry{Actor: "octocat", Action: "command", Target: "acme/other", Details: map[string]any{"pr": 1}})
+	require.NoError(t, err)
+	_, err = f.s.RecordAudit(f.ctx, store.AuditEntry{Actor: "octocat", Action: "command", Target: "acme/infra"})
+	require.NoError(t, err)
+	n, err := f.s.CountAuditDetail(f.ctx, "command", "acme/infra", "pr", "1", before)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "only entries of the target whose detail matches")
+	n, err = f.s.CountAuditDetail(f.ctx, "command", "acme/infra", "pr", "1", time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	assert.Zero(t, n, "entries before since are not counted")
+}
+
 func TestLockKeySerialisesTransactions(t *testing.T) {
 	f := newFixture(t)
 	require.ErrorIs(t, f.s.LockKey(f.ctx, ""), store.ErrInvalid)
