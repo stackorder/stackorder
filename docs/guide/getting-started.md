@@ -101,7 +101,7 @@ docker run -d --name stackorder -p 8080:8080 \
 
 Here `stackorder.env` holds `DATABASE_URL`, `STACKORDER_BASE_URL`, `STACKORDER_SESSION_KEY`, `GITHUB_APP_ID`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_OAUTH_CLIENT_ID` and `GITHUB_OAUTH_CLIENT_SECRET`.
 
-For GitHub Enterprise Server the flow is the same with `GITHUB_API_URL` set. See [Server configuration](/reference/server-configuration).
+For GitHub Enterprise Server, set `GITHUB_API_URL`, `GITHUB_WEB_URL` and `GITHUB_OIDC_ISSUER` before opening `/setup`: the page sends the manifest to `GITHUB_WEB_URL`, which is github.com unless you set it. The flow is otherwise the same. See [Server configuration](/reference/server-configuration#ghes).
 
 ## 3. Install the App {#install}
 
