@@ -245,8 +245,9 @@ type Runner struct {
 	Dir string
 	// HTTP sends the API calls; nil uses a client with a one minute timeout.
 	HTTP *http.Client
-	// Git runs git in Dir; nil runs the git binary.
-	Git func(ctx context.Context, dir string, args ...string) error
+	// Git runs git in Dir with env added to its environment; nil runs the
+	// git binary. env carries the credentials, never args.
+	Git func(ctx context.Context, dir string, env []string, args ...string) error
 	// Poll and Timeout bound KindWaitChecks; zero means 10 s and 20 min.
 	Poll    time.Duration
 	Timeout time.Duration
@@ -334,21 +335,25 @@ func (r *Runner) call(ctx context.Context, st Step) ([]byte, error) {
 
 func (r *Runner) git(ctx context.Context, args []string) error {
 	auth := "AUTHORIZATION: basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+r.Config.Token))
-	full := append([]string{"-c", "http." + r.Config.WebURL + "/.extraheader=" + auth}, args...)
+	env := []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http." + r.Config.WebURL + "/.extraheader",
+		"GIT_CONFIG_VALUE_0=" + auth,
+	}
 	run := r.Git
 	if run == nil {
 		run = runGit
 	}
-	if err := run(ctx, r.Dir, full...); err != nil {
+	if err := run(ctx, r.Dir, env, args...); err != nil {
 		return errors.New(strings.ReplaceAll(err.Error(), auth, "AUTHORIZATION: basic ***"))
 	}
 	return nil
 }
 
-func runGit(ctx context.Context, dir string, args ...string) error {
+func runGit(ctx context.Context, dir string, env []string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec
 	cmd.Dir = dir
-	cmd.Env = append(cmd.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.Env = append(append(cmd.Environ(), "GIT_TERMINAL_PROMPT=0"), env...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git %s: %w: %s", args[len(args)-1], err, strings.TrimSpace(string(out)))
 	}

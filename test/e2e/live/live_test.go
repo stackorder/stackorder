@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -179,12 +182,13 @@ func TestRunnerRunsThePlan(t *testing.T) {
 	t.Cleanup(srv.Close)
 	cfg := testConfig()
 	cfg.APIURL = srv.URL
-	var gitCalls [][]string
+	var gitCalls, gitEnvs [][]string
 	r := &Runner{
 		Config: cfg, Dir: "/work", HTTP: srv.Client(), Poll: time.Millisecond, Timeout: 5 * time.Second,
-		Git: func(_ context.Context, dir string, args ...string) error {
+		Git: func(_ context.Context, dir string, env []string, args ...string) error {
 			assert.Equal(t, "/work", dir)
 			gitCalls = append(gitCalls, args)
+			gitEnvs = append(gitEnvs, env)
 			return nil
 		},
 	}
@@ -208,11 +212,15 @@ func TestRunnerRunsThePlan(t *testing.T) {
 		assert.Equal(t, "Bearer ghp_secret", a)
 	}
 	require.Len(t, gitCalls, 2)
-	for _, args := range gitCalls {
-		require.GreaterOrEqual(t, len(args), 3)
-		assert.Equal(t, "-c", args[0])
-		assert.True(t, strings.HasPrefix(args[1], "http.https://github.com/.extraheader=AUTHORIZATION: basic "), args[1])
-		assert.Equal(t, "push", args[2])
+	auth := "AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46Z2hwX3NlY3JldA=="
+	for i, args := range gitCalls {
+		assert.Equal(t, "push", args[0])
+		assert.NotContains(t, strings.Join(args, " "), "eC1hY2Nlc3MtdG9rZW46Z2hwX3NlY3JldA==", "the token never reaches git's command line")
+		assert.Equal(t, []string{
+			"GIT_CONFIG_COUNT=1",
+			"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
+			"GIT_CONFIG_VALUE_0=" + auth,
+		}, gitEnvs[i])
 	}
 }
 
@@ -225,7 +233,7 @@ func TestRunnerStopsAtTheFirstFailure(t *testing.T) {
 	cfg := testConfig()
 	cfg.APIURL = srv.URL
 	gitRan := false
-	r := &Runner{Config: cfg, HTTP: srv.Client(), Git: func(context.Context, string, ...string) error {
+	r := &Runner{Config: cfg, HTTP: srv.Client(), Git: func(context.Context, string, []string, ...string) error {
 		gitRan = true
 		return nil
 	}}
@@ -238,13 +246,46 @@ func TestRunnerStopsAtTheFirstFailure(t *testing.T) {
 
 func TestRunnerRedactsTheTokenFromGitErrors(t *testing.T) {
 	cfg := testConfig()
-	r := &Runner{Config: cfg, Git: func(_ context.Context, _ string, args ...string) error {
-		return errors.New("git -c " + args[1] + " push: rejected")
+	r := &Runner{Config: cfg, Git: func(_ context.Context, _ string, env []string, _ ...string) error {
+		return errors.New("git push with " + strings.Join(env, " ") + ": rejected")
 	}}
 	_, err := r.Run(t.Context(), []Step{{Kind: KindGit, Name: "push main", Git: []string{"push"}}})
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "eC1hY2Nlc3MtdG9rZW46Z2hwX3NlY3JldA==")
 	assert.Contains(t, err.Error(), "AUTHORIZATION: basic ***")
+}
+
+func gitIn(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "git", append([]string{"-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args...)...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1",
+		"GIT_AUTHOR_NAME=e2e", "GIT_AUTHOR_EMAIL=e2e@example.invalid", "GIT_COMMITTER_NAME=e2e", "GIT_COMMITTER_EMAIL=e2e@example.invalid")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git %s: %s", strings.Join(args, " "), out)
+	return strings.TrimSpace(string(out))
+}
+
+func TestRunnerPushesWithTheGitBinary(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git is not installed: %v", err)
+	}
+	root := t.TempDir()
+	cfg := testConfig()
+	cfg.WebURL = "file://" + filepath.ToSlash(root)
+	remote := filepath.Join(root, cfg.Org, cfg.Repo+".git")
+	require.NoError(t, os.MkdirAll(remote, 0o750))
+	gitIn(t, remote, "init", "--quiet", "--bare")
+	work := filepath.Join(root, "work")
+	require.NoError(t, os.MkdirAll(work, 0o750))
+	gitIn(t, work, "init", "--quiet")
+	gitIn(t, work, "commit", "--quiet", "--allow-empty", "--message", "e2e")
+	sha := gitIn(t, work, "rev-parse", "HEAD")
+
+	r := &Runner{Config: cfg, Dir: work}
+	_, err := r.Run(t.Context(), []Step{{Kind: KindGit, Name: "push main", Git: []string{"push", "--quiet", cfg.CloneURL(), sha + ":refs/heads/" + MainBranch}}})
+	require.NoError(t, err)
+	assert.Equal(t, sha, gitIn(t, remote, "rev-parse", "refs/heads/"+MainBranch))
 }
 
 func TestRunnerTimesOutWaitingForChecks(t *testing.T) {
