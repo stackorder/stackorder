@@ -1,64 +1,220 @@
 # Deploy on AWS
 
-The repository ships a Terraform module in `deploy/terraform` that deploys the server on ECS Fargate with RDS Postgres. Stackorder uses the same module to deploy itself, so it is also a working example of a stack Stackorder can manage.
+The repository ships a Terraform module in `deploy/terraform` that deploys the server on ECS Fargate behind an Application Load Balancer, with PostgreSQL on RDS or Aurora Serverless v2. It works with Terraform and OpenTofu, and Stackorder uses it to deploy itself, so it is also a working example of a stack Stackorder can manage.
+
+```hcl
+module "stackorder" {
+  source = "github.com/stackorder/stackorder//deploy/terraform?ref=v1.0.0"
+
+  domain_name     = "stackorder.example.com"
+  route53_zone_id = "Z0123456789ABCDEFGHIJ"
+  image_tag       = "1.0.0"
+}
+```
+
+Set exactly one of `route53_zone_id`, to have the module issue a DNS-validated certificate and create the alias record, or `certificate_arn`, to bring a certificate and point your own DNS at `alb_dns_name`. `deploy/terraform/examples/` has three complete calls: `complete` (a new VPC, the artifact bucket and alarms), `existing-vpc` (your VPC and certificate) and `self-hosted` (the stack through which Stackorder deploys and upgrades itself).
 
 ## What the module creates {#resources}
 
 | Resource | Purpose |
 | --- | --- |
-| ECS service on Fargate, 1 to 2 tasks | Runs the `ghcr.io/stackorder/stackorder` image. A 0.25 vCPU / 512 MB task is enough for an org with a few hundred stacks. |
-| Application Load Balancer with an ACM certificate | Terminates TLS and forwards to port 8080; health checks use `/readyz`. |
-| RDS Postgres, or Aurora Serverless v2 | The database. `db.t4g.micro` is enough to start. |
-| Secrets Manager secrets | The GitHub App credentials and the server's other secrets, injected into the task through ECS `secrets` and never baked into the image. |
-| Task IAM role | No permissions, unless the artifact bucket is enabled. |
-| Security groups | Ingress to the tasks only from the ALB; egress only to GitHub over HTTPS and to the database. |
-| Artifact bucket (optional) | An S3 bucket owned by the task role for full plan text, with lifecycle expiry. |
+| VPC with public and private subnets and NAT, unless `create_vpc = false` | Two availability zones by default; one NAT gateway unless `single_nat_gateway = false` |
+| Application Load Balancer, HTTPS listener with TLS 1.3, HTTP redirect | Forwards to port 8080; health checks on `/readyz`; 30 s deregistration delay |
+| ACM certificate and Route53 records, with `route53_zone_id` | The certificate and alias for `domain_name` |
+| ECS cluster and Fargate service, 1 or 2 tasks | Runs `ghcr.io/stackorder/stackorder` as user `65532`, read-only root file system, with the deployment circuit breaker |
+| RDS PostgreSQL 17 (`db.t4g.micro`, gp3, encrypted), or Aurora Serverless v2 | The database, with `rds.force_ssl = 1`, 7 days of point-in-time recovery, deletion protection and a final snapshot |
+| Two Secrets Manager secrets | `DATABASE_URL`, and a JSON secret with the App credentials and `STACKORDER_SESSION_KEY`, injected through ECS `secrets` |
+| Execution role and task role | The task role has no permissions unless the artifact bucket or ECS Exec is enabled |
+| Security groups | Load balancer: 80 and 443 from `ingress_cidrs`. Tasks: 8080 from the load balancer, 443 out, Postgres to the database. Database: Postgres from the tasks |
+| CloudWatch log group | The server's logs, 30 days by default |
+| Artifact bucket, with `artifact_bucket_enabled` | Full plan text, expiring after `artifact_retention_days` |
+| CloudWatch alarms, with `alarms_enabled` | Target 5xx, unhealthy targets, CPU, and database free storage or ACU utilization |
 
-The server needs nothing else. It holds no AWS credentials for your infrastructure, and the task role stays empty unless you turn on the artifact bucket.
+The server needs nothing else. It holds no AWS credentials for your infrastructure.
 
-Security groups filter by address, not by host name. The task's HTTPS egress has to reach `api.github.com` and GitHub's OIDC key endpoint, so in practice it is HTTPS to the internet, or through an egress proxy if you run one.
+Security groups filter by address, not by host name, so the tasks' egress is HTTPS to anywhere, through NAT: the tasks pull the image from ghcr.io and reach the GitHub API, GitHub's OIDC keys, Secrets Manager and CloudWatch Logs over their public endpoints. For stricter egress, put a proxy or firewall on the NAT path.
 
 ## Inputs {#inputs}
 
-The module's inputs fall into these groups. Their exact names and defaults are in `deploy/terraform/variables.tf`, and `deploy/terraform/examples/` has complete calls.
+The tables are generated from `deploy/terraform/variables.tf`. Every input also has validation rules, which the descriptions summarise.
 
-| Group | What you provide |
+### Naming
+
+| Input | Type | Default | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | `"stackorder"` | Name of the deployment, used as the name or prefix of every resource. Lowercase letters, digits and single hyphens, 2 to 24 characters. |
+| `tags` | `map(string)` | `{}` | Tags added to every resource that supports them. |
+
+### Network
+
+| Input | Type | Default | Description |
+| --- | --- | --- | --- |
+| `create_vpc` | `bool` | `true` | Create a VPC with public and private subnets and NAT. When false, vpc_id, public_subnet_ids and private_subnet_ids are required. |
+| `vpc_cidr` | `string` | `"10.0.0.0/16"` | IPv4 CIDR of the VPC created when create_vpc is true. Subnets are carved as eight equal blocks: public from the first four, private from the last four. |
+| `vpc_id` | `string` | `null` | ID of an existing VPC. Required when create_vpc is false, must be null otherwise. |
+| `public_subnet_ids` | `list(string)` | `[]` | IDs of existing public subnets in at least two availability zones, for the load balancer. Required when create_vpc is false. |
+| `private_subnet_ids` | `list(string)` | `[]` | IDs of existing private subnets in at least two availability zones, with a route to the internet through NAT, for the tasks and the database. Required when create_vpc is false. |
+| `availability_zones` | `list(string)` | `[]` | Availability zones for the created VPC. Empty picks the first two available zones of the region. |
+| `single_nat_gateway` | `bool` | `true` | Use one NAT gateway for all private subnets instead of one per availability zone. |
+
+### Name, TLS and ingress
+
+| Input | Type | Default | Description |
+| --- | --- | --- | --- |
+| `domain_name` | `string` | required | Fully qualified host name the server is reached at, such as stackorder.example.com. |
+| `route53_zone_id` | `string` | `null` | Route53 hosted zone in which to create the ACM validation records and the alias record for domain_name. Exactly one of route53_zone_id and certificate_arn must be set. |
+| `certificate_arn` | `string` | `null` | ARN of an existing ACM certificate covering domain_name. DNS for domain_name is then left to the caller. Exactly one of route53_zone_id and certificate_arn must be set. |
+| `base_url` | `string` | `null` | Public URL of the server when it differs from `https://<domain_name>`, for example behind another proxy. No trailing slash. |
+| `ssl_policy` | `string` | `"ELBSecurityPolicy-TLS13-1-2-2021-06"` | Security policy of the HTTPS listener. Must be a TLS 1.3 policy. |
+| `ingress_cidrs` | `list(string)` | `["0.0.0.0/0"]` | IPv4 or IPv6 CIDRs allowed to reach the load balancer on ports 80 and 443. GitHub webhooks and GitHub-hosted runners need the default. Ignored when github_webhook_ip_ranges_only is true. |
+| `github_webhook_ip_ranges_only` | `bool` | `false` | Restrict the load balancer to GitHub's webhook source ranges (the hooks list of the GitHub meta API, read at plan time) plus admin_cidrs, instead of ingress_cidrs. |
+| `admin_cidrs` | `list(string)` | `[]` | CIDRs of people and self-hosted runners that need the UI and API when github_webhook_ip_ranges_only is true. |
+
+### Service
+
+| Input | Type | Default | Description |
+| --- | --- | --- | --- |
+| `image` | `string` | `"ghcr.io/stackorder/stackorder"` | Container image repository of the server. |
+| `image_tag` | `string` | `"latest"` | Tag or digest (sha256:...) of the server image. Pin a release such as 1.2.3 so upgrades are explicit plans. |
+| `desired_count` | `number` | `1` | Number of server tasks. All coordination goes through Postgres, so a second task adds availability without any other change. |
+| `cpu` | `number` | `256` | Fargate task CPU units. |
+| `memory` | `number` | `512` | Fargate task memory in MiB; must be a valid combination with cpu. |
+| `cpu_architecture` | `string` | `"X86_64"` | CPU architecture of the task, X86_64 or ARM64. |
+| `enable_execute_command` | `bool` | `false` | Enable ECS Exec. The SSM agent needs a writable root file system, so this also turns readonlyRootFilesystem off and grants the task role the ssmmessages permissions. |
+| `health_check_command` | `list(string)` | `[]` | Container health check command, starting with CMD or CMD-SHELL. The distroless image has no shell or curl, so it must be a command the image itself provides. Empty, the default, leaves task health to the load balancer check on /readyz. |
+| `wait_for_steady_state` | `bool` | `true` | Make terraform apply wait until the new tasks pass /readyz, so an apply of an upgrade fails when the deployment rolls back. |
+| `log_retention_days` | `number` | `30` | Retention of the server log group in days. |
+| `log_level` | `string` | `"info"` | Server log level (STACKORDER_LOG_LEVEL). |
+| `extra_environment` | `map(string)` | `{}` | Additional environment variables for the server, such as STACKORDER_WORKERS or OTEL_EXPORTER_OTLP_ENDPOINT. Variables the module sets itself are rejected. |
+
+### Database
+
+| Input | Type | Default | Description |
+| --- | --- | --- | --- |
+| `engine_version` | `string` | `"17"` | PostgreSQL major version, or major.minor. For Aurora a major version resolves to the AWS default minor of that major at plan time. |
+| `instance_class` | `string` | `"db.t4g.micro"` | RDS instance class. Ignored when use_aurora_serverless is true. |
+| `allocated_storage` | `number` | `20` | Initial RDS storage in GiB. Ignored when use_aurora_serverless is true. |
+| `max_allocated_storage` | `number` | `100` | Upper bound for RDS storage autoscaling in GiB; 0 disables autoscaling. Ignored when use_aurora_serverless is true. |
+| `multi_az` | `bool` | `false` | Run the RDS instance Multi-AZ, or add an Aurora reader in another zone. |
+| `deletion_protection` | `bool` | `true` | Protect the database from deletion. |
+| `skip_final_snapshot` | `bool` | `false` | Skip the final database snapshot on destroy. Keep false outside of throwaway environments. |
+| `backup_retention_days` | `number` | `7` | Automated backup retention in days; point-in-time recovery covers this window. |
+| `performance_insights` | `bool` | `false` | Enable Performance Insights with the free 7 day retention. Not every instance class supports it. |
+| `use_aurora_serverless` | `bool` | `false` | Use an Aurora PostgreSQL Serverless v2 cluster instead of an RDS instance. Switching an existing deployment replaces the database. |
+| `aurora_min_acu` | `number` | `0.5` | Minimum Aurora Serverless v2 capacity in ACUs. |
+| `aurora_max_acu` | `number` | `2` | Maximum Aurora Serverless v2 capacity in ACUs. |
+| `kms_key_arn` | `string` | `null` | Customer managed KMS key for the Secrets Manager secrets and database storage. Null uses the AWS managed keys. |
+
+### GitHub App and server settings
+
+| Input | Type | Default | Description |
+| --- | --- | --- | --- |
+| `github_app_id` | `string` | `null` | GitHub App id (GITHUB_APP_ID). Leave the App inputs null on the first deploy: the server starts in setup mode and /setup creates the App. |
+| `github_app_private_key` | `string` (sensitive) | `null` | PEM private key of the GitHub App (GITHUB_APP_PRIVATE_KEY). |
+| `github_webhook_secret` | `string` (sensitive) | `null` | Webhook secret of the GitHub App (GITHUB_WEBHOOK_SECRET). |
+| `github_oauth_client_id` | `string` | `null` | OAuth client id of the GitHub App, for human sign-in (GITHUB_OAUTH_CLIENT_ID). |
+| `github_oauth_client_secret` | `string` (sensitive) | `null` | OAuth client secret of the GitHub App (GITHUB_OAUTH_CLIENT_SECRET). |
+| `session_key` | `string` (sensitive) | `null` | 32 byte hex key for cookie signing (STACKORDER_SESSION_KEY). Null generates one. |
+| `secret_recovery_window_days` | `number` | `30` | Days Secrets Manager keeps a deleted secret recoverable; 0 deletes immediately. |
+| `github_api_url` | `string` | `"https://api.github.com"` | GitHub API base URL (GITHUB_API_URL); GitHub Enterprise Server uses `https://<host>/api/v3`. |
+| `required_workflow_ref` | `string` | `null` | Glob that runner tokens' job_workflow_ref must match (STACKORDER_REQUIRED_WORKFLOW_REF), such as stackorder/actions/.github/workflows/*.yml@refs/tags/v1*. Null accepts any workflow. |
+| `oidc_audience` | `string` | `null` | Audience runner OIDC tokens must carry (STACKORDER_OIDC_AUDIENCE). Null uses the public URL. |
+
+### Artifact bucket and alarms
+
+| Input | Type | Default | Description |
+| --- | --- | --- | --- |
+| `artifact_bucket_enabled` | `bool` | `false` | Create an S3 bucket for full plan text (STACKORDER_ARTIFACT_BUCKET) and grant the task role access to it. This is the only AWS permission the task role ever gets. |
+| `artifact_retention_days` | `number` | `90` | Days after which objects in the artifact bucket expire. |
+| `alarms_enabled` | `bool` | `false` | Create CloudWatch alarms for target 5xx responses, unhealthy targets and service CPU, plus database free storage (RDS) or ACU utilization (Aurora, whose storage grows on its own). |
+| `alarm_sns_topic_arn` | `string` | `null` | SNS topic notified when an alarm changes state. Required when alarms_enabled is true. |
+| `alarm_thresholds` | `object` | `{}` | Alarm thresholds: target 5xx responses per 5 minutes, average service CPU percent, RDS free storage in bytes, and Aurora ACU utilization percent. |
+### What the module passes to the server {#server-environment}
+
+| Variable | Source |
 | --- | --- |
-| Network | The VPC, public subnets for the ALB, private subnets for the tasks and the database |
-| Name and TLS | The public host name and its ACM certificate |
-| Image | The server image tag to run, such as `X.Y.Z` |
-| Size | Task CPU and memory, desired task count, database class or Aurora capacity |
-| GitHub App | The Secrets Manager secrets holding the App id, private key, webhook secret and OAuth client id and secret |
-| Options | The artifact bucket and its expiry, `STACKORDER_REQUIRED_WORKFLOW_REF`, and tracing |
+| `STACKORDER_BASE_URL` | `base_url`, or `https://<domain_name>` |
+| `STACKORDER_LISTEN` | `:8080` |
+| `GITHUB_API_URL` | `github_api_url` |
+| `STACKORDER_OIDC_AUDIENCE` | `oidc_audience`, or the base URL |
+| `STACKORDER_REQUIRED_WORKFLOW_REF` | `required_workflow_ref`, when set |
+| `STACKORDER_ARTIFACT_BUCKET` | The artifact bucket, when `artifact_bucket_enabled` |
+| `STACKORDER_LOG_LEVEL` | `log_level` |
+| `DATABASE_URL` | The database secret: `postgres://stackorder:<password>@<endpoint>:5432/stackorder?sslmode=require` |
+| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | The App secret, when set |
+| `STACKORDER_SESSION_KEY` | The App secret; `session_key`, or generated |
+
+Everything else the server reads, such as `STACKORDER_WORKERS`, `STACKORDER_METRICS_TOKEN`, the retention durations, `STACKORDER_LOG_FORMAT`, `GITHUB_WEB_URL`, `GITHUB_OIDC_ISSUER` or `OTEL_EXPORTER_OTLP_ENDPOINT`, goes through `extra_environment`, which rejects the variables above. Values in `extra_environment` are plain text in the task definition, so the module has no place for a secret `STACKORDER_METRICS_TOKEN`; see [Security hardening](/operations/security-hardening#metrics). On GitHub Enterprise Server set `github_api_url` and add `GITHUB_WEB_URL` and `GITHUB_OIDC_ISSUER` to `extra_environment`.
+
+### Container health check {#health-check}
+
+By default the task has no container health check: the load balancer's `/readyz` check decides task health, gates deployments and drives the circuit breaker. ECS ignores the image's own `HEALTHCHECK`. To add a container health check, use the server's own subcommand, since the distroless image has no shell or curl:
+
+```hcl
+health_check_command = ["CMD", "/stackorder-server", "healthcheck"]
+```
+
+It runs every 30 s with a 5 s timeout, 3 retries and a 30 s start period.
+
+## Outputs {#outputs}
+
+| Output | Description |
+| --- | --- |
+| `url` | Public URL of the server (STACKORDER_BASE_URL). |
+| `alb_dns_name` | DNS name of the load balancer; point a CNAME or alias here when DNS is not managed by the module. |
+| `alb_zone_id` | Route53 zone id of the load balancer, for alias records. |
+| `setup_url` | Page that creates the GitHub App from a manifest on the first deploy. |
+| `webhook_url` | Webhook URL of the GitHub App. |
+| `ecs_cluster_name` | Name of the ECS cluster. |
+| `ecs_service_name` | Name of the ECS service. |
+| `task_definition_arn` | ARN of the current task definition revision. |
+| `db_endpoint` | Host name of the database writer endpoint. |
+| `db_secret_arn` | ARN of the Secrets Manager secret holding DATABASE_URL. |
+| `app_secret_arn` | ARN of the Secrets Manager secret holding the GitHub App credentials and the session key as JSON. |
+| `artifact_bucket` | Name of the artifact bucket, or null when artifact_bucket_enabled is false. |
+| `security_group_ids` | Security group ids of the load balancer, the service and the database. |
+| `log_group_name` | CloudWatch log group of the server. |
 
 ## First deployment {#first-deploy}
 
-The server starts in setup mode while the GitHub App variables are unset, serving only `/setup`, `/healthz` and `/readyz`. The first deployment uses that:
+The server starts in setup mode while the GitHub App inputs are unset, serving only `/setup`, `/healthz` and `/readyz`. The first deployment uses that:
 
-1. Apply the module. The service comes up in setup mode.
-2. Open `https://<host>/setup` and create the App. Store the printed values in the Secrets Manager secrets the task reads.
-3. Redeploy the service so new tasks start with the App variables.
+1. Apply the module with the `github_*` inputs unset. The service comes up in setup mode.
+2. Open the `setup_url` output and create the App. The page prints the App id, private key, webhook secret and OAuth client id and secret once.
+3. Apply again with those five values. The App id, private key and webhook secret must be set together, as must the two OAuth values.
 4. Install the App on your repositories and continue with [Getting started](/guide/getting-started#install).
+
+The values pass through Terraform state. Keep state encrypted and readable only by the roles that plan and apply this stack. The task definition carries the version ids of both secrets as Docker labels, so changing a secret value rolls the service onto it.
 
 ## Upgrades {#upgrades}
 
-1. Change the image tag to the new `X.Y.Z` and apply.
-2. ECS starts a new task. The server runs any database migrations at start-up, under a migration lock.
-3. The previous task keeps serving until the new one passes `/readyz`, then drains.
+1. Change `image_tag` to the new `X.Y.Z`, or a `sha256:` digest, and apply.
+2. ECS starts a new task while the old one keeps serving (100 % minimum healthy, up to 200 % during the deployment). The new task runs any database migrations at start-up, under a migration lock.
+3. The new task receives traffic once it passes `/readyz`; the old one drains for 30 s and stops. A task that never becomes healthy is rolled back by the circuit breaker, and `wait_for_steady_state` makes the apply fail.
 
 Pin a specific version rather than `latest`, so an apply is the only thing that changes the running version. Take a database snapshot before an upgrade that includes migrations. See [Upgrades and backups](./upgrades-and-backups).
 
 ## Scaling out {#scale-out}
 
-Set the desired count to 2 for availability. No other change is needed:
+Set `desired_count = 2` for availability. No other change is needed:
 
 - webhook handling, workers and the API are stateless;
 - all coordination goes through Postgres, and workers claim work with `SKIP LOCKED`;
 - the scheduler is single-leader through a Postgres advisory lock, so one task schedules and any task executes;
 - sessions live in Postgres, and nothing on local disk matters.
 
-Every task must share the same `STACKORDER_SESSION_KEY`.
+Both tasks read the same `STACKORDER_SESSION_KEY` from the App secret. Raise `cpu` and `memory` before adding tasks, and consider `db.t4g.small` or Aurora once the database is the bottleneck.
+
+## Testing the module {#testing}
+
+```sh
+cd deploy/terraform
+terraform init -backend=false
+terraform test
+```
+
+The tests plan against mock providers and need no AWS account. They need Terraform 1.11 or later; using the module as a child module works from Terraform 1.9.
 
 ## Managing the module with Stackorder {#dogfooding}
 
-Put the module call in its own stack, with its own `backend "s3"` block, in a repository that has Stackorder installed. Plans for the server's own changes then run like any other stack. Applies depend on the server being up, so for an upgrade that might not come back healthy, keep a way to apply the stack by hand.
+Put the module call in its own stack, with its own `backend "s3"` block, in a repository that has Stackorder installed, as `examples/self-hosted` does. Plans for the server's own changes then run like any other stack. Applies depend on the server being up, so for an upgrade that might not come back healthy, keep a way to apply the stack by hand.
