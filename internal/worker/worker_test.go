@@ -98,8 +98,9 @@ func TestDispatchByKind(t *testing.T) {
 	for _, kind := range []string{jobDispatchWave, jobReconcile, "mystery"} {
 		require.NoError(t, p.Enqueue(t.Context(), kind, nil, time.Time{}, ""))
 	}
-	start(t, p)
+	stop := start(t, p)
 	require.Eventually(t, q.allDone, eventually, 5*time.Millisecond)
+	require.NoError(t, stop())
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -166,8 +167,9 @@ func TestDeadLetterAfterMaxAttempts(t *testing.T) {
 		return errors.New("malformed payload")
 	})
 	q.addEvent("poison", "check_run")
-	start(t, p)
+	stop := start(t, p)
 	require.Eventually(t, q.allDone, eventually, 5*time.Millisecond)
+	require.NoError(t, stop())
 
 	ev := q.event("poison")
 	assert.Equal(t, int32(3), calls.Load(), "no attempt after the last one")

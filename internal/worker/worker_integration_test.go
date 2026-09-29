@@ -295,15 +295,16 @@ func TestPGMetrics(t *testing.T) {
 	m := metrics.New()
 	p := worker.New(st, worker.Options{Workers: 1, PollInterval: 10 * time.Millisecond, Metrics: m})
 	p.OnEvent("push", func(context.Context, store.Event) error { return nil })
-	start(t, p)
+	stop := start(t, p)
 	require.Eventually(t, drained(t, st), 10*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		_, ok := metricstest.Scrape(t, m)[`stackorder_queue_depth{queue="events"}`]
+		return ok
+	}, eventually, 5*time.Millisecond, "queue depth is published when the pool starts")
+	require.NoError(t, stop())
 
 	samples := metricstest.Scrape(t, m)
 	assert.InDelta(t, 3, samples["stackorder_webhook_lag_seconds_count"], 0)
 	assert.GreaterOrEqual(t, samples["stackorder_webhook_lag_seconds_sum"], 9.0, "lag runs from received_at to claimed_at")
 	assert.InDelta(t, 3, samples[`stackorder_events_processed_total{kind="push",result="ok"}`], 0)
-	require.Eventually(t, func() bool {
-		_, ok := metricstest.Scrape(t, m)[`stackorder_queue_depth{queue="events"}`]
-		return ok
-	}, eventually, 5*time.Millisecond, "queue depth is published when the pool starts")
 }
