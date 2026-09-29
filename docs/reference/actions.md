@@ -2,29 +2,29 @@
 
 The `stackorder/actions` repository holds one JavaScript action that installs the CLI, four composite actions that call it, and two reusable workflows. Nothing is Docker-based, so a job pays about one second of overhead, and self-hosted runners without a Docker socket work unchanged.
 
-Releases are tagged `v1` and `v1.x.y`. The `v1` tag moves independently of the server and CLI releases.
+Releases are tagged `vX.Y.Z`, and the major tag `v1` moves to the newest stable `v1.x.y`. The tags move independently of the server and CLI releases.
 
-| Action | Kind | What it does |
+| Path | Kind | What it does |
 | --- | --- | --- |
 | [`setup`](#setup) | JavaScript (`node24`) | Installs the `stackorder` CLI and adds it to `PATH` |
-| [`resolve`](#resolve) | Composite | Runs `stackorder resolve` and exposes `matrix`, `waves` and `run-id` |
-| [`plan`](#plan) | Composite | Runs `stackorder plan --stack` and uploads the plan file |
-| [`apply`](#apply) | Composite | Downloads the plan artifact, then runs `stackorder apply --stack` |
-| [`drift`](#drift) | Composite | Runs `stackorder drift --stack` |
+| [`resolve`](#resolve) | Composite | Runs `stackorder resolve` and exposes the matrix |
+| [`plan`](#plan) | Composite | Runs `stackorder plan` for one stack and uploads the plan file |
+| [`apply`](#apply) | Composite | Downloads a stack's plan artifact, then runs `stackorder apply` |
+| [`drift`](#drift) | Composite | Runs `stackorder drift` for one stack; drift is an output, not a failure |
+| [`.github/workflows/plan.yml`](#plan-yml) | Reusable workflow | Pull request plans: resolve, then one plan job per affected stack |
+| [`.github/workflows/run.yml`](#run-yml) | Reusable workflow | Server-dispatched plan, apply or drift for one wave of stacks |
 
-The composite actions are each under 30 lines of YAML and contain no logic beyond argument passing. They expect `stackorder` on `PATH`, installed by `setup`. Each is replaceable with a direct `run: stackorder …` step; the flags and outputs of each command are in the [CLI reference](/reference/cli).
-
-Every composite action takes `server-url`, the server's base URL, and `working-directory`, the directory to run the CLI in (default `.`).
+The composite actions contain no logic beyond passing inputs to the CLI, through environment variables, never interpolated into scripts. They expect `stackorder` on `PATH`, installed by `setup`, and each is replaceable with a direct `run: stackorder …` step; the flags and outputs of each command are in the [CLI reference](/reference/cli).
 
 ## `setup` {#setup}
 
-Downloads the pinned `stackorder` release for the runner's OS and architecture, verifies its SHA-256 against the release's checksum file, caches it with `@actions/tool-cache`, and adds it to `PATH`. It is built with esbuild into a single committed `dist/index.js`.
+Maps the runner to `linux`, `darwin` or `windows` and `amd64` or `arm64`, downloads `stackorder_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) from the `stackorder/stackorder` release `v<version>`, checks its SHA-256 against `stackorder_<version>_checksums.txt`, extracts it, caches it with `@actions/tool-cache` and adds it to `PATH`. A version already in the runner's tool cache is used without downloading. It is built with esbuild into a committed `dist/index.js`.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `version` | `latest` | The release to install, as `1.2.3` or `v1.2.3` |
-| `token` | `github.token` on github.com | The token used to resolve `latest` through the GitHub API |
-| `checksum` | `true` | Verify the archive against the release's checksum file |
+| `version` | `latest` | The release to install, as `1.2.3` or `v1.2.3`, or `latest` for the newest published release |
+| `token` | `github.token` on github.com, empty elsewhere | The github.com token sent when resolving `latest`. A GitHub Enterprise Server token is never sent to github.com; pass a github.com token there, or pin `version`, to avoid anonymous rate limits |
+| `checksum` | `true` | Verify the archive against the release's checksum file: `true` or `false`; any other value fails the step |
 
 | Output | Meaning |
 | --- | --- |
@@ -39,24 +39,27 @@ Downloads the pinned `stackorder` release for the runner's OS and architecture, 
 
 ## `resolve` {#resolve}
 
-Runs `stackorder resolve`: scans the repository, diffs base to head, posts the graph, and exposes the server's answer.
+Runs `stackorder resolve --server <server-url> [--base <base-ref>] [--stacks <stacks>]`. The checkout needs enough history to find the merge base, so check out with `fetch-depth: 0`.
 
-| Input | Meaning |
-| --- | --- |
-| `base-ref` | The ref to diff against; empty uses the pull request base |
-| `stacks` | Comma separated stack keys to restrict the run to |
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `server-url` | required | The server's base URL |
+| `base-ref` | empty | The ref to diff against; empty lets the CLI use the pull request base |
+| `stacks` | empty | Comma separated stack keys to restrict the run to |
+| `working-directory` | `.` | The directory to run `stackorder` in |
+| `github-token` | `${{ github.token }}` | The token for the neutral check when the server is unreachable |
 
 | Output | Meaning |
 | --- | --- |
-| `matrix` | The matrix JSON, `{"include": [...]}`, one [entry](#matrix-entry) per affected stack |
-| `waves` | The stack keys by wave, as JSON |
-| `affected` | The affected stacks and why each is affected, as JSON |
+| `matrix` | `{"include": [...]}`, one [entry](#matrix-entry) per affected stack, for `strategy.matrix` |
+| `waves` | The stack keys by wave, as a JSON array of arrays |
+| `affected` | The affected stack keys, as a JSON array |
 | `count` | The number of affected stacks |
 | `run-id` | The Stackorder run id |
 | `unconfirmed` | `true` when the server was unreachable and the CLI resolved locally |
 
 ```yaml
-- uses: actions/checkout@v7
+- uses: actions/checkout@v5
   with:
     fetch-depth: 0
 - uses: stackorder/actions/setup@v1
@@ -68,16 +71,25 @@ Runs `stackorder resolve`: scans the repository, diffs base to head, posts the g
 
 ## `plan` {#plan}
 
-Runs `stackorder plan --stack ${{ inputs.stack }}`, then uploads the plan file with `actions/upload-artifact` as `stackorder-plan-<key>-<sha>`, with `/` and `:` in the key replaced by `-`.
+Runs `stackorder plan --stack <stack> --run-id <run-id> --server <server-url>` with `STACKORDER_PLAN_DIR` set to `$GITHUB_WORKSPACE/.stackorder/plans`, then uploads the plan file with `actions/upload-artifact@v4` under the name the CLI reports, `stackorder-plan-<key>-<sha>` with `/` and `:` in the key replaced by `-`. A missing plan file fails the upload.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `stack` | required | The stack key to plan |
+| `stack` | required | The stack key, `path` or `path:workspace` |
 | `run-id` | required | The Stackorder run id |
-| `upload-artifact` | `true` | Upload the plan file |
+| `server-url` | required | The server's base URL |
+| `working-directory` | `.` | The directory to run `stackorder` in |
+| `upload-artifact` | `true` | Upload the plan file; only `true` uploads |
 | `retention-days` | `5` | Days to keep the plan artifact |
+| `github-token` | `${{ github.token }}` | The token for the neutral check when the server is unreachable |
 
-Its outputs are those of [`stackorder plan`](/reference/cli#plan): `has-changes`, `artifact`, `plan-file`, `summary` and `unconfirmed`.
+| Output | Meaning |
+| --- | --- |
+| `has-changes` | `true` when the plan changes resources or outputs |
+| `artifact` | The plan artifact's name |
+| `plan-file` | The path of the binary plan file |
+| `summary` | The plan summary, as JSON |
+| `unconfirmed` | `true` when the result was not confirmed by the server |
 
 ```yaml
 - uses: stackorder/actions/plan@v1
@@ -89,21 +101,29 @@ Its outputs are those of [`stackorder plan`](/reference/cli#plan): `has-changes`
 
 ## `apply` {#apply}
 
-Downloads the plan artifact from the plan run with `actions/download-artifact`, then runs `stackorder apply --stack` with the plan file `<artifact>.tfplan`. The dispatched matrix entry names the plan run (`plan_run_id`) and the artifact (`artifact`); reading another run's artifacts is why the job needs `actions: read`. A failed download, such as an expired artifact, does not stop the step: the CLI finds no plan file, re-plans, and refuses to apply unless the resource addresses match the recorded plan.
+Downloads the artifact `artifact` from workflow run `plan-run-id` with `actions/download-artifact@v4` into `$GITHUB_WORKSPACE/.stackorder/plans`, then runs `stackorder apply --stack <stack> --run-id <run-id> --server <server-url> --plan-file $GITHUB_WORKSPACE/.stackorder/plans/<artifact>.tfplan`. The dispatched matrix entry names the plan run (`plan_run_id`) and the artifact (`artifact`); reading another run's artifacts is why the job needs `actions: read`. The download continues on error: when the artifact has expired the CLI finds no plan file, re-plans, and refuses to apply unless the new plan's resource addresses match the recorded plan.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `stack` | required | The stack key to apply |
+| `stack` | required | The stack key |
 | `run-id` | required | The Stackorder run id |
+| `server-url` | required | The server's base URL |
 | `plan-run-id` | required | The Actions workflow run that uploaded the plan artifact |
-| `artifact` | required | The plan artifact's name |
-| `token` | `github.token` | The token for the artifact download; needs `actions: read` |
+| `artifact` | required | The plan artifact's name; the file inside is `<artifact>.tfplan` |
+| `working-directory` | `.` | The directory to run `stackorder` in |
+| `token` | `${{ github.token }}` | The token for the artifact download; needs `actions: read` |
+
+| Output | Meaning |
+| --- | --- |
+| `summary` | The applied plan's summary, as JSON |
+
+`apply` has no `github-token` input: an apply never falls back to a neutral check, it fails closed.
 
 ```yaml
 - uses: stackorder/actions/apply@v1
   with:
     stack: ${{ matrix.key }}
-    run-id: ${{ inputs.run_id }}
+    run-id: ${{ inputs.run-id }}
     server-url: ${{ vars.STACKORDER_SERVER_URL }}
     plan-run-id: ${{ matrix.plan_run_id }}
     artifact: ${{ matrix.artifact }}
@@ -111,78 +131,67 @@ Downloads the plan artifact from the plan run with `actions/download-artifact`, 
 
 ## `drift` {#drift}
 
-Runs `stackorder drift --stack`, which runs `plan -detailed-exitcode` and uploads the result. Exit code 2, drift found, is recorded in the outputs and the step succeeds; any other non-zero exit code fails it.
+Runs `stackorder drift --stack <stack> --run-id <run-id> --server <server-url>`. Exit code 2, drift found, is recorded in the outputs and the step succeeds; any other non-zero exit code fails it.
 
-| Input | Meaning |
-| --- | --- |
-| `stack` | Required. The stack key to check |
-| `run-id` | Required. The Stackorder run id |
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `stack` | required | The stack key |
+| `run-id` | required | The Stackorder run id |
+| `server-url` | required | The server's base URL |
+| `working-directory` | `.` | The directory to run `stackorder` in |
+| `github-token` | `${{ github.token }}` | The token for the neutral check when the server is unreachable |
 
 | Output | Meaning |
 | --- | --- |
-| `drifted` | `true` when the stack has drifted |
+| `drifted` | `true` when real infrastructure differs from the configuration |
 | `summary` | The plan summary, as JSON |
-| `exit-code` | The exit code of `stackorder drift`: `0` or `2` |
+| `exit-code` | The exit code of `stackorder drift`: `0` for no drift, `2` for drift |
 
 ```yaml
 - uses: stackorder/actions/drift@v1
   with:
     stack: ${{ matrix.key }}
-    run-id: ${{ inputs.run_id }}
+    run-id: ${{ inputs.run-id }}
     server-url: ${{ vars.STACKORDER_SERVER_URL }}
 ```
 
 ## Reusable workflows {#reusable-workflows}
 
-`plan.yml` and `run.yml` in `stackorder/actions/.github/workflows/` combine the actions into complete jobs, so a repository's own workflow files are a dozen lines each. See [Workflows](/configuration/workflows) for the calling files.
+`plan.yml` and `run.yml` combine the actions into complete jobs, so a repository's own workflow files are a few lines each. See [Workflows](/configuration/workflows) for the calling files, the inputs with their defaults, and the permissions the caller must grant.
 
-| Workflow | Jobs |
-| --- | --- |
-| `plan.yml` | `resolve`, then `plan` with one matrix entry per affected stack |
-| `run.yml` | One job per stack in the dispatched `stacks`, running `plan`, `apply` or `drift` according to `mode`, under the stack's GitHub environment |
+### `plan.yml` {#plan-yml}
 
-### Inputs {#inputs}
+Called from `stackorder-plan.yml` on `pull_request`.
 
-| Input | Workflows | Meaning |
+| Job | Runs when | Does |
 | --- | --- | --- |
-| `server-url` | both | Required. The server's base URL |
-| `aws-role-arn` | both | The IAM role for stacks that match no prefix in `aws-role-arn-map` |
-| `aws-role-arn-map` | both | A JSON object from stack path prefix to IAM role ARN; the longest matching prefix wins |
-| `aws-region` | both | The AWS region for the credentials, default `us-east-1` |
-| `tool` | both | `terraform` or `tofu`, for stacks whose matrix entry names no tool |
-| `tool-version` | both | The tool version to install, for stacks whose matrix entry pins none |
-| `stackorder-version` | both | The CLI release to install |
-| `runner` | both | The runner label |
-| `max-parallel` | both | The most matrix jobs at once |
-| `working-directory` | both | The directory the jobs run the CLI in |
-| `base-ref`, `stacks` | `plan.yml` | The ref to diff against, and comma separated stack keys to restrict the plan to |
-| `run-id`, `mode`, `wave`, `sha`, `stacks` | `run.yml` | The dispatch inputs of `stackorder-run.yml`, passed through |
+| `resolve` | The head repository is not a fork | Checks out with full history, installs `stackorder`, runs the `resolve` action, and exposes `matrix`, `count`, `run-id`, `unconfirmed` and the installed `stackorder-version` |
+| `plan` | `count` is above zero | One job per matrix entry, named `plan <key>`, with `fail-fast: false` and `max-parallel`: checks out the entry's `sha`, installs the tool, installs the same `stackorder` version, selects and assumes the AWS role, restores the plugin cache, runs the `plan` action |
+| `fork-notice` | The head repository is a fork | Writes the reason nothing was planned to the job summary |
 
-Defaults are on the [Workflows](/configuration/workflows#inputs) page.
+Inputs: `server-url` (required), `aws-role-arn`, `aws-role-arn-map`, `aws-region`, `tool`, `tool-version`, `stackorder-version`, `runner`, `max-parallel`, `working-directory`, `base-ref`, `stacks`.
 
-### Permissions {#permissions}
+### `run.yml` {#run-yml}
 
-```yaml
-permissions:
-  id-token: write      # OIDC to AWS and to the Stackorder server
-  contents: read       # checkout
-  actions: read        # download the plan artifact from the plan run
-  checks: write        # fallback check when the server is unreachable
-```
+Called from `stackorder-run.yml`, which the server dispatches once per wave and environment. One job, `run`, fans out over the `stacks` input with `fail-fast: false` and `max-parallel`, named `<mode> wave <n> <key>`. Each job:
 
-The `resolve` job of `plan.yml` also needs `pull-requests: read`. The calling job must grant at least these, since a called workflow cannot widen its caller's token.
+- runs under `environment: ${{ matrix.environment }}` and in the concurrency group `stackorder-stack-<key>`, without cancel-in-progress;
+- fails before checkout unless `mode` is `plan`, `apply` or `drift`;
+- checks out `sha`, falling back to the entry's `sha`, then to the dispatched ref;
+- installs the entry's tool and `stackorder`, selects and assumes the AWS role, restores the plugin cache;
+- runs exactly one of the `plan`, `apply` or `drift` actions, according to `mode`.
 
-### Environments {#environments}
+Inputs: `run-id`, `mode` and `stacks` (required), `wave`, `sha`, `server-url` (required), `aws-role-arn-map`, `aws-role-arn`, `aws-plan-role-arn`, `aws-region`, `tool`, `tool-version`, `stackorder-version`, `runner`, `max-parallel`, `working-directory`.
 
-In `run.yml` the stack job declares `environment: ${{ matrix.environment }}`, taking each stack's GitHub environment from the dispatched `stacks` JSON. That is what lets environment protection rules gate applies per stack, and what puts the environment into the job's OIDC subject for the AWS trust policy.
+**Role selection.** For `mode: apply` the role is the value of the longest key of `aws-role-arn-map` that the stack path starts with, else `aws-role-arn`. For `mode: plan` and `mode: drift` the map is ignored: those dispatches run under the `default` environment and assume `aws-plan-role-arn`, else `aws-role-arn`. When no role results, the job logs a notice and skips AWS credentials. `plan.yml` selects roles the same way as an apply, from the map and then `aws-role-arn`.
 
 ### Hooks {#hooks}
 
-The CLI runs `.stackorder/hooks/pre-plan.sh`, `post-plan.sh`, `pre-apply.sh` and `post-apply.sh` when they exist, with `STACKORDER_STACK`, `STACKORDER_RUN_ID`, `STACKORDER_PLAN_JSON` and `STACKORDER_PLAN_FILE` set. See [Hooks](/configuration/workflows#hooks).
+The CLI runs `.stackorder/hooks/pre-plan.sh`, `post-plan.sh`, `pre-apply.sh` and `post-apply.sh` itself when they exist, so they need no workflow step. See [Hooks](/configuration/workflows#hooks).
 
 ## Matrix entry {#matrix-entry}
 
-Each element of the `matrix` output, and of the `stacks` dispatch input, has this shape:
+Each element of the `matrix` output, and of the `stacks` dispatch input, has this shape (`v1.MatrixEntry`):
 
 ```json
 {
@@ -205,12 +214,12 @@ Each element of the `matrix` output, and of the `stacks` dispatch input, has thi
 | `stack` | The stack directory |
 | `key` | The stack key, `path` or `path:workspace` |
 | `workspace` | The workspace; empty for `default` |
-| `environment` | The GitHub environment the job runs under; `default` when unmapped |
+| `environment` | The GitHub environment the job runs under: the stack's own for an apply, `default` for plan and drift dispatches and for unmapped stacks |
 | `wave` | The wave index |
 | `tool`, `tool_version` | The tool and version for the stack |
 | `plan_output` | `full` or `summary` |
 | `sha` | The commit the job checks out |
-| `plan_run_id`, `artifact` | For applies: the Actions run that uploaded the plan, and the artifact's name |
+| `plan_run_id`, `artifact` | Apply dispatches only: the Actions run that uploaded the plan, and the artifact's name |
 
 ## Building your own jobs {#custom}
 
@@ -232,13 +241,14 @@ permissions:
   pull-requests: read
 jobs:
   resolve:
+    if: github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.resolve.outputs.matrix }}
       count: ${{ steps.resolve.outputs.count }}
       run-id: ${{ steps.resolve.outputs.run-id }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: stackorder/actions/setup@v1
@@ -254,14 +264,14 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v5
         with:
           ref: ${{ matrix.sha }}
-      - uses: aws-actions/configure-aws-credentials@v6
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::123456789012:role/stackorder-plan
           aws-region: us-east-1
-      - uses: opentofu/setup-opentofu@v2
+      - uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: ${{ matrix.tool_version }}
           tofu_wrapper: false
@@ -273,4 +283,4 @@ jobs:
           server-url: ${{ vars.STACKORDER_SERVER_URL }}
 ```
 
-If the server sets `STACKORDER_REQUIRED_WORKFLOW_REF`, it accepts results only from the canonical reusable workflows, so hand-built jobs like this one work only without that pin.
+If the server sets `STACKORDER_REQUIRED_WORKFLOW_REF`, it accepts runner tokens only from the canonical reusable workflows, so hand-built jobs like this one work only without that pin.

@@ -14,21 +14,22 @@ drift:
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `drift.schedule` | five-field cron expression | empty | When drift checks run: minute, hour, day of month, month, day of week. |
+| `drift.schedule` | five-field cron expression | empty | When drift checks run: minute, hour, day of month, month, day of week, in UTC. Prefix `CRON_TZ=Europe/Paris ` for another time zone. |
 | `drift.open_issue` | boolean | `false` | Open or update one GitHub issue per drifted stack. |
 
 `open_issue` needs the App's optional `Issues: Write` permission.
 
 ## What happens on schedule {#flow}
 
-1. The server's scheduler dispatches `stackorder-run.yml` with `mode: drift` for each stack, with `sha` set to the head of the default branch. Dispatches are staggered across the hour, so a large repository does not start every drift job at once.
-2. The job runs `stackorder drift --stack <key>`, which runs `plan -detailed-exitcode` and uploads the result.
-3. Exit code 0 means no drift. Exit code 2 marks the stack drifted and records the plan summary.
-4. With `open_issue: true`, the server opens a GitHub issue for a drifted stack, or updates the one it already opened. There is one issue per stack.
+1. At each time the cron expression fires (in UTC, unless it starts with `CRON_TZ=`), the server's scheduler takes the repository's current graph, the default-branch graph when known, and enqueues one drift check per stack in it, spread evenly across the next hour, so a large repository does not start every job at once.
+2. Each check reads the head of the default branch and creates a drift run for the stack, trigger `schedule`, or reuses the one it created in the same hour. It dispatches `stackorder-run.yml` with `mode: drift`, wave `0` and `sha` set to that head.
+3. The job runs `stackorder drift --stack <key>`, which runs `plan -detailed-exitcode` and posts the result.
+4. Exit code 0 means no drift. Exit code 2 marks the stack drifted and records the plan summary.
+5. With `open_issue: true`, the server opens an issue titled `Drift detected in <key>`, labelled `stackorder-drift`, for a drifted stack, or updates the open one. When a later check finds no drift, it comments on the issue and closes it. There is at most one open issue per stack.
 
-Drift jobs run in `stackorder-run.yml` under the stack's GitHub environment and with the same AWS role as its applies. On an environment with required reviewers, each scheduled drift job waits for an approval before it starts.
+Drift jobs run in `stackorder-run.yml` under the environment `default`, whatever the stack's own environment, and assume `aws-plan-role-arn` (falling back to `aws-role-arn`), never an apply role. They never wait for an environment's reviewers, and the plan role's trust policy must admit `repo:<owner>/<repo>:environment:default`; see [Security hardening](/operations/security-hardening#trust-policies).
 
-Only one server instance schedules at a time; the scheduler is elected leader with a Postgres advisory lock, and any instance can execute the work.
+Only one server instance schedules at a time; the scheduler is elected leader with a Postgres advisory lock, and any instance can execute the work. A new leader catches up on at most the last hour of missed schedules, enqueuing only the latest fire of each.
 
 ## Where drift shows up {#where}
 
@@ -37,7 +38,7 @@ Only one server instance schedules at a time; the scheduler is elected leader wi
 - `GET /v1/overview` and `GET /v1/repos` report drifted counts.
 - The drifted-stacks gauge in [metrics](/reference/metrics).
 
-The UI shows the latest row per stack. Drift history is kept 90 days by default, set by `STACKORDER_DRIFT_RETENTION`.
+The UI shows the latest row per stack. Drift history is kept 90 days by default, set by `STACKORDER_DRIFT_RETENTION`; the latest result of each stack is always kept.
 
 ## Drift from upstream changes {#cross-repo}
 

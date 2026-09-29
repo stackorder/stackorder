@@ -2,10 +2,6 @@
 
 This guide takes one repository from nothing to a first `stackorder apply`. You deploy the server, create the GitHub App, create two kinds of AWS role, and add three files to the repository.
 
-::: warning Status
-Stackorder is pre-alpha. This guide follows the designed behaviour and the [architecture contract](/design/architecture).
-:::
-
 ## Before you start
 
 You need:
@@ -119,7 +115,7 @@ Then sign in at `https://stackorder.example.com` with GitHub. The UI shows the r
 
 ## 4. Create the AWS roles {#aws-roles}
 
-Stackorder never holds AWS credentials. Each job assumes a role with its own GitHub OIDC token. You create a **plan role** for pull request jobs and one **apply role per environment**.
+Stackorder never holds AWS credentials. Each job assumes a role with its own GitHub OIDC token. You create a **plan role**, for pull request plans and for the plans and drift checks the server dispatches, and one **apply role per environment**.
 
 If the account has no GitHub OIDC provider yet, create it:
 
@@ -131,7 +127,7 @@ aws iam create-open-id-connect-provider \
 
 ### The plan role
 
-Trusted by pull request jobs of `acme/infra`. Give it read access to state and the read-only permissions your providers need to plan. `plan` takes the state lock by default, so it also needs to write the lock: the `<key>.tflock` object with `use_lockfile`, or the DynamoDB table.
+Trusted by two kinds of job of `acme/infra`: pull request plan jobs, whose token subject is `repo:acme/infra:pull_request`, and the plan and drift jobs the server dispatches to `stackorder-run.yml`, which always run under the environment `default` and so carry `repo:acme/infra:environment:default`. Give it read access to state and the read-only permissions your providers need to plan. `plan` takes the state lock by default, so it also needs to write the lock: the `<key>.tflock` object with `use_lockfile`, or the DynamoDB table.
 
 ```json
 {
@@ -146,7 +142,10 @@ Trusted by pull request jobs of `acme/infra`. Give it read access to state and t
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:acme/infra:pull_request"
+          "token.actions.githubusercontent.com:sub": [
+            "repo:acme/infra:pull_request",
+            "repo:acme/infra:environment:default"
+          ]
         }
       }
     }
@@ -179,7 +178,7 @@ Trusted only by jobs of `acme/infra` that run under the `production` GitHub envi
 }
 ```
 
-Create a second apply role for `staging` the same way, with `environment:staging`. Every job of `stackorder-run.yml` picks its role from `aws-role-arn-map`, so the apply roles also serve drift checks and plans requested with a `stackorder plan` comment.
+Create a second apply role for `staging` the same way, with `environment:staging`. Only apply jobs of `stackorder-run.yml` use these roles, through `aws-role-arn-map`; plans requested with a `stackorder plan` comment and scheduled drift checks use the plan role, passed as `aws-plan-role-arn`.
 
 To pin the roles to the canonical reusable workflow as well, see [the AWS trust policy layer](/configuration/environments-and-authorization#layer-5).
 
@@ -191,7 +190,7 @@ In the repository settings, under **Environments**, create `production`:
 - **Prevent self-review**: on, so the requester cannot approve their own deployment.
 - **Deployment branches**: the default branch only. Server-dispatched runs start from the default branch and check out the commit they are given.
 
-Create `staging` the same way, with fewer or no reviewers. Stacks that match no prefix run under the environment `default`, which GitHub creates on first use with no protection rules.
+Create `staging` the same way, with fewer or no reviewers. The environment `default`, which GitHub creates on first use with no protection rules, is where the server's plan and drift dispatches run, and where stacks that match no prefix apply. Give it no reviewers, or every `stackorder plan` comment waits for an approval.
 
 Required reviewers on private repositories need GitHub Enterprise. [Environments and authorization](/configuration/environments-and-authorization) covers the alternatives.
 
@@ -254,6 +253,7 @@ jobs:
 
 ```yaml
 name: stackorder run
+run-name: stackorder ${{ inputs.mode }} ${{ inputs.run_id }} wave ${{ inputs.wave }}
 on:
   workflow_dispatch:
     inputs:
@@ -277,11 +277,12 @@ jobs:
       wave: ${{ inputs.wave }}
       sha: ${{ inputs.sha }}
       stacks: ${{ inputs.stacks }}
+      aws-plan-role-arn: arn:aws:iam::123456789012:role/stackorder-plan
       aws-role-arn-map: '{"stacks/prod/": "arn:aws:iam::123456789012:role/stackorder-apply-prod", "stacks/staging/": "arn:aws:iam::123456789012:role/stackorder-apply-staging"}'
     secrets: inherit
 ```
 
-The `permissions` blocks matter: a called workflow can only narrow the permissions its caller grants. [Workflows](/configuration/workflows) explains each input and permission.
+The `run-name` line lets the server recognise the workflow runs it dispatched, and the five inputs must all be declared, because the server sends all five. The `permissions` blocks matter: a called workflow can only narrow the permissions its caller grants. [Workflows](/configuration/workflows) explains each input and permission.
 
 Both reusable workflows require `server-url`, the server's base URL. The files above read it from the Actions variable `STACKORDER_SERVER_URL`; if it is empty, the CLI runs in local mode and every check ends up `unconfirmed`. Set it for the organization or the repository:
 
