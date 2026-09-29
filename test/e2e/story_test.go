@@ -576,6 +576,8 @@ func (s *story) apply(t *testing.T) {
 	for _, j := range jobs {
 		assert.Equal(t, 0, j.result.code, "apply of %s: %s", j.entry.Key, j.result)
 		assert.NotContains(t, j.result.stderr, "planning again", "%s applies the saved plan", j.entry.Key)
+		assert.Equal(t, "main", j.dispatch.Ref, "%s is dispatched on the default branch", j.entry.Key)
+		assert.Equal(t, pr.head, j.dispatch.Inputs["sha"], "%s applies the head commit of #2 before it merges", j.entry.Key)
 		if !seen[j.dispatch.RunID] {
 			seen[j.dispatch.RunID] = true
 			got = append(got, dispatched{j.round, j.dispatch.Inputs["wave"], j.entry.Environment, keysOf(entriesOf(t, j.dispatch))})
