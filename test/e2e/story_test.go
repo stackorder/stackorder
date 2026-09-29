@@ -622,6 +622,11 @@ func (s *story) lockSafety(t *testing.T) {
 
 	resolveCheck := s.checkRun(t, report.CheckResolve, head)
 	assert.Contains(t, resolveCheck.Output.Summary+resolveCheck.Output.Text, "[#2]", "the resolve check shows the locks #2 holds")
+	for _, key := range pr.affected {
+		c := s.checkRun(t, "stackorder/plan: "+key, head)
+		assert.Equal(t, gh.ConclusionSuccess, c.Conclusion, "the plan of the locked stack %s still runs", key)
+		assert.Contains(t, c.Output.Summary+c.Output.Text, "locked by [#2]", "the plan check of %s warns that #2 holds its lock", key)
+	}
 
 	s.approve(t, pr)
 	before := len(s.applyDispatches())
