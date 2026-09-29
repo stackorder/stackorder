@@ -15,6 +15,9 @@ type AuditEntry struct {
 	Details map[string]any `db:"details"`
 }
 
+// SystemActor is the actor recorded for actions the server takes on its own.
+const SystemActor = "stackorder"
+
 // AuditFilter narrows ListAudit. Zero fields match everything.
 type AuditFilter struct {
 	Actor  string

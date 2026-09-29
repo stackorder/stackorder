@@ -283,7 +283,10 @@ func (s *server) audit(w http.ResponseWriter, r *http.Request, id identity) erro
 }
 
 func auditVisible(id identity, e store.AuditEntry) bool {
-	if id.Kind == principal.APIKey || strings.EqualFold(e.Actor, id.Login) {
+	if id.Kind == principal.APIKey {
+		return true
+	}
+	if !strings.EqualFold(e.Actor, store.SystemActor) && strings.EqualFold(e.Actor, id.Login) {
 		return true
 	}
 	scope := e.Target

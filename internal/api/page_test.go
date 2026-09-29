@@ -130,6 +130,26 @@ func TestAuditVisible(t *testing.T) {
 	}
 }
 
+func TestAuditVisibleSystemActorLogin(t *testing.T) {
+	sess := identity{
+		Principal: principal.Principal{Kind: principal.Session, Login: "StackOrder"},
+		session:   &store.Session{Login: "StackOrder", Orgs: []string{"acme"}},
+	}
+	cases := []struct {
+		entry store.AuditEntry
+		want  bool
+	}{
+		{store.AuditEntry{Actor: store.SystemActor, Action: "cross_repo_plan", Target: "pr:globex/platform#7"}, false},
+		{store.AuditEntry{Actor: store.SystemActor, Action: "lock_warning", Target: "repo:globex/platform"}, false},
+		{store.AuditEntry{Actor: store.SystemActor, Action: "deployment_rejected", Target: "workflow_run:globex/platform:4242"}, false},
+		{store.AuditEntry{Actor: store.SystemActor, Action: "unlock", Target: "globex/platform//stacks/prod/eks"}, false},
+		{store.AuditEntry{Actor: store.SystemActor, Action: "unlock", Target: "acme/infra//stacks/prod/vpc"}, true},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, auditVisible(sess, tc.entry), "%+v", tc.entry)
+	}
+}
+
 func TestReplay(t *testing.T) {
 	g := &v1.Graph{Stacks: []v1.Stack{{Key: "a", Tool: v1.ToolTofu, ToolVersion: "1.9.0", PlanOutput: "summary"}}}
 	rows := []store.RunStack{

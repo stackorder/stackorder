@@ -48,7 +48,7 @@ const (
 	commentWindow     = time.Minute
 	artifactTextLimit = 8 << 10
 	driftLabel        = "stackorder-drift"
-	schedulerActor    = "stackorder"
+	schedulerActor    = store.SystemActor
 )
 
 // Config configures a Service. Zero fields take the Default values.
