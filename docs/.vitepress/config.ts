@@ -13,6 +13,7 @@ const guide: DefaultTheme.SidebarItem[] = [
       { text: 'How it works', link: '/guide/how-it-works' },
       { text: 'Concepts', link: '/guide/concepts' },
       { text: 'Getting started', link: '/guide/getting-started' },
+      { text: 'Local demo', link: '/guide/local-demo' },
       { text: 'Comparison', link: '/guide/comparison' },
     ],
   },

@@ -345,6 +345,8 @@ stackorder affected --base main
 stackorder graph --format dot | dot -Tsvg > graph.svg
 ```
 
+The [local demo](./local-demo) runs the whole thing on one machine, with Postgres and LocalStack in Docker and the example repository.
+
 ## Next steps
 
 - [Concepts](./concepts): edges, the affected set, waves and locks in detail.
