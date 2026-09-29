@@ -24,10 +24,11 @@ func lockedState(key string) *v1.Backend {
 }
 
 func fixtureStack(key, env string, backend *v1.Backend, cfg *v1.StackConfig) v1.Stack {
-	p, ws := v1.SplitStackKey(key)
+	p, instance := v1.SplitStackKey(key)
 	return v1.Stack{
-		Key: key, Path: p, Workspace: ws, Backend: backend, Environment: env,
-		Tool: v1.ToolTofu, ToolVersion: "1.9.0", PlanOutput: "full", Config: cfg,
+		Key: key, Path: p, Instance: instance, Workspace: instance, Backend: backend,
+		Environment: fallbackEnvironment(env, instance),
+		Tool:        v1.ToolTofu, ToolVersion: "1.9.0", PlanOutput: "full", Config: cfg,
 	}
 }
 

@@ -44,8 +44,21 @@ func remoteStateBlock(name, bucket, key string) string {
 }
 
 func defaultStack(key string, backend *v1.Backend, cfg *v1.StackConfig) v1.Stack {
-	p, ws := v1.SplitStackKey(key)
-	return v1.Stack{Key: key, Path: p, Workspace: ws, Backend: backend, Tool: v1.ToolTerraform, PlanOutput: "full", Config: cfg}
+	p, instance := v1.SplitStackKey(key)
+	return v1.Stack{
+		Key: key, Path: p, Instance: instance, Workspace: instance, Backend: backend,
+		Environment: fallbackEnvironment("", instance), Tool: v1.ToolTerraform, PlanOutput: "full", Config: cfg,
+	}
+}
+
+func fallbackEnvironment(env, instance string) string {
+	switch {
+	case env != "":
+		return env
+	case instance != "":
+		return instance
+	}
+	return v1.DefaultEnvironment
 }
 
 func state(bucket, key string) *v1.Backend {
@@ -318,6 +331,33 @@ module "b_long" {
 					"stacks/a/dangling.tf: no such file or directory",
 					"stacks/a/escape.tf: path escapes from parent",
 					"stacks/a: Failed to read file",
+				},
+			},
+		},
+		{
+			name: "from_var_files derives instances and warns about undeclared ones",
+			files: map[string]string{
+				"stackorder.yaml":                  "version: 1\nstacks:\n  instances:\n    from_var_files: \"workspaces/*.tfvars\"\n",
+				"stacks/a/main.tf":                 s3Block("b", "a.tfstate"),
+				"stacks/a/workspaces/dev.tfvars":   "",
+				"stacks/a/workspaces/prod.tfvars":  "",
+				"stacks/b/main.tf":                 s3Block("b", "b.tfstate"),
+				"stacks/b/.stackorder.yaml":        "instances: [east]\n",
+				"stacks/b/workspaces/east.tfvars":  "",
+				"stacks/b/workspaces/north.tfvars": "",
+			},
+			want: &v1.Graph{
+				Stacks: []v1.Stack{
+					{Key: "stacks/a:dev", Path: "stacks/a", Instance: "dev", Backend: state("b", "a.tfstate"), Environment: "dev", Tool: v1.ToolTerraform, PlanOutput: "full"},
+					{Key: "stacks/a:prod", Path: "stacks/a", Instance: "prod", Backend: state("b", "a.tfstate"), Environment: "prod", Tool: v1.ToolTerraform, PlanOutput: "full"},
+					{
+						Key: "stacks/b:east", Path: "stacks/b", Instance: "east", Backend: state("b", "b.tfstate"), Environment: "east", Tool: v1.ToolTerraform, PlanOutput: "full",
+						Config: &v1.StackConfig{Instances: v1.Instances{"east": {}}},
+					},
+				},
+				Warnings: []string{
+					"stacks stacks/a:dev, stacks/a:prod share the state object s3://b/a.tfstate",
+					`stacks/b/workspaces/north.tfvars: names instance "north", which stacks/b/.stackorder.yaml does not declare; the file is not used`,
 				},
 			},
 		},

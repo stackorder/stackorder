@@ -348,31 +348,48 @@ func (s *scanner) addStack(dir string, dc dirConfig) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", path.Join(dir, config.StackFile), err)
 	}
-	eff := config.Resolve(s.cfg, dir, stackCfg)
-	st := v1.Stack{
-		Key:         eff.Key,
-		Path:        eff.Path,
-		Workspace:   eff.Workspace,
-		Backend:     dc.backend,
-		Environment: eff.Environment,
-		Tool:        eff.Tool,
-		ToolVersion: eff.ToolVersion,
-		PlanOutput:  string(eff.PlanOutput),
+	matched, err := config.MatchVarFiles(s.cfg, filepath.Join(s.root, osPath(dir)))
+	if err != nil {
+		return fmt.Errorf("%s: %w", displayDir(dir), err)
 	}
-	if ok {
-		st.Config = stackCfg
+	instances, err := config.InstanceNames(s.cfg, dir, stackCfg, matched)
+	if err != nil {
+		return fmt.Errorf("%s: %w", displayDir(dir), err)
 	}
-	ignored := make([]string, 0, len(eff.IgnoreInferred))
-	for _, k := range eff.IgnoreInferred {
-		ignored = append(ignored, config.NormalizePath(k))
+	for _, w := range config.VarFileWarnings(s.cfg, dir, stackCfg, matched) {
+		s.warn("%s", w)
 	}
-	s.stacks[st.Key] = &stackInfo{
-		stack:        st,
-		dependsOn:    eff.DependsOn,
-		ignored:      ignored,
-		remoteStates: dc.remoteStates,
+	for _, instance := range instances {
+		eff, err := config.ResolveMatched(s.cfg, dir, stackCfg, instance, matched)
+		if err != nil {
+			return err
+		}
+		st := v1.Stack{
+			Key:         eff.Key,
+			Path:        eff.Path,
+			Instance:    eff.Instance,
+			Workspace:   eff.Workspace,
+			Backend:     dc.backend,
+			Environment: eff.Environment,
+			Tool:        eff.Tool,
+			ToolVersion: eff.ToolVersion,
+			PlanOutput:  string(eff.PlanOutput),
+		}
+		if ok {
+			st.Config = stackCfg
+		}
+		ignored := make([]string, 0, len(eff.IgnoreInferred))
+		for _, k := range eff.IgnoreInferred {
+			ignored = append(ignored, config.NormalizePath(k))
+		}
+		s.stacks[st.Key] = &stackInfo{
+			stack:        st,
+			dependsOn:    eff.DependsOn,
+			ignored:      ignored,
+			remoteStates: dc.remoteStates,
+		}
+		s.log.Debug("stack discovered", "key", st.Key, "backend", dc.backendType)
 	}
-	s.log.Debug("stack discovered", "key", st.Key, "backend", dc.backendType)
 	return nil
 }
 
