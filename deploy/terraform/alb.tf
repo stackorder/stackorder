@@ -37,13 +37,9 @@ resource "aws_lb" "this" {
   enable_http2               = true
   idle_timeout               = 60
 
-  dynamic "access_logs" {
-    for_each = aws_s3_bucket.alb_logs[*].bucket
-
-    content {
-      bucket  = access_logs.value
-      enabled = true
-    }
+  access_logs {
+    bucket  = var.alb_access_logs_enabled ? aws_s3_bucket.alb_logs[0].bucket : ""
+    enabled = var.alb_access_logs_enabled
   }
 
   tags = var.tags

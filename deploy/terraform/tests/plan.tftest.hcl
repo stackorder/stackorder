@@ -174,8 +174,13 @@ run "defaults" {
   }
 
   assert {
-    condition     = length(aws_s3_bucket.alb_logs) == 0 && length(aws_lb.this.access_logs) == 0 && output.alb_access_logs_bucket == null
-    error_message = "Load balancer access logs must be off by default."
+    condition     = length(aws_s3_bucket.alb_logs) == 0 && output.alb_access_logs_bucket == null
+    error_message = "No access log bucket must exist by default."
+  }
+
+  assert {
+    condition     = length(aws_lb.this.access_logs) == 1 && !one(aws_lb.this.access_logs).enabled
+    error_message = "With access logs off the load balancer must still carry an access_logs block with enabled = false: the AWS provider ignores a removed block, so turning logs off would otherwise keep the load balancer writing to a bucket the same apply deletes."
   }
 
   assert {

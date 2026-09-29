@@ -140,8 +140,10 @@ hold full request URLs, including the short-lived, single-use `code`
 parameters of the OAuth and App setup callbacks, but no headers or bodies,
 so bearer tokens and webhook payloads stay out of them.
 
-The bucket is not emptied on destroy. Empty it before turning access logs
-off or destroying the module, or deleting the bucket fails.
+The module never deletes logs. Setting `alb_access_logs_enabled = false`
+turns the load balancer's access logs off before the bucket goes, but the
+bucket's deletion fails while it holds objects, and so does a destroy of
+the module; empty the bucket and apply or destroy again.
 
 ## AWS WAF
 
