@@ -63,7 +63,7 @@ docker run -d --name stackorder -p 8080:8080 \
   ghcr.io/stackorder/stackorder:latest
 ```
 
-The server refuses to start without `DATABASE_URL`. It runs its database migrations at start-up. Without the GitHub App variables it starts in **setup mode** and serves only `/setup`, `/healthz` and `/readyz`.
+The server refuses to start without `DATABASE_URL` and `STACKORDER_BASE_URL`. It runs its database migrations at start-up. Without the GitHub App variables it starts in **setup mode** and serves only `/setup`, `/healthz` and `/readyz`.
 
 ```sh
 curl -fsS https://stackorder.example.com/readyz

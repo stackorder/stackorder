@@ -97,10 +97,10 @@ A PR that edits `modules/vpc` affects both VPC stacks through their module edges
 
 Given a graph at a commit and the list of changed paths, the server resolves the affected set in five steps.
 
-1. **Directly changed stacks.** Any changed path under a stack directory, after the `stacks.ignore` globs. A path belongs to the deepest stack directory that contains it, so a change inside a nested stack does not affect the stack around it; every workspace of that directory is affected. The defaults ignore `**/*.md` and `**/README*`; `.terraform.lock.hcl` is ignored only when `stacks.ignore_lockfile` is set.
-2. **Module-affected stacks.** For every changed path under a local module directory, every stack with a path to that module over `uses_module` edges. Git-pinned modules never match here: a change in the module repository does not change consumers until they bump `ref`.
+1. **Directly changed stacks.** Any changed path under a stack directory, after the `stacks.ignore` globs. A path belongs to the deepest stack directory that contains it, so a change inside a nested stack does not affect the stack around it; every workspace of that directory is affected. Paths with a `.terraform` segment are ignored. The defaults ignore `**/*.md` and `**/README*`; `.terraform.lock.hcl` is ignored only when `stacks.ignore_lockfile` is set.
+2. **Module-affected stacks.** For every changed path under a local module directory (the deepest one containing it), every stack with a path to that module over `uses_module` edges, through any number of nested modules. Git and registry modules have no directory in the repository and never match here: a change in the module repository does not change consumers until they bump `ref`, which is a change to the consumer itself.
 3. **Propagation.** Dependents of the set above over `depends_on` and `reads_state`, transitively, when `propagate.dependents` is true (the default). These stacks are planned so reviewers see the downstream effect. At apply time a propagated stack whose plan is a no-op is recorded as `noop` and skipped.
-4. **Ordering.** A topological sort of the affected set over `depends_on` and `reads_state`. Edges to unaffected stacks are dropped. Waves are assigned by longest path from a root. A cycle fails the resolve check with the cycle spelled out.
+4. **Ordering.** A topological sort of the affected set over `depends_on` and `reads_state`. Every edge points from the dependent to what it depends on, so for an edge from A to B, B applies first: `wave(B) < wave(A)`. Edges to unaffected or external stacks are dropped. Waves are assigned by longest path from a root. A cycle fails the resolve check with the cycle spelled out, as `a -> b -> a`.
 5. **Cross-repo.** `depends_on` edges to stacks in other repositories are stored but cannot order a single-repository run. See [Cross-repo dependencies](/configuration/cross-repo).
 
 Each affected stack carries its reasons: `changed`, `module`, `dependent`, `reads_state` or `requested`, and the node keys the change travelled through.
@@ -116,10 +116,10 @@ A comment that names a subset, such as `stackorder apply stacks/prod/vpc`, still
 A lock is an orchestration lock on one stack, held in Postgres. It is not the S3 state lock; Stackorder never touches that.
 
 - Taken on all affected stacks before the first wave of an apply is dispatched.
-- Released when the PR merges (`before_merge`) or when the run completes (`on_merge`).
+- Released when the PR merges (`before_merge`) or when the run completes (`on_merge` and manual runs).
 - Unique by construction: one lock per stack.
 - An apply is refused while another PR holds a lock on any affected stack. Plans still run, with a warning.
-- Released explicitly with `stackorder unlock`, the UI, or the API. Every release is audited.
+- Released explicitly with a `stackorder unlock` comment, the UI, the API, or the `stackorder unlock` command with an API key. Every release is audited.
 
 ## Drift {#drift}
 
