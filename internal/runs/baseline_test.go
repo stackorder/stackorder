@@ -38,6 +38,10 @@ func TestDiscovers(t *testing.T) {
 	assert.False(t, discovers(cfg, "other/vpc"))
 	cfg.Modules.Paths = []string{"stacks/shared"}
 	assert.False(t, discovers(cfg, "stacks/shared/net"), "directories under modules.paths are modules")
+	cfg.Stacks.Exclude = []string{"./stacks/prod/*/", "legacy/dns"}
+	assert.False(t, discovers(cfg, "stacks/prod/vpc"), "stacks.exclude beats stacks.discover")
+	assert.False(t, discovers(cfg, "legacy/dns"), "stacks.exclude beats stacks.include")
+	assert.True(t, discovers(cfg, "stacks/staging/vpc"))
 }
 
 func narrowingGraphs() (uploaded, baseline *v1.Graph) {

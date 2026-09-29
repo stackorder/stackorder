@@ -26,13 +26,13 @@ func TestApplyEnvironment(t *testing.T) {
 		},
 		{
 			name:     "default-branch instance override",
-			defaults: map[string]*v1.StackConfig{"infra/app:prod": {Instances: v1.Instances{"prod": {Environment: "app-{{ .Instance }}"}}}},
+			defaults: map[string]*v1.StackConfig{"infra/app": {Instances: v1.Instances{"prod": {Environment: "app-{{ .Instance }}"}}}},
 			src:      store.RunStack{Key: "infra/app:prod", Path: "infra/app"},
 			want:     "app-prod",
 		},
 		{
 			name:     "the instance name protects an unmapped instance against the pull request",
-			defaults: map[string]*v1.StackConfig{"stacks/dev/app:blue": {Instances: v1.Instances{"blue": {}}}},
+			defaults: map[string]*v1.StackConfig{"stacks/dev/app": {Instances: v1.Instances{"blue": {}}}},
 			src:      store.RunStack{Key: "stacks/dev/app:blue", Path: "stacks/dev/app", Environment: "unprotected"},
 			want:     "blue",
 		},
@@ -40,6 +40,17 @@ func TestApplyEnvironment(t *testing.T) {
 			name: "no default-branch stack file keeps the recorded environment",
 			src:  store.RunStack{Key: "stacks/dev/app", Path: "stacks/dev/app", Environment: "recorded"},
 			want: "recorded",
+		},
+		{
+			name: "an instance without a default-branch stack file runs under its own name",
+			src:  store.RunStack{Key: "stacks/dev/kyc:production", Path: "stacks/dev/kyc", Environment: "dev"},
+			want: "production",
+		},
+		{
+			name:     "a new instance takes its directory's default-branch environment",
+			defaults: map[string]*v1.StackConfig{"stacks/dev/app": {Environment: "protected"}},
+			src:      store.RunStack{Key: "stacks/dev/app:new", Path: "stacks/dev/app", Environment: "dev"},
+			want:     "protected",
 		},
 		{
 			name: "nothing configured runs under default",

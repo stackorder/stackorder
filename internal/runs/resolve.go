@@ -183,16 +183,25 @@ func (s *Service) enforcePlanOutput(ctx context.Context, repo store.Repo, affect
 	if err != nil {
 		return err
 	}
-	for i := range affected {
-		want := cfg.PlanOutput
-		if sc := defaults[affected[i].Key]; sc != nil && sc.PlanOutput != "" {
-			want = sc.PlanOutput
+	for i, a := range affected {
+		summary, err := summaryOnDefaultBranch(cfg, defaults, a)
+		if err != nil {
+			s.log.WarnContext(ctx, "default-branch configuration does not render; plan output falls back to summary",
+				"repo", repo.FullName, "stack", a.Key, "error", err)
 		}
-		if want == v1.PlanOutputSummary {
+		if summary {
 			affected[i].PlanOutput = string(v1.PlanOutputSummary)
 		}
 	}
 	return nil
+}
+
+func summaryOnDefaultBranch(cfg *v1.RepoConfig, defaults map[string]*v1.StackConfig, a v1.AffectedStack) (bool, error) {
+	eff, err := defaultEffective(cfg, defaults, a.Key, a.Path)
+	if err != nil {
+		return true, err
+	}
+	return eff.PlanOutput == v1.PlanOutputSummary, nil
 }
 
 func resolutionConfig(uploaded *v1.RepoConfig, repo store.Repo) (*v1.RepoConfig, error) {
@@ -273,8 +282,8 @@ func augmentExternal(g *v1.Graph, deps []store.ExternalDependent) *v1.Graph {
 		key := v1.QualifiedStackKey(d.Repo, d.FromKey)
 		if !known[key] {
 			known[key] = true
-			path, ws := v1.SplitStackKey(d.FromKey)
-			out.Stacks = append(out.Stacks, v1.Stack{Key: key, Path: path, Workspace: ws, Repo: d.Repo, External: true})
+			path, instance := v1.SplitStackKey(d.FromKey)
+			out.Stacks = append(out.Stacks, v1.Stack{Key: key, Path: path, Instance: instance, Repo: d.Repo, External: true})
 		}
 		out.Edges = append(out.Edges, v1.Edge{From: v1.StackRef(key), To: v1.StackRef(d.ToKey), Type: d.Type})
 	}

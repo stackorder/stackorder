@@ -37,6 +37,25 @@ func TestDriftIssueGolden(t *testing.T) {
 	}
 }
 
+func TestDriftIssueKey(t *testing.T) {
+	tests := []struct {
+		name  string
+		stack v1.StackDetail
+		want  string
+	}{
+		{"the key wins", v1.StackDetail{Key: "infra/kyc:production", Path: "infra/kyc", Instance: "staging"}, "infra/kyc:production"},
+		{"the instance, not the workspace", v1.StackDetail{Path: "infra/kyc", Instance: "production", Workspace: "prod"}, "infra/kyc:production"},
+		{"a legacy workspace", v1.StackDetail{Path: "stacks/dev/app", Workspace: "green"}, "stacks/dev/app:green"},
+		{"the default workspace is none", v1.StackDetail{Path: "stacks/dev/app", Workspace: "default"}, "stacks/dev/app"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			title, _ := DriftIssue(tt.stack, v1.DriftStatus{Drifted: true}, testOpts)
+			assert.Equal(t, "Drift detected in "+tt.want, title)
+		})
+	}
+}
+
 func TestDriftIssueTitle(t *testing.T) {
 	assert.Equal(t, "Drift detected in stacks/prod/vpc", DriftIssueTitle("stacks/prod/vpc"))
 	assert.Equal(t, "Drift detected in stacks/dev/app:green", DriftIssueTitle("stacks/dev/app:green"))

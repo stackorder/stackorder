@@ -76,7 +76,7 @@ func TestRowConversions(t *testing.T) {
 				PlanTextTruncated: true, FinishedAt: &testTime,
 			}.ToV1(),
 			want: v1.RunStack{
-				StackID: testID.String(), Key: "stacks/a:blue", Path: "stacks/a", Workspace: "blue",
+				StackID: testID.String(), Key: "stacks/a:blue", Path: "stacks/a", Instance: "blue", Workspace: "blue",
 				Wave: 2, Status: v1.StackPlanned, Reasons: []v1.Reason{v1.ReasonChanged}, Environment: "prod",
 				Summary: summary, ExitCode: &exit, JobURL: "j", PlanArtifact: "a", PlanText: "t",
 				Truncated: true, FinishedAt: ptrTo(testTime.UTC()),
@@ -101,9 +101,19 @@ func TestRowConversions(t *testing.T) {
 			want: v1.Stack{Key: "k", Path: "k", Repo: "acme/infra", Backend: backend, Environment: "e", Tool: v1.ToolTofu},
 		},
 		{
+			name: "stack instance",
+			got:  Stack{ID: testID, Repo: "acme/infra", Key: "infra/kyc:production", Path: "infra/kyc", Environment: "production"}.ToV1(),
+			want: v1.Stack{Key: "infra/kyc:production", Path: "infra/kyc", Instance: "production", Repo: "acme/infra", Environment: "production"},
+		},
+		{
 			name: "stack detail",
 			got:  Stack{ID: testID, Repo: "acme/infra", Key: "k", Path: "k", Backend: backend, Tool: v1.ToolTerraform}.Detail(),
 			want: v1.StackDetail{ID: testID.String(), Repo: "acme/infra", Key: "k", Path: "k", Backend: backend, Tool: v1.ToolTerraform},
+		},
+		{
+			name: "stack detail of an instance keeps the workspace apart",
+			got:  Stack{ID: testID, Repo: "acme/infra", Key: "infra/kyc:production", Path: "infra/kyc", Workspace: "prod"}.Detail(),
+			want: v1.StackDetail{ID: testID.String(), Repo: "acme/infra", Key: "infra/kyc:production", Path: "infra/kyc", Instance: "production", Workspace: "prod"},
 		},
 		{
 			name: "lock",
@@ -153,6 +163,25 @@ func TestRowConversions(t *testing.T) {
 	}
 	assert.True(t, Module{Key: "a", BaseKey: "a"}.Family())
 	assert.False(t, Module{Key: "a@v1", BaseKey: "a"}.Family())
+}
+
+func TestKeyInstance(t *testing.T) {
+	cases := []struct {
+		key, path, want string
+	}{
+		{key: "infra/kyc:production", path: "infra/kyc", want: "production"},
+		{key: "infra/kyc", path: "infra/kyc"},
+		{key: "infra/kyc:production", want: "production"},
+		{key: "infra/kyc"},
+		{key: "odd:dir", path: "odd:dir"},
+		{key: "odd:dir:blue", path: "odd:dir", want: "blue"},
+		{key: "acme/infra//stacks/vpc:blue", path: "stacks/vpc", want: "blue"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.key+"@"+tc.path, func(t *testing.T) {
+			assert.Equal(t, tc.want, KeyInstance(tc.key, tc.path))
+		})
+	}
 }
 
 func TestHashToken(t *testing.T) {
@@ -271,6 +300,7 @@ func TestSplitStacks(t *testing.T) {
 		in           []v1.Stack
 		wantLocal    []string
 		wantExternal []string
+		wantInstance map[string]string
 		wantErr      error
 	}{
 		{
@@ -278,12 +308,15 @@ func TestSplitStacks(t *testing.T) {
 			in: []v1.Stack{
 				{Key: "b", Path: "b"},
 				{Path: "a", Workspace: "blue"},
+				{Path: "d", Instance: "production", Workspace: "prod"},
 				{Key: "tgw", Path: "tgw", External: true},
 				{Key: "dns", Path: "dns", Repo: "acme/network"},
 				{Key: "c", Path: "c", Repo: "ACME/Infra"},
+				{Path: "e", Workspace: "default"},
 			},
-			wantLocal:    []string{"a:blue", "b", "c"},
+			wantLocal:    []string{"a:blue", "b", "c", "d:production", "e"},
 			wantExternal: []string{"tgw", "dns"},
+			wantInstance: map[string]string{"a:blue": "blue", "b": "", "c": "", "d:production": "production", "e": ""},
 		},
 		{name: "duplicate", in: []v1.Stack{{Key: "a"}, {Key: "a"}}, wantErr: ErrInvalid},
 		{name: "no key", in: []v1.Stack{{}}, wantErr: ErrInvalid},
@@ -298,6 +331,9 @@ func TestSplitStacks(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantLocal, keysOf(local))
 			assert.Equal(t, tc.wantExternal, keysOf(external))
+			for _, st := range local {
+				assert.Equal(t, tc.wantInstance[st.Key], st.Instance, st.Key)
+			}
 		})
 	}
 }

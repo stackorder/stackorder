@@ -175,6 +175,11 @@ func stackDir(st v1.Stack) string {
 }
 
 func discovers(cfg *v1.RepoConfig, dir string) bool {
+	for _, ex := range cfg.Stacks.Exclude {
+		if matchesAny([]string{strings.TrimSuffix(strings.TrimPrefix(ex, "./"), "/")}, dir) {
+			return false
+		}
+	}
 	for _, inc := range cfg.Stacks.Include {
 		if config.NormalizePath(inc) == dir {
 			return true

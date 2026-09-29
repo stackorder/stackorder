@@ -85,7 +85,10 @@ func TestMatchJobStack(t *testing.T) {
 	}{
 		{"run (stacks/prod/vpc, stacks/prod/vpc)", "stacks/prod/vpc", true},
 		{"run (stacks/prod/apps:blue, …)", "stacks/prod/apps:blue", true},
-		{"run (stacks/prod/apps, stacks/prod/apps:blue)", "", false},
+		{"run (stacks/prod/apps, stacks/prod/apps:blue, blue, production, 0)", "stacks/prod/apps:blue", true},
+		{"run (stacks/prod/apps, stacks/prod/apps:red)", "", false},
+		{"run (stacks/prod/apps)", "", false},
+		{"run (stacks/dev/db, stacks/prod/apps:blue)", "stacks/dev/db", true},
 		{"run (stacks/dev/db, x)", "stacks/dev/db", true},
 		{"run (stacks/none, x)", "", false},
 		{"run / apply wave 0 stacks/prod/vpc", "stacks/prod/vpc", true},
@@ -438,7 +441,7 @@ func TestAugmentExternal(t *testing.T) {
 	assert.Len(t, g.Stacks, 1, "the input graph is not modified")
 	assert.Equal(t, []v1.Stack{
 		{Key: "stacks/tgw", Path: "stacks/tgw"},
-		{Key: "acme/infra//stacks/vpc:blue", Path: "stacks/vpc", Workspace: "blue", Repo: "acme/infra", External: true},
+		{Key: "acme/infra//stacks/vpc:blue", Path: "stacks/vpc", Instance: "blue", Repo: "acme/infra", External: true},
 		{Key: "acme/apps//stacks/api", Path: "stacks/api", Repo: "acme/apps", External: true},
 	}, out.Stacks)
 	assert.Equal(t, []v1.Edge{
@@ -464,19 +467,37 @@ func TestMatrixEntries(t *testing.T) {
 	rows := []store.RunStack{
 		{Key: "stacks/prod/vpc", Path: "stacks/prod/vpc", Wave: 1, Environment: "production", PlanRunID: 42, PlanArtifact: "art", PlanOutput: "summary"},
 		{Key: "stacks/prod/apps:blue", Path: "stacks/prod/apps", Workspace: "blue", Environment: ""},
+		{Key: "infra/kyc:production", Path: "infra/kyc", Environment: "production"},
+		{Key: "infra/kyc:staging"},
+		{Key: "infra/app:production", Path: "infra/app"},
+		{Key: "infra/app:staging", Path: "infra/app"},
 	}
+	app := &v1.StackConfig{Instances: v1.Instances{
+		"production": {PlanOutput: v1.PlanOutputSummary},
+		"staging":    {Environment: "{{ .Nope }}"},
+	}}
 	nodes := map[string]v1.Stack{
 		"stacks/prod/vpc":       {Tool: v1.ToolTofu, ToolVersion: "1.9.0"},
 		"stacks/prod/apps:blue": {Config: &v1.StackConfig{Tool: v1.ToolTerraform}},
+		"infra/app:production":  {Config: app},
+		"infra/app:staging":     {Config: app},
 	}
 	cfg := &v1.RepoConfig{Tool: v1.ToolTofu, ToolVersion: "1.8.0", PlanOutput: v1.PlanOutputFull}
 	got := matrixEntries(run, rows, nodes, cfg)
 	assert.Equal(t, []v1.MatrixEntry{
 		{Stack: "stacks/prod/vpc", Key: "stacks/prod/vpc", Environment: "production", Wave: 1, Tool: v1.ToolTofu,
 			ToolVersion: "1.9.0", PlanOutput: "summary", SHA: "abc", PlanRunID: 42, Artifact: "art"},
-		{Stack: "stacks/prod/apps", Key: "stacks/prod/apps:blue", Workspace: "blue", Environment: v1.DefaultEnvironment,
+		{Stack: "stacks/prod/apps", Key: "stacks/prod/apps:blue", Instance: "blue", Workspace: "blue", Environment: v1.DefaultEnvironment,
 			Tool: v1.ToolTerraform, ToolVersion: "1.8.0", PlanOutput: "full", SHA: "abc"},
-	}, got)
+		{Stack: "infra/kyc", Key: "infra/kyc:production", Instance: "production", Environment: "production",
+			Tool: v1.ToolTofu, ToolVersion: "1.8.0", PlanOutput: "full", SHA: "abc"},
+		{Stack: "infra/kyc", Key: "infra/kyc:staging", Instance: "staging", Environment: v1.DefaultEnvironment,
+			Tool: v1.ToolTofu, ToolVersion: "1.8.0", PlanOutput: "full", SHA: "abc"},
+		{Stack: "infra/app", Key: "infra/app:production", Instance: "production", Environment: v1.DefaultEnvironment,
+			Tool: v1.ToolTofu, ToolVersion: "1.8.0", PlanOutput: "summary", SHA: "abc"},
+		{Stack: "infra/app", Key: "infra/app:staging", Instance: "staging", Environment: v1.DefaultEnvironment,
+			Tool: v1.ToolTofu, ToolVersion: "1.8.0", PlanOutput: "summary", SHA: "abc"},
+	}, got, "an instance never becomes a workspace")
 
 	run.Mode = v1.ModeDrift
 	drift := matrixEntries(run, rows[:1], nodes, cfg)

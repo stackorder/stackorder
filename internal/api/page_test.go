@@ -156,14 +156,16 @@ func TestReplay(t *testing.T) {
 		{Key: "a", Path: "a", Wave: 0, Reasons: []v1.Reason{v1.ReasonChanged}, Environment: "production"},
 		{Key: "c", Path: "c", Wave: 2, Environment: "default"},
 		{Key: "d", Path: "d", Wave: 1, Reasons: []v1.Reason{v1.ReasonDependent}, Environment: "default", Via: []string{"a"}},
+		{Key: "infra/kyc:production", Path: "infra/kyc", Workspace: "prod", Wave: 3, Environment: "production"},
 	}
 	affected, waves := replay(store.Run{Waves: 4}, rows, g)
 	assert.Equal(t, []v1.AffectedStack{
 		{Key: "a", Path: "a", Wave: 0, Reasons: []v1.Reason{v1.ReasonChanged}, Environment: "production", Tool: v1.ToolTofu, ToolVersion: "1.9.0", PlanOutput: "summary"},
 		{Key: "c", Path: "c", Wave: 2, Reasons: []v1.Reason{}, Environment: "default"},
 		{Key: "d", Path: "d", Wave: 1, Reasons: []v1.Reason{v1.ReasonDependent}, Environment: "default", Via: []string{"a"}},
+		{Key: "infra/kyc:production", Path: "infra/kyc", Instance: "production", Workspace: "prod", Wave: 3, Reasons: []v1.Reason{}, Environment: "production"},
 	}, affected)
-	assert.Equal(t, [][]string{{"a"}, {"d"}, {"c"}, {}}, waves)
+	assert.Equal(t, [][]string{{"a"}, {"d"}, {"c"}, {"infra/kyc:production"}}, waves)
 
 	affected, waves = replay(store.Run{}, nil, g)
 	assert.Equal(t, []v1.AffectedStack{}, affected)

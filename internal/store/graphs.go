@@ -103,12 +103,25 @@ func (s *Store) SaveGraph(ctx context.Context, repoID int64, g *v1.Graph) (uuid.
 	return graphID, stackIDs, nil
 }
 
+func withInstance(st v1.Stack) v1.Stack {
+	if st.Instance == "" {
+		_, key := v1.SplitQualifiedStackKey(st.Key)
+		st.Instance = KeyInstance(key, st.Path)
+	}
+	return st
+}
+
 func splitStacks(repo string, stacks []v1.Stack) (local, external []v1.Stack, err error) {
 	seen := make(map[string]bool, len(stacks))
 	for _, st := range stacks {
 		if st.Key == "" {
-			st.Key = v1.StackKey(st.Path, st.Workspace)
+			instance := st.Instance
+			if instance == "" && st.Workspace != "default" {
+				instance = st.Workspace
+			}
+			st.Key = v1.StackKey(st.Path, instance)
 		}
+		st = withInstance(st)
 		if st.Key == "" {
 			return nil, nil, fmt.Errorf("stack with empty key and path: %w", ErrInvalid)
 		}
@@ -302,6 +315,12 @@ func (s *Store) loadGraph(ctx context.Context, op, query string, args ...any) (*
 	stacks, err := queryNodes[v1.Stack](ctx, s.db, `SELECT node FROM graph_stacks WHERE graph_id = $1`, row.ID)
 	if err != nil {
 		return nil, uuid.Nil, wrap(op, err)
+	}
+	for i := range stacks {
+		stacks[i] = withInstance(stacks[i])
+	}
+	for i := range row.ExternalStacks {
+		row.ExternalStacks[i] = withInstance(row.ExternalStacks[i])
 	}
 	slices.SortFunc(stacks, func(a, b v1.Stack) int { return cmp.Compare(a.Key, b.Key) })
 	g.Stacks = slices.Concat(stacks, row.ExternalStacks)

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,11 +30,29 @@ type Stack struct {
 	RemovedAt   *time.Time      `db:"removed_at"`
 }
 
+// KeyInstance returns the instance a stack key names: the suffix after the
+// stack's path and ":", or, when path is empty or not a prefix of key, the
+// suffix v1.SplitStackKey finds. A key equal to its path names none.
+func KeyInstance(key, path string) string {
+	switch {
+	case path != "" && key == path:
+		return ""
+	case path != "" && strings.HasPrefix(key, path+":"):
+		return key[len(path)+1:]
+	}
+	_, instance := v1.SplitStackKey(key)
+	return instance
+}
+
+// Instance returns the instance the stack's key names.
+func (s Stack) Instance() string { return KeyInstance(s.Key, s.Path) }
+
 // ToV1 converts the row to a graph node.
 func (s Stack) ToV1() v1.Stack {
 	return v1.Stack{
 		Key:         s.Key,
 		Path:        s.Path,
+		Instance:    s.Instance(),
 		Workspace:   s.Workspace,
 		Repo:        s.Repo,
 		Backend:     s.Backend,
@@ -51,6 +70,7 @@ func (s Stack) Detail() v1.StackDetail {
 		Repo:        s.Repo,
 		Key:         s.Key,
 		Path:        s.Path,
+		Instance:    s.Instance(),
 		Workspace:   s.Workspace,
 		Environment: s.Environment,
 		Backend:     s.Backend,

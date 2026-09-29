@@ -141,7 +141,7 @@ func (s *Service) defaultStackConfigs(ctx context.Context, repo store.Repo, keys
 	case err == nil:
 		for _, st := range g.Stacks {
 			if !st.External && st.Config != nil {
-				out[st.Key] = st.Config
+				out[stackDir(st)] = st.Config
 			}
 		}
 		return out, nil
@@ -155,21 +155,19 @@ func (s *Service) defaultStackConfigs(ctx context.Context, repo store.Repo, keys
 	if err != nil {
 		return nil, err
 	}
-	read := map[string]*v1.StackConfig{}
+	read := map[string]bool{}
 	for _, key := range keys {
 		dir, _ := v1.SplitStackKey(key)
-		if strings.Contains(dir, "//") {
+		if strings.Contains(dir, "//") || read[dir] {
 			continue
 		}
-		sc, seen := read[dir]
-		if !seen {
-			if sc, err = s.readStackConfig(ctx, c, repo, dir); err != nil {
-				return nil, err
-			}
-			read[dir] = sc
+		read[dir] = true
+		sc, err := s.readStackConfig(ctx, c, repo, dir)
+		if err != nil {
+			return nil, err
 		}
 		if sc != nil {
-			out[key] = sc
+			out[dir] = sc
 		}
 	}
 	return out, nil
@@ -191,11 +189,21 @@ func (s *Service) readStackConfig(ctx context.Context, c *gh.Client, repo store.
 	return sc, nil
 }
 
-func allowedTeams(cfg *v1.RepoConfig, defaults map[string]*v1.StackConfig, key string) []string {
-	if sc := defaults[key]; sc != nil && sc.Apply != nil && len(sc.Apply.AllowedTeams) > 0 {
-		return sc.Apply.AllowedTeams
+func keyDir(key, path string) (string, string) {
+	if path == "" {
+		return v1.SplitStackKey(key)
 	}
-	return cfg.Apply.AllowedTeams
+	return path, store.KeyInstance(key, path)
+}
+
+func defaultEffective(cfg *v1.RepoConfig, defaults map[string]*v1.StackConfig, key, path string) (config.Effective, error) {
+	dir, instance := keyDir(key, path)
+	return config.Resolve(cfg, dir, defaults[dir], instance)
+}
+
+func allowedTeams(cfg *v1.RepoConfig, defaults map[string]*v1.StackConfig, key string) ([]string, error) {
+	eff, err := defaultEffective(cfg, defaults, key, "")
+	return eff.AllowedTeams, err
 }
 
 func splitTeam(owner, team string) (string, string) {
@@ -231,10 +239,16 @@ func (s *Service) gateAuthorization(ctx context.Context, in gateInput, cfg *v1.R
 	if len(keys) == 0 {
 		add(cfg.Apply.AllowedTeams, "")
 	}
-	for _, key := range keys {
-		add(allowedTeams(cfg, defaults, key), key)
-	}
 	var out []report.GateFailure
+	for _, key := range keys {
+		teams, err := allowedTeams(cfg, defaults, key)
+		if err != nil {
+			out = append(out, report.GateFailure{Layer: report.LayerAuthorization, Stacks: []string{key},
+				Reason: fmt.Sprintf("apply.allowed_teams is unknown because the default-branch configuration does not render: %v", err)})
+			continue
+		}
+		add(teams, key)
+	}
 	for _, id := range order {
 		stacks := groups[id]
 		if id == "" {

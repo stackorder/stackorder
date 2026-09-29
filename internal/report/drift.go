@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
+	"github.com/stackorder/stackorder/internal/config"
 )
 
 // DriftIssueTitle returns the stable title of the drift issue for a stack,
@@ -18,7 +19,7 @@ func DriftIssueTitle(key string) string { return "Drift detected in " + key }
 func DriftIssue(stack v1.StackDetail, drift v1.DriftStatus, o Options) (title, body string) {
 	key := stack.Key
 	if key == "" {
-		key = v1.StackKey(stack.Path, stack.Workspace)
+		key = v1.StackKey(stack.Path, config.InstanceOf(stack.Instance, stack.Workspace))
 	}
 	title = DriftIssueTitle(oneLine(key))
 

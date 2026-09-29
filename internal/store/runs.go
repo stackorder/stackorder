@@ -441,12 +441,16 @@ type RunStack struct {
 	UpdatedAt  time.Time  `db:"updated_at"`
 }
 
+// Instance returns the instance the row's stack key names.
+func (rs RunStack) Instance() string { return KeyInstance(rs.Key, rs.Path) }
+
 // ToV1 converts the row; checks are attached by RunDetail.
 func (rs RunStack) ToV1() v1.RunStack {
 	out := v1.RunStack{
 		StackID:      rs.StackID.String(),
 		Key:          rs.Key,
 		Path:         rs.Path,
+		Instance:     rs.Instance(),
 		Workspace:    rs.Workspace,
 		Environment:  rs.Environment,
 		Wave:         rs.Wave,

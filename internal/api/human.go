@@ -239,6 +239,7 @@ func replay(run store.Run, rows []store.RunStack, g *v1.Graph) ([]v1.AffectedSta
 		a := v1.AffectedStack{
 			Key:         rs.Key,
 			Path:        rs.Path,
+			Instance:    rs.Instance(),
 			Workspace:   rs.Workspace,
 			Wave:        rs.Wave,
 			Reasons:     append([]v1.Reason{}, rs.Reasons...),

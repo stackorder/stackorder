@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
+	"github.com/stackorder/stackorder/internal/config"
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/store"
 )
@@ -223,9 +224,9 @@ func matrixEntries(run store.Run, rows []store.RunStack, nodes map[string]v1.Sta
 		if sc == nil {
 			sc = &v1.StackConfig{}
 		}
-		path, ws := rs.Path, rs.Workspace
+		path, instance := rs.Path, rs.Instance()
 		if path == "" {
-			path, ws = v1.SplitStackKey(rs.Key)
+			path = strings.TrimSuffix(rs.Key, ":"+instance)
 		}
 		env := v1.DefaultEnvironment
 		if run.Mode == v1.ModeApply {
@@ -234,12 +235,13 @@ func matrixEntries(run store.Run, rows []store.RunStack, nodes map[string]v1.Sta
 		e := v1.MatrixEntry{
 			Stack:       path,
 			Key:         rs.Key,
-			Workspace:   ws,
+			Instance:    instance,
+			Workspace:   rs.Workspace,
 			Environment: env,
 			Wave:        rs.Wave,
 			Tool:        v1.Tool(firstNonEmpty(string(node.Tool), string(sc.Tool), string(cfg.Tool))),
 			ToolVersion: firstNonEmpty(node.ToolVersion, sc.ToolVersion, cfg.ToolVersion),
-			PlanOutput:  firstNonEmpty(rs.PlanOutput, node.PlanOutput, string(sc.PlanOutput), string(cfg.PlanOutput)),
+			PlanOutput:  firstNonEmpty(rs.PlanOutput, node.PlanOutput, resolvedPlanOutput(cfg, path, node.Config, instance)),
 			SHA:         run.SHA,
 		}
 		if run.Mode == v1.ModeApply {
@@ -248,6 +250,14 @@ func matrixEntries(run store.Run, rows []store.RunStack, nodes map[string]v1.Sta
 		out = append(out, e)
 	}
 	return out
+}
+
+func resolvedPlanOutput(cfg *v1.RepoConfig, path string, sc *v1.StackConfig, instance string) string {
+	eff, err := config.Resolve(cfg, path, sc, instance)
+	if err != nil {
+		return string(v1.PlanOutputSummary)
+	}
+	return string(eff.PlanOutput)
 }
 
 func (s *Service) send(ctx context.Context, repo store.Repo, run store.Run, d store.Dispatch, rows []store.RunStack, nodes map[string]v1.Stack, cfg *v1.RepoConfig) error {

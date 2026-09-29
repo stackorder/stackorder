@@ -100,7 +100,7 @@ func sampleGraph(repo, sha string) *v1.Graph {
 				Key: "stacks/prod/eks", Path: "stacks/prod/eks", Environment: "production",
 				Config: &v1.StackConfig{DependsOn: []string{"stacks/prod/vpc"}},
 			},
-			{Key: "stacks/prod/apps:blue", Path: "stacks/prod/apps", Workspace: "blue"},
+			{Key: "stacks/prod/apps:blue", Path: "stacks/prod/apps", Instance: "blue", Workspace: "blue"},
 			{Key: "stacks/prod/tgw", Path: "stacks/prod/tgw", Repo: "acme/network", External: true},
 		},
 		Modules: []v1.Module{

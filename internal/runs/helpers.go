@@ -79,7 +79,31 @@ func matchJobStack(name string, rows []store.RunStack) (store.RunStack, bool) {
 	if len(byPath) == 1 {
 		return byPath[0], true
 	}
+	if next, ok := jobSecondValue(name); ok {
+		for _, rs := range byPath {
+			if rs.Key == next {
+				return rs, true
+			}
+		}
+	}
 	return store.RunStack{}, false
+}
+
+func jobSecondValue(name string) (string, bool) {
+	_, rest, ok := strings.Cut(name, "(")
+	if !ok {
+		return "", false
+	}
+	rest, _, ok = strings.Cut(rest, ")")
+	if !ok {
+		return "", false
+	}
+	values := strings.Split(rest, ",")
+	if len(values) < 2 {
+		return "", false
+	}
+	v := strings.TrimSpace(values[1])
+	return v, v != ""
 }
 
 func approvers(reviews []gh.Review, sha, author string) []string {

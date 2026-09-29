@@ -66,6 +66,26 @@ func TestSaveGraphRoundTrip(t *testing.T) {
 	assert.Equal(t, "stacks/prod/apps", apps.Path)
 	assert.Equal(t, v1.DefaultEnvironment, apps.Environment, "a stack with no environment mapping runs under the default one")
 	assert.Equal(t, v1.DefaultEnvironment, apps.Detail().Environment)
+	assert.Equal(t, "blue", apps.Detail().Instance)
+
+	legacy := sampleGraph(f.repo.FullName, "sha2")
+	legacy.TreeHash = "tree-sha2"
+	legacy.Stacks = append(legacy.Stacks, v1.Stack{Key: "acme/network//stacks/prod/dns:green", Path: "stacks/prod/dns", Repo: "acme/network", External: true})
+	legacyID, _ := f.saveGraph(f.repo.ID, legacy)
+	f.exec(`UPDATE graph_stacks SET node = node - 'instance' WHERE graph_id = $1`, legacyID)
+	f.exec(`UPDATE graphs SET external_stacks = (SELECT jsonb_agg(e - 'instance') FROM jsonb_array_elements(external_stacks) e) WHERE id = $1`, legacyID)
+	var stored int
+	require.NoError(t, f.s.Pool().QueryRow(f.ctx, `SELECT count(*) FROM graph_stacks WHERE graph_id = $1 AND node ? 'instance'`, legacyID).Scan(&stored))
+	require.Zero(t, stored, "the stored nodes have the shape saved before instances existed")
+	reloaded, _, err := f.s.GetGraph(f.ctx, f.repo.ID, "sha2")
+	require.NoError(t, err)
+	instances := map[string]string{}
+	for _, st := range reloaded.Stacks {
+		instances[st.Key] = st.Instance
+	}
+	assert.Equal(t, "blue", instances["stacks/prod/apps:blue"], "a graph saved before instances existed reads its instance from the key")
+	assert.Equal(t, "green", instances["acme/network//stacks/prod/dns:green"], "so does an external stack")
+	assert.Empty(t, instances["stacks/prod/vpc"])
 }
 
 func TestSaveGraphIdempotentAndStackIdentityStable(t *testing.T) {

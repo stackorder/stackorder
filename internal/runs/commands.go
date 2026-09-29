@@ -1,7 +1,6 @@
 package runs
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -14,7 +13,6 @@ import (
 
 	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/command"
-	"github.com/stackorder/stackorder/internal/config"
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/graph"
 	"github.com/stackorder/stackorder/internal/report"
@@ -555,13 +553,12 @@ func activeApply(ctx context.Context, db *store.Store, repoID int64, pr int, now
 }
 
 func applyEnvironment(cfg *v1.RepoConfig, defaults map[string]*v1.StackConfig, src store.RunStack) (string, error) {
-	dir, instance := v1.SplitStackKey(src.Key)
-	sc := defaults[src.Key]
-	eff, err := config.Resolve(cfg, cmp.Or(src.Path, dir), sc, instance)
+	eff, err := defaultEffective(cfg, defaults, src.Key, src.Path)
 	if err != nil {
 		return "", fmt.Errorf("runs: environment of %s: %w", src.Key, err)
 	}
-	if sc == nil && !eff.EnvironmentConfigured && src.Environment != "" {
+	dir, _ := keyDir(src.Key, src.Path)
+	if eff.Instance == "" && defaults[dir] == nil && !eff.EnvironmentConfigured && src.Environment != "" {
 		return src.Environment, nil
 	}
 	return eff.Environment, nil
