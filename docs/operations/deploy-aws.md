@@ -19,11 +19,11 @@ Set exactly one of `route53_zone_id`, to have the module issue a DNS-validated c
 | Resource | Purpose |
 | --- | --- |
 | VPC with public and private subnets and NAT, unless `create_vpc = false` | Two availability zones by default; one NAT gateway unless `single_nat_gateway = false` |
-| Application Load Balancer, HTTPS listener with TLS 1.3, HTTP redirect | Forwards to port 8080; health checks on `/readyz`; 30 s deregistration delay |
+| Application Load Balancer, HTTPS listener with TLS 1.3, HTTP redirect | Forwards to port 8080; health checks on `/readyz`; 30 s deregistration delay; access logs to an S3 bucket (`alb_access_logs_enabled`) and a WAF web ACL (`waf_web_acl_arn`) are optional |
 | ACM certificate and Route53 records, with `route53_zone_id` | The certificate and alias for `domain_name` |
-| ECS cluster and Fargate service, 1 or 2 tasks | Runs `ghcr.io/stackorder/stackorder` as user `65532`, read-only root file system, with the deployment circuit breaker |
+| ECS cluster and Fargate service, 1 or 2 tasks | Runs `ghcr.io/stackorder/stackorder` as user `65532`, read-only root file system, with the deployment circuit breaker; the container health check runs `stackorder-server healthcheck` |
 | RDS PostgreSQL 17 (`db.t4g.micro`, gp3, encrypted), or Aurora Serverless v2 | The database, with `rds.force_ssl = 1`, 7 days of point-in-time recovery, deletion protection and a final snapshot |
-| Two Secrets Manager secrets | `DATABASE_URL`, and a JSON secret with the App credentials and `STACKORDER_SESSION_KEY`, injected through ECS `secrets` |
+| Three Secrets Manager secrets | `DATABASE_URL`; a JSON secret with the App credentials, `STACKORDER_SESSION_KEY` and `STACKORDER_METRICS_TOKEN`, injected through ECS `secrets`; and a copy of the metrics token for scrapers |
 | Execution role and task role | The task role has no permissions unless the artifact bucket or ECS Exec is enabled |
 | Security groups | Load balancer: 80 and 443 from `ingress_cidrs`. Tasks: 8080 from the load balancer, 443 out, Postgres to the database. Database: Postgres from the tasks |
 | CloudWatch log group | The server's logs, 30 days by default |
@@ -144,18 +144,13 @@ The tables are generated from `deploy/terraform/variables.tf`. Every input also 
 | `DATABASE_URL` | The database secret: `postgres://stackorder:<password>@<endpoint>:5432/stackorder?sslmode=require` |
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | The App secret, when set |
 | `STACKORDER_SESSION_KEY` | The App secret; `session_key`, or generated |
+| `STACKORDER_METRICS_TOKEN` | The App secret; `metrics_token`, or generated. Scrapers read the same value from the `<name>/metrics-token` secret |
 
-Everything else the server reads, such as `STACKORDER_WORKERS`, `STACKORDER_METRICS_TOKEN`, the retention durations, `STACKORDER_LOG_FORMAT`, `GITHUB_WEB_URL`, `GITHUB_OIDC_ISSUER` or `OTEL_EXPORTER_OTLP_ENDPOINT`, goes through `extra_environment`, which rejects the variables above. Values in `extra_environment` are plain text in the task definition, so the module has no place for a secret `STACKORDER_METRICS_TOKEN`; see [Security hardening](/operations/security-hardening#metrics). On GitHub Enterprise Server set `github_api_url` and add `GITHUB_WEB_URL` and `GITHUB_OIDC_ISSUER` to `extra_environment`.
+Everything else the server reads, such as `STACKORDER_WORKERS`, the retention durations, `STACKORDER_LOG_FORMAT`, `GITHUB_WEB_URL`, `GITHUB_OIDC_ISSUER` or `OTEL_EXPORTER_OTLP_ENDPOINT`, goes through `extra_environment`, which rejects the variables above. Values in `extra_environment` are plain text in the task definition, so the module has no place for a secret `STACKORDER_METRICS_TOKEN`; see [Security hardening](/operations/security-hardening#metrics). On GitHub Enterprise Server set `github_api_url` and add `GITHUB_WEB_URL` and `GITHUB_OIDC_ISSUER` to `extra_environment`.
 
 ### Container health check {#health-check}
 
-By default the task has no container health check: the load balancer's `/readyz` check decides task health, gates deployments and drives the circuit breaker. ECS ignores the image's own `HEALTHCHECK`. To add a container health check, use the server's own subcommand, since the distroless image has no shell or curl:
-
-```hcl
-health_check_command = ["CMD", "/stackorder-server", "healthcheck"]
-```
-
-It runs every 30 s with a 5 s timeout, 3 retries and a 30 s start period.
+By default the container runs `stackorder-server healthcheck` every 30 s with a 5 s timeout, 3 retries and a 30 s start period. It asks `/healthz`, which does not touch the database, so a database outage does not by itself make ECS replace tasks; the load balancer's `/readyz` check still gates deployments and drives the circuit breaker. Set `health_check_command = []` to turn the container check off. `stop_timeout_seconds` (60 by default) gives the server time to drain HTTP and its workers before ECS sends SIGKILL.
 
 ## Outputs {#outputs}
 
@@ -171,7 +166,8 @@ It runs every 30 s with a 5 s timeout, 3 retries and a 30 s start period.
 | `task_definition_arn` | ARN of the current task definition revision. |
 | `db_endpoint` | Host name of the database writer endpoint. |
 | `db_secret_arn` | ARN of the Secrets Manager secret holding DATABASE_URL. |
-| `app_secret_arn` | ARN of the Secrets Manager secret holding the GitHub App credentials and the session key as JSON. |
+| `app_secret_arn` | ARN of the Secrets Manager secret holding the GitHub App credentials, the session key and the metrics token as JSON. |
+| `metrics_token_secret_arn` | ARN of the secret holding only the `/metrics` bearer token, for scrapers. |
 | `artifact_bucket` | Name of the artifact bucket, or null when artifact_bucket_enabled is false. |
 | `security_group_ids` | Security group ids of the load balancer, the service and the database. |
 | `log_group_name` | CloudWatch log group of the server. |

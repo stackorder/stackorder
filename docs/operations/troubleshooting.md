@@ -26,7 +26,7 @@ Stackorder degrades gracefully but never silently. Every refusal is a PR comment
 | Server logs | JSON by default; set `STACKORDER_LOG_LEVEL=debug` for more detail. Every request logs its `request_id`, which the response carries as `X-Request-Id` |
 | The run's `warnings` in `GET /v1/runs/{id}` | Dispatches GitHub refused, external dependents that were not scheduled |
 | `GET /v1/audit` | Commands ignored or rate limited, unlocks, `config_invalid` for a default-branch `stackorder.yaml` the server could not parse |
-| `GET /readyz` and `GET /metrics` | Whether the database is reachable; queue depth, webhook lag and rate limit |
+| `GET /readyz` and `GET /metrics` | Whether the database is reachable; queue depth, webhook lag and rate limit. `/metrics` needs `Authorization: Bearer <STACKORDER_METRICS_TOKEN>` when the token is set, which the Terraform module always does |
 
 ## Unconfirmed checks {#unconfirmed}
 
