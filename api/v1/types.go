@@ -209,8 +209,8 @@ type Stack struct {
 	// External marks a stack referenced by a cross-repo depends_on edge that
 	// is not part of this graph's repository.
 	External bool `json:"external,omitempty"`
-	// WatchPaths lists repository relative files outside the stack
-	// directory that the stack reads at init or plan, sorted and unique.
+	// WatchPaths lists repository relative files the stack reads at init
+	// or plan that its own directory does not own, sorted and unique.
 	WatchPaths []string `json:"watch_paths,omitempty"`
 }
 
