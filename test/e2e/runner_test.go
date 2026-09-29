@@ -144,7 +144,10 @@ func readOutputs(t *testing.T, path string) map[string]string {
 	if errors.Is(err, os.ErrNotExist) {
 		return out
 	}
-	require.NoError(t, err)
+	if err != nil {
+		t.Errorf("e2e: read the job outputs: %v", err)
+		return out
+	}
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 0, 1024*1024), 64*1024*1024)
 	for sc.Scan() {
@@ -161,7 +164,9 @@ func readOutputs(t *testing.T, path string) map[string]string {
 			out[name] = value
 		}
 	}
-	require.NoError(t, sc.Err())
+	if err := sc.Err(); err != nil {
+		t.Errorf("e2e: parse the job outputs: %v", err)
+	}
 	return out
 }
 
