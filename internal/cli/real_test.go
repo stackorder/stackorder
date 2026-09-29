@@ -75,7 +75,7 @@ func TestRealToolPlanApplyAndDrift(t *testing.T) {
 			assert.Contains(t, planJSON, "resource_changes")
 
 			h.ci(fs, "workflow_dispatch", dispatchPayload("run-1", sha))
-			fs.setRun(v1.Run{SHA: sha, Status: v1.RunApplying, Stacks: []v1.RunStack{{Key: "stacks/app", Status: v1.StackApplying, Summary: planned.Summary}}})
+			fs.setRun(v1.Run{ID: "run-1", SHA: sha, Status: v1.RunApplying, Stacks: []v1.RunStack{{Key: "stacks/app", Status: v1.StackApplying, Summary: planned.Summary, Lock: &v1.LockInfo{RunID: "run-1"}}}})
 			r = h.run("apply", "--stack", "stacks/app")
 			require.Equal(t, 0, r.code, r.stdout+r.stderr)
 			applied := fs.lastResult().Result

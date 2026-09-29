@@ -13,12 +13,13 @@ import (
 )
 
 func applyRun(sha string, status v1.RunStatus, row v1.RunStack) v1.Run {
-	return v1.Run{SHA: sha, Status: status, Mode: v1.ModeApply, Stacks: []v1.RunStack{row}}
+	return v1.Run{ID: "run-1", SHA: sha, Status: status, Mode: v1.ModeApply, Stacks: []v1.RunStack{row}}
 }
 
 func plannedRow() v1.RunStack {
 	s := changesSummary()
-	return v1.RunStack{Key: "stacks/app", Path: "stacks/app", Status: v1.StackApplying, Summary: &s}
+	return v1.RunStack{Key: "stacks/app", Path: "stacks/app", Status: v1.StackApplying, Summary: &s,
+		Lock: &v1.LockInfo{StackKey: "stacks/app", RunID: "run-1", PRNumber: 7}}
 }
 
 func (h *harness) savedPlan(sha string) string {
@@ -115,6 +116,24 @@ func TestApplyRefusals(t *testing.T) {
 				fs.setRun(applyRun(h.sha, v1.RunApplying, row))
 			},
 			want: "stack stacks/app is blocked in run run-1",
+		},
+		{
+			name: "stack not locked",
+			setup: func(_ *testing.T, h *harness, fs *fakeServer) {
+				row := plannedRow()
+				row.Lock = nil
+				fs.setRun(applyRun(h.sha, v1.RunApplying, row))
+			},
+			want: "run run-1 does not hold the lock on stacks/app",
+		},
+		{
+			name: "stack locked by another run",
+			setup: func(_ *testing.T, h *harness, fs *fakeServer) {
+				row := plannedRow()
+				row.Lock = &v1.LockInfo{StackKey: "stacks/app", RunID: "run-2", PRNumber: 8}
+				fs.setRun(applyRun(h.sha, v1.RunApplying, row))
+			},
+			want: "stacks/app is locked by run run-2 of #8",
 		},
 		{
 			name: "run for another commit",

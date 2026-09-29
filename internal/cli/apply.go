@@ -145,6 +145,9 @@ func (s *session) confirmRun(ctx context.Context) (*v1.Run, *v1.RunStack, error)
 	if row.Status != v1.StackPlanned && row.Status != v1.StackApplying {
 		return nil, nil, refused("stack %s is %s in run %s, not planned or applying; refusing to apply", s.key, row.Status, s.runID)
 	}
+	if err := checkRunLock(run, row); err != nil {
+		return nil, nil, err
+	}
 	if run.SHA == "" || run.SHA != s.gh.SHA {
 		return nil, nil, refused("run %s is for commit %q but this job is for %q; refusing to apply", s.runID, run.SHA, s.gh.SHA)
 	}
@@ -156,6 +159,19 @@ func (s *session) confirmRun(ctx context.Context) (*v1.Run, *v1.RunStack, error)
 		return nil, nil, refused("run %s is for commit %s but the checkout is at %s; refusing to apply", s.runID, run.SHA, head)
 	}
 	return run, row, nil
+}
+
+func checkRunLock(run *v1.Run, row *v1.RunStack) error {
+	switch {
+	case row.Lock == nil:
+		return refused("run %s does not hold the lock on %s, which is not locked; refusing to apply", run.ID, row.Key)
+	case row.Lock.RunID == run.ID:
+		return nil
+	case row.Lock.PRNumber > 0:
+		return refused("run %s does not hold the lock on %s: %s is locked by run %s of #%d; refusing to apply", run.ID, row.Key, row.Key, row.Lock.RunID, row.Lock.PRNumber)
+	default:
+		return refused("run %s does not hold the lock on %s: %s is locked by run %s; refusing to apply", run.ID, row.Key, row.Key, row.Lock.RunID)
+	}
 }
 
 func (s *session) startLocalRun(ctx context.Context) error {

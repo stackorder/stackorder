@@ -491,6 +491,9 @@ type RunStack struct {
 	// PlanURL links to the full plan text when the server keeps it in its
 	// artifact bucket; PlanText then holds only the beginning.
 	PlanURL string `json:"plan_url,omitempty"`
+	// Lock is the orchestration lock on the stack now, whichever run holds
+	// it; an apply job applies only while its own run holds it.
+	Lock *LockInfo `json:"lock,omitempty"`
 }
 
 // StackDetail is the body of GET /v1/stacks/{id}.

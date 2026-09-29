@@ -561,7 +561,9 @@ the PR head SHA from the payload, not `GITHUB_SHA`. Outputs go to
 | `version` | | |
 
 `apply` compares the run's SHA with the dispatch `sha` input (falling back
-to `GITHUB_SHA`) and with the checkout's HEAD, never with `GITHUB_SHA` alone.
+to `GITHUB_SHA`) and with the checkout's HEAD, never with `GITHUB_SHA` alone,
+and refuses unless the stack row's `lock` (`store.RunDetail` fills it with
+the stack's current lock) names the run.
 With `--plan-file` missing (an expired artifact) it plans again and applies
 only when the new plan's resource address set matches the recorded summary;
 `apply.from_plan: false` always re-plans and compares. Outside Actions,

@@ -210,6 +210,7 @@ Global Flags:
 In Actions, before touching anything, `apply` confirms with `GET /v1/runs/{id}` that:
 
 - the run is `planned` or `applying`, and the stack is part of it and `planned` or `applying`;
+- the run still holds the stack's orchestration lock (the row's `lock` names this run), so a stack unlocked or taken by another run mid-apply is not applied;
 - the run's SHA equals the job's commit (the dispatch `sha` input, falling back to `GITHUB_SHA`) and the checkout's `HEAD`.
 
 Any mismatch, no server, or an unreachable server is a refusal: exit 3, fail closed.

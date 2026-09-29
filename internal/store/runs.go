@@ -663,7 +663,7 @@ func (s *Store) GetRunStacksWithText(ctx context.Context, runID uuid.UUID) ([]Ru
 }
 
 // RunDetail assembles the API view of a run: the run, its stack rows
-// without plan text, and each stack's named checks.
+// without plan text, each stack's named checks and the lock on it now.
 func (s *Store) RunDetail(ctx context.Context, id uuid.UUID) (v1.Run, error) {
 	run, err := s.GetRun(ctx, id)
 	if err != nil {
@@ -677,15 +677,26 @@ func (s *Store) RunDetail(ctx context.Context, id uuid.UUID) (v1.Run, error) {
 	if err != nil {
 		return v1.Run{}, err
 	}
+	locks, err := s.ListLocks(ctx, run.RepoID)
+	if err != nil {
+		return v1.Run{}, err
+	}
 	byStack := map[uuid.UUID][]v1.Check{}
 	for _, c := range checks {
 		byStack[c.StackID] = append(byStack[c.StackID], c.ToV1())
+	}
+	lockOf := make(map[uuid.UUID]v1.LockInfo, len(locks))
+	for _, l := range locks {
+		lockOf[l.StackID] = l.ToV1()
 	}
 	out := run.ToV1()
 	out.Stacks = make([]v1.RunStack, len(stacks))
 	for i, rs := range stacks {
 		out.Stacks[i] = rs.ToV1()
 		out.Stacks[i].Checks = byStack[rs.StackID]
+		if l, ok := lockOf[rs.StackID]; ok {
+			out.Stacks[i].Lock = &l
+		}
 	}
 	return out, nil
 }

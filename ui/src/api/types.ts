@@ -268,6 +268,7 @@ export interface RunStack {
   blocked_by?: string[];
   plan_output?: string;
   plan_url?: string;
+  lock?: LockInfo;
   started_at?: string;
   finished_at?: string;
 }

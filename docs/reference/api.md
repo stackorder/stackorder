@@ -392,7 +392,7 @@ Reports a plan, apply or drift outcome for one stack and answers with the stack'
 }
 ```
 
-A row can also carry `workspace`, `truncated`, `checks` (the stack's named checks), `blocked_by` (the failed predecessors of a `blocked` stack) and `plan_url` (the full plan text in the [artifact bucket](/reference/server-configuration#artifact-bucket), when `plan_text` holds only its beginning).
+A row can also carry `workspace`, `truncated`, `checks` (the stack's named checks), `blocked_by` (the failed predecessors of a `blocked` stack), `lock` (the orchestration lock on the stack now, whichever run holds it; `stackorder apply` applies only while it names its own run) and `plan_url` (the full plan text in the [artifact bucket](/reference/server-configuration#artifact-bucket), when `plan_text` holds only its beginning).
 
 ### `POST /v1/runs/{id}/stacks/{key}/checks/{name}` {#check-verdict}
 
