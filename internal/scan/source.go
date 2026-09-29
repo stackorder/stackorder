@@ -103,7 +103,7 @@ func parseGitSource(src string, forced bool, ghHost string) (v1.Module, bool) {
 	if !ok {
 		return v1.Module{}, false
 	}
-	repoPath, extra := splitRepoPath(host, repoPath)
+	repoPath, extra := splitRepoPath(repoPath, host == ghHost || shorthandGitHosts[host])
 	if repoPath == "" {
 		return v1.Module{}, false
 	}
@@ -170,9 +170,9 @@ func splitGitLocation(repo string, forced bool) (host, repoPath string, ok bool)
 	return host, strings.Trim(rest, "/"), true
 }
 
-func splitRepoPath(host, repoPath string) (repo, extra string) {
+func splitRepoPath(repoPath string, ownerRepo bool) (repo, extra string) {
 	segments := strings.Split(repoPath, "/")
-	if shorthandGitHosts[host] {
+	if ownerRepo {
 		if len(segments) < 2 || segments[0] == "" || strings.TrimSuffix(segments[1], ".git") == "" {
 			return "", ""
 		}

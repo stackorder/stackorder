@@ -251,6 +251,7 @@ func TestParseModuleSourceOnGitHubEnterpriseServer(t *testing.T) {
 		{name: "https on the instance", source: "git::https://ghe.acme.com/acme/modules.git//vpc?ref=v1.2.0", want: "acme/modules//vpc@v1.2.0"},
 		{name: "ssh url on the instance", source: "git::ssh://git@ghe.acme.com/acme/modules.git//vpc?ref=v1.2.0", want: "acme/modules//vpc@v1.2.0"},
 		{name: "scp-like on the instance", source: "git@GHE.acme.com:acme/modules.git//vpc?ref=v1.2.0", want: "acme/modules//vpc@v1.2.0"},
+		{name: "path past owner/repo on the instance is a subdir", source: "git::https://ghe.acme.com/acme/modules/vpc?ref=v1.2.0", want: "acme/modules//vpc@v1.2.0"},
 		{name: "github.com keeps its host", source: "git::https://github.com/acme/modules.git//dns?ref=v1.0.0", want: "github.com/acme/modules//dns@v1.0.0"},
 		{name: "github.com shorthand keeps its host", source: "github.com/acme/modules//dns?ref=v1.0.0", want: "github.com/acme/modules//dns@v1.0.0"},
 		{name: "another host keeps its host", source: "git::https://gitlab.com/o/r.git//sub?ref=v1", want: "gitlab.com/o/r//sub@v1"},
@@ -265,5 +266,8 @@ func TestParseModuleSourceOnGitHubEnterpriseServer(t *testing.T) {
 				t.Errorf("parseModuleSource(%q).Key = %q, want %q", tt.source, got.Key, tt.want)
 			}
 		})
+	}
+	if got, ok := parseModuleSource("git::https://ghe.acme.com/acme", "", host); ok {
+		t.Errorf("parseModuleSource of a URL without a repository on the instance = %+v, want ok = false", got)
 	}
 }
