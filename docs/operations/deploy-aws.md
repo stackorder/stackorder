@@ -146,7 +146,7 @@ The tables are generated from `deploy/terraform/variables.tf`. Every input also 
 | `STACKORDER_SESSION_KEY` | The App secret; `session_key`, or generated |
 | `STACKORDER_METRICS_TOKEN` | The App secret; `metrics_token`, or generated. Scrapers read the same value from the `<name>/metrics-token` secret |
 
-Everything else the server reads, such as `STACKORDER_WORKERS`, the retention durations, `STACKORDER_LOG_FORMAT`, `GITHUB_WEB_URL`, `GITHUB_OIDC_ISSUER` or `OTEL_EXPORTER_OTLP_ENDPOINT`, goes through `extra_environment`, which rejects the variables above. Values in `extra_environment` are plain text in the task definition, so the module has no place for a secret `STACKORDER_METRICS_TOKEN`; see [Security hardening](/operations/security-hardening#metrics). On GitHub Enterprise Server set `github_api_url` and add `GITHUB_WEB_URL` and `GITHUB_OIDC_ISSUER` to `extra_environment`.
+Everything else the server reads, such as `STACKORDER_WORKERS`, the retention durations, `STACKORDER_LOG_FORMAT`, `GITHUB_WEB_URL`, `GITHUB_OIDC_ISSUER` or `OTEL_EXPORTER_OTLP_ENDPOINT`, goes through `extra_environment`, which rejects the variables above. Values in `extra_environment` are plain text in the task definition, so keep secrets out of it; the metrics token has its own input, `metrics_token`, and scrapers read it from the secret named by the `metrics_token_secret_arn` output, see [Security hardening](/operations/security-hardening#metrics). On GitHub Enterprise Server set `github_api_url` and add `GITHUB_WEB_URL` and `GITHUB_OIDC_ISSUER` to `extra_environment`.
 
 ### Container health check {#health-check}
 

@@ -15,10 +15,12 @@ cd docs
 npm ci
 npm run docs:dev      # local server with hot reload
 npm run docs:build    # static build into docs/.vitepress/dist
+npm test              # check pages against the code they describe
 npm run docs:preview  # serve the built site
 ```
 
 - The build fails on dead internal links. Link to pages by path, such as `/reference/cli#exit-codes`.
+- `docs/test` checks pages against the code they describe, such as the module's inputs against `deploy/terraform/variables.tf`. Change both in the same commit.
 - Diagrams are fenced `mermaid` code blocks, rendered in the browser.
 - The [architecture contract](/design/architecture) and this page include `ARCHITECTURE.md` and `CONTRIBUTING.md` from the repository root. Edit those files, not the pages that include them.
 - Document what the code and the architecture contract define. Never document a flag, variable, endpoint or configuration key that does not exist.

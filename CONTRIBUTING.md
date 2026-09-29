@@ -16,7 +16,7 @@ make test-integration # server + Postgres + fake GitHub, needs Docker
 make test-e2e         # real terraform + LocalStack + example-infra, needs Docker
 make lint             # gofmt, go vet, golangci-lint
 make ui               # build the UI into internal/ui/dist
-make docs             # build the docs site
+make docs             # check and build the docs site
 make dev              # Postgres + LocalStack via docker compose, then the server
 ```
 
@@ -108,11 +108,12 @@ from the README.
 
 ## Documentation site
 
-`make docs` builds the VitePress site and CI checks the build on every pull
-request. Publishing to GitHub Pages runs from `.github/workflows/docs.yml`
-only when the repository variable `DOCS_DEPLOY` is `true`; set it once Pages
-is enabled for the repository (GitHub offers Pages on private repositories
-only on paid plans, so this stays off until the repository is public).
+`make docs` runs the tests in `docs/test` and builds the VitePress site, and
+CI runs both on every pull request. Publishing to GitHub Pages runs from
+`.github/workflows/docs.yml` only when the repository variable `DOCS_DEPLOY`
+is `true`; set it once Pages is enabled for the repository (GitHub offers
+Pages on private repositories only on paid plans, so this stays off until the
+repository is public).
 
 ## Releasing
 

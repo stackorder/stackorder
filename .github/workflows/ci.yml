@@ -68,6 +68,8 @@ jobs:
           cache-dependency-path: docs/package-lock.json
       - run: npm ci
         working-directory: docs
+      - run: npm test
+        working-directory: docs
       - run: npm run docs:build
         working-directory: docs
         env:

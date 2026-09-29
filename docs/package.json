@@ -13,7 +13,8 @@
     "docs:preview": "vitepress preview",
     "dev": "vitepress dev",
     "build": "vitepress build",
-    "preview": "vitepress preview"
+    "preview": "vitepress preview",
+    "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.19.0",

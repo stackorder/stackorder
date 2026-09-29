@@ -59,7 +59,7 @@ ui-test:
 	cd ui && npm ci && npm test
 
 docs:
-	cd docs && npm ci && npm run build
+	cd docs && npm ci && npm test && npm run build
 
 docs-dev:
 	cd docs && npm ci && npm run dev
