@@ -34,12 +34,15 @@ npm run docs:preview  # serve the built site
 2. Under **Secrets and variables**, **Actions**, **Variables**, set `DOCS_DEPLOY` to `true`.
 3. Push to `main` or run the **docs** workflow by hand.
 
-Without a custom domain the site is served from `https://<owner>.github.io/<repo>/`, and the workflow builds it with the base path `/<repo>/`.
+The site is served at [docs.stackorder.io](https://docs.stackorder.io).
 
 ### Custom domain {#custom-domain}
 
-1. Add `docs/public/CNAME` containing the domain, such as `docs.example.com`, and push it to `main`. When the file exists, the workflow builds the site with the base path `/`.
-2. At your DNS provider, point the domain at GitHub Pages: a `CNAME` record to `<owner>.github.io` for a subdomain, or GitHub's Pages `A` and `AAAA` records for an apex domain.
-3. In the repository settings, under **Pages**, enter the same domain as the custom domain, wait for the DNS check, and turn on **Enforce HTTPS**.
+`docs/public/CNAME` contains `docs.stackorder.io`. When the file exists, the workflow builds the site with the base path `/`. The domain also needs:
 
-With a workflow-based deployment, GitHub takes the custom domain from the Pages settings, not from the file, so step 3 is required. The `CNAME` file is what switches the base path.
+1. At the DNS provider for `stackorder.io`, a `CNAME` record for `docs` that points to `stackorder.github.io`.
+2. In the repository settings, under **Pages**, `docs.stackorder.io` entered as the custom domain, the DNS check passed, and **Enforce HTTPS** turned on.
+
+With a workflow-based deployment, GitHub takes the custom domain from the Pages settings, not from the file, so step 2 is required. The `CNAME` file is what switches the base path.
+
+A fork that publishes its own copy changes the domain in `docs/public/CNAME` and in the `site` constant in `docs/.vitepress/config.ts`, which sets the canonical links, the sitemap and the link preview URLs. Without a `CNAME` file the site is served from `https://<owner>.github.io/<repo>/`, and the workflow builds it with the base path `/<repo>/`.
