@@ -221,13 +221,13 @@ flowchart BT
   seks ==>|depends_on| svpc
   peks ==>|depends_on| pvpc
   papps -. "reads_state (inferred)" .-> peks
-  classDef changed stroke:#f59e0b,stroke-width:3px
-  classDef affected stroke:#0d9488,stroke-width:2px
-  classDef untouched stroke:#9ca3af,stroke-dasharray:4 3
+  classDef changed stroke-width:3px
+  classDef affected stroke-width:2px
+  classDef untouched stroke:#7d8684,stroke-dasharray:4 3
   class mvpc changed
   class svpc,pvpc,seks,peks,papps affected
   class meks untouched
-  linkStyle 2,3 stroke:#9ca3af
+  linkStyle 2,3 stroke:#7d8684
 ```
 
 A PR that edits `modules/vpc` affects both VPC stacks through their module edges, then their dependents through `depends_on`, then `prod/apps` through an inferred remote-state edge. `modules/eks` and its edges are recorded but untouched. Waves are the longest path from the roots of the affected subgraph.

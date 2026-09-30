@@ -184,6 +184,10 @@
   line-height: inherit;
 }
 
+.vp-doc .mermaid .node.changed > * {
+  stroke: var(--vp-c-brand-1) !important;
+}
+
 .vp-doc ul.contains-task-list {
   padding-left: 0.25rem;
   list-style: none;
