@@ -50,6 +50,13 @@ type Config struct {
 	// /setup?force=1 and /setup/callback, STACKORDER_ALLOW_RESETUP. When
 	// false both answer 404 outside setup mode.
 	AllowResetup bool
+	// SetupToken is the one-time bootstrap token GET /setup requires
+	// whenever it can create an App: in setup mode, and for ?force=1 with
+	// AllowResetup. The browser presents it once as ?token=, which the
+	// server trades for a signed cookie before redirecting to the URL
+	// without it. It stops working once /setup/callback has created an
+	// App. When empty, /setup refuses everyone.
+	SetupToken string
 	// AppSlug is the App's slug, used for install links. When empty it is
 	// read once from Deps.GitHub, if set.
 	AppSlug string

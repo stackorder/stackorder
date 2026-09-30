@@ -95,6 +95,45 @@ func TestNewWarnsAboutAGeneratedSessionKey(t *testing.T) {
 	assert.NotContains(t, logs.String(), EnvSessionKey, "a configured key is not warned about")
 }
 
+func TestRunLogsTheSetupURL(t *testing.T) {
+	logged := func(cfg Config) []map[string]any {
+		t.Helper()
+		var out bytes.Buffer
+		s := &Server{cfg: cfg, log: NewLogger(&out, slog.LevelInfo, LogFormatJSON)}
+		s.logSetupURL(t.Context())
+		var lines []map[string]any
+		for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+			if line == "" {
+				continue
+			}
+			var m map[string]any
+			require.NoError(t, json.Unmarshal([]byte(line), &m))
+			lines = append(lines, m)
+		}
+		return lines
+	}
+
+	generated := Config{BaseURL: testBaseURL, SetupMode: true}
+	require.NoError(t, generated.withSetupToken())
+	lines := logged(generated)
+	require.Len(t, lines, 1)
+	assert.Equal(t, "WARN", lines[0]["level"], "shown at the default level and at warn")
+	assert.Equal(t, testBaseURL+"/setup?token="+generated.SetupToken, lines[0]["setup_url"])
+
+	resetup := Config{BaseURL: testBaseURL, AllowResetup: true}
+	require.NoError(t, resetup.withSetupToken())
+	lines = logged(resetup)
+	require.Len(t, lines, 1)
+	assert.Equal(t, testBaseURL+"/setup?force=1&token="+resetup.SetupToken, lines[0]["setup_url"])
+
+	fromEnv := Config{BaseURL: testBaseURL, SetupMode: true, SetupToken: testSetupToken}
+	lines = logged(fromEnv)
+	require.Len(t, lines, 1)
+	assert.Equal(t, testBaseURL+"/setup?token=<"+EnvSetupToken+">", lines[0]["setup_url"], "a token the operator passed is not written to the log")
+
+	assert.Empty(t, logged(Config{BaseURL: testBaseURL}), "nothing to log when /setup cannot create an App")
+}
+
 func TestNewLogger(t *testing.T) {
 	var out bytes.Buffer
 	NewLogger(&out, slog.LevelInfo, LogFormatJSON).Info("hello", "k", "v")

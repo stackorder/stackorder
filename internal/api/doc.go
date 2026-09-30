@@ -56,4 +56,16 @@
 //
 // A server started without App credentials serves only /setup*, /healthz
 // and /readyz; everything else answers 503 unavailable.
+//
+// GET /setup creates an App only for a browser holding Config.SetupToken,
+// in setup mode and for ?force=1 with Config.AllowResetup. The token is
+// presented once as ?token=; the server compares it in constant time,
+// trades it for the stackorder_setup_auth cookie, signed and bound to the
+// token, and redirects to the same URL without it, so the token never
+// reaches GitHub. Without the token or the cookie the page answers 403.
+// GET /setup/callback converts a code only with the state cookie that the
+// gated page issued. Once a callback has created an App, the token and its
+// cookies stop working until the process restarts with a new token. GET
+// /setup/installed stays open: it shows nothing but the installation id
+// GitHub passes to it.
 package api

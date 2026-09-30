@@ -520,7 +520,17 @@ Everything else under `/` serves the embedded UI with SPA fallback to
 `index.html`. `GET /metrics` is open unless
 `STACKORDER_METRICS_TOKEN` is set, in which case it requires
 `Authorization: Bearer <token>`. `GET /readyz` returns 200 when the database
-answers, in setup mode too.
+answers, in setup mode too. `GET /setup` shows the App manifest form, in
+setup mode and for `?force=1` with `STACKORDER_ALLOW_RESETUP`, only to a
+browser holding the setup token: `?token=<token>`, compared in constant
+time, sets the signed `stackorder_setup_auth` cookie (path `/setup`, one
+hour, bound to the token) and answers 303 to the same URL without the
+token; without the token or the cookie the page answers 403.
+`GET /setup/callback` converts a code only with the signed state cookie the
+form page set. Once a callback has created an App the token and its cookie
+stop working until the server restarts; `/setup` then says an App exists
+and the callback answers 409. `GET /setup/installed` needs no token: it
+echoes only the installation id GitHub passes.
 
 ## Run state machine
 
@@ -701,6 +711,7 @@ as `other`.
 | `STACKORDER_SESSION_KEY` | 32 byte hex key for cookie signing; generated and logged as a warning when absent |
 | `STACKORDER_METRICS_TOKEN` | When set, `/metrics` requires this bearer token |
 | `STACKORDER_ALLOW_RESETUP` | `true` lets a server with App credentials create another App through `/setup?force=1`; default `false`, and then `/setup?force=1` and `/setup/callback` answer 404 outside setup mode |
+| `STACKORDER_SETUP_TOKEN` | One-time bootstrap token `/setup` requires, at least 32 URL-safe characters; when unset and `/setup` can create an App, 32 random bytes, base64url encoded, generated at start |
 | `STACKORDER_PLAN_TEXT_RETENTION`, `STACKORDER_EVENT_RETENTION`, `STACKORDER_DRIFT_RETENTION` | Durations, defaults `720h`, `168h`, `2160h` |
 | `STACKORDER_WORKERS` | Worker goroutines, default 4; the pgx pool gets this many connections plus 8 unless `DATABASE_URL` sets `pool_max_conns` |
 | `STACKORDER_LOG_LEVEL`, `STACKORDER_LOG_FORMAT` | `info` / `json` by default |
@@ -710,7 +721,11 @@ The server refuses to start without `DATABASE_URL` and `STACKORDER_BASE_URL`;
 retentions must be positive durations; `STACKORDER_ARTIFACT_PREFIX` without a
 bucket is an error; a partial set of the three `GITHUB_APP_*` variables is an
 error. Without all three it starts in setup mode, runs migrations, and serves
-only `/setup*`, `/healthz` and `/readyz`. The default OIDC audience is the
+only `/setup*`, `/healthz` and `/readyz`. Whenever `/setup` can create an
+App, in setup mode or with `STACKORDER_ALLOW_RESETUP`, the server logs
+`setup_url` at warn level once at start-up: the setup URL with the
+generated token, or with a `<STACKORDER_SETUP_TOKEN>` placeholder when the
+operator passed the token. The default OIDC audience is the
 base URL with trailing slashes removed, and the `/setup` page tells operators
 to use that exact value as the Actions `server-url`. A generated session key
 is warned about, never logged. With a bucket, `AWS_ENDPOINT_URL_S3` switches

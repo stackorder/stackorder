@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/stackorder/stackorder/internal/gh"
@@ -37,6 +38,8 @@ type server struct {
 
 	slugMu sync.Mutex
 	slug   string
+
+	setupUsed atomic.Bool
 }
 
 // New returns the HTTP handler serving every endpoint of the server: the
@@ -186,7 +189,7 @@ func (s *server) unknownEndpoint(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) setupRequired(w http.ResponseWriter, r *http.Request) {
-	s.writeError(w, r, unavailable("setup is required: the GitHub App is not configured yet; open "+s.cfg.BaseURL+"/setup"))
+	s.writeError(w, r, unavailable("setup is required: the GitHub App is not configured yet; open "+s.cfg.BaseURL+"/setup with the setup token from the server log"))
 }
 
 func (s *server) serveUI(w http.ResponseWriter, r *http.Request) {

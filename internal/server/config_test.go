@@ -138,6 +138,7 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 		EnvLogLevel:            "DEBUG",
 		EnvLogFormat:           "Text",
 		EnvOTLPEndpoint:        "http://otel-collector:4318/",
+		EnvSetupToken:          " " + testSetupToken + "\n",
 	}
 	cfg, err := LoadConfig(envOf(env))
 	require.NoError(t, err)
@@ -173,6 +174,8 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 	assert.Equal(t, slog.LevelDebug, cfg.LogLevel)
 	assert.Equal(t, LogFormatText, cfg.LogFormat)
 	assert.Equal(t, "http://otel-collector:4318", cfg.OTLPEndpoint)
+	assert.Equal(t, testSetupToken, cfg.SetupToken)
+	assert.False(t, cfg.SetupTokenGenerated)
 }
 
 func TestLoadConfigPrivateKeySpellings(t *testing.T) {
@@ -266,6 +269,9 @@ func TestLoadConfigInvalid(t *testing.T) {
 		{"workers zero", with(minimalEnv(), EnvWorkers, "0"), EnvWorkers + " must be a positive integer"},
 		{"log level", with(minimalEnv(), EnvLogLevel, "verbose"), EnvLogLevel + " must be debug, info, warn or error"},
 		{"log format", with(minimalEnv(), EnvLogFormat, "logfmt"), EnvLogFormat + ` must be "json" or "text"`},
+		{"setup token short", with(minimalEnv(), EnvSetupToken, "abc123"), EnvSetupToken + " must be at least 32"},
+		{"setup token with a space", with(minimalEnv(), EnvSetupToken, strings.Repeat("a", 32)+" b"), EnvSetupToken + " must be at least 32"},
+		{"setup token with a query character", with(minimalEnv(), EnvSetupToken, strings.Repeat("a", 32)+"&force=1"), EnvSetupToken + " must be at least 32"},
 		{"otlp endpoint relative", with(minimalEnv(), EnvOTLPEndpoint, "collector:4318"), EnvOTLPEndpoint + " must be an absolute"},
 	}
 	for _, tt := range tests {
@@ -290,9 +296,10 @@ func TestLoadConfigKeepsSecretsOutOfErrors(t *testing.T) {
 	_, err := LoadConfig(envOf(with(appEnv(t),
 		EnvDatabaseURL, "postgres://stackorder:hunter2@db:notaport/stackorder",
 		EnvSessionKey, "zz-super-secret-zz",
+		EnvSetupToken, "short-setup-secret",
 		EnvAppPrivateKey, "-----BEGIN RSA PRIVATE KEY-----\ntopsecret\n-----END RSA PRIVATE KEY-----")))
 	require.Error(t, err)
-	for _, secret := range []string{"hunter2", "super-secret", "topsecret"} {
+	for _, secret := range []string{"hunter2", "super-secret", "topsecret", "setup-secret"} {
 		assert.NotContains(t, err.Error(), secret)
 	}
 }
@@ -323,6 +330,7 @@ func TestConfigDefaultsAndValidation(t *testing.T) {
 		{"bad workflow ref", Config{BaseURL: testBaseURL, DatabaseURL: testDSN, SetupMode: true, RequiredWorkflowRef: "x"}, []string{EnvRequiredWorkflowRef}},
 		{"short session key", Config{BaseURL: testBaseURL, DatabaseURL: testDSN, SetupMode: true, SessionKey: []byte("short")}, []string{EnvSessionKey}},
 		{"bad log format", Config{BaseURL: testBaseURL, DatabaseURL: testDSN, SetupMode: true, LogFormat: "xml"}, []string{EnvLogFormat}},
+		{"short setup token", Config{BaseURL: testBaseURL, DatabaseURL: testDSN, SetupMode: true, SetupToken: "short"}, []string{EnvSetupToken}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -372,4 +380,39 @@ func TestAllowResetup(t *testing.T) {
 
 	s := &Server{cfg: Config{BaseURL: testBaseURL, AllowResetup: true}}
 	assert.True(t, s.apiConfig().AllowResetup, "the flag reaches the API")
+}
+
+const testSetupToken = "acme-setup-token-0123456789abcdefghijklmnop"
+
+func TestSetupTokenGeneration(t *testing.T) {
+	setup := Config{SetupMode: true}
+	require.NoError(t, setup.withSetupToken())
+	assert.True(t, setup.SetupTokenGenerated)
+	raw, err := base64.RawURLEncoding.DecodeString(setup.SetupToken)
+	require.NoError(t, err, "a generated token is URL-safe base64")
+	assert.Len(t, raw, SetupTokenSize)
+	require.NoError(t, checkSetupToken(setup.SetupToken), "a generated token passes the rules for a configured one")
+
+	again := Config{SetupMode: true}
+	require.NoError(t, again.withSetupToken())
+	assert.NotEqual(t, setup.SetupToken, again.SetupToken, "every start draws a new token")
+
+	resetup := Config{AllowResetup: true}
+	require.NoError(t, resetup.withSetupToken())
+	assert.NotEmpty(t, resetup.SetupToken, "a server that may create another App needs a token too")
+
+	configured := Config{}
+	require.NoError(t, configured.withSetupToken())
+	assert.Empty(t, configured.SetupToken, "a server that cannot create an App has no token")
+	assert.False(t, configured.SetupTokenGenerated)
+
+	fromEnv, err := LoadConfig(envOf(with(minimalEnv(), EnvSetupToken, testSetupToken)))
+	require.NoError(t, err)
+	require.NoError(t, fromEnv.withSetupToken())
+	assert.Equal(t, testSetupToken, fromEnv.SetupToken, "STACKORDER_SETUP_TOKEN replaces the generated token")
+	assert.False(t, fromEnv.SetupTokenGenerated)
+
+	unset, err := LoadConfig(envOf(minimalEnv()))
+	require.NoError(t, err)
+	assert.Empty(t, unset.SetupToken, "LoadConfig leaves generation to New")
 }

@@ -3,14 +3,19 @@
 package server_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,7 +44,7 @@ type running struct {
 	stop func() error
 }
 
-func start(t *testing.T, setupMode bool) *running {
+func start(t *testing.T, setupMode bool, opts ...server.Option) *running {
 	t.Helper()
 	fake := ghfake.New(t)
 	dsn := pgtest.DSN(t)
@@ -59,7 +64,7 @@ func start(t *testing.T, setupMode bool) *running {
 	}
 	cfg, err := server.LoadConfig(func(name string) string { return vars[name] })
 	require.NoError(t, err)
-	srv, err := server.New(t.Context(), cfg, server.WithListener(ln), server.WithLogger(slog.New(slog.DiscardHandler)))
+	srv, err := server.New(t.Context(), cfg, append([]server.Option{server.WithListener(ln), server.WithLogger(slog.New(slog.DiscardHandler))}, opts...)...)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -166,4 +171,64 @@ func TestSetupModeRunsNoWorkers(t *testing.T) {
 	require.ErrorIs(t, r.srv.Run(t.Context()), server.ErrRunning)
 	require.NoError(t, r.stop())
 	require.NoError(t, r.srv.Close(), "closing after Run is a no-op")
+}
+
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func TestSetupModeLogsTheSetupURL(t *testing.T) {
+	var logs lockedBuffer
+	r := start(t, true, server.WithLogger(server.NewLogger(&logs, slog.LevelInfo, server.LogFormatJSON)))
+	token := r.srv.Config().SetupToken
+	require.NotEmpty(t, token)
+	assert.True(t, r.srv.Config().SetupTokenGenerated)
+
+	var setupURL string
+	require.Eventually(t, func() bool {
+		for _, line := range strings.Split(logs.String(), "\n") {
+			var entry struct {
+				Level    string `json:"level"`
+				SetupURL string `json:"setup_url"`
+			}
+			if json.Unmarshal([]byte(line), &entry) == nil && entry.SetupURL != "" {
+				setupURL = entry.SetupURL
+				return entry.Level == "WARN"
+			}
+		}
+		return false
+	}, waitFor, 20*time.Millisecond, "the start-up log carries the setup URL")
+	base := "http://" + r.srv.Addr()
+	assert.Equal(t, base+"/setup?token="+token, setupURL)
+
+	resp, err := http.Get(base + "/setup")
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "the setup page needs the token")
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	client := &http.Client{Jar: jar, Timeout: 10 * time.Second}
+	resp, err = client.Get(setupURL)
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+	assert.Equal(t, "/setup", resp.Request.URL.RequestURI(), "the browser lands on the URL without the token")
+	assert.Contains(t, string(body), `id="manifest-form"`)
+	assert.NotContains(t, string(body), token)
 }

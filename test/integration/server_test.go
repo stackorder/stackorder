@@ -12,6 +12,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -209,7 +211,23 @@ func TestSetupMode(t *testing.T) {
 	}
 
 	status, body := e.Get("/setup")
-	require.Equal(t, http.StatusOK, status, body)
+	require.Equal(t, http.StatusForbidden, status, body)
+	assert.Contains(t, body, "Setup needs the setup token")
+
+	token := e.Server.Config().SetupToken
+	require.True(t, e.Server.Config().SetupTokenGenerated, "without STACKORDER_SETUP_TOKEN the server draws its own")
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	browser := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	resp, err := browser.Get(e.URL("/setup?token=" + url.QueryEscape(token)))
+	require.NoError(t, err)
+	page, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(page))
+	assert.Equal(t, "/setup", resp.Request.URL.RequestURI(), "the token is dropped from the URL")
+	body = string(page)
+	assert.NotContains(t, body, token)
 	m := manifestInput.FindStringSubmatch(body)
 	require.NotNil(t, m, "the setup page carries the App manifest")
 	var manifest struct {
@@ -424,4 +442,25 @@ func TestGracefulShutdown(t *testing.T) {
 	ev, err := e.Store.GetEvent(t.Context(), header.Get(gh.HeaderDelivery))
 	require.NoError(t, err, "the delivery accepted during shutdown was stored")
 	assert.Equal(t, gh.EventInstallation, ev.Kind)
+}
+
+func TestSetupModeWithAConfiguredToken(t *testing.T) {
+	const token = "acme-setup-token-0123456789abcdefghijklmnop"
+	e := NewEnv(t, SetupMode(), WithVar(server.EnvSetupToken, token))
+	assert.Equal(t, token, e.Server.Config().SetupToken)
+	assert.False(t, e.Server.Config().SetupTokenGenerated)
+
+	status, _ := e.Get("/setup?token=" + strings.Repeat("x", len(token)))
+	assert.Equal(t, http.StatusForbidden, status)
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	browser := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	resp, err := browser.Get(e.URL("/setup?token=" + token))
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+	assert.Contains(t, string(body), `id="manifest-form"`)
 }

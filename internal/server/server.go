@@ -6,9 +6,12 @@
 //
 // Without GitHub App credentials the server runs in setup mode: it
 // migrates the database and serves only the /setup pages, /healthz and
-// /readyz, with no GitHub client, workers or scheduler. With them it also
-// syncs the App's installations at start-up, so installations made during
-// setup mode are learned, and the scheduler repeats the sync daily.
+// /readyz, with no GitHub client, workers or scheduler. Whenever /setup can
+// create an App it requires a one-time setup token, STACKORDER_SETUP_TOKEN
+// or one generated at start, and Run logs the setup URL. With App
+// credentials it also syncs the App's installations at start-up, so
+// installations made during setup mode are learned, and the scheduler
+// repeats the sync daily.
 package server
 
 import (
@@ -152,6 +155,9 @@ func New(ctx context.Context, cfg Config, opts ...Option) (_ *Server, err error)
 		s.log.Warn(EnvSessionKey+" is not set; generated a random session key, so sessions end when the server restarts and are not shared between instances",
 			"hint", "set it to the output of `openssl rand -hex 32`")
 	}
+	if err := cfg.withSetupToken(); err != nil {
+		return nil, fmt.Errorf("server: %w", err)
+	}
 	s.cfg = cfg
 
 	if cfg.OTLPEndpoint != "" {
@@ -269,6 +275,7 @@ func (s *Server) apiConfig() api.Config {
 		GitHubAPIURL:        s.cfg.GitHubAPIURL,
 		SetupMode:           s.cfg.SetupMode,
 		AllowResetup:        s.cfg.AllowResetup,
+		SetupToken:          s.cfg.SetupToken,
 		OIDCAudience:        s.cfg.OIDCAudience,
 		RequiredWorkflowRef: s.cfg.RequiredWorkflowRef,
 		MetricsToken:        s.cfg.MetricsToken,
@@ -313,6 +320,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go func() { served <- s.http.Serve(s.ln) }()
 	s.log.InfoContext(ctx, "stackorder server started", "addr", s.Addr(), "base_url", s.cfg.BaseURL,
 		"setup_mode", s.cfg.SetupMode, "version", version.Version, "commit", version.Commit)
+	s.logSetupURL(ctx)
 
 	var err error
 	select {
@@ -343,6 +351,23 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	s.log.Info("stackorder server stopped")
 	return err
+}
+
+func (s *Server) logSetupURL(ctx context.Context) {
+	if !s.cfg.servesSetup() {
+		return
+	}
+	query := "?token="
+	if !s.cfg.SetupMode {
+		query = "?force=1&token="
+	}
+	token := "<" + EnvSetupToken + ">"
+	if s.cfg.SetupTokenGenerated {
+		token = s.cfg.SetupToken
+	}
+	s.log.WarnContext(ctx, "setup is open to whoever holds the setup token; open setup_url in a browser to create the GitHub App",
+		"setup_url", s.cfg.BaseURL+"/setup"+query+token,
+		"hint", "the token works until an App is created and changes at every start unless "+EnvSetupToken+" is set")
 }
 
 func (s *Server) enqueueStartupSync(ctx context.Context) {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"html"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"strings"
@@ -19,9 +20,12 @@ import (
 
 type untouchedStore struct{ dataStore }
 
+const testSetupToken = "setup-token-0123456789abcdefghijklmnopqrstuvwxyz"
+
 type setupEnv struct {
 	*testEnv
-	gh *ghfake.Server
+	gh   *ghfake.Server
+	auth *http.Cookie
 }
 
 func newSetupEnv(t *testing.T, mutate ...func(*Config, *Deps)) *setupEnv {
@@ -29,6 +33,7 @@ func newSetupEnv(t *testing.T, mutate ...func(*Config, *Deps)) *setupEnv {
 	fake := ghfake.New(t)
 	base := func(c *Config, d *Deps) {
 		c.SetupMode = true
+		c.SetupToken = testSetupToken
 		c.GitHubWebURL, c.GitHubAPIURL = gh.DefaultWebURL, fake.URL()
 		d.HTTPClient = fake.HTTPClient()
 		d.Runs = nil
@@ -52,9 +57,25 @@ type setupForm struct {
 	body     string
 }
 
+func (e *setupEnv) authorize(t *testing.T) *http.Cookie {
+	t.Helper()
+	if e.auth == nil {
+		rec := e.do(newRequest(t, http.MethodGet, "/setup?force=1&token="+url.QueryEscape(testSetupToken), nil))
+		require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+		e.auth = cookieNamed(rec.Result(), setupAuthCookie)
+		require.NotNil(t, e.auth)
+	}
+	return e.auth
+}
+
+func (e *setupEnv) get(t *testing.T, target string) *httptest.ResponseRecorder {
+	t.Helper()
+	return e.do(withCookie(newRequest(t, http.MethodGet, target, nil), e.authorize(t)))
+}
+
 func (e *setupEnv) open(t *testing.T, target string) setupForm {
 	t.Helper()
-	rec := e.do(newRequest(t, http.MethodGet, target, nil))
+	rec := e.get(t, target)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	body := rec.Body.String()
 	m := formAction.FindStringSubmatch(body)
@@ -130,7 +151,7 @@ func TestSetupPageOptions(t *testing.T) {
 	assert.Contains(t, f.body, "the <strong>acme-corp</strong> organisation")
 
 	for _, target := range []string{"/setup?org=acme/../evil", "/setup?org=-acme", "/setup?name=" + strings.Repeat("x", 35), "/setup?name=%3Cscript%3E"} {
-		rec := e.do(newRequest(t, http.MethodGet, target, nil))
+		rec := e.get(t, target)
 		assert.Equal(t, http.StatusBadRequest, rec.Code, target)
 		assert.Nil(t, cookieNamed(rec.Result(), setupCookie), target)
 	}
@@ -213,9 +234,10 @@ func TestSetupCallbackPrintsTheCredentialsOnce(t *testing.T) {
 	}
 
 	rec = e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-9&state="+url.QueryEscape(state), nil), f.cookie))
-	assert.Equal(t, http.StatusBadRequest, rec.Code, "GitHub converts a code once")
-	assert.Contains(t, rec.Body.String(), "no longer accepts this code")
+	assert.Equal(t, http.StatusConflict, rec.Code, "the setup token is spent once an App exists")
+	assert.Contains(t, rec.Body.String(), "no longer opens setup")
 	assert.NotContains(t, rec.Body.String(), "whsec-123")
+	assert.Equal(t, 1, conversions(e.gh), "no second conversion is attempted")
 }
 
 func TestSetupCallbackRefusals(t *testing.T) {
@@ -236,8 +258,14 @@ func TestSetupCallbackRefusals(t *testing.T) {
 		assert.NotContains(t, rec.Body.String(), "GITHUB_APP_ID=", name)
 	}
 
+	rec := e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-unknown&state="+url.QueryEscape(state), nil), f.cookie))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "no longer accepts this code")
+	f = e.open(t, "/setup")
+	state = f.action.Query().Get("state")
+
 	e.gh.FailNext("POST /app-manifests/{code}/conversions", http.StatusBadGateway, 1)
-	rec := e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-1&state="+url.QueryEscape(state), nil), f.cookie))
+	rec = e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-1&state="+url.QueryEscape(state), nil), f.cookie))
 	assert.Equal(t, http.StatusBadGateway, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Reload this page")
 	assert.Nil(t, cookieNamed(rec.Result(), setupCookie), "the state survives a GitHub outage")
@@ -280,12 +308,148 @@ func TestSetupInstalled(t *testing.T) {
 
 func TestSetupModeRoutes(t *testing.T) {
 	e := newSetupEnv(t)
-	for _, target := range []string{"/setup", "/setup/installed"} {
-		assert.Equal(t, http.StatusOK, e.do(newRequest(t, http.MethodGet, target, nil)).Code, target)
-	}
+	assert.Equal(t, http.StatusForbidden, e.do(newRequest(t, http.MethodGet, "/setup", nil)).Code)
+	assert.Equal(t, http.StatusOK, e.get(t, "/setup").Code)
+	assert.Equal(t, http.StatusOK, e.do(newRequest(t, http.MethodGet, "/setup/installed", nil)).Code, "the post-installation page needs no token")
 	assert.Equal(t, http.StatusBadRequest, e.do(newRequest(t, http.MethodGet, "/setup/callback", nil)).Code)
 	rec := e.do(newRequest(t, http.MethodGet, "/v1/overview", nil))
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Equal(t, http.StatusInternalServerError, e.do(newRequest(t, http.MethodGet, "/readyz", nil)).Code,
 		"any call on the untouched store fails, so the setup pages above provably never touch the store")
+}
+
+func conversions(fake *ghfake.Server) int {
+	n := 0
+	for _, r := range fake.Requests() {
+		if r.Pattern == "POST /app-manifests/{code}/conversions" {
+			n++
+		}
+	}
+	return n
+}
+
+func assertSetupRefused(t *testing.T, rec *httptest.ResponseRecorder, msg string) {
+	t.Helper()
+	assert.Equal(t, http.StatusForbidden, rec.Code, msg)
+	assert.Contains(t, rec.Body.String(), "Setup needs the setup token", msg)
+	assert.Contains(t, rec.Body.String(), "setup_url", msg)
+	assert.NotContains(t, rec.Body.String(), "manifest-form", msg)
+	assert.Nil(t, cookieNamed(rec.Result(), setupCookie), msg)
+	assert.Nil(t, cookieNamed(rec.Result(), setupAuthCookie), msg)
+}
+
+func TestSetupNeedsTheToken(t *testing.T) {
+	e := newSetupEnv(t)
+	for _, target := range []string{"/setup", "/setup?org=acme", "/setup?force=1", "/setup?name=Stackorder"} {
+		assertSetupRefused(t, e.do(newRequest(t, http.MethodGet, target, nil)), target)
+	}
+	for _, token := range []string{"", "wrong", testSetupToken[:len(testSetupToken)-1], testSetupToken + "x", strings.ToUpper(testSetupToken)} {
+		assertSetupRefused(t, e.do(newRequest(t, http.MethodGet, "/setup?token="+url.QueryEscape(token), nil)), "token "+token)
+	}
+	assert.NotContains(t, e.logs.String(), testSetupToken)
+}
+
+func TestSetupTokenIsTradedForACookie(t *testing.T) {
+	e := newSetupEnv(t)
+	rec := e.do(newRequest(t, http.MethodGet, "/setup?org=acme&token="+url.QueryEscape(testSetupToken)+"&name=Stackorder+Acme", nil))
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	assert.Equal(t, "/setup?name=Stackorder+Acme&org=acme", rec.Header().Get("Location"), "the token is dropped and the other parameters kept")
+	assert.Equal(t, "no-referrer", rec.Header().Get("Referrer-Policy"))
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	assert.Nil(t, cookieNamed(rec.Result(), setupCookie), "no App creation starts before the redirect")
+	auth := cookieNamed(rec.Result(), setupAuthCookie)
+	require.NotNil(t, auth)
+	assert.Equal(t, "/setup", auth.Path)
+	assert.True(t, auth.HttpOnly)
+	assert.Equal(t, http.SameSiteLaxMode, auth.SameSite)
+	assert.Equal(t, int(setupAuthTTL/time.Second), auth.MaxAge)
+	assert.NotContains(t, auth.Value, testSetupToken, "the cookie proves the token without carrying it")
+
+	e.auth = auth
+	f := e.open(t, "/setup?org=acme&name=Stackorder+Acme")
+	assert.Equal(t, "/organizations/acme/settings/apps/new", f.action.Path)
+	assert.NotContains(t, f.action.String(), testSetupToken)
+	assert.NotContains(t, f.body, testSetupToken, "the page and the manifest it posts to GitHub never carry the token")
+	again := e.open(t, "/setup?force=1")
+	assert.NotEmpty(t, again.action.Query().Get("state"), "the cookie keeps working across reloads")
+}
+
+func TestSetupProofCookie(t *testing.T) {
+	e := newSetupEnv(t)
+	valid := e.authorize(t)
+	proof := e.srv.setupTokenProof()
+	restarted := newSetupEnv(t, func(c *Config, _ *Deps) { c.SetupToken = "another-token-0123456789abcdefghijklmnopqrstuvwxyz" })
+	cases := map[string]*http.Cookie{
+		"unsigned":             {Name: setupAuthCookie, Value: "yes"},
+		"other purpose":        {Name: setupAuthCookie, Value: e.srv.seal(setupPurpose, sealed{Value: proof, Expires: time.Now().Add(time.Hour).Unix()})},
+		"expired":              {Name: setupAuthCookie, Value: e.srv.seal(setupAuthPurpose, sealed{Value: proof, Expires: time.Now().Add(-time.Second).Unix()})},
+		"another token's":      {Name: setupAuthCookie, Value: restarted.srv.seal(setupAuthPurpose, sealed{Value: restarted.srv.setupTokenProof(), Expires: time.Now().Add(time.Hour).Unix()})},
+		"state cookie renamed": {Name: setupAuthCookie, Value: e.srv.seal(setupPurpose, sealed{Value: "nonce", Expires: time.Now().Add(time.Hour).Unix()})},
+	}
+	for name, c := range cases {
+		assertSetupRefused(t, e.do(withCookie(newRequest(t, http.MethodGet, "/setup", nil), c)), name)
+	}
+	assertSetupRefused(t, restarted.do(withCookie(newRequest(t, http.MethodGet, "/setup", nil), valid)), "a cookie from before a restart with a new token")
+	assert.Equal(t, http.StatusOK, e.do(withCookie(newRequest(t, http.MethodGet, "/setup", nil), valid)).Code)
+}
+
+func TestSetupWithoutAConfiguredToken(t *testing.T) {
+	e := newSetupEnv(t, func(c *Config, _ *Deps) { c.SetupToken = "" })
+	assertSetupRefused(t, e.do(newRequest(t, http.MethodGet, "/setup?token=", nil)), "an empty token")
+	forged := &http.Cookie{Name: setupAuthCookie, Value: e.srv.seal(setupAuthPurpose, sealed{Value: e.srv.setupTokenProof(), Expires: time.Now().Add(time.Hour).Unix()})}
+	assertSetupRefused(t, e.do(withCookie(newRequest(t, http.MethodGet, "/setup", nil), forged)), "a cookie for the empty token")
+}
+
+func TestSetupTokenIsSpentByTheApp(t *testing.T) {
+	e := newSetupEnv(t)
+	e.gh.SetManifestConversion("code-5", gh.AppCredentials{ID: 5, Slug: "s", PEM: "pem", WebhookSecret: "w"})
+	e.gh.SetManifestConversion("code-6", gh.AppCredentials{ID: 6, Slug: "t", PEM: "pem", WebhookSecret: "w"})
+	f := e.open(t, "/setup")
+	other := e.open(t, "/setup?org=acme")
+
+	rec := e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-5&state="+url.QueryEscape(f.action.Query().Get("state")), nil), f.cookie))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.True(t, clearedCookie(t, rec.Result(), setupAuthCookie), "the proof cookie is dropped with the state cookie")
+
+	for _, r := range []*http.Request{
+		withCookie(newRequest(t, http.MethodGet, "/setup", nil), e.auth),
+		withCookie(newRequest(t, http.MethodGet, "/setup?force=1", nil), e.auth),
+		newRequest(t, http.MethodGet, "/setup?token="+url.QueryEscape(testSetupToken), nil),
+		newRequest(t, http.MethodGet, "/setup", nil),
+	} {
+		rec := e.do(r)
+		assert.Equal(t, http.StatusOK, rec.Code, r.URL.String())
+		assert.Contains(t, rec.Body.String(), "This server already has a GitHub App", r.URL.String())
+		assert.Contains(t, rec.Body.String(), "no longer opens setup", r.URL.String())
+		assert.NotContains(t, rec.Body.String(), "manifest-form", r.URL.String())
+		assert.True(t, clearedCookie(t, rec.Result(), setupCookie), r.URL.String())
+	}
+
+	rec = e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-6&state="+url.QueryEscape(other.action.Query().Get("state")), nil), other.cookie))
+	assert.Equal(t, http.StatusConflict, rec.Code, "a flow started before the App was created cannot create a second one")
+	assert.NotContains(t, rec.Body.String(), "GITHUB_APP_ID=")
+	assert.Equal(t, 1, conversions(e.gh))
+}
+
+func TestResetupNeedsTheToken(t *testing.T) {
+	e := newSetupEnv(t, func(c *Config, _ *Deps) { c.SetupMode, c.AllowResetup = false, true })
+	rec := e.do(newRequest(t, http.MethodGet, "/setup", nil))
+	require.Equal(t, http.StatusOK, rec.Code, "the page saying an App is configured needs no token")
+	assert.Contains(t, rec.Body.String(), "setup token")
+	assert.Contains(t, rec.Body.String(), `href="/setup?force=1"`)
+	assertSetupRefused(t, e.do(newRequest(t, http.MethodGet, "/setup?force=1", nil)), "force without the token")
+	assertSetupRefused(t, e.do(newRequest(t, http.MethodGet, "/setup?force=1&token=nope", nil)), "force with a wrong token")
+
+	e.gh.SetManifestConversion("code-7", gh.AppCredentials{ID: 7, Slug: "s", PEM: "pem", WebhookSecret: "w"})
+	f := e.open(t, "/setup?force=1")
+	rec = e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-7&state="+url.QueryEscape(f.action.Query().Get("state")), nil), f.cookie))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = e.do(newRequest(t, http.MethodGet, "/setup", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "force=1", "no link to a setup the spent token cannot open")
+	assert.Contains(t, rec.Body.String(), "restart the server with its credentials")
+	rec = e.get(t, "/setup?force=1")
+	assert.Contains(t, rec.Body.String(), "no longer opens setup")
+	assert.NotContains(t, rec.Body.String(), "manifest-form")
 }

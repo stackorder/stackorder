@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -16,10 +17,13 @@ import (
 )
 
 const (
-	setupCookie   = "stackorder_setup"
-	setupPurpose  = "setup"
-	setupStateTTL = time.Hour
-	maxAppName    = 34
+	setupCookie      = "stackorder_setup"
+	setupPurpose     = "setup"
+	setupStateTTL    = time.Hour
+	setupAuthCookie  = "stackorder_setup_auth"
+	setupAuthPurpose = "setup-auth"
+	setupAuthTTL     = time.Hour
+	maxAppName       = 34
 )
 
 var (
@@ -86,6 +90,69 @@ func (s *server) resetupClosed(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *server) setupTokenMatches(presented string) bool {
+	if s.cfg.SetupToken == "" || s.setupUsed.Load() {
+		return false
+	}
+	got, want := sha256.Sum256([]byte(presented)), sha256.Sum256([]byte(s.cfg.SetupToken))
+	return subtle.ConstantTimeCompare(got[:], want[:]) == 1
+}
+
+func (s *server) setupTokenProof() string {
+	return s.sign(setupAuthPurpose + "\x00" + s.cfg.SetupToken)
+}
+
+func (s *server) hasSetupProof(r *http.Request) bool {
+	if s.cfg.SetupToken == "" || s.setupUsed.Load() {
+		return false
+	}
+	c, err := r.Cookie(setupAuthCookie)
+	if err != nil {
+		return false
+	}
+	st, ok := s.unseal(setupAuthPurpose, c.Value)
+	return ok && subtle.ConstantTimeCompare([]byte(st.Value), []byte(s.setupTokenProof())) == 1
+}
+
+func (s *server) setupTokenRequired(w http.ResponseWriter, r *http.Request) {
+	s.renderMessage(w, r, http.StatusForbidden, "Setup token required", message{
+		Heading: "Setup needs the setup token",
+		Lines: []string{
+			"Creating the GitHub App needs the one-time setup token the server prints in its log when it starts, so that nobody else who reaches this page can register the App under their own account.",
+			"Find the log line with setup_url, with docker compose logs or in the server's CloudWatch log group, and open that URL in this browser. If you set STACKORDER_SETUP_TOKEN, open /setup?token= followed by its value.",
+			"The token works until an App is created. A generated token changes each time the server starts.",
+		},
+	})
+}
+
+func (s *server) setupAlreadyUsed(w http.ResponseWriter, r *http.Request, status int) {
+	s.clearCookie(w, setupCookie, "/setup")
+	s.clearCookie(w, setupAuthCookie, "/setup")
+	s.renderMessage(w, r, status, "Already configured", message{
+		Heading: "This server already has a GitHub App",
+		Lines: []string{
+			"A GitHub App was created from this page since the server started, so its setup token no longer opens setup.",
+			"Restart the server with the App's credentials. If they were lost, delete the App in its GitHub settings and restart the server: it prints a new setup token.",
+		},
+	})
+}
+
+func (s *server) acceptSetupToken(w http.ResponseWriter, r *http.Request, q url.Values) {
+	if !s.setupTokenMatches(q.Get("token")) {
+		s.setupTokenRequired(w, r)
+		return
+	}
+	s.setCookie(w, setupAuthCookie, s.seal(setupAuthPurpose, sealed{Value: s.setupTokenProof(), Expires: s.now().Add(setupAuthTTL).Unix()}), "/setup", setupAuthTTL)
+	q.Del("token")
+	target := "/setup"
+	if len(q) > 0 {
+		target += "?" + q.Encode()
+	}
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, target, http.StatusSeeOther) //nolint:gosec // always the local path /setup; only the query comes from the request
+}
+
 func (s *server) setup(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	if !s.cfg.SetupMode && q.Get("force") != "1" {
@@ -94,8 +161,11 @@ func (s *server) setup(w http.ResponseWriter, r *http.Request) {
 			Lines:   []string{"It was started with GitHub App credentials, so there is nothing to set up."},
 			Links:   []pageLink{{Href: "/", Text: "Open Stackorder"}},
 		}
-		if s.cfg.AllowResetup {
-			m.Lines = append(m.Lines, "Creating another App is only useful to replace the current one, for instance after moving the server to a new URL; the new App's credentials then replace the configured ones.")
+		switch {
+		case s.cfg.AllowResetup && s.setupUsed.Load():
+			m.Lines = append(m.Lines, "Another App was created from this page since the server started; restart the server with its credentials.")
+		case s.cfg.AllowResetup:
+			m.Lines = append(m.Lines, "Creating another App is only useful to replace the current one, for instance after moving the server to a new URL; the new App's credentials then replace the configured ones. It needs the setup token the server prints in its log when it starts.")
 			m.Links = append(m.Links, pageLink{Href: "/setup?force=1", Text: "Create another App anyway"})
 		}
 		s.renderMessage(w, r, http.StatusOK, "Already configured", m)
@@ -103,6 +173,18 @@ func (s *server) setup(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.cfg.SetupMode && !s.cfg.AllowResetup {
 		s.resetupClosed(w, r)
+		return
+	}
+	if s.setupUsed.Load() {
+		s.setupAlreadyUsed(w, r, http.StatusOK)
+		return
+	}
+	if q.Has("token") {
+		s.acceptSetupToken(w, r, q)
+		return
+	}
+	if !s.hasSetupProof(r) {
+		s.setupTokenRequired(w, r)
 		return
 	}
 	org := q.Get("org")
@@ -164,6 +246,10 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 		s.resetupClosed(w, r)
 		return
 	}
+	if s.setupUsed.Load() {
+		s.setupAlreadyUsed(w, r, http.StatusConflict)
+		return
+	}
 	q := r.URL.Query()
 	c, err := r.Cookie(setupCookie)
 	var st sealed
@@ -209,7 +295,9 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	s.setupUsed.Store(true)
 	s.clearCookie(w, setupCookie, "/setup")
+	s.clearCookie(w, setupAuthCookie, "/setup")
 	s.log.InfoContext(r.Context(), "github app created from manifest", "request_id", requestIDOf(r), "app_id", creds.ID, "slug", creds.Slug)
 
 	name := creds.Name

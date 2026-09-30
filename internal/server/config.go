@@ -3,12 +3,14 @@ package server
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -42,6 +44,16 @@ const (
 // SessionKeySize is the length in bytes of STACKORDER_SESSION_KEY.
 const SessionKeySize = 32
 
+// SetupTokenSize is the number of random bytes in a generated setup token,
+// which is their unpadded base64url encoding.
+const SetupTokenSize = 32
+
+// MinSetupTokenLength is the fewest characters STACKORDER_SETUP_TOKEN may
+// have.
+const MinSetupTokenLength = 32
+
+var setupTokenChars = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
+
 // Environment variables LoadConfig reads.
 const (
 	EnvBaseURL             = "STACKORDER_BASE_URL"
@@ -68,6 +80,7 @@ const (
 	EnvDriftRetention      = "STACKORDER_DRIFT_RETENTION"
 	EnvWorkers             = "STACKORDER_WORKERS"
 	EnvAllowResetup        = "STACKORDER_ALLOW_RESETUP"
+	EnvSetupToken          = "STACKORDER_SETUP_TOKEN" //nolint:gosec // a variable name, not a secret
 	EnvLogLevel            = "STACKORDER_LOG_LEVEL"
 	EnvLogFormat           = "STACKORDER_LOG_FORMAT"
 	EnvOTLPEndpoint        = "OTEL_EXPORTER_OTLP_ENDPOINT"
@@ -160,6 +173,14 @@ type Config struct {
 	// /setup?force=1 and /setup/callback to create another App; otherwise
 	// they answer 404.
 	AllowResetup bool
+	// SetupToken is STACKORDER_SETUP_TOKEN, the one-time bootstrap token
+	// GET /setup requires to create an App: at least MinSetupTokenLength
+	// URL-safe characters. When it is empty and /setup can create an App,
+	// in setup mode or with AllowResetup, New generates one from
+	// SetupTokenSize random bytes and Run logs the setup URL carrying it.
+	SetupToken string
+	// SetupTokenGenerated reports that New generated SetupToken.
+	SetupTokenGenerated bool
 }
 
 // LoadConfig reads the configuration from getenv, normally os.Getenv.
@@ -193,6 +214,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		DriftRetention:      e.duration(EnvDriftRetention, DefaultDriftRetention),
 		Workers:             e.positiveInt(EnvWorkers, DefaultWorkers),
 		AllowResetup:        e.boolean(EnvAllowResetup),
+		SetupToken:          e.setupToken(EnvSetupToken),
 		LogLevel:            e.logLevel(EnvLogLevel),
 		LogFormat:           e.logFormat(EnvLogFormat),
 		OTLPEndpoint:        e.absoluteURL(EnvOTLPEndpoint, ""),
@@ -241,6 +263,39 @@ func generateSessionKey() ([]byte, error) {
 		return nil, fmt.Errorf("generate session key: %w", err)
 	}
 	return key, nil
+}
+
+func generateSetupToken() (string, error) {
+	b := make([]byte, SetupTokenSize)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate setup token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+func checkSetupToken(v string) error {
+	if len(v) < MinSetupTokenLength || !setupTokenChars.MatchString(v) {
+		return fmt.Errorf("must be at least %d letters, digits, dots, dashes, underscores or tildes, such as the output of `openssl rand -hex 32`", MinSetupTokenLength)
+	}
+	return nil
+}
+
+// servesSetup reports whether /setup can create an App, which then needs
+// a setup token.
+func (c *Config) servesSetup() bool {
+	return c.SetupMode || c.AllowResetup
+}
+
+func (c *Config) withSetupToken() error {
+	if !c.servesSetup() || c.SetupToken != "" {
+		return nil
+	}
+	token, err := generateSetupToken()
+	if err != nil {
+		return err
+	}
+	c.SetupToken, c.SetupTokenGenerated = token, true
+	return nil
 }
 
 func (c *Config) withDefaults() {
@@ -299,6 +354,11 @@ func (c *Config) validate() error {
 	if c.RequiredWorkflowRef != "" {
 		if err := oidc.ValidateWorkflowRefPattern(c.RequiredWorkflowRef); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", EnvRequiredWorkflowRef, err))
+		}
+	}
+	if c.SetupToken != "" {
+		if err := checkSetupToken(c.SetupToken); err != nil {
+			errs = append(errs, fmt.Errorf("%s %w", EnvSetupToken, err))
 		}
 	}
 	if len(c.SessionKey) != 0 && len(c.SessionKey) != SessionKeySize {
@@ -448,6 +508,18 @@ func (e *env) hexKey(name string, size int) []byte {
 		return nil
 	}
 	return key
+}
+
+func (e *env) setupToken(name string) string {
+	v := e.str(name)
+	if v == "" {
+		return ""
+	}
+	if err := checkSetupToken(v); err != nil {
+		e.fail(name, "%v", err)
+		return ""
+	}
+	return v
 }
 
 func (e *env) logLevel(name string) slog.Level {
