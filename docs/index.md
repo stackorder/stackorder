@@ -8,8 +8,9 @@ hero:
   text: Which stacks, in what order.
   tagline: Lightweight Terraform and OpenTofu orchestration on GitHub Actions
   image:
-    src: /logo.svg
-    alt: Stackorder logo, three stacked layers and an upward arrow
+    light: /mark-light.svg
+    dark: /mark-dark.svg
+    alt: The Stackorder mark, three flat plates with the middle one offset to the right
   actions:
     - theme: brand
       text: Getting started

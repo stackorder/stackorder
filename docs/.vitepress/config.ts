@@ -91,8 +91,11 @@ export default withMermaid(
     cleanUrls: true,
     lastUpdated: true,
     head: [
-      ['link', { rel: 'icon', type: 'image/svg+xml', href: `${base}favicon.svg` }],
-      ['meta', { name: 'theme-color', content: '#0f766e' }],
+      ['link', { rel: 'icon', href: `${base}favicon.ico`, sizes: '32x32' }],
+      ['link', { rel: 'icon', href: `${base}favicon.svg`, type: 'image/svg+xml' }],
+      ['link', { rel: 'apple-touch-icon', href: `${base}apple-touch-icon.png` }],
+      ['link', { rel: 'manifest', href: `${base}site.webmanifest` }],
+      ['meta', { name: 'theme-color', content: '#2F3E46' }],
     ],
     markdown: {
       config(md) {
@@ -102,7 +105,8 @@ export default withMermaid(
       },
     },
     themeConfig: {
-      logo: { src: '/logo.svg', alt: 'Stackorder' },
+      logo: { light: '/lockup-light.svg', dark: '/lockup-dark.svg', alt: 'stackorder' },
+      siteTitle: false,
       nav: [
         { text: 'Guide', link: '/guide/introduction', activeMatch: '^/guide/' },
         { text: 'Configuration', link: '/configuration/stackorder-yaml', activeMatch: '^/configuration/' },
