@@ -61,3 +61,5 @@ depends_on:
 ```
 
 Continue with [Getting started](/guide/getting-started), or read [How it works](/guide/how-it-works) first.
+
+Coming from a hand-written workflow? [Terraform on GitHub Actions](/guide/terraform-on-github-actions) starts from plan on pull request and apply on merge, and shows what Stackorder adds across many stacks.

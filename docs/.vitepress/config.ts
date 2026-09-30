@@ -18,6 +18,7 @@ const guide: DefaultTheme.SidebarItem[] = [
       { text: 'Concepts', link: '/guide/concepts' },
       { text: 'Getting started', link: '/guide/getting-started' },
       { text: 'Local demo', link: '/guide/local-demo' },
+      { text: 'Terraform on GitHub Actions', link: '/guide/terraform-on-github-actions' },
       { text: 'Architecture differences', link: '/guide/comparison' },
     ],
   },
