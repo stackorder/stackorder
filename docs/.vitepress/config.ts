@@ -4,6 +4,9 @@ import { inlineCodeVerbatim, repositoryLinks, taskLists } from './markdown'
 
 const repository = 'https://github.com/stackorder/stackorder'
 const site = 'https://docs.stackorder.io'
+const website = 'https://stackorder.io'
+const globe =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></g></svg>'
 const base = process.env.DOCS_BASE || '/'
 
 const guide: DefaultTheme.SidebarItem[] = [
@@ -145,13 +148,16 @@ export default withMermaid(
       },
       outline: [2, 3],
       search: { provider: 'local' },
-      socialLinks: [{ icon: 'github', link: repository }],
+      socialLinks: [
+        { icon: { svg: globe }, link: website, ariaLabel: 'stackorder.io website' },
+        { icon: 'github', link: repository },
+      ],
       editLink: {
         pattern: `${repository}/edit/main/docs/:path`,
         text: 'Edit this page on GitHub',
       },
       footer: {
-        message: `Released under the <a href="${repository}/blob/main/LICENSE">Apache-2.0 License</a>.`,
+        message: `Released under the <a href="${repository}/blob/main/LICENSE">Apache-2.0 License</a>. Project website: <a href="${website}">stackorder.io</a>.`,
       },
     },
     vite: {
