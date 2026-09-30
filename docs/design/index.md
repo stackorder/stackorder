@@ -532,7 +532,7 @@ The server approves plan and drift dispatches as read-only, rejects workflow run
 **Recommended default.** Layer 1 for the error message, layer 3 with a team as required reviewer for the hard stop, and layer 5 to make it airtight. Layer 4 is the upgrade for teams that find the manual approval redundant with code review. The plan role stays open to anyone with write access, since planning is read-only and the plan role has no write permissions.
 
 ::: info Implementation note
-The plan role must trust `repo:<owner>/<repo>:environment:default` as well as `repo:<owner>/<repo>:pull_request`, because server-dispatched plans and drift checks run under the environment `default`. See [Security hardening](/operations/security-hardening#trust-policies).
+The plan role must trust `repo:<owner>/<repo>:environment:default` as well as `repo:<owner>/<repo>:pull_request`, because server-dispatched plans and drift checks run under the environment `default`. On a repository with [immutable subjects](/operations/security-hardening#immutable-subjects), `repo:<owner>/<repo>` carries the owner and repository ids. See [Security hardening](/operations/security-hardening#trust-policies).
 :::
 
 ## Security model

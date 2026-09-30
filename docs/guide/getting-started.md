@@ -130,6 +130,14 @@ aws iam create-open-id-connect-provider \
   --client-id-list sts.amazonaws.com
 ```
 
+The trust policies below match the subject GitHub puts in each job's token. The subject starts with a prefix that names the repository, and a policy written with the wrong prefix matches no token. Read the prefix first:
+
+```sh
+gh api repos/acme/infra/actions/oidc/customization/sub
+```
+
+A repository created after July 15, 2026 answers with an immutable prefix that carries the owner and repository ids, such as `"sub_claim_prefix":"repo:acme@123456/infra@456789"`. Write that prefix wherever the policies below say `repo:acme/infra`. See [Immutable subjects](/operations/security-hardening#immutable-subjects).
+
 ### The plan role
 
 Trusted by two kinds of job of `acme/infra`: pull request plan jobs, whose token subject is `repo:acme/infra:pull_request`, and the plan and drift jobs the server dispatches to `stackorder-run.yml`, which always run under the environment `default` and so carry `repo:acme/infra:environment:default`. Give it read access to state and the read-only permissions your providers need to plan. `plan` takes the state lock by default, so it also needs to write the lock: the `<key>.tflock` object with `use_lockfile`, or the DynamoDB table.

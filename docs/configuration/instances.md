@@ -399,6 +399,8 @@ The example below is for the fictional organisation `acme`, with the repository 
 | `stackorder-reader` | each target account | `arn:aws:iam::123456789012:role/stackorder-plan` | The read-only permissions the providers need to plan |
 | `stackorder-deployer` | each target account | `arn:aws:iam::123456789012:role/stackorder-apply` only | The write permissions the stacks need |
 
+Write the OIDC subjects with the repository's own prefix. On a repository created after July 15, 2026 it carries numeric ids, such as `repo:acme@123456/infra@456789`; see [Immutable subjects](/operations/security-hardening#immutable-subjects).
+
 The S3 backend uses the bootstrap credentials, not the provider's, so the bootstrap roles need state access and the provider roles need none.
 
 ### The provider

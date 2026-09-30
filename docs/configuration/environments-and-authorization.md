@@ -164,6 +164,8 @@ None of the above matters if a tampered workflow can assume the apply role direc
 
 `repo:acme/infra:environment:production` appears in the token's `sub` only when the job ran under that environment, and so only after its protection rules passed.
 
+`repo:acme/infra` is the name-only form of the repository's subject prefix. A repository created after July 15, 2026 has an immutable prefix with numeric ids, such as `repo:acme@123456/infra@456789`, and a policy written with the name-only form matches none of its tokens. Read the prefix with `gh api repos/acme/infra/actions/oidc/customization/sub` and copy it into every condition; see [Immutable subjects](/operations/security-hardening#immutable-subjects).
+
 With instances nothing changes: the subject names the instance's environment. Give each environment its apply role and select it in `aws-role-arn-map` by instance, with a key such as `:production`, or by exact key, `infra/network:production`. The map key comes from names a pull request controls, so this pin is what ties each role to its gate. See [AWS roles](./instances#aws-roles).
 
 ### Pinning the reusable workflow
@@ -177,7 +179,7 @@ gh api --method PUT repos/acme/infra/actions/oidc/customization/sub \
 EOF
 ```
 
-The subject then ends with the workflow reference, and the trust policy can require it. The statement's `Condition` becomes:
+The subject then ends with the workflow reference, and the trust policy can require it. On a repository with immutable subjects, the ids stay in the prefix and the body needs one more field; see [Pinning the reusable workflow](/operations/security-hardening#subject-workflow-ref). The statement's `Condition` becomes:
 
 ```json
 {
@@ -202,5 +204,7 @@ Now the only path to production credentials runs through the environment gate, w
 | --- | --- | --- |
 | Plan | `repo:acme/infra:pull_request` and `repo:acme/infra:environment:default` | Read state, write the state lock, and the read-only permissions providers need to plan |
 | Apply, per environment | `repo:acme/infra:environment:<name>` | Read and write state, and the write permissions the stacks need |
+
+Replace `repo:acme/infra` with the repository's own [subject prefix](/operations/security-hardening#immutable-subjects).
 
 When the jobs assume one bootstrap role and the provider assumes a role per account, the roles and their trust change; see [One bootstrap role and a provider role per account](./instances#bootstrap-roles).

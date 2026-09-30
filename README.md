@@ -195,7 +195,7 @@ jobs:
     secrets: inherit
 ```
 
-Applies assume the role `aws-role-arn-map` gives their stack: an exact key such as `infra/network:production`, then an instance in any directory such as `:production`, then the longest matching path prefix; server-dispatched plans and drift checks run under the environment `default` and assume `aws-plan-role-arn`, so the plan role must trust both the repository's `pull_request` tokens and `environment:default`. Branch protection on the default branch should require the `stackorder/plan` and `stackorder/apply` checks. [Workflows](docs/configuration/workflows.md) documents every input.
+Applies assume the role `aws-role-arn-map` gives their stack: an exact key such as `infra/network:production`, then an instance in any directory such as `:production`, then the longest matching path prefix; server-dispatched plans and drift checks run under the environment `default` and assume `aws-plan-role-arn`, so the plan role must trust both the repository's `pull_request` tokens and `environment:default`. A repository created after July 15, 2026 carries numeric ids in its OIDC subjects; [Security hardening](docs/operations/security-hardening.md#immutable-subjects) shows how to read the prefix a trust policy must match. Branch protection on the default branch should require the `stackorder/plan` and `stackorder/apply` checks. [Workflows](docs/configuration/workflows.md) documents every input.
 
 A stack declares cross-stack dependencies in its own `.stackorder.yaml`:
 

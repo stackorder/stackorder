@@ -21,7 +21,7 @@ Stackorder reports; GitHub and AWS enforce.
 
 - **Branch protection** requires the `stackorder/plan` check, the `stackorder/apply` check in `before_merge` mode, and the configured approvals. GitHub enforces the merge.
 - **GitHub Environments** with required reviewers on the apply job add a human gate the server cannot skip, because the server cannot approve deployments.
-- **The AWS role trust policy** restricts `sub` to `repo:org/repo:environment:production` for an apply role, and optionally to the `job_workflow_ref` of the canonical reusable workflow, so only the gated job in that repository can obtain credentials. The read-only plan role trusts `repo:org/repo:pull_request` and `repo:org/repo:environment:default`. See [Security hardening](/operations/security-hardening#trust-policies).
+- **The AWS role trust policy** restricts `sub` to `repo:org/repo:environment:production` for an apply role, and optionally to the `job_workflow_ref` of the canonical reusable workflow, so only the gated job in that repository can obtain credentials. The read-only plan role trusts `repo:org/repo:pull_request` and `repo:org/repo:environment:default`. On a repository with [immutable subjects](/operations/security-hardening#immutable-subjects), `repo:org/repo` carries the owner and repository ids. See [Security hardening](/operations/security-hardening#trust-policies).
 - **Runner OIDC tokens** are short-lived and bound to one run. There is nothing to rotate on the runner side.
 
 The five layers that gate an apply, and which of them are real security boundaries, are on [Environments and authorization](/configuration/environments-and-authorization).

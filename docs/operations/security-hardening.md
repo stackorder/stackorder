@@ -17,7 +17,7 @@ Stackorder's design keeps the server away from your cloud: it holds no AWS crede
 
 ## Trust policies {#trust-policies}
 
-Every Stackorder job assumes its AWS role with its own GitHub OIDC token, through `aws-actions/configure-aws-credentials`. The role's trust policy decides which jobs may do that, by the token's `sub` claim. With GitHub's default subject format, the jobs Stackorder runs carry these subjects:
+Every Stackorder job assumes its AWS role with its own GitHub OIDC token, through `aws-actions/configure-aws-credentials`. The role's trust policy decides which jobs may do that, by the token's `sub` claim. With GitHub's name-only subject format, the jobs Stackorder runs carry these subjects:
 
 | Job | Workflow | `sub` |
 | --- | --- | --- |
@@ -27,6 +27,35 @@ Every Stackorder job assumes its AWS role with its own GitHub OIDC token, throug
 | Applies of stacks mapped to `staging` | `stackorder-run.yml` → `run.yml` | `repo:acme/infra:environment:staging` |
 
 Server-dispatched plan and drift jobs always run under the environment `default`, whatever the stack's mapping, and `run.yml` gives them `aws-plan-role-arn`, falling back to `aws-role-arn`; only apply jobs use `aws-role-arn-map` and run under the stack's own environment.
+
+### Immutable subjects {#immutable-subjects}
+
+GitHub has two formats for the part of the subject that names the repository. The examples on these pages use the name-only form, `repo:acme/infra`. The immutable form adds the numeric ids of the owner and of the repository, `repo:acme@123456/infra@456789`, so whoever later takes over a deleted or renamed name cannot obtain a token that matches. Every repository created after July 15, 2026 uses the immutable form, and so does every repository renamed or transferred after that date. An older repository keeps the name-only form until it is opted in, on its own or through its organisation. GitHub Enterprise Server has only the name-only form.
+
+A trust policy written in the other form matches no token, and every job fails when it assumes its role. Read the prefix of the repository's subjects before you write a policy:
+
+```sh
+gh api repos/acme/infra/actions/oidc/customization/sub
+```
+
+```json
+{"use_default":true,"use_immutable_subject":true,"sub_claim_prefix":"repo:acme@123456/infra@456789"}
+```
+
+Copy `sub_claim_prefix` into every condition, in place of `repo:acme/infra`. For this repository, the subjects in the table above become:
+
+| Job | `sub` |
+| --- | --- |
+| Pull request resolve and plan jobs | `repo:acme@123456/infra@456789:pull_request` |
+| Server-dispatched plans and drift checks | `repo:acme@123456/infra@456789:environment:default` |
+| Applies of stacks mapped to `production` | `repo:acme@123456/infra@456789:environment:production` |
+
+- A repository on the name-only form answers `"use_immutable_subject":false` and `"sub_claim_prefix":"repo:acme/infra"`.
+- With a classic token, the call needs the `repo` scope.
+- The prefix still holds the names, so a rename or a transfer changes it. Read it again afterwards and update the policies.
+- Opting an older repository in changes the subject of every job at once. Update its trust policies at the same time.
+
+The Stackorder server does not read `sub`. It binds runner tokens with the `repository` and `repository_id` claims, so the subject format matters only to the AWS trust policies.
 
 ### The plan role
 
@@ -122,7 +151,9 @@ gh api --method PUT repos/acme/infra/actions/oidc/customization/sub \
 EOF
 ```
 
-The subjects then become:
+On a repository with immutable subjects, the customization keeps the ids: GitHub always puts the owner and repository ids in the `repo` part of a customized subject. If the [prefix query](#immutable-subjects) answers `"use_immutable_subject":true`, add `"use_immutable_subject": true` to this body as well, and run the query again afterwards to check the prefix.
+
+The subjects then become, on a repository with the name-only form:
 
 | Job | `sub` |
 | --- | --- |
@@ -130,7 +161,7 @@ The subjects then become:
 | Dispatched plans and drift checks | `repo:acme/infra:environment:default:job_workflow_ref:stackorder/actions/.github/workflows/run.yml@refs/tags/v1` |
 | Production applies | `repo:acme/infra:environment:production:job_workflow_ref:stackorder/actions/.github/workflows/run.yml@refs/tags/v1` |
 
-with the ref your wrappers call, here `@v1`. Match them with `StringLike` so a later `v1.x.y` pin still works. The production apply role's statement gets this `Condition`:
+with the ref your wrappers call, here `@v1`. On a repository with immutable subjects, each starts with its `sub_claim_prefix` instead, such as `repo:acme@123456/infra@456789:environment:production:job_workflow_ref:...`. Match them with `StringLike` so a later `v1.x.y` pin still works. The production apply role's statement gets this `Condition`:
 
 ```json
 {
