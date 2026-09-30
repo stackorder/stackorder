@@ -1,3 +1,7 @@
+---
+description: 'Deploy one Terraform stack directory once per environment with Stackorder instances, each with its own state key, var files, environment, role and locks.'
+---
+
 # Stack instances
 
 A stack directory can be deployed several times, once per **instance**. Each instance runs the same code with its own state object, var files, environment variables and GitHub environment. A `network` component deployed to `staging` and `production` is one directory and two instances.

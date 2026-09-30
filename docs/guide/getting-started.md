@@ -1,5 +1,6 @@
 ---
 title: Getting started with Stackorder
+description: 'Set up Stackorder on one repository: deploy the server, create the GitHub App, add plan and apply IAM roles, stackorder.yaml and two workflows, then apply.'
 ---
 
 # Getting started

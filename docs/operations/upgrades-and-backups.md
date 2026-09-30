@@ -1,3 +1,7 @@
+---
+description: 'How the Stackorder server image, CLI and actions are versioned and upgraded, how to back up and restore Postgres, its only state, and how to rotate secrets.'
+---
+
 # Upgrades and backups
 
 Three things carry versions: the server image, the CLI, and the actions. Postgres is the only state to back up.

@@ -1,5 +1,6 @@
 ---
 title: Cross-repository Terraform dependencies
+description: 'Declare Terraform dependencies on stacks in other repositories with owner/repo//key, see them in the graph, and plan downstream stacks after an upstream apply.'
 ---
 
 # Cross-repo dependencies

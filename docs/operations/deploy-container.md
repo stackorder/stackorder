@@ -1,3 +1,7 @@
+---
+description: 'Run the Stackorder server as one distroless container plus Postgres on any platform: image tags, docker run, Docker Compose, other platforms and Postgres.'
+---
+
 # Deploy as a container
 
 The server is one image, `ghcr.io/stackorder/stackorder`, plus a Postgres database. It runs on any platform that can run a container behind HTTPS.

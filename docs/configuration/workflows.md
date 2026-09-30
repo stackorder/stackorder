@@ -1,3 +1,7 @@
+---
+description: 'The two GitHub Actions workflow files Stackorder needs, stackorder-plan.yml and stackorder-run.yml: triggers, inputs, AWS roles, permissions and hooks.'
+---
+
 # Workflows
 
 A repository has two workflow files. Each is a short wrapper that calls a reusable workflow from `stackorder/actions`. The plan workflow runs on every pull request push; the run workflow runs only when the server dispatches it.

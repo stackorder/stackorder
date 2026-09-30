@@ -90,7 +90,8 @@ export default withMermaid(
   defineConfig({
     title: 'Stackorder',
     titleTemplate: ':title | Stackorder docs',
-    description: 'Lightweight Terraform and OpenTofu orchestration on GitHub Actions.',
+    description:
+      'Open-source Terraform and OpenTofu orchestration on GitHub Actions: pull request plans, applies in dependency order, drift detection. Self-hosted.',
     lang: 'en-US',
     base,
     cleanUrls: true,

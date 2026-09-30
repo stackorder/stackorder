@@ -1,3 +1,7 @@
+---
+description: 'Every environment variable that configures stackorder-server: base URL, database, GitHub App, OIDC, artifact bucket, retention, metrics token and logs.'
+---
+
 # Server configuration
 
 The server, `stackorder-server`, is configured entirely with environment variables. Load secrets from a secret store at start-up, such as AWS Secrets Manager through ECS `secrets`; never bake them into an image.

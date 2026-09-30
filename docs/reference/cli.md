@@ -1,5 +1,6 @@
 ---
 title: stackorder CLI reference
+description: 'Reference for the stackorder CLI: resolve, plan, apply, drift, check, graph, affected, unlock and version, with global flags, stack keys and local use.'
 ---
 
 # CLI

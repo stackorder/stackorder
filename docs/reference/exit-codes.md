@@ -1,3 +1,7 @@
+---
+description: 'The four exit codes of every stackorder command: 0 success, 1 error, 2 changes or drift, 3 refused, and how scripts, hooks and workflows rely on them.'
+---
+
 # Exit codes
 
 Every `stackorder` command exits with one of four codes. Scripts and hooks can rely on them; the reusable workflows do.

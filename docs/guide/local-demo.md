@@ -1,3 +1,7 @@
+---
+description: 'Run Stackorder on one machine with Postgres and LocalStack in Docker and see the dependency graph, affected stacks, waves, plans, applies and drift checks.'
+---
+
 # Local demo
 
 This page runs Stackorder on one machine, with no GitHub App and no AWS account: Postgres and LocalStack in Docker, the server in setup mode, and the CLI against the [`stackorder/example-infra`](https://github.com/stackorder/example-infra) repository with its state in a LocalStack S3 bucket. The commands are the ones the repository's `make dev` target and the example repository's end-to-end setup use.

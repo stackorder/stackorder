@@ -1,5 +1,6 @@
 ---
 title: Stackorder JSON API reference
+description: 'Reference for the Stackorder JSON API used by runners, people and automation: conventions, authentication, errors, paging, runs, stacks, graphs and audit.'
 ---
 
 # API

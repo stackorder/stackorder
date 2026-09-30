@@ -1,3 +1,7 @@
+---
+description: 'Stackorder''s security model: what a compromised server, PR author or workflow can and cannot do, how plan output is redacted, and how long data is kept.'
+---
+
 # Security model
 
 No single compromise reaches infrastructure. The server has no cloud access, the runner has no server secrets, and GitHub's own controls gate the one action that changes anything.

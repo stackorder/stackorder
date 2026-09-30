@@ -1,5 +1,6 @@
 ---
 title: How Terraform runs on GitHub Actions with Stackorder
+description: 'How Stackorder runs Terraform on GitHub Actions: resolve and plan on pull requests, the apply gate, applies in dependency waves, locks, drift and failures.'
 ---
 
 # How it works

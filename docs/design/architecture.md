@@ -1,6 +1,6 @@
 ---
 title: Architecture contract
-description: Package boundaries, library choices, identifiers, endpoints, statuses and environment variables.
+description: 'The Stackorder architecture contract: package boundaries, library choices, identifiers, endpoints, statuses and environment variables across the three repos.'
 editLink: false
 outline: [2, 3]
 ---

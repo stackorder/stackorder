@@ -1,3 +1,7 @@
+---
+description: 'Deploy the Stackorder server on AWS with the Terraform module in deploy/terraform: ECS Fargate behind an ALB, RDS or Aurora PostgreSQL and Secrets Manager.'
+---
+
 # Deploy on AWS
 
 The repository ships a Terraform module in `deploy/terraform` that deploys the server on ECS Fargate behind an Application Load Balancer, with PostgreSQL on RDS or Aurora Serverless v2. It works with Terraform and OpenTofu, and Stackorder uses it to deploy itself, so it is also a working example of a stack Stackorder can manage.

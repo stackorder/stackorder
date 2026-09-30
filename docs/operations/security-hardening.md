@@ -1,3 +1,7 @@
+---
+description: 'A checklist for hardening Stackorder: IAM trust policies pinned to the OIDC subject, environment gates, a required workflow ref, a metrics token and more.'
+---
+
 # Security hardening
 
 Stackorder's design keeps the server away from your cloud: it holds no AWS credentials and never runs Terraform. What stops an unauthorised apply is GitHub's environment gate and the AWS trust policy, not the server. This page is the checklist that makes those controls tight. The reasoning behind each layer is on [Environments and authorization](/configuration/environments-and-authorization) and [Security model](/reference/security-model).

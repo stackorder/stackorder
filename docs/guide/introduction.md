@@ -1,5 +1,6 @@
 ---
 title: Introduction to Stackorder
+description: 'What Stackorder is and is not: a GitHub App and a small server that decide which Terraform stacks a change affects and in what order Actions applies them.'
 ---
 
 # Introduction

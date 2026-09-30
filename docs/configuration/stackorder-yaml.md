@@ -1,3 +1,7 @@
+---
+description: 'Reference for the root stackorder.yaml: stack discovery, instances, tool, backend and variables, environments, apply policy, propagation and drift schedule.'
+---
+
 # `stackorder.yaml`
 
 The root `stackorder.yaml` sets the repository's discovery rules, stack instances, tool, backend and variable defaults, environment mapping, apply policy, propagation and drift schedule. Every key has a default, so the smallest valid file is one line:

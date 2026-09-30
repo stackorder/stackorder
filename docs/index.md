@@ -1,6 +1,7 @@
 ---
 layout: home
 title: Stackorder docs
+description: 'Documentation for Stackorder: set up Terraform and OpenTofu pull request plans, dependency-ordered applies and scheduled drift checks on GitHub Actions.'
 titleTemplate: Terraform orchestration on GitHub Actions
 
 hero:

@@ -1,5 +1,6 @@
 ---
 title: Terraform drift detection on a schedule
+description: 'Run terraform plan -detailed-exitcode for every stack on a cron schedule from GitHub Actions, and keep one GitHub issue per drifted stack until it is fixed.'
 ---
 
 # Drift detection

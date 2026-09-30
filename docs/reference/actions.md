@@ -1,3 +1,7 @@
+---
+description: 'Reference for stackorder/actions: the setup JavaScript action, the resolve, plan, apply and drift composite actions, and the reusable plan.yml and run.yml.'
+---
+
 # Actions and reusable workflows
 
 The `stackorder/actions` repository holds one JavaScript action that installs the CLI, four composite actions that call it, and two reusable workflows. Nothing is Docker-based, so a job pays about one second of overhead, and self-hosted runners without a Docker socket work unchanged.

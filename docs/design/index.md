@@ -1,6 +1,6 @@
 ---
 title: Design document
-description: The Stackorder design, the source of truth for behaviour.
+description: 'The Stackorder design document: positioning, principles, architecture, dependency model, apply authorization and security, with implementation notes.'
 outline: [2, 3]
 ---
 

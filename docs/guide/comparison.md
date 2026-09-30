@@ -1,5 +1,6 @@
 ---
 title: Terraform tool architecture compared
+description: 'Why Stackorder runs nothing itself: how its design differs from HCP Terraform, Terrakube and Stategraph on runners, state, modules, footprint and credentials.'
 ---
 
 # Architecture differences from other Terraform tools

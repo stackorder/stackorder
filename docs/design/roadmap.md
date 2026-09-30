@@ -1,3 +1,7 @@
+---
+description: 'The Stackorder roadmap in four phases, core loop, graph depth, observability and cross-repo, each ending in a demonstration rather than a feature list.'
+---
+
 # Roadmap
 
 Build the single-repository loop first, then deepen the graph, then the observability that makes the server worth hosting, then cross-repo support and hardening. Each phase ends with a demonstration, not a feature list. No dates are committed.

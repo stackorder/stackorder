@@ -1,3 +1,7 @@
+---
+description: 'The five layers that gate a Terraform apply in Stackorder, from allowed teams and code owners to GitHub environments and IAM trust policies pinned by OIDC.'
+---
+
 # Environments and authorization
 
 Write access to the repository is the floor, not the ceiling. An apply passes up to five layers, and only the two that GitHub and AWS enforce are security boundaries. The server-side checks give fast, readable refusals; the environment gate and the IAM trust policy are what actually stop an unauthorised apply.

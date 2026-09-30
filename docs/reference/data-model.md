@@ -1,3 +1,7 @@
+---
+description: 'The Postgres schema behind the Stackorder server: graph, run, queue and access tables, the work queue, database size, retention and schema migrations.'
+---
+
 # Data model
 
 Postgres is the server's only stateful dependency. It holds the graphs, the run history, the locks, the audit log and the work queue. Nothing in it is needed to operate Terraform: wiping the database loses history and locks, never state.

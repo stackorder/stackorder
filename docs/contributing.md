@@ -1,5 +1,6 @@
 ---
 title: Contributing
+description: 'How to build, test and contribute to Stackorder: prerequisites, everyday commands, end-to-end tests, commit conventions, releases and this documentation site.'
 editLink: false
 outline: [2, 3]
 ---

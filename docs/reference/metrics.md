@@ -1,3 +1,7 @@
+---
+description: 'Prometheus metrics with the stackorder_ prefix for runs, stacks, dispatches, drift, locks and GitHub requests, plus OpenTelemetry tracing and structured logs.'
+---
+
 # Metrics and tracing
 
 The server exposes Prometheus metrics at `GET /metrics` and exports OpenTelemetry traces when an OTLP endpoint is configured. Logs are structured JSON by default.

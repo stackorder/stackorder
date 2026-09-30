@@ -1,3 +1,7 @@
+---
+description: 'Reference for .stackorder.yaml, the optional per-stack file that declares a stack''s dependencies and instances and overrides root settings for that stack.'
+---
+
 # `.stackorder.yaml`
 
 A `.stackorder.yaml` in a stack directory declares the stack's dependencies and instances, and overrides root settings for that stack. It is optional; add one only to stacks that have dependencies, instances or overrides.

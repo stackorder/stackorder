@@ -1,3 +1,7 @@
+---
+description: 'The Stackorder GitHub App: the permissions and events its manifest requests and why, what it cannot do, the install flow, comment commands and checks.'
+---
+
 # GitHub App
 
 The App is the server's only identity towards GitHub and the only way GitHub reaches the server. The server creates it from a manifest at [`/setup`](#install-flow), so the permissions and events below are set for you.

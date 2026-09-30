@@ -1,3 +1,7 @@
+---
+description: 'Fix common Stackorder problems from what you see: unconfirmed checks, refused applies, failed waves, locks after a closed pull request, OIDC errors and more.'
+---
+
 # Troubleshooting
 
 Stackorder degrades gracefully but never silently. Every refusal is a PR comment or a check with the reason, and every fallback is marked `unconfirmed`. Start from what you see.
