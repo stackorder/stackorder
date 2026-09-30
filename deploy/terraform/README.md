@@ -103,6 +103,10 @@ not read it.
 
 ## Secrets and Terraform state
 
+This section applies from the module release after v0.1.0. v0.1.0 keeps
+these values in state and has no `secrets_version` or
+`db_password_version`.
+
 The module keeps the App private key, webhook secret and OAuth client
 secret, the session key, the metrics token and the database password out
 of Terraform state and saved plans, as long as the caller passes the
