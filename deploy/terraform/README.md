@@ -2,7 +2,8 @@
 
 Terraform module that runs the Stackorder server on ECS Fargate behind an
 Application Load Balancer, with PostgreSQL on RDS or Aurora Serverless v2.
-It works with Terraform 1.11 or later and OpenTofu 1.11 or later.
+It works with Terraform 1.11 or later and OpenTofu 1.11 or later, and
+needs the AWS provider 6.50 or later.
 
 ```text
                  GitHub webhooks, runners, people
@@ -522,12 +523,15 @@ validating the module and its examples on 1.11 and 1.14.
 
 ## Requirements
 
-Terraform 1.11 or later, or OpenTofu 1.11 or later.
+Terraform 1.11 or later, or OpenTofu 1.11 or later. The AWS provider must
+be 6.50 or later: earlier 6.x releases fail the apply with "Provider
+produced inconsistent final plan" when the database is replaced, because
+the version of the `DATABASE_URL` secret is then unknown at plan time.
 
 | Name | Version |
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.11 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 6.0 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.50, < 7.0 |
 | <a name="requirement_http"></a> [http](#requirement\_http) | ~> 3.4 |
 | <a name="requirement_random"></a> [random](#requirement\_random) | ~> 3.7 |
 
@@ -535,7 +539,7 @@ Terraform 1.11 or later, or OpenTofu 1.11 or later.
 
 | Name | Version |
 |------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | ~> 6.0 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | >= 6.50, < 7.0 |
 | <a name="provider_http"></a> [http](#provider\_http) | ~> 3.4 |
 | <a name="provider_random"></a> [random](#provider\_random) | ~> 3.7 |
 

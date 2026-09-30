@@ -93,8 +93,7 @@ rewrite its secret.
 
 The plan and apply roles of this stack need `secretsmanager:GetSecretValue`
 on `stackorder/github-app`. Refreshing the module's secret versions reads
-their version ids, which takes `secretsmanager:ListSecretVersionIds` with
-AWS provider 6.26 or later and `secretsmanager:GetSecretValue` before
-that. The state object no longer holds the database password or the App
-private key, but it describes the whole deployment: restrict it to the
-plan and apply roles and keep bucket encryption on.
+their version ids, which takes `secretsmanager:ListSecretVersionIds`. The
+state object no longer holds the database password or the App private
+key, but it describes the whole deployment: restrict it to the plan and
+apply roles and keep bucket encryption on.
