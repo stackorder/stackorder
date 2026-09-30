@@ -161,23 +161,43 @@ func InstanceNames(root *v1.RepoConfig, stackPath string, stack *v1.StackConfig,
 	return []string{""}, nil
 }
 
-// VarFileWarnings returns one warning for every from_var_files match of a
-// stack directory that declares its instances and does not declare the
-// instance the file names; such a file is not used. Each warning names the
-// file and the instance.
+// VarFileWarnings returns the warnings of the from_var_files matches of a
+// stack directory: one for every match in the directory itself that
+// Terraform auto-loads (terraform.tfvars, terraform.tfvars.json,
+// *.auto.tfvars and *.auto.tfvars.json), because Terraform loads it for
+// every instance; and, when the stack declares its instances, one for every
+// match naming an instance it does not declare, because that file is not
+// used. Each warning names the file.
 func VarFileWarnings(root *v1.RepoConfig, stackPath string, stack *v1.StackConfig, matchedVarFiles []string) []string {
-	if stack == nil || len(stack.Instances) == 0 {
-		return nil
-	}
 	var out []string
 	for _, f := range usableMatches(root, matchedVarFiles) {
+		file := path.Join(NormalizePath(stackPath), f)
+		if autoLoaded(f) {
+			out = append(out, fmt.Sprintf("%s: Terraform auto-loads it for every instance of the stack; stacks.instances.from_var_files should not match it", file))
+		}
+		if stack == nil || len(stack.Instances) == 0 {
+			continue
+		}
 		name := VarFileInstance(f)
 		if _, ok := stack.Instances[name]; !ok {
 			out = append(out, fmt.Sprintf("%s: names instance %q, which %s does not declare; the file is not used",
-				path.Join(NormalizePath(stackPath), f), name, stackFileOf(stackPath)))
+				file, name, stackFileOf(stackPath)))
 		}
 	}
 	return out
+}
+
+func autoLoaded(file string) bool {
+	if strings.Contains(file, "/") {
+		return false
+	}
+	switch {
+	case file == "terraform.tfvars", file == "terraform.tfvars.json":
+		return true
+	case strings.HasSuffix(file, ".auto.tfvars"), strings.HasSuffix(file, ".auto.tfvars.json"):
+		return true
+	}
+	return false
 }
 
 // Resolve merges and renders the configuration of one instance of a stack

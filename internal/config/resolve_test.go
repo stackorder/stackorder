@@ -142,10 +142,11 @@ func TestVarFileWarnings(t *testing.T) {
 	explicit := &v1.StackConfig{Instances: v1.Instances{"east": {}, "west": {}}}
 	matched := []string{"north.tfvars", "east.tfvars"}
 	tests := []struct {
-		name  string
-		root  *v1.RepoConfig
-		stack *v1.StackConfig
-		want  []string
+		name    string
+		root    *v1.RepoConfig
+		stack   *v1.StackConfig
+		matched []string
+		want    []string
 	}{
 		{
 			name:  "a match the explicit list does not declare",
@@ -155,10 +156,37 @@ func TestVarFileWarnings(t *testing.T) {
 		},
 		{name: "derived instances", root: root, stack: &v1.StackConfig{}},
 		{name: "from_var_files unset", root: Default(), stack: explicit},
+		{
+			name:    "files Terraform auto-loads in the stack directory",
+			root:    root,
+			stack:   &v1.StackConfig{},
+			matched: []string{"terraform.tfvars", "terraform.tfvars.json", "prod.auto.tfvars", "dev.auto.tfvars.json", "vars/qa.auto.tfvars", "staging.tfvars"},
+			want: []string{
+				"infra/app/dev.auto.tfvars.json: Terraform auto-loads it for every instance of the stack; stacks.instances.from_var_files should not match it",
+				"infra/app/prod.auto.tfvars: Terraform auto-loads it for every instance of the stack; stacks.instances.from_var_files should not match it",
+				"infra/app/terraform.tfvars: Terraform auto-loads it for every instance of the stack; stacks.instances.from_var_files should not match it",
+				"infra/app/terraform.tfvars.json: Terraform auto-loads it for every instance of the stack; stacks.instances.from_var_files should not match it",
+			},
+		},
+		{
+			name:    "an auto-loaded match the explicit list does not declare",
+			root:    root,
+			stack:   explicit,
+			matched: []string{"east.auto.tfvars", "north.auto.tfvars"},
+			want: []string{
+				"infra/app/east.auto.tfvars: Terraform auto-loads it for every instance of the stack; stacks.instances.from_var_files should not match it",
+				"infra/app/north.auto.tfvars: Terraform auto-loads it for every instance of the stack; stacks.instances.from_var_files should not match it",
+				`infra/app/north.auto.tfvars: names instance "north", which infra/app/.stackorder.yaml does not declare; the file is not used`,
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, VarFileWarnings(tt.root, "infra/app", tt.stack, matched))
+			m := matched
+			if tt.matched != nil {
+				m = tt.matched
+			}
+			assert.Equal(t, tt.want, VarFileWarnings(tt.root, "infra/app", tt.stack, m))
 		})
 	}
 }
