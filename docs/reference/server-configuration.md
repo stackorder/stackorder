@@ -54,7 +54,7 @@ Once the App variables are set, `/setup` only says so. Creating a replacement Ap
 
 ### The setup token {#setup-token}
 
-Whoever creates the App owns it, so `/setup` opens only with a one-time token. At start-up the server logs a `setup_url` line at `warn` level, which shows under the default `STACKORDER_LOG_LEVEL`:
+Whoever creates the App owns it, so `/setup` opens only with a one-time token. At start-up the server logs a `setup_url` line at `warn` level, which shows under the default `STACKORDER_LOG_LEVEL` and at `warn`, but not at `error`:
 
 ```json
 {"time":"…","level":"WARN","msg":"setup is open to whoever holds the setup token; open setup_url in a browser to create the GitHub App","setup_url":"https://stackorder.example.com/setup?token=x0hYMC7BJPZbzQBz6vZcb4IS1MnVumltqNVS5uiNkgE","hint":"…"}
@@ -65,7 +65,7 @@ Whoever creates the App owns it, so `/setup` opens only with a one-time token. A
 - The token stops working once an App is created. Until the server restarts, `/setup` then says an App exists.
 - A generated token changes at every start, and each instance generates its own. Run one instance until the App exists, or set the same `STACKORDER_SETUP_TOKEN` on every instance.
 - With `STACKORDER_SETUP_TOKEN` set, the log line shows `<STACKORDER_SETUP_TOKEN>` in place of the token. That token opens `/setup` again after every restart, so unset it once the App exists.
-- With `STACKORDER_ALLOW_RESETUP=true` the server logs `/setup?force=1&token=…`. Creating a replacement App needs the token too.
+- With `STACKORDER_ALLOW_RESETUP=true` the server logs `/setup?force=1&token=…`. Creating a replacement App needs the token too, so anyone who can read the log can start one while the variable is set.
 
 ## Start-up and shutdown {#lifecycle}
 

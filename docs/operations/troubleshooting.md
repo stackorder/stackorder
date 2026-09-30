@@ -184,7 +184,7 @@ The command is the first line whose first word is `stackorder` and second word a
 | --- | --- |
 | The server exits at start | The log lists every invalid variable: `DATABASE_URL` or `STACKORDER_BASE_URL` missing, only some of the three `GITHUB_APP_*` variables set, a malformed private key, `STACKORDER_ARTIFACT_PREFIX` without a bucket, a bad duration or pattern. Or the database cannot be reached or migrated. |
 | Only `/setup`, `/healthz` and `/readyz` respond | Setup mode: the GitHub App variables are not set. |
-| `/setup` answers `403` "Setup needs the setup token" | `/setup` needs the one-time [setup token](/reference/server-configuration#setup-token). Open the `setup_url` from the server's log, in the same browser for the whole setup. A generated token changes at every start, so take the latest line; with two instances, each has its own token. |
+| `/setup` answers `403` "Setup needs the setup token" | `/setup` needs the one-time [setup token](/reference/server-configuration#setup-token). Open the `setup_url` from the server's log, in the same browser for the whole setup. A generated token changes at every start, so take the latest line; with two instances, each has its own token. With `STACKORDER_LOG_LEVEL=error` the line is not logged: use `info` or `warn`, or set `STACKORDER_SETUP_TOKEN`. |
 | `/setup` says the server already has a GitHub App, but it runs in setup mode | An App was already created with this start's token. Restart the server with that App's credentials; if they were lost, delete the App in its GitHub settings and restart the server for a new token. |
 | `/healthz` passes, `/readyz` fails | The database is unreachable. |
 | Everyone was signed out | `STACKORDER_SESSION_KEY` changed, or differs between instances. |
