@@ -1,1 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect x="3" y="4" width="12" height="7" rx="2" fill="#2563eb"/><rect x="17" y="12.5" width="12" height="7" rx="2" fill="#16a34a"/><rect x="3" y="21" width="12" height="7" rx="2" fill="#2563eb"/><path d="M15 7.5h2.5v8.5H17M15 24.5h2.5V16" fill="none" stroke="#64748b" stroke-width="1.5"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img">
+<title>stackorder</title>
+<rect width="32" height="32" rx="6" fill="#2F3E46"/>
+<path fill="#F4F1DE" d="M6 6H24V8L22 10H4V8ZM6 22H24V24L22 26H4V24Z"/>
+<path fill="#F2A28A" d="M10 14H28V16L26 18H8V16Z"/>
+</svg>
