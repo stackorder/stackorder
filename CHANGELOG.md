@@ -2,7 +2,9 @@
 
 All notable changes to this repository are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases follow [Semantic Versioning](https://semver.org/). The CLI, the server image and the Terraform module are released together from one `vX.Y.Z` tag.
 
-## [Unreleased]
+## [0.2.0] - 2026-09-30
+
+It works with [`stackorder/actions`](https://github.com/stackorder/actions) v1.0.0 or later; the `env` input and secret of the reusable workflows need v1.1.0.
 
 ### Added
 
@@ -15,7 +17,7 @@ All notable changes to this repository are documented here. The format follows [
 - Terraform module: one task runs while the GitHub App inputs are unset, so there is a single setup token, and the examples export `log_group_name`.
 - `STACKORDER_SETUP_TOKEN` sets the [setup token](docs/reference/server-configuration.md#setup-token) instead of the generated one.
 - A `visibility` job in the release workflow checks, from a runner without a registry login, that every pushed image tag can be pulled anonymously from ghcr.io, and the [release checklist](CONTRIBUTING.md#releasing) makes package visibility a step, since GitHub publishes a new package as private. A docs test checks that every version pin matches the latest release.
-- [Provider credentials](docs/configuration/workflows.md#env) on the Workflows page: the `env` input and `env` secret of the `stackorder/actions` reusable workflows, which need a `stackorder/actions` release after v1.0.0, carry credentials for providers besides AWS, such as a Cloudflare API token, as `KEY=VALUE` lines or `KEY<<DELIMITER` multi-line values. The page covers passing the secret by name, the `ENV` environment secret that replaces it for jobs under that GitHub environment, read-only tokens for plans and write tokens only in gated environments, and `ephemeral` for a token passed as a `TF_VAR_` variable. Getting started, the Terraform on GitHub Actions guide, the actions reference, Stack instances and Security hardening link to it.
+- [Provider credentials](docs/configuration/workflows.md#env) on the Workflows page: the `env` input and `env` secret of the `stackorder/actions` reusable workflows, which need `stackorder/actions` v1.1.0, carry credentials for providers besides AWS, such as a Cloudflare API token, as `KEY=VALUE` lines or `KEY<<DELIMITER` multi-line values. The page covers passing the secret by name, the `ENV` environment secret that replaces it for jobs under that GitHub environment, read-only tokens for plans and write tokens only in gated environments, and `ephemeral` for a token passed as a `TF_VAR_` variable. Getting started, the Terraform on GitHub Actions guide, the actions reference, Stack instances and Security hardening link to it.
 - Security hardening explains GitHub's [immutable OIDC subjects](docs/operations/security-hardening.md#immutable-subjects), `repo:<owner>@<id>/<repo>@<id>`, used by repositories created, renamed or transferred after July 15, 2026. It shows how to read a repository's subject prefix with `gh api repos/<owner>/<repo>/actions/oidc/customization/sub`, and every page that shows a trust policy links to it.
 - Environments and authorization covers [personal accounts and GitHub Free](docs/configuration/environments-and-authorization.md#free-plan): which of the five layers still hold, that private repositories on GitHub Free have no environment secrets, and a recommended `stackorder.yaml` for a single owner with `require_approvals: 0` and no `allowed_teams`, `four_eyes` or `require_codeowner_review`.
 - The `stackorder.yaml` reference has a [Layouts](docs/configuration/stackorder-yaml.md#layouts) section that sets the default `stacks/**` layout beside a flat one: `stacks.discover: ["*"]` with `modules.paths: ["modules/**", "*/modules/**"]`.
@@ -156,5 +158,6 @@ Recorded in [ARCHITECTURE.md](ARCHITECTURE.md) and in the implementation notes o
 - The schema stores a stack's backend as one `backend` jsonb column and edges by `from_key` and `to_key`, keeps a ref-less family row per module, and adds tables for graph membership, checks, dispatches, OIDC `jti`s and the audit log.
 - Named checks accept `warn`, which passes; a stack's `apply.allowed_teams` replaces the root list rather than narrowing it.
 
-[Unreleased]: https://github.com/stackorder/stackorder/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/stackorder/stackorder/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/stackorder/stackorder/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/stackorder/stackorder/releases/tag/v0.1.0

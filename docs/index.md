@@ -44,7 +44,7 @@ features:
 
 ## The smallest setup
 
-Stackorder works with GitHub.com, S3 state and AWS roles through GitHub OIDC. Current release: v0.1.0.
+Stackorder works with GitHub.com, S3 state and AWS roles through GitHub OIDC. Current release: v0.2.0.
 
 A repository needs a root `stackorder.yaml`, two thin workflow files, and the Stackorder GitHub App installed. Everything has a default, so the smallest valid configuration is one line:
 

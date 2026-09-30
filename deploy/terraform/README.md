@@ -31,11 +31,11 @@ AWS terms.
 
 ```hcl
 module "stackorder" {
-  source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.1.0"
+  source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.2.0"
 
   domain_name     = "stackorder.example.com"
   route53_zone_id = "Z0123456789ABCDEFGHIJ"
-  image_tag       = "0.1.0"
+  image_tag       = "0.2.0"
 }
 ```
 
@@ -103,7 +103,7 @@ not read it.
 
 ## Secrets and Terraform state
 
-This section applies from the module release after v0.1.0. v0.1.0 keeps
+This section applies from module v0.2.0. v0.1.0 keeps
 these values in state and has no `secrets_version` or
 `db_password_version`.
 
@@ -171,7 +171,7 @@ an ephemeral read with the plan role. Passing them as `TF_VAR_*` in the
 repository or organization secret, and has two more problems: an `ENV`
 environment secret replaces the whole `env` secret, so a `production`
 `ENV` secret without them drops them from applies, and the `env` secret
-needs a `stackorder/actions` release after v1.0.0. Read the App secrets
+needs `stackorder/actions` v1.1.0 or later. Read the App secrets
 with an ephemeral resource instead, as the
 [self-hosted](examples/self-hosted) example does, keep the stack in a
 repository where only its operators can push branches, and see
@@ -297,11 +297,11 @@ to your Workspace: the `hd` parameter below only preselects the account.
 
 ```hcl
 module "stackorder" {
-  source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.1.0"
+  source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.2.0"
 
   domain_name     = "stackorder.acme.com"
   certificate_arn = "arn:aws:acm:eu-north-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
-  image_tag       = "0.1.0"
+  image_tag       = "0.2.0"
 
   oidc_authentication = {
     issuer                 = "https://accounts.google.com"

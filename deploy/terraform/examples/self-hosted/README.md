@@ -11,13 +11,12 @@ relative path to a tag, so Renovate or Dependabot can bump it together with
 `stackorder_version`:
 
 ```hcl
-source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.1.0"
+source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.2.0"
 ```
 
-This example needs a module release after v0.1.0: v0.1.0 keeps the
-secrets in state and has no `secrets_version` or `db_password_version`, so
-`main.tf` does not validate against it. Set `ref` to the first release
-after v0.1.0 once it is published.
+This example needs module v0.2.0 or later: v0.1.0 keeps the secrets in
+state and has no `secrets_version` or `db_password_version`, so `main.tf`
+does not validate against it.
 
 `.stackorder.yaml` maps the stack to the `production` GitHub environment and
 keeps plan text out of the server and the PR comment (`plan_output:

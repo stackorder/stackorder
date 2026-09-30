@@ -8,11 +8,11 @@ The repository ships a Terraform module in `deploy/terraform` that deploys the s
 
 ```hcl
 module "stackorder" {
-  source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.1.0"
+  source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.2.0"
 
   domain_name     = "stackorder.example.com"
   route53_zone_id = "Z0123456789ABCDEFGHIJ"
-  image_tag       = "0.1.0"
+  image_tag       = "0.2.0"
 }
 ```
 
@@ -243,7 +243,7 @@ The task definition carries the version ids of both secrets as Docker labels, so
 
 ### Secrets and Terraform state {#secrets}
 
-This section applies from the module release after v0.1.0. v0.1.0 keeps these values in state and has no `secrets_version` or `db_password_version`.
+This section applies from module v0.2.0. v0.1.0 keeps these values in state and has no `secrets_version` or `db_password_version`.
 
 The module keeps the App private key, webhook secret and OAuth client secret, the session key, the metrics token and the database password out of Terraform state and saved plans, as long as the caller passes the secret inputs as ephemeral values too. The three App secrets, `session_key` and `metrics_token` are ephemeral inputs. The database password, and the session key and metrics token when those inputs are null, come from ephemeral `random_password` resources. They reach AWS only through write-only attributes: `secret_string_wo` on the secret versions and `password_wo` or `master_password_wo` on the database. State still describes the deployment, so keep it encrypted and access controlled, but it holds none of these values.
 
@@ -260,7 +260,7 @@ The generated values are new on every run; only the secrets keep them. If an app
 A saved plan does not carry ephemeral values. Supply the ephemeral inputs when applying it as well as when planning, with `TF_VAR_*` variables or `-var`, or read them in the calling configuration with an ephemeral resource such as `ephemeral "aws_secretsmanager_secret_version"`, which is read again at apply time, as `examples/self-hosted` does. Terraform refuses to apply a saved plan when an ephemeral input set at plan is missing. OpenTofu instead uses the input's default, so a `session_key` or `metrics_token` omitted at apply makes the module write new generated values in place of the chosen ones.
 
 ::: warning Under Stackorder, the App inputs reach plan jobs
-Stackorder applies saved plans, so the ephemeral inputs must reach its plan jobs as well as its applies, and the module requires `github_app_id`, the private key and the webhook secret together at plan time. Plan jobs for a pull request run that pull request's code, so anyone who can push a branch can read the values, whether they come in as `TF_VAR_*` variables or through an ephemeral read with the plan role. Passing them as `TF_VAR_*` in the `env` secret of the reusable workflows also puts the App private key in a repository or organization secret, and has two more problems: an `ENV` environment secret replaces the whole `env` secret, so a `production` `ENV` secret without them drops them from applies, and the `env` secret needs a `stackorder/actions` release after v1.0.0. Read the App secrets with an ephemeral resource instead, as `examples/self-hosted` does, keep the stack in a repository where only its operators can push branches, and see [Provider credentials](./security-hardening#provider-credentials).
+Stackorder applies saved plans, so the ephemeral inputs must reach its plan jobs as well as its applies, and the module requires `github_app_id`, the private key and the webhook secret together at plan time. Plan jobs for a pull request run that pull request's code, so anyone who can push a branch can read the values, whether they come in as `TF_VAR_*` variables or through an ephemeral read with the plan role. Passing them as `TF_VAR_*` in the `env` secret of the reusable workflows also puts the App private key in a repository or organization secret, and has two more problems: an `ENV` environment secret replaces the whole `env` secret, so a `production` `ENV` secret without them drops them from applies, and the `env` secret needs `stackorder/actions` v1.1.0 or later. Read the App secrets with an ephemeral resource instead, as `examples/self-hosted` does, keep the stack in a repository where only its operators can push branches, and see [Provider credentials](./security-hardening#provider-credentials).
 :::
 
 ## Upgrades {#upgrades}
