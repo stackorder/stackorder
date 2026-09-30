@@ -68,3 +68,7 @@ The server is not in the path of `terraform plan`. A server outage degrades to p
 ## Human access {#human-access}
 
 People sign in with GitHub through the App's OAuth client, with the `read:org` scope only. A session is issued only to a user whose own account, or one of whose organisations, has the App installed, and the UI shows only those accounts' repositories. API keys, created by an operator, see every repository. The UI is read-only except for unlock and re-run, which go through the API and are audited.
+
+## Reporting a vulnerability {#reporting}
+
+Report vulnerabilities privately, through GitHub's private vulnerability reporting, rather than in a public issue: [stackorder/stackorder](https://github.com/stackorder/stackorder/security/advisories/new) for the server, the CLI, the web UI and the Terraform module, [stackorder/actions](https://github.com/stackorder/actions/security/advisories/new) for the workflows and actions. The [security policy](https://github.com/stackorder/stackorder/blob/main/SECURITY.md) lists the supported versions, what to include, what is in scope and what happens after a report.
