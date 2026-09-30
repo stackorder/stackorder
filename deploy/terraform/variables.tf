@@ -294,6 +294,12 @@ variable "image_tag" {
   }
 }
 
+variable "verify_image" {
+  description = "When image is on ghcr.io, check at plan time that image_tag can be pulled anonymously, as ECS pulls it, and fail the plan if not, instead of letting ECS retry the pull until the deployment times out. Needs HTTPS access to ghcr.io from where Terraform runs."
+  type        = bool
+  default     = true
+}
+
 variable "desired_count" {
   description = "Number of server tasks. All coordination goes through Postgres, so a second task adds availability without any other change."
   type        = number
@@ -376,6 +382,17 @@ variable "wait_for_steady_state" {
   description = "Make terraform apply wait until the new tasks pass /readyz, so an apply of an upgrade fails when the deployment rolls back."
   type        = bool
   default     = true
+}
+
+variable "deployment_timeout" {
+  description = "How long terraform apply waits for the service to reach a steady state when wait_for_steady_state is true, as the create and update timeout of the ECS service, such as 20m or 1h."
+  type        = string
+  default     = "20m"
+
+  validation {
+    condition     = can(regex("^([0-9]+h)?([0-9]+m)?([0-9]+s)?$", var.deployment_timeout)) && can(regex("[1-9]", var.deployment_timeout))
+    error_message = "deployment_timeout must be a positive duration of hours, minutes and seconds, such as 20m, 1h or 1h30m."
+  }
 }
 
 variable "log_retention_days" {

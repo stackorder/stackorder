@@ -89,6 +89,7 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 | --- | --- | --- | --- |
 | `image` | `string` | `"ghcr.io/stackorder/stackorder"` | Container image repository of the server. |
 | `image_tag` | `string` | `"latest"` | Tag or digest (sha256:...) of the server image. Pin a release such as 1.2.3 so upgrades are explicit plans. |
+| `verify_image` | `bool` | `true` | When image is on ghcr.io, check at plan time that image_tag can be pulled anonymously, as ECS pulls it, and fail the plan if not, instead of letting ECS retry the pull until the deployment times out. Needs HTTPS access to ghcr.io from where Terraform runs. |
 | `desired_count` | `number` | `1` | Number of server tasks. All coordination goes through Postgres, so a second task adds availability without any other change. |
 | `cpu` | `number` | `256` | Fargate task CPU units. |
 | `memory` | `number` | `512` | Fargate task memory in MiB; must be a valid combination with cpu. |
@@ -97,6 +98,7 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 | `health_check_command` | `list(string)` | `["CMD", "/stackorder-server", "healthcheck"]` | Container health check command, starting with CMD or CMD-SHELL. The default runs the server's healthcheck subcommand, which GETs /healthz on the listen port. The distroless image has no shell or curl, so a replacement must be a command the image itself provides. Empty turns the container health check off and leaves task health to the load balancer check on /readyz. |
 | `stop_timeout_seconds` | `number` | `60` | Seconds ECS waits after SIGTERM before it kills the container (stopTimeout), 2 to 120 on Fargate. The server drains HTTP for up to 15 s, then its workers for up to 30 s plus 5 s for cancelled handlers, so a value under 50 can cut the drain short. |
 | `wait_for_steady_state` | `bool` | `true` | Make terraform apply wait until the new tasks pass /readyz, so an apply of an upgrade fails when the deployment rolls back. |
+| `deployment_timeout` | `string` | `"20m"` | How long terraform apply waits for the service to reach a steady state when wait_for_steady_state is true, as the create and update timeout of the ECS service, such as 20m or 1h. |
 | `log_retention_days` | `number` | `30` | Retention of the server log group in days. |
 | `log_level` | `string` | `"info"` | Server log level (STACKORDER_LOG_LEVEL). |
 | `extra_environment` | `map(string)` | `{}` | Additional environment variables for the server, such as STACKORDER_WORKERS or OTEL_EXPORTER_OTLP_ENDPOINT. Variables the module sets itself are rejected. |
@@ -234,6 +236,8 @@ The values pass through Terraform state. Keep state encrypted and readable only 
 1. Change `image_tag` to the new `X.Y.Z`, or a `sha256:` digest, and apply.
 2. ECS starts a new task while the old one keeps serving (100 % minimum healthy, up to 200 % during the deployment). The new task runs any database migrations at start-up, under a migration lock.
 3. The new task receives traffic once it passes `/readyz`; the old one drains for 30 s and stops. A task that never becomes healthy is rolled back by the circuit breaker, and `wait_for_steady_state` makes the apply fail.
+
+ECS retries a failed image pull until the deployment times out, so a private package or a tag that does not exist yet would otherwise hold the apply for the whole of `deployment_timeout` (20m by default). For images on ghcr.io, `verify_image` makes the plan fetch an anonymous pull token and the manifest of `image_tag`, as ECS would, and fail with an explanation unless ghcr.io answers 200. The check needs HTTPS access to ghcr.io from wherever Terraform runs; `verify_image = false` skips it.
 
 Pin a specific version rather than `latest`, so an apply is the only thing that changes the running version. Take a database snapshot before an upgrade that includes migrations. See [Upgrades and backups](./upgrades-and-backups).
 

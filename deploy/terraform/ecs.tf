@@ -1,4 +1,38 @@
 locals {
+  image_ref       = "${var.image}${startswith(var.image_tag, "sha256:") ? "@" : ":"}${var.image_tag}"
+  verify_image    = var.verify_image && startswith(var.image, "ghcr.io/")
+  ghcr_repository = trimprefix(var.image, "ghcr.io/")
+}
+
+data "http" "image_pull_token" {
+  count = local.verify_image ? 1 : 0
+
+  url = "https://ghcr.io/token?scope=repository:${local.ghcr_repository}:pull"
+}
+
+data "http" "image_manifest" {
+  count = local.verify_image ? 1 : 0
+
+  url = "https://ghcr.io/v2/${local.ghcr_repository}/manifests/${var.image_tag}"
+  request_headers = {
+    Accept = join(", ", [
+      "application/vnd.oci.image.index.v1+json",
+      "application/vnd.oci.image.manifest.v1+json",
+      "application/vnd.docker.distribution.manifest.list.v2+json",
+      "application/vnd.docker.distribution.manifest.v2+json",
+    ])
+    Authorization = "Bearer ${try(jsondecode(data.http.image_pull_token[0].response_body).token, "")}"
+  }
+
+  lifecycle {
+    postcondition {
+      condition     = self.status_code == 200
+      error_message = "${local.image_ref} cannot be pulled anonymously from ghcr.io (HTTP ${self.status_code}): the package is private or the tag does not exist. ECS would otherwise retry the pull until the deployment times out. Make the package public or fix image_tag, or set verify_image = false to skip this check."
+    }
+  }
+}
+
+locals {
   environment = merge(
     {
       STACKORDER_BASE_URL      = local.url
@@ -20,7 +54,7 @@ locals {
   container = merge(
     {
       name                   = local.container_name
-      image                  = "${var.image}${startswith(var.image_tag, "sha256:") ? "@" : ":"}${var.image_tag}"
+      image                  = local.image_ref
       essential              = true
       user                   = "65532:65532"
       readonlyRootFilesystem = !var.enable_execute_command
@@ -128,6 +162,11 @@ resource "aws_ecs_service" "this" {
   }
 
   tags = var.tags
+
+  timeouts {
+    create = var.deployment_timeout
+    update = var.deployment_timeout
+  }
 
   depends_on = [
     aws_lb_listener.https,

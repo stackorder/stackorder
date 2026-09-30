@@ -335,3 +335,175 @@ run "sensitive_app_inputs_keep_task_definition_readable" {
     error_message = "All App secrets must be mapped."
   }
 }
+
+run "verify_image_pullable" {
+  command = plan
+
+  variables {
+    image_tag = "1.2.3"
+  }
+
+  override_data {
+    target = data.http.image_pull_token[0]
+    values = {
+      status_code   = 200
+      response_body = "{\"token\":\"anonymous-pull-token\"}"
+    }
+  }
+
+  override_data {
+    target = data.http.image_manifest[0]
+    values = {
+      status_code   = 200
+      response_body = "{\"schemaVersion\":2}"
+    }
+  }
+
+  assert {
+    condition = (
+      data.http.image_pull_token[0].url == "https://ghcr.io/token?scope=repository:stackorder/stackorder:pull" &&
+      data.http.image_manifest[0].url == "https://ghcr.io/v2/stackorder/stackorder/manifests/1.2.3"
+    )
+    error_message = "The check must ask ghcr.io for an anonymous pull token and then the manifest of image_tag."
+  }
+
+  assert {
+    condition     = data.http.image_manifest[0].request_headers.Authorization == "Bearer anonymous-pull-token"
+    error_message = "The manifest request must carry the anonymous pull token."
+  }
+
+  assert {
+    condition = alltrue([
+      for t in [
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+      ] : strcontains(data.http.image_manifest[0].request_headers.Accept, t)
+    ])
+    error_message = "The manifest request must accept OCI and Docker indexes and manifests, or ghcr.io answers 404 for some images."
+  }
+
+  assert {
+    condition     = aws_ecs_service.this.timeouts.create == "20m" && aws_ecs_service.this.timeouts.update == "20m"
+    error_message = "The service must wait for a steady state for 20 minutes by default, the provider's own default."
+  }
+}
+
+run "verify_image_digest" {
+  command = plan
+
+  variables {
+    image_tag = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  }
+
+  assert {
+    condition     = data.http.image_manifest[0].url == "https://ghcr.io/v2/stackorder/stackorder/manifests/sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    error_message = "A digest must be looked up as the manifest reference."
+  }
+}
+
+run "verify_image_private_or_missing" {
+  command = plan
+
+  variables {
+    image     = "ghcr.io/acme/stackorder"
+    image_tag = "0.1.0"
+  }
+
+  override_data {
+    target = data.http.image_pull_token[0]
+    values = {
+      status_code   = 403
+      response_body = "{\"errors\":[{\"code\":\"DENIED\",\"message\":\"requested access to the resource is denied\"}]}"
+    }
+  }
+
+  override_data {
+    target = data.http.image_manifest[0]
+    values = {
+      status_code   = 403
+      response_body = "{\"errors\":[{\"code\":\"DENIED\",\"message\":\"requested access to the resource is denied\"}]}"
+    }
+  }
+
+  expect_failures = [data.http.image_manifest]
+}
+
+run "verify_image_unknown_tag" {
+  command = plan
+
+  variables {
+    image_tag = "9.9.9"
+  }
+
+  override_data {
+    target = data.http.image_manifest[0]
+    values = {
+      status_code   = 404
+      response_body = "{\"errors\":[{\"code\":\"MANIFEST_UNKNOWN\",\"message\":\"manifest unknown\"}]}"
+    }
+  }
+
+  expect_failures = [data.http.image_manifest]
+}
+
+run "verify_image_disabled" {
+  command = plan
+
+  variables {
+    verify_image = false
+  }
+
+  assert {
+    condition     = length(data.http.image_pull_token) == 0 && length(data.http.image_manifest) == 0
+    error_message = "verify_image = false must skip the ghcr.io requests."
+  }
+}
+
+run "verify_image_other_registry" {
+  command = plan
+
+  variables {
+    image     = "registry.example.com:5000/stackorder/stackorder"
+    image_tag = "1.2.3"
+  }
+
+  assert {
+    condition     = length(data.http.image_pull_token) == 0 && length(data.http.image_manifest) == 0
+    error_message = "Only images on ghcr.io are checked."
+  }
+}
+
+run "deployment_timeout" {
+  command = plan
+
+  variables {
+    deployment_timeout = "45m"
+  }
+
+  assert {
+    condition     = aws_ecs_service.this.timeouts.create == "45m" && aws_ecs_service.this.timeouts.update == "45m"
+    error_message = "deployment_timeout must bound creating and updating the service."
+  }
+}
+
+run "deployment_timeout_invalid" {
+  command = plan
+
+  variables {
+    deployment_timeout = "20 minutes"
+  }
+
+  expect_failures = [var.deployment_timeout]
+}
+
+run "deployment_timeout_zero" {
+  command = plan
+
+  variables {
+    deployment_timeout = "0m"
+  }
+
+  expect_failures = [var.deployment_timeout]
+}

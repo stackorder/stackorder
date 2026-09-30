@@ -70,6 +70,10 @@ Stackorder deploys and upgrades itself ([self-hosted](examples/self-hosted)).
 4. Apply again with those five values. The App id, private key and webhook
    secret must be set together, as must the two OAuth values.
 
+If the image cannot be pulled anonymously from ghcr.io, the first plan
+fails rather than the apply hanging on the ECS deployment; see
+[Upgrades](#upgrades) for `verify_image`.
+
 The module writes one Secrets Manager secret with the full `DATABASE_URL`
 and one JSON secret with a key per App variable plus
 `STACKORDER_SESSION_KEY` (generated when `session_key` is null) and
@@ -337,6 +341,17 @@ old task keeps serving. The deployment circuit breaker rolls back a task
 that never becomes healthy, and `wait_for_steady_state` makes the apply
 fail in that case.
 
+ECS retries a failed image pull until the deployment times out, so a
+private package or a tag that does not exist yet would hold an apply for
+the whole timeout. `verify_image` (on by default) prevents that for images
+on ghcr.io: the plan fetches an anonymous pull token and the manifest of
+`image_tag`, as ECS would, and fails with an explanation unless ghcr.io
+answers 200. The check needs HTTPS access to ghcr.io from wherever
+Terraform runs; set `verify_image = false` to skip it, for example for a
+mirror or a package you make public during the apply.
+`deployment_timeout` (20m, the provider's default) bounds how long an
+apply waits for a steady state before it fails.
+
 An old task is stopped gracefully. ECS first deregisters it from the
 target group and waits the 30 second deregistration delay, then sends
 SIGTERM. The server stops accepting connections and gives in-flight
@@ -530,6 +545,8 @@ No modules.
 | [data.aws\_rds\_engine\_version.aurora](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/rds_engine_version) | data source |
 | [data.aws\_region.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/region) | data source |
 | [data.http.github\_meta](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) | data source |
+| [data.http.image\_manifest](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) | data source |
+| [data.http.image\_pull\_token](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) | data source |
 
 ## Inputs
 
@@ -561,6 +578,7 @@ No modules.
 | <a name="input_alb_https_egress_cidrs"></a> [alb\_https\_egress\_cidrs](#input\_alb\_https\_egress\_cidrs) | IPv4 or IPv6 CIDRs the load balancer may reach on port 443, as it must to reach the identity provider of oidc\_authentication or cognito\_authentication. Empty allows none, or 0.0.0.0/0 when either authentication is set, because identity providers publish no fixed address ranges. | `list(string)` | `[]` | no |
 | <a name="input_image"></a> [image](#input\_image) | Container image repository of the server. | `string` | `"ghcr.io/stackorder/stackorder"` | no |
 | <a name="input_image_tag"></a> [image\_tag](#input\_image\_tag) | Tag or digest (sha256:...) of the server image. Pin a release such as 1.2.3 so upgrades are explicit plans. | `string` | `"latest"` | no |
+| <a name="input_verify_image"></a> [verify\_image](#input\_verify\_image) | When image is on ghcr.io, check at plan time that image\_tag can be pulled anonymously, as ECS pulls it, and fail the plan if not, instead of letting ECS retry the pull until the deployment times out. Needs HTTPS access to ghcr.io from where Terraform runs. | `bool` | `true` | no |
 | <a name="input_desired_count"></a> [desired\_count](#input\_desired\_count) | Number of server tasks. All coordination goes through Postgres, so a second task adds availability without any other change. | `number` | `1` | no |
 | <a name="input_cpu"></a> [cpu](#input\_cpu) | Fargate task CPU units. | `number` | `256` | no |
 | <a name="input_memory"></a> [memory](#input\_memory) | Fargate task memory in MiB; must be a valid combination with cpu. | `number` | `512` | no |
@@ -569,6 +587,7 @@ No modules.
 | <a name="input_health_check_command"></a> [health\_check\_command](#input\_health\_check\_command) | Container health check command, starting with CMD or CMD-SHELL. The default runs the server's healthcheck subcommand, which GETs /healthz on the listen port. The distroless image has no shell or curl, so a replacement must be a command the image itself provides. Empty turns the container health check off and leaves task health to the load balancer check on /readyz. | `list(string)` | `["CMD", "/stackorder-server", "healthcheck"]` | no |
 | <a name="input_stop_timeout_seconds"></a> [stop\_timeout\_seconds](#input\_stop\_timeout\_seconds) | Seconds ECS waits after SIGTERM before it kills the container (stopTimeout), 2 to 120 on Fargate. The server drains HTTP for up to 15 s, then its workers for up to 30 s plus 5 s for cancelled handlers, so a value under 50 can cut the drain short. | `number` | `60` | no |
 | <a name="input_wait_for_steady_state"></a> [wait\_for\_steady\_state](#input\_wait\_for\_steady\_state) | Make terraform apply wait until the new tasks pass /readyz, so an apply of an upgrade fails when the deployment rolls back. | `bool` | `true` | no |
+| <a name="input_deployment_timeout"></a> [deployment\_timeout](#input\_deployment\_timeout) | How long terraform apply waits for the service to reach a steady state when wait\_for\_steady\_state is true, as the create and update timeout of the ECS service, such as 20m or 1h. | `string` | `"20m"` | no |
 | <a name="input_log_retention_days"></a> [log\_retention\_days](#input\_log\_retention\_days) | Retention of the server log group in days. | `number` | `30` | no |
 | <a name="input_log_level"></a> [log\_level](#input\_log\_level) | Server log level (STACKORDER\_LOG\_LEVEL). | `string` | `"info"` | no |
 | <a name="input_extra_environment"></a> [extra\_environment](#input\_extra\_environment) | Additional environment variables for the server, such as STACKORDER\_WORKERS or OTEL\_EXPORTER\_OTLP\_ENDPOINT. Variables the module sets itself are rejected. | `map(string)` | `{}` | no |
