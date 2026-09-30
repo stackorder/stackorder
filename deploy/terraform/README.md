@@ -518,8 +518,10 @@ terraform test
 The tests plan against mock AWS and HTTP providers and need no AWS account.
 Mock providers cannot serve ephemeral resources, so the tests use the real
 random provider and check the values written to the secrets through the
-module's locals. They need Terraform 1.11 or later, the same floor as the module, which CI checks by
-validating the module and its examples on 1.11 and 1.14.
+module's locals. They need Terraform 1.11.4 or later: 1.11.0 to 1.11.3
+return values for write-only attributes from mock providers, which fails
+the plans. CI validates the module and its examples, and runs the tests,
+on the latest 1.11 and 1.14 releases.
 
 ## Requirements
 
