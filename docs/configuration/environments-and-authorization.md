@@ -211,6 +211,7 @@ Two things take layers away: an account with one person, which has nobody else t
 | Required reviewers, wait timer, custom deployment protection rules (layers 3 and 4) | Yes | No | No; needs GitHub Enterprise |
 | Deployment branch and tag policies | Yes | No | Yes |
 | Branch protection and rulesets | Yes | No | Yes |
+| Environment secrets and variables | Yes | No | Yes |
 | `environment` in the OIDC token's `sub` and `environment` claims | When the job runs under an environment | Same | Same |
 
 The last row is what keeps layer 5 in place. GitHub puts the environment in the token of every job that declares one, protected or not, so an apply role that trusts only `repo:acme/infra:environment:production` still refuses plan jobs and jobs under any other environment.
@@ -251,6 +252,7 @@ What still protects an apply on a private repository under GitHub Free:
 - **Write permission.** The server accepts `stackorder apply` only from someone with push permission, and only such a person can merge.
 - **The trust policy pinned to the environment.** Only jobs that run under `production` obtain the production apply role. Without environment protection, though, any workflow that someone with write access pushes can declare `environment: production`, on any branch. Pin the role to the canonical reusable workflow with `job_workflow_ref`, as in [Pinning the reusable workflow](#layer-5), so that only jobs of `run.yml` obtain it, not a workflow written in the repository.
 - **The server's own checks.** The apply job confirms its run, commit and lock with the server before it applies. The server accepts only a token from the default branch, for the repository id it knows, under the environment it assigned, from a workflow run it can tie to one of its own dispatches. Set `STACKORDER_REQUIRED_WORKFLOW_REF` so it also refuses tokens from any other workflow. See [Security hardening](/operations/security-hardening#workflow-ref).
+- **A read-only provider token.** There are no environment secrets, so a provider token passed through `env` comes from a repository or organization secret, and every plan and drift job can read it. Keep that token read-only. For applies that need write access, use a public repository, GitHub Pro or Team, or a credential the provider issues through OIDC.
 
 Anyone with write access to such a repository can therefore apply. Keep the collaborator list to the people you would trust with the apply role.
 

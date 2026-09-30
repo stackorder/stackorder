@@ -326,7 +326,7 @@ AWS credentials come from the roles of step 4. If a provider needs another crede
       env: ${{ secrets.STACKORDER_ENV }}
 ```
 
-A token that can change infrastructure goes in an environment secret named `ENV` on `production`, which replaces the repository secret for applies under that environment. See [Provider credentials](/configuration/workflows#env).
+A token that can change infrastructure goes in an environment secret named `ENV` on `production`, which replaces the repository secret for applies under that environment. A private repository on GitHub Free has no environment secrets, so keep its provider tokens read-only; see [Personal accounts and GitHub Free](/configuration/environments-and-authorization#free-plan). See [Provider credentials](/configuration/workflows#env).
 
 ## 8. Protect the default branch {#branch-protection}
 

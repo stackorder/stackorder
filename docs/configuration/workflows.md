@@ -157,7 +157,7 @@ The environment secret takes effect only for a secret the caller passes, so pass
 A pull request plan runs the pull request's code, and so does a plan the server dispatches for a pull request. That code can read every variable of its job and send it anywhere, and a pull request can edit its own calling workflow to pass any repository or organization secret. Treat provider tokens like the AWS roles:
 
 - Pass plans a read-only token, from a repository secret or the `ENV` secret of `default`. The `ENV` secret of `default` replaces the passed secret for dispatched plans and drift checks, when it exists, so keep it read-only too.
-- Keep a token that can change infrastructure only in the `ENV` secret of the environments whose protection rules gate applies. The job gets it after those rules pass.
+- Keep a token that can change infrastructure only in the `ENV` secret of the environments whose protection rules gate applies. The job gets it after those rules pass. A private repository on GitHub Free has no environment secrets, so keep every token it passes through `env` read-only; see [Personal accounts and GitHub Free](/configuration/environments-and-authorization#free-plan).
 
 A credential read by the provider from its own environment variable, such as `CLOUDFLARE_API_TOKEN`, never reaches the plan file. A credential passed as a Terraform variable through `TF_VAR_` does, unless the variable is [ephemeral](./instances#ephemeral): the saved plan stores the value, the `plan` action uploads the plan file as a workflow artifact that anyone who can read the repository can download, and the apply reuses the plan-time value. Declare such a variable `ephemeral`:
 
