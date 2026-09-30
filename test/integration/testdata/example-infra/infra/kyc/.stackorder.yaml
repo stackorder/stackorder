@@ -1,0 +1,3 @@
+backend_config:
+  - infra/state.s3.tfbackend
+  - 'key={{ trimPrefix "infra/" .Path }}/{{ .Instance }}.tfstate'

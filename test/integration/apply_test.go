@@ -148,7 +148,7 @@ func TestApplyAcrossWaves(t *testing.T) {
 	var view v1.GraphView
 	e.getJSON("/v1/repos/"+f.name+"/graph", &view)
 	assert.Equal(t, head, view.SHA, "the merged pull request's graph is the default-branch graph")
-	assert.Len(t, view.StackIDs, 6)
+	assert.ElementsMatch(t, exampleStackKeys, keysOf(view.StackIDs))
 	unlocks := f.audit("unlock")
 	assert.Len(t, unlocks, 5)
 	for _, u := range unlocks {

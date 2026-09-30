@@ -1,7 +1,13 @@
 version: 1
 
 stacks:
-  discover: ["stacks/**"]
+  discover: ["stacks/**", "infra/**"]
+  instances:
+    from_var_files: "workspaces/*.tfvars.json"
+
+env:
+  TF_VAR_environment: "{{ .Instance }}"
+  TF_VAR_role: { plan: plan, apply: deploy }
 
 modules:
   paths: ["modules/**"]

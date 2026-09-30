@@ -157,14 +157,14 @@ func TestHumanAPI(t *testing.T) {
 	assert.Equal(t, []string{f.name, modules}, names, "a person sees only the repositories of their organisations")
 	for _, r := range repos.Items {
 		if r.FullName == f.name {
-			assert.Equal(t, 6, r.Stacks)
+			assert.Equal(t, len(exampleStackKeys), r.Stacks)
 			assert.Equal(t, 5, r.LocksHeld)
 		}
 	}
 	var overview v1.Overview
 	b.get("/v1/overview", &overview)
 	assert.Equal(t, 2, overview.Repos)
-	assert.Equal(t, 6, overview.Stacks)
+	assert.Equal(t, len(exampleStackKeys), overview.Stacks)
 	assert.Equal(t, 5, overview.LocksHeld)
 	assert.Equal(t, 1, overview.RunsByStatus[v1.RunPlanned])
 	assert.Equal(t, 1, overview.RunsByStatus[v1.RunApplying])
@@ -178,7 +178,7 @@ func TestHumanAPI(t *testing.T) {
 	requireJSON(t, p.resolve.outputs["waves"], &planWaves)
 	assert.Equal(t, planWaves, replay.Waves, "the graph replays the run's affected set")
 	assert.Len(t, replay.Affected, 5)
-	assert.Len(t, replay.StackIDs, 6)
+	assert.ElementsMatch(t, exampleStackKeys, keysOf(replay.StackIDs))
 	via := map[string][]string{}
 	for _, a := range replay.Affected {
 		via[a.Key] = a.Via

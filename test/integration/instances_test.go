@@ -3,7 +3,6 @@
 package integration
 
 import (
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -25,42 +24,20 @@ const (
 	kycStaging     = "infra/kyc:staging"
 	registryShared = "infra/registry:shared"
 	stateBackend   = "infra/state.s3.tfbackend"
-
-	instanceBackendConfig = "backend_config:\n" +
-		"  - infra/state.s3.tfbackend\n" +
-		"  - 'key={{ trimPrefix \"infra/\" .Path }}/{{ .Instance }}.tfstate'\n"
+	sandboxBlue    = "stacks/sandbox/blue:blue"
 )
 
 var infraKeys = []string{kycProduction, kycStaging, registryShared}
 
-func withInstances(t *testing.T, kycConfig string) fixtureOption {
-	return func(s *fixtureSetup) {
-		s.config = func(c string) string {
-			out := strings.Replace(c, "  discover: [\"stacks/**\"]\n",
-				"  discover: [\"stacks/**\", \"infra/**\"]\n  instances:\n    from_var_files: \"workspaces/*.tfvars.json\"\n", 1)
-			return strings.Replace(out, "\nmodules:\n",
-				"\nenv:\n  TF_VAR_environment: \"{{ .Instance }}\"\n  TF_VAR_role: { plan: plan, apply: deploy }\n\nmodules:\n", 1)
+func withInstances(t *testing.T, kycPrefix string) fixtureOption {
+	return withEdit(func(root string) {
+		for _, path := range []string{stateBackend, "infra/kyc/.stackorder.yaml", "infra/kyc/workspaces/production.tfvars.json", "infra/kyc/workspaces/staging.tfvars.json", "infra/registry/.stackorder.yaml"} {
+			require.FileExists(t, filepath.Join(root, filepath.FromSlash(path)), "the vendored example holds the infra/ instances")
 		}
-		s.edit = func(root string) {
-			backend := "terraform {\n  backend \"s3\" {}\n}\n"
-			files := map[string]string{
-				stateBackend:                                  "bucket       = \"stackorder-example-state\"\nregion       = \"us-east-1\"\nuse_lockfile = true\n",
-				"infra/kyc/.stackorder.yaml":                  kycConfig,
-				"infra/kyc/backend.tf":                        backend,
-				"infra/kyc/main.tf":                           "variable \"environment\" {\n  type = string\n}\n\nvariable \"instance_size\" {\n  type = string\n}\n\nresource \"terraform_data\" \"kyc\" {\n  input = {\n    environment   = var.environment\n    instance_size = var.instance_size\n  }\n}\n",
-				"infra/kyc/workspaces/production.tfvars.json": "{\n  \"instance_size\": \"large\"\n}\n",
-				"infra/kyc/workspaces/staging.tfvars.json":    "{\n  \"instance_size\": \"small\"\n}\n",
-				"infra/registry/.stackorder.yaml":             "instances: [shared]\ndepends_on:\n  - \"infra/kyc:production\"\n" + instanceBackendConfig,
-				"infra/registry/backend.tf":                   backend,
-				"infra/registry/main.tf":                      "variable \"environment\" {\n  type = string\n}\n\nresource \"terraform_data\" \"registry\" {\n  input = {\n    environment = var.environment\n  }\n}\n",
-			}
-			for path, content := range files {
-				file := filepath.Join(root, filepath.FromSlash(path))
-				require.NoError(t, os.MkdirAll(filepath.Dir(file), 0o750))
-				require.NoError(t, os.WriteFile(file, []byte(content), 0o600))
-			}
+		if kycPrefix != "" {
+			editFile(t, root, "infra/kyc/.stackorder.yaml", func(s string) string { return kycPrefix + s })
 		}
-	}
+	})
 }
 
 func (f *fixture) instancePlans() {
@@ -76,9 +53,15 @@ func (f *fixture) branchEditing(branch, path, msg string, change func(string) st
 }
 
 func (f *fixture) kycBranch() string {
-	return f.branchEditing("feature/kyc", "infra/kyc/main.tf", "feat(kyc): tag the instances", func(s string) string {
-		return s + "\noutput \"environment\" {\n  value = var.environment\n}\n"
-	})
+	return f.branchEditing("feature/kyc", "infra/kyc/main.tf", "feat(kyc): describe the instance size", describeInstanceSize(f.t))
+}
+
+func describeInstanceSize(t *testing.T) func(string) string {
+	return func(s string) string {
+		const old = "variable \"instance_size\" {\n  type = string\n}"
+		require.Contains(t, s, old, "infra/kyc/main.tf declares instance_size")
+		return strings.Replace(s, old, "variable \"instance_size\" {\n  type        = string\n  description = \"Instance size of the environment.\"\n}", 1)
+	}
 }
 
 func matrixByKey(m v1.Matrix) map[string]v1.MatrixEntry {
@@ -91,7 +74,7 @@ func matrixByKey(m v1.Matrix) map[string]v1.MatrixEntry {
 
 func TestStackInstancesPlanAndApply(t *testing.T) {
 	e := shared(t)
-	f := newFixture(t, e, "instances-apply", withInstances(t, instanceBackendConfig))
+	f := newFixture(t, e, "instances-apply", withInstances(t, ""))
 	f.instancePlans()
 	head := f.kycBranch()
 	const pr = 50
@@ -283,8 +266,7 @@ func TestStackInstanceAllowedTeams(t *testing.T) {
 		"  production:\n" +
 		"    apply:\n" +
 		"      allowed_teams: [kyc-prod]\n" +
-		"  staging: {}\n" +
-		instanceBackendConfig
+		"  staging: {}\n"
 	f := newFixture(t, e, "instances-teams", withInstances(t, kycConfig))
 	e.GH.SetTeamMembership(acmeOrg, "kyc-prod", reviewer, gh.MembershipActive)
 	f.instancePlans()
@@ -322,7 +304,7 @@ func TestStackInstanceAllowedTeams(t *testing.T) {
 
 func TestStackInstancesWatchPath(t *testing.T) {
 	e := shared(t)
-	f := newFixture(t, e, "instances-watch", withInstances(t, instanceBackendConfig))
+	f := newFixture(t, e, "instances-watch", withInstances(t, ""))
 	f.instancePlans()
 	head := f.branchEditing("feature/state-bucket", stateBackend, "chore(infra): name the state region", func(s string) string {
 		return strings.Replace(s, "region       = \"us-east-1\"\n", "region       = \"us-east-2\"\n", 1)
@@ -338,4 +320,67 @@ func TestStackInstancesWatchPath(t *testing.T) {
 		assert.Contains(t, stacks[key].Reasons, v1.ReasonWatchPath, key)
 		assert.NotContains(t, stacks[key].Reasons, v1.ReasonChanged, key)
 	}
+
+	var view v1.GraphView
+	e.getJSON("/v1/repos/"+f.name+"/graph?run="+p.runID, &view)
+	regions := map[string]string{}
+	for _, st := range view.Graph.Stacks {
+		if slices.Contains(infraKeys, st.Key) {
+			assert.Contains(t, st.WatchPaths, stateBackend, st.Key)
+			if assert.NotNil(t, st.Backend, st.Key) {
+				regions[st.Key] = st.Backend.Region
+			}
+		}
+	}
+	assert.Equal(t, map[string]string{kycProduction: "us-east-2", kycStaging: "us-east-2", registryShared: "us-east-2"}, regions,
+		"the graph of the pull request carries the changed backend config file, not a stored graph of the base")
+}
+
+func TestLegacyWorkspaceStackEnvironment(t *testing.T) {
+	e := shared(t)
+	f := newFixture(t, e, "instances-legacy", withInstances(t, ""), withConfig(func(c string) string {
+		return strings.Replace(c, "  \"stacks/staging/\": staging\n", "  \"stacks/staging/\": staging\n  \":staging\": kyc-staging\n", 1)
+	}))
+	f.instancePlans()
+	f.setStack(sandboxBlue, func(b *faketf.Behavior) { b.PlanExit, b.ShowJSON = 2, fixturePath(t, "kyc.json") })
+	f.co.branch("feature/sandbox", f.co.base)
+	for path, content := range map[string]string{
+		"stacks/sandbox/blue/.stackorder.yaml": "workspace: blue\n",
+		"stacks/sandbox/blue/backend.tf":       "terraform {\n  backend \"s3\" {\n    bucket = \"stackorder-example-state\"\n    key    = \"sandbox/blue.tfstate\"\n    region = \"us-east-1\"\n  }\n}\n",
+		"stacks/sandbox/blue/main.tf":          "resource \"terraform_data\" \"marker\" {}\n",
+	} {
+		f.co.edit(path, "feat(sandbox): add "+path, func(string) string { return content })
+	}
+	head := f.co.edit("infra/kyc/main.tf", "feat(kyc): describe the instance size", describeInstanceSize(t))
+	const pr = 53
+	ev := f.openPR(pr, head, "feature/sandbox")
+	p := f.plan(ev)
+
+	entries := matrixByKey(p.matrix)
+	require.ElementsMatch(t, append([]string{sandboxBlue}, infraKeys...), keysOf(entries))
+	blue := entries[sandboxBlue]
+	assert.Equal(t, "blue", blue.Instance, "a legacy workspace stack is the one instance named after its workspace")
+	assert.Equal(t, "blue", blue.Workspace)
+	assert.Equal(t, "blue", blue.Environment, "without an environment key a legacy workspace stack is protected by the environment of its instance")
+	assert.Equal(t, "kyc-staging", entries[kycStaging].Environment, "an :instance key of environments maps that instance in any directory")
+	assert.Equal(t, "production", entries[kycProduction].Environment, "the :staging key does not bind the sibling instance")
+
+	f.approve(pr, reviewer, head)
+	cmd := f.comment(pr, applier, applyCommand)
+	require.Equal(t, []string{gh.ReactionEyes, gh.ReactionRocket}, e.GH.Reactions(cmd.ID), "the apply is accepted")
+	all := f.dispatches("")
+	require.NotEmpty(t, all)
+	wave0 := f.waitDispatches(all[0].Inputs["run_id"], 0, 3)
+	groups := make([]string, 0, len(wave0))
+	for _, d := range wave0 {
+		got := dispatchEntries(t, d)
+		require.Len(t, got, 1, "wave 0 is dispatched once per environment")
+		groups = append(groups, got[0].Environment+"="+got[0].Key)
+	}
+	assert.Equal(t, []string{"blue=" + sandboxBlue, "kyc-staging=" + kycStaging, "production=" + kycProduction}, groups)
+
+	res := f.apply(wave0[0], nil)[sandboxBlue]
+	requireExit(t, 0, res)
+	applies := callsFor(t, f, sandboxBlue, "apply")
+	require.Len(t, applies, 1, "the job bound to the blue environment applied the stack")
 }

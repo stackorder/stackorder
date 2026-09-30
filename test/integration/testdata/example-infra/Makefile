@@ -1,6 +1,6 @@
 TF ?= terraform
-DIRS := $(shell find modules stacks -name '*.tf' -not -path '*/.terraform/*' -exec dirname {} \; | sort -u)
-TEST_DIRS := $(sort $(patsubst %/tests,%,$(patsubst %/,%,$(dir $(shell find modules stacks -name '*.tftest.hcl' -not -path '*/.terraform/*')))))
+DIRS := $(shell find modules stacks infra -name '*.tf' -not -path '*/.terraform/*' -exec dirname {} \; | sort -u)
+TEST_DIRS := $(sort $(patsubst %/tests,%,$(patsubst %/,%,$(dir $(shell find modules stacks infra -name '*.tftest.hcl' -not -path '*/.terraform/*')))))
 
 .PHONY: fmt validate test graph
 

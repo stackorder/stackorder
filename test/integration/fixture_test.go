@@ -44,6 +44,8 @@ const (
 	legacyDNS   = "stacks/legacy/dns"
 )
 
+var exampleStackKeys = append([]string{prodVPC, stagingVPC, prodEKS, prodApps, stagingApps, legacyDNS}, infraKeys...)
+
 var repoIDs atomic.Int64
 
 func init() { repoIDs.Store(810000) }

@@ -67,7 +67,12 @@ func TestDriftChecks(t *testing.T) {
 	}
 	require.NoError(t, rows.Err())
 	rows.Close()
-	require.Len(t, jobs, 6, "one drift job per stack of the default-branch graph")
+	want := make([]string, 0, len(exampleStackKeys))
+	for _, key := range exampleStackKeys {
+		want = append(want, f.stackID(key))
+	}
+	require.ElementsMatch(t, want, keysOf(jobs), "one drift job per stack of the default-branch graph, one per instance")
+	require.Len(t, due, len(want), "no stack gets a second drift job")
 	assert.Less(t, due[len(due)-1].Sub(due[0]), time.Hour, "the checks are staggered across the hour")
 	assert.Greater(t, due[len(due)-1].Sub(due[0]), 30*time.Minute)
 
