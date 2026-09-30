@@ -6,6 +6,7 @@ import { ApiClient, ApiError } from './api/client';
 import { ApiProvider, useApi } from './api/context';
 import type { Whoami } from './api/types';
 import { useResource } from './api/useResource';
+import { BrandLogo } from './components/BrandLogo';
 import { ErrorState, SignInLink } from './components/ErrorState';
 import { Loading } from './components/Loading';
 import { ModulePage } from './pages/ModulePage';
@@ -110,12 +111,7 @@ function Frame({ header, children }: { header?: ComponentChildren; children: Com
       </a>
       <header class="app-header">
         <a class="brand" href="/">
-          <svg class="brand__mark" viewBox="0 0 32 32" width="22" height="22" aria-hidden="true">
-            <rect x="3" y="4" width="12" height="7" rx="2" />
-            <rect x="17" y="12.5" width="12" height="7" rx="2" />
-            <rect x="3" y="21" width="12" height="7" rx="2" />
-          </svg>
-          Stackorder
+          <BrandLogo />
         </a>
         {header}
       </header>

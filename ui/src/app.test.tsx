@@ -48,6 +48,7 @@ describe('App', () => {
     expect(nav.getByRole('link', { name: 'Repositories' })).not.toHaveAttribute('aria-current');
     expect(screen.getByText('octocat', { selector: '.user-menu__login' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Skip to content' })).toHaveAttribute('href', '#main');
+    expect(screen.getByRole('link', { name: 'Stackorder' })).toHaveAttribute('href', '/');
   });
 
   it('routes between pages from the navigation', async () => {

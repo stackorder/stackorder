@@ -12,6 +12,8 @@
   --link: #0a58ca;
   --focus: #2f6fe4;
   --shadow: 0 1px 2px rgb(15 23 42 / 8%);
+  --brand-ink: #2f3e46;
+  --brand-accent: #a4472f;
 
   --neutral-bg: #eceff3;
   --neutral-fg: #3f4854;
@@ -55,6 +57,8 @@
     --link: #7fb0ff;
     --focus: #7fb0ff;
     --shadow: 0 1px 2px rgb(0 0 0 / 40%);
+    --brand-ink: #f4f1de;
+    --brand-accent: #f2a28a;
 
     --neutral-bg: #262c35;
     --neutral-fg: #c9d0da;
@@ -203,20 +207,18 @@ code {
 
 .brand {
   display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-weight: 700;
-  font-size: 1.05rem;
-  color: var(--text);
-  text-decoration: none;
 }
 
-.brand__mark rect {
-  fill: var(--running-fg);
+.brand-logo {
+  display: block;
 }
 
-.brand__mark rect:nth-child(2) {
-  fill: var(--success-fg);
+.brand-logo__ink {
+  fill: var(--brand-ink);
+}
+
+.brand-logo__accent {
+  fill: var(--brand-accent);
 }
 
 .app-nav ul {
