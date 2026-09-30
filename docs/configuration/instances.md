@@ -263,6 +263,7 @@ A mode the object leaves out, other than `drift`, leaves the variable as the job
 - **Names.** A name matches `[A-Za-z_][A-Za-z0-9_]*`. It may not start with `STACKORDER_`, `GITHUB_`, `ACTIONS_` or `RUNNER_`, nor be `PATH` or `HOME`, in any letter case: `github_token` and `Path` are refused too.
 - **Values.** A value may not be null: `TF_VAR_x:` with nothing after it is an error. Write `""` for an empty string.
 - **Redaction.** A value whose variable name looks like a secret, such as `DB_PASSWORD`, is masked in everything the CLI reports, under the same rule as the process environment (see [Secrets](/reference/cli#secrets)). The values are still in the repository: never put a secret in `env`.
+- **Secrets.** Values are literal apart from their [templates](#templates), which read only the stack's path and instance: `env` reads no secret store and no environment variable. A provider credential, such as a Cloudflare API token, comes from the `env` secret of the reusable workflows instead, which the job exports before the CLI runs (see [Provider credentials](./workflows#env)). A variable of the same name in `env` replaces it for what the CLI runs.
 - **Where it applies.** `env` reaches only what the CLI runs. The workflow steps before it, such as the AWS credentials step, never see it.
 
 ### Plan-time values and ephemeral variables {#ephemeral}
@@ -466,7 +467,6 @@ jobs:
       server-url: ${{ vars.STACKORDER_SERVER_URL }}
       aws-role-arn: arn:aws:iam::123456789012:role/stackorder-plan
       aws-role-session-name: stackorder-plan
-    secrets: inherit
 ```
 
 `stackorder-run.yml` passes both, with a session name per mode:
@@ -490,7 +490,6 @@ jobs:
       aws-plan-role-arn: arn:aws:iam::123456789012:role/stackorder-plan
       aws-role-arn: arn:aws:iam::123456789012:role/stackorder-apply
       aws-role-session-name: '{"plan": "stackorder-plan", "drift": "stackorder-plan", "apply": "stackorder-apply"}'
-    secrets: inherit
 ```
 
 The rest of `stackorder-run.yml`, its `run-name` and its dispatch inputs, is on [Workflows](./workflows#run).
@@ -505,7 +504,7 @@ The rest of `stackorder-run.yml`, its `run-name` and its dispatch inputs, is on 
 ### Limits {#bootstrap-limits}
 
 - **One hour.** A session obtained with another role's session is role chaining, and AWS limits a chained session to one hour whatever the role's maximum session duration. The bootstrap session from `configure-aws-credentials` also lasts one hour by default. An apply that runs longer fails with expired credentials; split stacks that take that long.
-- **Plans cannot use environment secrets.** Pull request plans have no GitHub environment and dispatched plans run under `default`, so the provider role, like everything else a plan needs, must come from configuration or the repository's own secrets.
+- **Plans cannot use the apply environments' secrets.** Pull request plans have no GitHub environment and dispatched plans run under `default`, so the provider role, like everything else a plan needs, must come from configuration, from the `env` secret the calling workflow passes, or from the `ENV` secret of `default` (see [Provider credentials](./workflows#env)).
 
 ## Migrating from Stategraph (formerly Terrateam) {#terrateam}
 
