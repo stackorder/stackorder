@@ -1,5 +1,5 @@
 ---
-title: 'Stackorder concepts: stacks, waves and locks'
+title: 'Concepts: stacks, edges, waves and locks'
 description: 'Stacks, modules, instances and the three edge kinds of Stackorder''s dependency graph, and how it computes the affected set, apply waves and stack locks.'
 ---
 
