@@ -1,6 +1,19 @@
-# Stackorder
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/lockup-dark.svg">
+    <img alt="Stackorder" src=".github/assets/lockup-light.svg" height="60">
+  </picture>
+</h1>
 
-Lightweight Terraform and OpenTofu orchestration on GitHub Actions.
+<p align="center">Lightweight Terraform and OpenTofu orchestration on GitHub Actions.</p>
+
+<p align="center">
+  <a href="https://stackorder.io">Website</a>
+  ·
+  <a href="https://docs.stackorder.io">Docs</a>
+  ·
+  <a href="https://github.com/stackorder/stackorder/releases">Releases</a>
+</p>
 
 Stackorder is a GitHub App plus a small control-plane server that decides **which** stacks to run and **in what order**, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay inside your GitHub org and AWS account; the server only ever sees metadata.
 
