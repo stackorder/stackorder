@@ -209,6 +209,7 @@ In the repository settings, under **Environments**:
 - The server dispatches `stackorder-run.yml` on the default branch, and the job checks out the commit it is given, so a default-branch deployment rule never blocks a legitimate apply and stops a workflow on another branch from using the environment.
 - Do not put required reviewers on `default`: every `stackorder plan` comment and every scheduled drift check would wait for an approval.
 - Required reviewers on private repositories need GitHub Enterprise. Without them, the trust policy remains the hard stop, and the [deployment protection rule](/configuration/environments-and-authorization#layer-4) can replace the human.
+- A personal account has no teams, and a private repository on GitHub Free has no environment settings at all. See [Personal accounts and GitHub Free](/configuration/environments-and-authorization#free-plan) for what still holds.
 - The App cannot approve a deployment: it has no Environments permission, and an App cannot be a required reviewer.
 
 ## Required workflow ref {#workflow-ref}
@@ -260,6 +261,7 @@ On the default branch, with a branch protection rule or a ruleset:
 - Require the approvals `apply.require_approvals` asks for, and review from code owners.
 - Put `.github/workflows/`, `stackorder.yaml`, every `.stackorder.yaml` and `.stackorder/hooks/` under `CODEOWNERS` of a team you trust with production. The server reads its policy from `stackorder.yaml` on the default branch, the dispatched workflow is the default branch's `stackorder-run.yml`, and the CLI runs the hooks inside apply jobs and takes `env`, `backend_config` and `var_files` from the commit it applies, so all of them decide what an apply does.
 - Restrict who can push to the default branch and who can bypass the rules.
+- A private repository on GitHub Free has neither branch protection nor rulesets. Keep its collaborators to the people you trust with the apply role, and pin the roles to the reusable workflow as [above](#subject-workflow-ref).
 
 ## Server secrets and network {#server}
 

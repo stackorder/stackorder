@@ -207,6 +207,8 @@ Create `staging` the same way, with fewer or no reviewers. The environment `defa
 
 Required reviewers on private repositories need GitHub Enterprise. [Environments and authorization](/configuration/environments-and-authorization) covers the alternatives.
 
+A private repository on GitHub Free has none of these settings: GitHub still creates each environment on first use, with no protection rules. For that case, and for a repository owned by a personal account, see [Personal accounts and GitHub Free](/configuration/environments-and-authorization#free-plan).
+
 ## 6. Add `stackorder.yaml` {#stackorder-yaml}
 
 At the repository root:
@@ -224,6 +226,8 @@ environments:
 apply:
   require_approvals: 1
 ```
+
+If you work alone, set `require_approvals: 0`: nobody else can approve your pull requests, and your own review never counts. See [Settings for a single owner](/configuration/environments-and-authorization#single-owner).
 
 Everything else keeps its default: stacks under `stacks/**`, `modules/**` treated as modules rather than stacks, applies before merge, dependents propagated. The full list is on the [`stackorder.yaml` page](/configuration/stackorder-yaml).
 
@@ -313,6 +317,8 @@ Add a branch protection rule or ruleset on the default branch that requires:
 - review from code owners, if you use `CODEOWNERS`.
 
 Stackorder only reports checks. GitHub enforces the merge.
+
+Private repositories on GitHub Free have neither branch protection nor rulesets, so nothing but write permission guards the merge. See [Personal accounts and GitHub Free](/configuration/environments-and-authorization#free-plan).
 
 ## 9. Open a pull request {#first-pr}
 

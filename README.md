@@ -29,7 +29,7 @@ Stackorder plans every stack a pull request affects and applies them in dependen
 
 ## What it does
 
-Stackorder is a GitHub App plus a small control-plane server that decides **which** stacks to run and **in what order**, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay inside your GitHub org and AWS account; the server receives metadata and redacted, size-capped plan text, never cloud credentials or Terraform state.
+Stackorder is a GitHub App plus a small control-plane server that decides **which** stacks to run and **in what order**, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay inside your GitHub organization or personal account and your AWS account; the server receives metadata and redacted, size-capped plan text, never cloud credentials or Terraform state.
 
 The server has exactly two jobs:
 
@@ -195,7 +195,7 @@ jobs:
     secrets: inherit
 ```
 
-Applies assume the role `aws-role-arn-map` gives their stack: an exact key such as `infra/network:production`, then an instance in any directory such as `:production`, then the longest matching path prefix; server-dispatched plans and drift checks run under the environment `default` and assume `aws-plan-role-arn`, so the plan role must trust both the repository's `pull_request` tokens and `environment:default`. A repository created after July 15, 2026 carries numeric ids in its OIDC subjects; [Security hardening](docs/operations/security-hardening.md#immutable-subjects) shows how to read the prefix a trust policy must match. Branch protection on the default branch should require the `stackorder/plan` and `stackorder/apply` checks. [Workflows](docs/configuration/workflows.md) documents every input.
+Applies assume the role `aws-role-arn-map` gives their stack: an exact key such as `infra/network:production`, then an instance in any directory such as `:production`, then the longest matching path prefix; server-dispatched plans and drift checks run under the environment `default` and assume `aws-plan-role-arn`, so the plan role must trust both the repository's `pull_request` tokens and `environment:default`. A repository created after July 15, 2026 carries numeric ids in its OIDC subjects; [Security hardening](docs/operations/security-hardening.md#immutable-subjects) shows how to read the prefix a trust policy must match. Branch protection on the default branch, where your GitHub plan offers it, should require the `stackorder/plan` and `stackorder/apply` checks; [Personal accounts and GitHub Free](docs/configuration/environments-and-authorization.md#free-plan) covers repositories without it. [Workflows](docs/configuration/workflows.md) documents every input.
 
 A stack declares cross-stack dependencies in its own `.stackorder.yaml`:
 

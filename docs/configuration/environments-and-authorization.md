@@ -8,8 +8,8 @@ Write access to the repository is the floor, not the ceiling. An apply passes up
 
 | Layer | Enforced by | What it gates | Availability |
 | --- | --- | --- | --- |
-| 1. `apply.allowed_teams` | The server | Who may *request* an apply | All plans; needs the App's `Members: Read` |
-| 2. Code-owner approval | GitHub (merge) and the server (before-merge apply) | Who must *approve* the change | All plans |
+| 1. `apply.allowed_teams` | The server | Who may *request* an apply | Repositories owned by an organisation; needs the App's `Members: Read` |
+| 2. Code-owner approval | GitHub (merge) and the server (before-merge apply) | Who must *approve* the change | The server check on all plans; the merge rule needs branch protection, which private repos on GitHub Free lack |
 | 3. GitHub Environment with required reviewers | GitHub | Whether the apply *job may start* | Public repos on all plans; private repos need GitHub Enterprise |
 | 4. Custom deployment protection rule | GitHub, with the server's logic | Same as 3, decided automatically | Same as 3; extra App permission and event |
 | 5. IAM trust policy pinned to the environment | AWS | Whether the job can obtain *credentials* at all | All plans |
@@ -21,6 +21,8 @@ Write access to the repository is the floor, not the ceiling. An apply passes up
 - **Layer 5** to make it airtight.
 
 Layer 4 is the upgrade for teams that find the manual approval redundant with code review. The plan role stays open to anyone with write access: planning is read-only, and the plan role has no write permissions.
+
+A repository owned by a personal account, or a private repository on GitHub Free, cannot have most of these layers. See [Personal accounts and GitHub Free](#free-plan).
 
 ## Layer 1: team check on the request {#layer-1}
 
@@ -41,6 +43,7 @@ apply:
 - The rule is per stack. A run touching `stacks/prod/**` and `stacks/staging/**` requires the commenter to satisfy every affected stack's `allowed_teams`, or to name a subset.
 - With no `allowed_teams`, the check falls back to push permission on the repository.
 - It needs the App's `Members: Read` permission, which the App created by `/setup` has. Without it the gate refuses with a reason saying so.
+- A personal account has no teams. On a repository it owns, a bare slug names no team, so every apply is refused; leave `allowed_teams` empty.
 
 This layer fails fast with a good message, and nothing more. A bug or a compromised server skips it.
 
@@ -197,6 +200,59 @@ The subject then ends with the workflow reference, and the trust policy can requ
 The customization applies to every workflow in the repository, so update the plan role's condition too, to `repo:acme/infra:pull_request:job_workflow_ref:stackorder/actions/.github/workflows/plan.yml@refs/tags/v1*` and `repo:acme/infra:environment:default:job_workflow_ref:stackorder/actions/.github/workflows/run.yml@refs/tags/v1*`.
 
 Now the only path to production credentials runs through the environment gate, whatever the server or the PR's workflow file says. Pair it with `STACKORDER_REQUIRED_WORKFLOW_REF` on the server, so results are accepted only from the canonical workflows. See [Server configuration](/reference/server-configuration).
+
+## Personal accounts and GitHub Free {#free-plan}
+
+Two things take layers away: an account with one person, which has nobody else to approve, and a plan that does not offer GitHub's protection features on private repositories.
+
+| Feature | Public repository, any plan | Private repository, GitHub Free | Private repository, GitHub Pro or Team |
+| --- | --- | --- | --- |
+| Environment created on first use by a workflow | Yes | Yes, with no protection rules | Yes |
+| Required reviewers, wait timer, custom deployment protection rules (layers 3 and 4) | Yes | No | No; needs GitHub Enterprise |
+| Deployment branch and tag policies | Yes | No | Yes |
+| Branch protection and rulesets | Yes | No | Yes |
+| `environment` in the OIDC token's `sub` and `environment` claims | When the job runs under an environment | Same | Same |
+
+The last row is what keeps layer 5 in place. GitHub puts the environment in the token of every job that declares one, protected or not, so an apply role that trusts only `repo:acme/infra:environment:production` still refuses plan jobs and jobs under any other environment.
+
+### Settings for a single owner {#single-owner}
+
+- **`apply.require_approvals: 0`**, the default. GitHub does not let the author approve their own pull request, and the server ignores the author's review too, so `1` refuses every `before_merge` apply of a person working alone.
+- **No `apply.allowed_teams`**. A personal account has no teams, and the check refuses every apply. Without it, the server requires push permission on the repository.
+- **No `apply.four_eyes`** and **no `apply.require_codeowner_review`**. Both need someone other than the author, so both refuse every apply.
+
+```yaml
+# stackorder.yaml
+version: 1
+
+environments:
+  "stacks/prod/": production
+  "stacks/staging/": staging
+
+apply:
+  mode: before_merge
+  require_approvals: 0
+```
+
+Map every stack to a named environment all the same: that is what lets each apply role trust only its own environment.
+
+### Which layers hold {#free-plan-layers}
+
+| Layer | Personal account, public repository | Private repository on GitHub Free |
+| --- | --- | --- |
+| 1. `apply.allowed_teams` | No teams; the push permission check remains | Same, on a personal account; available on an organisation |
+| 2. Code-owner approval | No second reviewer, unless collaborators review | The server check only, and only with a second reviewer; no branch protection enforces the merge |
+| 3. Required reviewers | Available, with you as the only reviewer | Not available |
+| 4. Custom deployment protection rule | Available | Not available |
+| 5. IAM trust policy pinned to the environment | Holds | Holds |
+
+What still protects an apply on a private repository under GitHub Free:
+
+- **Write permission.** The server accepts `stackorder apply` only from someone with push permission, and only such a person can merge.
+- **The trust policy pinned to the environment.** Only jobs that run under `production` obtain the production apply role. Without environment protection, though, any workflow that someone with write access pushes can declare `environment: production`, on any branch. Pin the role to the canonical reusable workflow with `job_workflow_ref`, as in [Pinning the reusable workflow](#layer-5), so that only jobs of `run.yml` obtain it, not a workflow written in the repository.
+- **The server's own checks.** The apply job confirms its run, commit and lock with the server before it applies. The server accepts only a token from the default branch, for the repository id it knows, under the environment it assigned, from a workflow run it can tie to one of its own dispatches. Set `STACKORDER_REQUIRED_WORKFLOW_REF` so it also refuses tokens from any other workflow. See [Security hardening](/operations/security-hardening#workflow-ref).
+
+Anyone with write access to such a repository can therefore apply. Keep the collaborator list to the people you would trust with the apply role.
 
 ## Roles at a glance {#roles}
 
