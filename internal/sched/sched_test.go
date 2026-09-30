@@ -345,7 +345,7 @@ func TestLeadership(t *testing.T) {
 
 	election.set(true, nil)
 	require.Eventually(t, s.Leader, 5*time.Second, time.Millisecond)
-	require.Eventually(t, func() bool { return len(q.keys(runs.JobReconcile)) == 1 }, 5*time.Second, time.Millisecond,
+	require.Eventually(t, func() bool { return len(q.keys(runs.JobReconcile)) == 1 && len(q.keys(runs.JobPrune)) == 1 }, 5*time.Second, time.Millisecond,
 		"a new leader catches up at once")
 	assert.Equal(t, prefixed("reconcile:", unix("2026-09-28T10:00:00Z")), q.keys(runs.JobReconcile))
 	assert.Equal(t, prefixed("prune:", unix("2026-09-28T10:00:00Z")), q.keys(runs.JobPrune))
