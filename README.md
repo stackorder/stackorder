@@ -71,7 +71,7 @@ The runner authenticates to the server with its GitHub OIDC token, bound to the 
 - [Getting started](docs/guide/getting-started.md) takes one repository from nothing to a first `stackorder apply`: deploy the server, create the GitHub App from `/setup`, create the plan and apply roles, add `stackorder.yaml` and the two workflow files.
 - [Local demo](docs/guide/local-demo.md) runs everything on one machine with no GitHub App and no AWS account: Postgres and LocalStack in Docker, the server in setup mode, and the CLI planning, applying and checking drift in `example-infra`.
 
-Both pages are part of the documentation site built from [`docs/`](docs) (`guide/getting-started` and `guide/local-demo` on the site).
+Both pages are published on the documentation site, [docs.stackorder.io](https://docs.stackorder.io), as [Getting started](https://docs.stackorder.io/guide/getting-started) and [Local demo](https://docs.stackorder.io/guide/local-demo); its sources are in [`docs/`](docs).
 
 ## Install
 
@@ -263,7 +263,7 @@ make sync-example     # refresh the vendored copy of example-infra used by the i
 
 ## Documentation
 
-- [Documentation site sources](docs): guide, configuration, reference and operations.
+- [docs.stackorder.io](https://docs.stackorder.io): guide, configuration, reference and operations, built from the sources in [`docs/`](docs).
 - [Design document](https://claude.ai/artifact/W3gQnvGu5Fw9DSXApYE766), the source of truth for behaviour, also reproduced with implementation notes in [docs/design](docs/design/index.md).
 - [ARCHITECTURE.md](ARCHITECTURE.md): the contract between packages and repositories.
 - [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and contributing.
