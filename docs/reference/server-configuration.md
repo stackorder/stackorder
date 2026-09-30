@@ -35,6 +35,7 @@ Values are trimmed of surrounding white space, and an empty value counts as unse
 | `STACKORDER_DRIFT_RETENTION` | `2160h` | How long drift history is kept (90 days); the latest result of each stack is always kept. |
 | `STACKORDER_WORKERS` | `4` | Worker goroutines claiming events and jobs; a positive integer. The database pool gets this many connections plus 8, for the API, the webhook receiver and the scheduler, unless `DATABASE_URL` sets `pool_max_conns`. |
 | `STACKORDER_ALLOW_RESETUP` | `false` | A boolean, such as `true` or `false`; other values are refused. `true` lets a server that already has App credentials create another App through `/setup?force=1`. See [below](#setup-mode). |
+| `STACKORDER_SETUP_TOKEN` | generated | The one-time token that opens `/setup`: at least 32 letters, digits, `.`, `_`, `~` or `-`, such as the output of `openssl rand -hex 32`. When unset and `/setup` can create an App, the server generates one from 32 random bytes at each start and logs the setup URL with it. See [below](#setup-token). |
 | `STACKORDER_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 | `STACKORDER_LOG_FORMAT` | `json` | `json`, or `text` for human-readable lines. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP HTTP base URL, such as `http://otel-collector:4318`; spans go to `<endpoint>/v1/traces`. Unset disables tracing. See [Metrics and tracing](/reference/metrics#tracing). |
@@ -47,9 +48,24 @@ Retention values are positive Go durations, such as `720h` or `90m`. URL variabl
 
 With none of them the server starts in **setup mode**. It connects to the database and runs the migrations, then serves only `/setup`, `/setup/callback`, `/setup/installed`, `/healthz` and `/readyz`; everything else answers `503` with code `unavailable`. It runs no workers, no scheduler and no GitHub client. `/healthz` and `/readyz` report `"setup_mode": true`.
 
-Open `/setup`, create the App, set the printed variables and restart. See [Getting started](/guide/getting-started#create-app) and the [setup endpoints](/reference/api#setup).
+Open the setup URL from the server log, create the App, set the printed variables and restart. See [Getting started](/guide/getting-started#create-app) and the [setup endpoints](/reference/api#setup).
 
 Once the App variables are set, `/setup` only says so. Creating a replacement App, for instance after moving the server to a new URL, needs `STACKORDER_ALLOW_RESETUP=true`; without it `/setup?force=1` and `/setup/callback` answer 404, so nobody can start a second App on a running server. Unset it again once the new credentials are loaded.
+
+### The setup token {#setup-token}
+
+Whoever creates the App owns it, so `/setup` opens only with a one-time token. At start-up the server logs a `setup_url` line at `warn` level, which shows under the default `STACKORDER_LOG_LEVEL`:
+
+```json
+{"time":"…","level":"WARN","msg":"setup is open to whoever holds the setup token; open setup_url in a browser to create the GitHub App","setup_url":"https://stackorder.example.com/setup?token=x0hYMC7BJPZbzQBz6vZcb4IS1MnVumltqNVS5uiNkgE","hint":"…"}
+```
+
+- Open that URL in the browser you create the App with. The server checks the token, sets a signed cookie valid for an hour, and redirects to `/setup` without the token, so the token never reaches GitHub. Add `&org=` or `&name=` to the URL, or open `/setup?org=<organisation>` afterwards in the same browser.
+- Without the token or the cookie, `/setup` answers `403` with a page saying where to find the URL.
+- The token stops working once an App is created. Until the server restarts, `/setup` then says an App exists.
+- A generated token changes at every start, and each instance generates its own. Run one instance until the App exists, or set the same `STACKORDER_SETUP_TOKEN` on every instance.
+- With `STACKORDER_SETUP_TOKEN` set, the log line shows `<STACKORDER_SETUP_TOKEN>` in place of the token. That token opens `/setup` again after every restart, so unset it once the App exists.
+- With `STACKORDER_ALLOW_RESETUP=true` the server logs `/setup?force=1&token=…`. Creating a replacement App needs the token too.
 
 ## Start-up and shutdown {#lifecycle}
 

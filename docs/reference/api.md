@@ -114,7 +114,7 @@ The CLI maps these to [exit codes](/reference/exit-codes#server-answers).
 | [`GET /auth/login`](#sign-in) | Browser | `?next=` | `302` to GitHub |
 | [`GET /auth/callback`](#sign-in) | Browser, from GitHub | | `302` to `next`, sets the session cookie |
 | [`POST /auth/logout`](#sign-in) | Person | | `204` |
-| [`GET /setup`](#setup) | Browser | `?org=&name=&force=1` | HTML, the App manifest form |
+| [`GET /setup`](#setup) | Browser, with the setup token | `?token=&org=&name=&force=1` | HTML, the App manifest form; `303` without `token` after checking it; `403` without the token |
 | [`GET /setup/callback`](#setup) | Browser, from GitHub | | HTML, the App credentials, once |
 | [`GET /setup/installed`](#setup) | Browser, from GitHub | | HTML |
 | [`POST /webhooks/github`](#webhooks) | GitHub | Webhook payload | `202` |
@@ -852,14 +852,16 @@ Without `GITHUB_OAUTH_CLIENT_ID` and `GITHUB_OAUTH_CLIENT_SECRET`, `/auth/login`
 
 `GET /setup` renders a page that posts the GitHub App manifest (webhook URL, callback URLs, [permissions and events](/reference/github-app#permissions)) to GitHub's App creation page, on your personal account or, with `?org=<organisation>`, on an organisation. `?name=` chooses the App name, up to 34 characters; the default is `stackorder-<host>`. Outside setup mode the page explains that an App is already configured; `?force=1` creates another App only when [`STACKORDER_ALLOW_RESETUP`](/reference/server-configuration#setup-mode) is `true`, and otherwise `GET /setup?force=1` and `GET /setup/callback` answer `404`.
 
-GitHub redirects back to `GET /setup/callback`, which converts the one-time code into the App's credentials and prints them once as environment variables: `GITHUB_APP_ID`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` and the PEM for `GITHUB_APP_PRIVATE_KEY`, plus `GITHUB_API_URL` and `GITHUB_WEB_URL` on Enterprise Server, with a link to install the App and the next steps. The code works once and for an hour, and only from the browser that started the flow. GitHub sends the browser to `GET /setup/installed` after an installation.
+The manifest form needs the [setup token](/reference/server-configuration#setup-token) the server logs at start-up. `?token=<token>` sets the `stackorder_setup_auth` cookie, signed, bound to the token and valid for an hour, and answers `303` to the same URL without `token`. Without the token or that cookie, `GET /setup` answers `403`. Once an App is created, the token and the cookie stop working until the server restarts, and `GET /setup` says an App exists.
+
+GitHub redirects back to `GET /setup/callback`, which converts the one-time code into the App's credentials and prints them once as environment variables: `GITHUB_APP_ID`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` and the PEM for `GITHUB_APP_PRIVATE_KEY`, plus `GITHUB_API_URL` and `GITHUB_WEB_URL` on Enterprise Server, with a link to install the App and the next steps. The code works once and for an hour, and only from the browser that started the flow; after an App was created, the callback answers `409`. GitHub sends the browser to `GET /setup/installed` after an installation. That page needs no token: it shows only the installation id GitHub passes.
 
 In setup mode, when the App variables are not set, the server serves only these three pages, `/healthz` and `/readyz`, and answers `503` with code `unavailable` everywhere else:
 
 ```json
 {
   "code": "unavailable",
-  "message": "setup is required: the GitHub App is not configured yet; open https://stackorder.example.com/setup"
+  "message": "setup is required: the GitHub App is not configured yet; open https://stackorder.example.com/setup with the setup token from the server log"
 }
 ```
 

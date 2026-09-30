@@ -15,6 +15,14 @@ No single compromise reaches infrastructure. The server has no cloud access, the
 | A modified workflow in a PR | Change what runs in the plan job on that PR | Post results the server accepts, when `STACKORDER_REQUIRED_WORKFLOW_REF` pins the reusable workflow; assume the AWS role, when the role's trust policy pins `job_workflow_ref` or the environment |
 | A leaked App private key | Everything the server can | Everything the server cannot; rotate in the App settings and redeploy |
 
+## Setup {#setup}
+
+Whoever creates the GitHub App owns it. Between the first deploy and the App's creation, the server in [setup mode](/reference/server-configuration#setup-mode) is reachable by anyone who can reach its URL, so `/setup` opens only with a one-time [setup token](/reference/server-configuration#setup-token):
+
+- The server generates the token from 32 random bytes at start, or takes `STACKORDER_SETUP_TOKEN`, and logs the setup URL with it. Only people who can read the server's log can open the page.
+- The token is compared in constant time and traded for a signed cookie before the page loads, so it never reaches GitHub. The manifest callback converts a code only for the browser that opened the page.
+- Once an App is created, the token stops working until the server restarts.
+
 ## Controls that belong to GitHub {#github-controls}
 
 Stackorder reports; GitHub and AWS enforce.

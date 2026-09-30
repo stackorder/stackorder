@@ -50,8 +50,8 @@ Every minute the server also reconciles dispatches whose webhooks were lost: it 
 
 ## Install flow {#install-flow}
 
-1. Start the server with `STACKORDER_BASE_URL` set and no App variables. It comes up in [setup mode](/reference/server-configuration#setup-mode).
-2. Open `https://<server>/setup`, or `https://<server>/setup?org=<organisation>` to create the App in an organisation. `&name=` chooses its name, up to 34 characters; the default is `stackorder-<host>`.
+1. Start the server with `STACKORDER_BASE_URL` set and no App variables. It comes up in [setup mode](/reference/server-configuration#setup-mode) and logs a `setup_url` line: `https://<server>/setup?token=<token>`, with a one-time [setup token](/reference/server-configuration#setup-token).
+2. Open that URL. The server trades the token for a cookie and redirects to `/setup`. Add `&org=<organisation>` to the URL to create the App in an organisation. `&name=` chooses its name, up to 34 characters; the default is `stackorder-<host>`.
 3. The page posts the manifest to GitHub. Confirm the App there.
 4. GitHub redirects to `/setup/callback`, which exchanges the one-time code for the App id, private key, webhook secret and OAuth client id and secret, and prints them **once**, as environment variables, with the next steps and a link to install the App.
 5. Store the values in your secret store, restart the server with them, and install the App on your repositories. GitHub then sends the browser to `/setup/installed`.
@@ -60,7 +60,9 @@ Installations made while the server was in setup mode are learned at start-up: t
 
 The manifest sets the webhook URL to `<base URL>/webhooks/github`, the setup redirect to `/setup/callback`, the sign-in callback to `/auth/callback` and the post-installation page to `/setup/installed`. The App is private. On GitHub Enterprise Server set `GITHUB_API_URL` and `GITHUB_WEB_URL` before opening `/setup`; the flow is the same.
 
-Opening `/setup` on a server that already has App credentials shows a page saying so. Only with [`STACKORDER_ALLOW_RESETUP=true`](/reference/server-configuration#setup-mode) does it link to creating another App anyway (`/setup?force=1`), for instance after moving the server to a new URL; without it `/setup?force=1` and `/setup/callback` answer `404`.
+Without the token, `/setup` answers `403`, so nobody else who reaches the server between the deploy and the setup can create the App under their own account. The token stops working once an App is created, and a generated one changes at every start.
+
+Opening `/setup` on a server that already has App credentials shows a page saying so. Only with [`STACKORDER_ALLOW_RESETUP=true`](/reference/server-configuration#setup-mode) does it link to creating another App anyway (`/setup?force=1`), for instance after moving the server to a new URL, which needs the setup token too; without it `/setup?force=1` and `/setup/callback` answer `404`.
 
 ## Token handling {#tokens}
 
