@@ -219,7 +219,7 @@ func HelpText() string {
 	b.WriteString("**Stackorder commands**\n\n")
 	b.WriteString("Post a command on a line of its own in a pull request comment. ")
 	b.WriteString("Stack keys are repository relative paths such as `stacks/prod/vpc`, ")
-	b.WriteString("with `:workspace` appended for a non-default workspace; ")
+	b.WriteString("with `:instance` appended to name one instance of the directory; ")
 	b.WriteString("without keys a command covers every affected stack.\n\n")
 	b.WriteString("| Command | What it does |\n| --- | --- |\n")
 	for _, v := range Verbs() {

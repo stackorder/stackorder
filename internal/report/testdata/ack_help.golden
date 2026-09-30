@@ -1,6 +1,6 @@
 **Stackorder commands**
 
-Post a command on a line of its own in a pull request comment. Stack keys are repository relative paths such as `stacks/prod/vpc`, with `:workspace` appended for a non-default workspace; without keys a command covers every affected stack.
+Post a command on a line of its own in a pull request comment. Stack keys are repository relative paths such as `stacks/prod/vpc`, with `:instance` appended to name one instance of the directory; without keys a command covers every affected stack.
 
 | Command | What it does |
 | --- | --- |
