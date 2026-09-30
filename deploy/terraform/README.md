@@ -173,14 +173,16 @@ that forward without authentication:
 | --- | --- | --- | --- |
 | 1 | `/webhooks/github` | `POST` | GitHub webhook deliveries, which the server verifies by their signature |
 | 2 | `/healthz`, `/readyz` | `GET` or `HEAD` | Uptime checks and external monitoring |
-| 3 | `/v1/runs`, `/v1/runs/*`, `/v1/unlock`, `/v1/me` | `Authorization: Bearer *` | Actions jobs with their OIDC token, and the CLI with an OIDC token or an API key |
-| 4 | `/metrics` | `GET`, `Authorization: Bearer *` | Prometheus with the metrics token |
+| 3 | `/v1/runs`, `/v1/runs/*` | `Authorization: Bearer *` | Actions jobs with their OIDC token, and the CLI with an OIDC token or an API key |
+| 4 | `/v1/unlock`, `/v1/me` | `Authorization: Bearer *` | The CLI with an OIDC token or an API key |
+| 5 | `/metrics` | `GET`, `Authorization: Bearer *` | Prometheus with the metrics token |
 
 These are the endpoints the CLI and runners call, and the server still
-authenticates every request that reaches them. A request that spells one
-of these paths differently, for example with percent-escapes, misses the
-rule and meets the load balancer's authentication instead, so the rules
-fail closed. The UI's own calls to
+authenticates every request that reaches them: webhooks by their
+signature, the others by their bearer token. The load balancer matches
+rules after it normalises the path, and the server's router redirects a
+path with `..` segments to its clean form, which then meets the rules
+again. The UI's own calls to
 `/v1` carry a session cookie rather than a bearer token, so they stay
 behind the load balancer; scripts that call other `/v1` endpoints with an
 API key need a rule of their own. The module keeps priorities 1 to 99 for
@@ -195,8 +197,8 @@ allows 443 to `0.0.0.0/0`; set `alb_https_egress_cidrs` to narrow that,
 for example to a proxy or to a provider that does publish its ranges.
 
 The AWS provider has no write-only argument for the OIDC client secret, so
-the listener stores `client_secret` in Terraform state, next to the
-database password and the App private key.
+the listener stores `client_secret` in Terraform state; keep state
+encrypted and readable only by the roles that plan and apply this stack.
 
 With Google Workspace, create an OAuth client of type "Web application"
 whose authorised redirect URI is `https://<domain_name>/oauth2/idpresponse`,

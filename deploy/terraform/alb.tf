@@ -30,8 +30,9 @@ locals {
   alb_bypass_rules = {
     webhooks = { priority = 1, paths = ["/webhooks/github"], methods = ["POST"], bearer = false }
     health   = { priority = 2, paths = ["/healthz", "/readyz"], methods = ["GET", "HEAD"], bearer = false }
-    api      = { priority = 3, paths = ["/v1/runs", "/v1/runs/*", "/v1/unlock", "/v1/me"], methods = [], bearer = true }
-    metrics  = { priority = 4, paths = ["/metrics"], methods = ["GET"], bearer = true }
+    runs     = { priority = 3, paths = ["/v1/runs", "/v1/runs/*"], methods = [], bearer = true }
+    cli      = { priority = 4, paths = ["/v1/unlock", "/v1/me"], methods = [], bearer = true }
+    metrics  = { priority = 5, paths = ["/metrics"], methods = ["GET"], bearer = true }
   }
 }
 

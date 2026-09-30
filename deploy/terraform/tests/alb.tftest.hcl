@@ -134,10 +134,21 @@ run "oidc_authentication" {
       } == {
       webhooks = 1
       health   = 2
-      api      = 3
-      metrics  = 4
+      runs     = 3
+      cli      = 4
+      metrics  = 5
     }
-    error_message = "The module must add its four bypass rules at priorities 1 to 4."
+    error_message = "The module must add its five bypass rules at priorities 1 to 5."
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for r in aws_lb_listener_rule.bypass : [
+        length(flatten([for c in r.condition : [c.path_pattern[*].values, c.http_request_method[*].values, c.http_header[*].values]])) <= 5,
+        [for c in r.condition : length(flatten([c.path_pattern[*].values, c.http_request_method[*].values, c.http_header[*].values])) <= 3],
+      ]
+    ]))
+    error_message = "Application Load Balancers accept at most three values per condition and five per rule."
   }
 
   assert {
@@ -170,10 +181,14 @@ run "oidc_authentication" {
 
   assert {
     condition = (
-      toset(one([for c in aws_lb_listener_rule.bypass["api"].condition : c.path_pattern[0].values if length(c.path_pattern) > 0])) == toset(["/v1/runs", "/v1/runs/*", "/v1/unlock", "/v1/me"]) &&
-      length([for c in aws_lb_listener_rule.bypass["api"].condition : c if length(c.http_request_method) > 0]) == 0 &&
-      one([for c in aws_lb_listener_rule.bypass["api"].condition : c.http_header[0] if length(c.http_header) > 0]).http_header_name == "Authorization" &&
-      toset(one([for c in aws_lb_listener_rule.bypass["api"].condition : c.http_header[0] if length(c.http_header) > 0]).values) == toset(["Bearer *"])
+      toset(one([for c in aws_lb_listener_rule.bypass["runs"].condition : c.path_pattern[0].values if length(c.path_pattern) > 0])) == toset(["/v1/runs", "/v1/runs/*"]) &&
+      toset(one([for c in aws_lb_listener_rule.bypass["cli"].condition : c.path_pattern[0].values if length(c.path_pattern) > 0])) == toset(["/v1/unlock", "/v1/me"]) &&
+      alltrue([
+        for k in ["runs", "cli"] :
+        length([for c in aws_lb_listener_rule.bypass[k].condition : c if length(c.http_request_method) > 0]) == 0 &&
+        one([for c in aws_lb_listener_rule.bypass[k].condition : c.http_header[0] if length(c.http_header) > 0]).http_header_name == "Authorization" &&
+        toset(one([for c in aws_lb_listener_rule.bypass[k].condition : c.http_header[0] if length(c.http_header) > 0]).values) == toset(["Bearer *"])
+      ])
     )
     error_message = "Runner and CLI calls must bypass only on the endpoints the client uses, and only with a bearer token."
   }
@@ -233,7 +248,7 @@ run "cognito_authentication" {
   }
 
   assert {
-    condition     = length(aws_lb_listener_rule.bypass) == 4
+    condition     = length(aws_lb_listener_rule.bypass) == 5
     error_message = "Cognito authentication must get the same bypass rules."
   }
 }

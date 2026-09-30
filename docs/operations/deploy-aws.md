@@ -206,8 +206,9 @@ Machines cannot sign in interactively, so the module adds listener rules that fo
 | --- | --- | --- | --- |
 | 1 | `/webhooks/github` | `POST` | GitHub webhook deliveries, verified by their signature |
 | 2 | `/healthz`, `/readyz` | `GET` or `HEAD` | Uptime checks and external monitoring |
-| 3 | `/v1/runs`, `/v1/runs/*`, `/v1/unlock`, `/v1/me` | `Authorization: Bearer *` | Actions jobs with their OIDC token, and the CLI with an OIDC token or an API key |
-| 4 | `/metrics` | `GET`, `Authorization: Bearer *` | Prometheus with the metrics token |
+| 3 | `/v1/runs`, `/v1/runs/*` | `Authorization: Bearer *` | Actions jobs with their OIDC token, and the CLI with an OIDC token or an API key |
+| 4 | `/v1/unlock`, `/v1/me` | `Authorization: Bearer *` | The CLI with an OIDC token or an API key |
+| 5 | `/metrics` | `GET`, `Authorization: Bearer *` | Prometheus with the metrics token |
 
 The server still authenticates every request these rules let through. The UI's own `/v1` calls carry a session cookie rather than a bearer token, so they stay behind the load balancer, and scripts that call other `/v1` endpoints with an API key need a rule of their own. The module keeps priorities 1 to 99; attach your own rules to the `https_listener_arn` output at 100 or above.
 

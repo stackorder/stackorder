@@ -27,7 +27,7 @@ data "http" "image_manifest" {
   lifecycle {
     postcondition {
       condition     = self.status_code == 200
-      error_message = "${local.image_ref} cannot be pulled anonymously from ghcr.io (HTTP ${self.status_code}): the package is private or the tag does not exist. ECS would otherwise retry the pull until the deployment times out. Make the package public or fix image_tag, or set verify_image = false to skip this check."
+      error_message = "${local.image_ref} cannot be pulled anonymously from ghcr.io (token HTTP ${data.http.image_pull_token[0].status_code}, manifest HTTP ${self.status_code}): the package is private or the tag does not exist. ECS would otherwise retry the pull until the deployment times out. Make the package public or fix image_tag, or set verify_image = false to skip this check."
     }
   }
 }
