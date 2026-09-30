@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Only the latest 0.1.x release receives security fixes. The CLI, the server image and the Terraform module are released together from one tag, so a fix ships in all three at once, and upgrading means moving all three to that release.
+Only the latest 0.1.x release receives security fixes. The CLI, the server image and the Terraform module are released together from one tag, so a fix ships in the next release of all three. Upgrade the components the advisory names; the server and the CLI can be upgraded independently within API v1, as [Upgrades and backups](https://docs.stackorder.io/operations/upgrades-and-backups) explains.
 
 For [`stackorder/actions`](https://github.com/stackorder/actions), fixes go into the latest v1 release, and the `v1` tag moves to it.
 
