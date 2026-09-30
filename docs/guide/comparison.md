@@ -3,7 +3,7 @@
 Stackorder keeps the execution model of an Actions-based tool and shrinks everything else. The server coordinates and remembers; it never runs Terraform and never holds cloud credentials.
 
 ::: info Last reviewed 2026-09-30
-Competitor facts on this page come from each vendor's own documentation, linked under [Sources](#sources). These products change often; check the sources before you decide. The website keeps a wider comparison at [stackorder.io/compare](https://stackorder.io/compare/).
+Competitor facts on this page come from each vendor's own documentation, linked under [Sources](#sources). These products change often; check the sources before you decide. The website's comparison is at [stackorder.io/compare](https://stackorder.io/compare/).
 :::
 
 |  | HCP Terraform | Terrakube | Stategraph (formerly Terrateam) | Stackorder |
