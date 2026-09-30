@@ -28,6 +28,8 @@ jobs:
 
   image:
     runs-on: ubuntu-latest
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-qemu-action@v3
@@ -58,3 +60,39 @@ jobs:
             DATE=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  visibility:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Check every pushed tag is anonymously pullable
+        env:
+          TAGS: ${{ needs.image.outputs.tags }}
+          SETTINGS: https://github.com/orgs/stackorder/packages/container/stackorder/settings
+        run: |
+          set -euo pipefail
+          if [ -z "${TAGS//[[:space:]]/}" ]; then
+            echo "::error::The image job exposed no tags to verify."
+            exit 1
+          fi
+          failed=0
+          while IFS= read -r ref; do
+            [ -n "$ref" ] || continue
+            path=${ref#ghcr.io/}
+            name=${path%:*}
+            tag=${path##*:}
+            token=$(curl -fsS --retry 3 "https://ghcr.io/token?scope=repository:${name}:pull" | jq -r '.token // empty') || token=""
+            status=$(curl -sS --retry 3 -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer ${token}" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json' \
+              -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' \
+              "https://ghcr.io/v2/${name}/manifests/${tag}") || status=000
+            if [ "$status" = 200 ]; then
+              echo "${ref} is anonymously pullable."
+            else
+              echo "::error::${ref} is not anonymously pullable (HTTP ${status}). Make the package public at ${SETTINGS}, then re-run this job to re-verify the release."
+              failed=1
+            fi
+          done <<< "$TAGS"
+          exit "$failed"
