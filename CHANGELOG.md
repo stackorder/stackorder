@@ -2,6 +2,16 @@
 
 All notable changes to this repository are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases follow [Semantic Versioning](https://semver.org/). The CLI, the server image and the Terraform module are released together from one `vX.Y.Z` tag.
 
+## [Unreleased]
+
+### Added
+
+- `SECURITY.md`: the supported versions and private vulnerability reporting through GitHub security advisories, linked from the README and the [security model](docs/reference/security-model.md#reporting).
+
+### Fixed
+
+- The README, the introduction, how it works and the design document no longer say the server only sees metadata: it also receives redacted plan text capped at 256 KB, and never cloud credentials or Terraform state.
+
 ## [0.1.0] - 2026-09-30
 
 The first release. It works with [`stackorder/actions`](https://github.com/stackorder/actions) v1.0.0 or later.
@@ -123,4 +133,5 @@ Recorded in [ARCHITECTURE.md](ARCHITECTURE.md) and in the implementation notes o
 - The schema stores a stack's backend as one `backend` jsonb column and edges by `from_key` and `to_key`, keeps a ref-less family row per module, and adds tables for graph membership, checks, dispatches, OIDC `jti`s and the audit log.
 - Named checks accept `warn`, which passes; a stack's `apply.allowed_teams` replaces the root list rather than narrowing it.
 
+[Unreleased]: https://github.com/stackorder/stackorder/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/stackorder/stackorder/releases/tag/v0.1.0
