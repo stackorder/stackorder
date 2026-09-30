@@ -23,17 +23,18 @@ The server has exactly two jobs:
 
 It is explicitly **not** a state backend, a module registry, a secrets store, a policy engine or a runner. State lives in the user's S3 bucket (with S3-native or DynamoDB locking), modules live in git, and Terraform runs on GitHub-hosted or self-hosted Actions runners under the user's own OIDC-federated AWS role.
 
-|  | Terraform Cloud / HCP Terraform | Terrakube | Terrateam | Stackorder |
+|  | HCP Terraform | Terrakube | Stategraph (formerly Terrateam) | Stackorder |
 | --- | --- | --- | --- | --- |
-| Where Terraform runs | HashiCorp-hosted workers or self-hosted agents | Its own executor pods | GitHub Actions | GitHub Actions |
-| State backend | Built in (remote backend) | Built in | Bring your own (S3 etc.) | Bring your own S3 |
-| Module registry | Built in | Built in | None | None; tracks module consumers from git sources only |
-| Runtime footprint | SaaS | API, executor, UI, Redis, Minio, Postgres | Server + Postgres; Docker-based action image | One container + Postgres; non-Docker actions |
-| Cross-stack dependencies | Run triggers | Workspace triggers | Layered runs | First-class graph incl. modules and cross-repo edges |
-| Cloud credentials held by server | Yes (or agent) | Yes | No | No |
-| Human auth | Own accounts, SSO | Own accounts | GitHub | GitHub OAuth via the App |
+| Where Terraform runs | HashiCorp-hosted VMs by default, or self-hosted agents | Its own executors: a pod pool, Kubernetes Jobs or self-hosted agents | Your GitHub Actions or GitLab CI runners | GitHub Actions |
+| State backend | Built in | Built in, on its configured object storage | Bring your own | Bring your own S3 |
+| Module registry and tracking | Built-in private registry; the Explorer shows module usage | Built-in private module and provider registry | A module-aware indexer, off by default, plans the directories that use a changed local module | No registry; tracks module consumers from git sources only |
+| Runtime footprint | SaaS; self-hosted Terraform Enterprise runs containers with PostgreSQL, object storage and Vault | API, executor, registry, UI, Dex (with OpenLDAP by default), a Redis-compatible store, object storage and Postgres | Server + Postgres behind a public HTTPS URL; Docker container action on the runner | One container + Postgres; non-Docker actions |
+| Cross-stack dependencies | Run triggers between workspaces; linked Stacks | Shared remote state in the stable 2.33 line; run triggers only in 2.34 pre-releases | Layered runs within one repository | First-class graph incl. modules and cross-repo edges |
+| Cloud credentials held by server | Yes: stored as variables, or short-lived per-run credentials through OIDC | Yes: stored as variables; with dynamic credentials it holds an OIDC signing key and mints tokens | No; they stay on the runner | No |
 
-The one-line pitch: Terrateam's execution model with a strictly smaller server, no Docker on the runner side, and dependencies (stack to stack, stack to module, across repos) as the server's core data structure rather than an add-on.
+Competitor facts were last reviewed on 2026-09-30; the [comparison page](/guide/comparison#sources) links their sources.
+
+The one-line pitch: the execution model of Stategraph, where Terraform runs on your own CI runners, with one server container plus Postgres, no Docker on the runner side, and dependencies (stack to stack, stack to module, across repos) as the server's core data structure.
 
 ## Design principles and non-goals
 
@@ -420,7 +421,7 @@ Commands are accepted only from users with push permission, whatever the apply p
 
 ## The CLI and GitHub Actions
 
-All runner-side logic lives in one static Go binary, `stackorder`, and the Actions are thin wrappers around it: one JavaScript action that installs the binary and four composite actions that call it. Nothing is Docker-based, so a job pays roughly one second of overhead instead of a multi-hundred-megabyte image pull, and self-hosted runners without a Docker socket work unchanged.
+All runner-side logic lives in one static Go binary, `stackorder`, and the Actions are thin wrappers around it: one JavaScript action that installs the binary and four composite actions that call it. Nothing is Docker-based, so a job pays roughly one second of overhead instead of pulling or building a container image, and self-hosted runners without a Docker socket work unchanged.
 
 **Why a binary plus thin actions rather than TypeScript actions with all the logic.** HCL parsing needs `hashicorp/hcl` and `terraform-config-inspect`, which are Go libraries with no faithful JavaScript port. Putting the logic in Go also gives engineers the same tool locally: `stackorder graph`, `stackorder affected --base main`, `stackorder plan --stack stacks/prod/vpc` behave identically on a laptop and in CI.
 
@@ -724,7 +725,7 @@ flowchart TB
   s1 --> s2 --> s3 --> s4
 ```
 
-Phase 1 alone is already a usable Atlantis-style tool; phase 2 is where Stackorder starts doing something the others do not; phase 4 ends with the public v1 and the self-deploying Terraform module.
+Phase 1 alone is already a usable Atlantis-style tool; phase 2 adds the module and state edges, propagation and waves that the graph is built for; phase 4 ends with the public v1 and the self-deploying Terraform module.
 
 **Repository layout**
 

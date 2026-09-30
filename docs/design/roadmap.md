@@ -32,7 +32,7 @@ flowchart TB
 | 3. Observability | Drift runs and issues; metrics and run history; module version lag | Drift visible in the UI and in issues |
 | 4. Cross-repo | Cross-repo edges; workflow-ref pinning; GitHub Enterprise Server; the self-deploying Terraform module | Public v1 |
 
-Phase 1 alone is already a usable Atlantis-style tool. Phase 2 is where Stackorder starts doing something the others do not. Phase 4 ends with the public v1 and the self-deploying Terraform module.
+Phase 1 alone is already a usable Atlantis-style tool. Phase 2 adds the module and state edges, propagation and waves that the graph is built for. Phase 4 ends with the public v1 and the self-deploying Terraform module.
 
 ## How the gates are demonstrated {#testing}
 
