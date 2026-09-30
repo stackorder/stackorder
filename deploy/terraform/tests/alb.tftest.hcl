@@ -199,8 +199,8 @@ run "oidc_authentication" {
   assert {
     condition = alltrue([
       for r in aws_lb_listener_rule.bypass : alltrue([
-        for c in r.condition : length(c.path_pattern) == 0 || alltrue([
-          for p in c.path_pattern[0].values : !startswith(p, "/auth") && !startswith(p, "/setup") && p != "/" && p != "/*"
+        for c in r.condition : alltrue([
+          for p in flatten(c.path_pattern[*].values) : !startswith(p, "/auth") && !startswith(p, "/setup") && p != "/" && p != "/*"
         ])
       ])
     ])
