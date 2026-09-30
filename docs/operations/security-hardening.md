@@ -89,7 +89,14 @@ A stack without an [instance](/configuration/instances) that matches nothing in 
 
 [Stack instances](/configuration/instances) change nothing here. An apply of `infra/network:production` runs under the instance's GitHub environment, `production` unless it is mapped elsewhere, and its token carries `repo:acme/infra:environment:production` like any other apply. Keep one apply role per environment, and select it per instance in `aws-role-arn-map` with a key such as `:production`. Plans and drift checks of every instance still run under `pull_request` or `environment:default` with the plan role.
 
-An instance nothing maps applies under the environment of its own name, which GitHub creates unprotected on first use. Create and protect the environment of every instance before its first apply, and never name an instance after an environment you have not configured.
+An instance nothing maps applies under the environment of its own name, which GitHub creates unprotected on first use. The name is not only yours to choose: a pull request can add a stack directory or an instance the default branch does not declare, and its apply environment follows the default branch's mapping rules, so an unmapped instance runs under an environment named after it. Only the trust policy pinned to the environment subject stops that apply from reaching real infrastructure; no reviewer holds it. To narrow the gap:
+
+- Create and protect the environment of every instance you declare before its first apply.
+- Map every path prefix that holds stacks, in the root `environments`, to an existing, protected environment with a fixed name, not a template that yields a new name per instance.
+- Put every `.stackorder.yaml` and every directory that holds var files under a trusted code owner in `CODEOWNERS`, with rules broad enough to own directories a pull request adds.
+- Set `apply.require_codeowner_review: true`, so an owner of each stack approves the head commit before a `before_merge` apply. A stack no rule owns passes that check.
+
+See [Per instance](/configuration/environments-and-authorization#instances).
 
 ### One bootstrap role per job {#bootstrap-roles}
 

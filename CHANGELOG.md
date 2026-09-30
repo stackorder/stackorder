@@ -28,7 +28,7 @@ This release adds stack instances: one directory deployed several times, each de
 
 ### Changed
 
-- A key suffix names an instance, never by itself a Terraform workspace. An instance selects a workspace only when its `workspace` is set; a stack with `workspace: blue` and no instances is the instance `blue` with workspace `blue`, so its key and state object are unchanged.
+- A key suffix names an instance, never by itself a Terraform workspace, except for the CLI's ad hoc `--stack path:x` on a directory without instances, which still selects the workspace `x`. An instance selects a workspace only when its `workspace` is set; a stack with `workspace: blue` and no instances is the instance `blue` with workspace `blue`, so its key and state object are unchanged.
 - The default GitHub environment of an instance is its name. A stack with `workspace: blue` and no environment mapping now applies under `blue` instead of `default`; set `environment: default` in its `.stackorder.yaml` to keep the old behaviour.
 - `init` runs with `-reconfigure` whenever a stack has `backend_config`, so instances of one directory can share a checkout; `STACKORDER_BACKEND_CONFIG` values follow the stack's.
 - The `--stack` help of `plan`, `apply`, `drift` and `check` reads `stack key: path or path:instance`. A bare path on a directory with instances is an error that lists them.

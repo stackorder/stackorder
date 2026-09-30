@@ -84,7 +84,7 @@ For each stack, and for each instance of a stack with instances, the effective s
 | `env` | Per variable name, the instance's value, else the stack's, else the root's. |
 | `depends_on`, `ignore_inferred` | The stack's list followed by the instance's; the root file has no equivalent. |
 
-A run that touches several stacks requires the commenter to satisfy **every** affected stack's `allowed_teams`. To apply a subset, name it: `stackorder apply stacks/staging/vpc`.
+A run that touches several stacks requires the commenter to satisfy **every** affected stack's `allowed_teams`. To apply a subset, name it: `stackorder apply stacks/staging/vpc`. For a directory with [instances](./instances), name each instance, as in `stackorder apply infra/kyc:production`: a bare directory path names no stack, and the apply is refused.
 
 ## Inferred edges {#inferred}
 
@@ -101,8 +101,10 @@ The file is parsed strictly. It is rejected when it has:
 - unknown keys, or a `tool` or `plan_output` outside its allowed values;
 - an invalid `depends_on` entry, or an empty `ignore_inferred` entry;
 - a `workspace` containing `/`, `:`, a space or a tab, or, on a stack without instances, one that renders to an invalid instance name;
-- an instance name that is not a letter or digit followed by letters, digits, `.`, `_` and `-`, is longer than 64 characters, or is `default` in any letter case, or a null item in the `instances` list;
-- an `env` name that is not a valid variable name or is reserved in any letter case, a null `env` value, or an `env` object with a key other than `plan`, `apply` and `drift`;
+- an instance name that is not a letter or digit followed by letters, digits, `.`, `_` and `-`, is longer than 64 characters, or is `default` in any letter case, a null item in the `instances` list, or an instance listed twice;
+- a `backend_config` entry that is empty, has no name before `=`, or is an absolute file;
+- a `var_files` entry that is empty or absolute;
+- an `env` name that is not a valid variable name or is reserved in any letter case, a null `env` value, an `env` object with a key other than `plan`, `apply` and `drift`, or one with none of them;
 - a template that does not parse, uses an action or builtin outside the [allowed set](./instances#templates), fails to render, or renders more than 4096 bytes.
 
 An empty file is valid and changes nothing.

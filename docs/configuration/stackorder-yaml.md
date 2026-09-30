@@ -150,9 +150,12 @@ The file is parsed strictly. The CLI and the server reject:
 - an `environments` key with an empty prefix (`""`, `/` or `./`) and no instance part, a prefix containing `:`, an instance part that is not a valid [instance name](./instances#keys), or two keys whose prefixes normalise to the same path with the same instance part;
 - an empty environment name;
 - an empty `stacks.discover` or `stacks.exclude` glob or `apply.allowed_teams` entry;
+- a `stacks.exclude` or `stacks.instances.from_var_files` glob that is absolute or not a valid glob;
 - a `stacks.include` path that is absolute or starts with `..`;
 - a template that does not parse, uses an action or builtin outside the [allowed set](./instances#templates), fails to render for a stack, or renders more than 4096 bytes;
-- an `env` name that is not a valid variable name or is reserved (`STACKORDER_*`, `GITHUB_*`, `ACTIONS_*`, `RUNNER_*`, `PATH`, `HOME`, in any letter case), a null `env` value, or an `env` object with a key other than `plan`, `apply` and `drift`;
+- a `backend_config` entry that is empty, has no name before `=`, or is an absolute file;
+- a `var_files` entry that is empty or absolute;
+- an `env` name that is not a valid variable name or is reserved (`STACKORDER_*`, `GITHUB_*`, `ACTIONS_*`, `RUNNER_*`, `PATH`, `HOME`, in any letter case), a null `env` value, an `env` object with a key other than `plan`, `apply` and `drift`, or one with none of them;
 - a `from_var_files` match whose derived name is not a valid instance name, or two matches in one stack that derive the same name.
 
 All problems are reported together, each with the key that caused it.

@@ -7,7 +7,7 @@ No single compromise reaches infrastructure. The server has no cloud access, the
 | Compromised | Can | Cannot |
 | --- | --- | --- |
 | Stackorder server | Dispatch `stackorder-run.yml` in installed repos, post checks and comments, read `stackorder.yaml`, read plan summaries and capped plan text, answer its own deployment protection rule where one is configured | Read or write Terraform state, assume any AWS role, change workflow files, read repo secrets, approve pull requests, pass an environment's required reviewers |
-| A PR author with write access | Trigger plans on their PR, comment `stackorder apply` if policy allows | Bypass required approvals, branch protection or GitHub environment reviewers; skip policy checks recorded on the stack |
+| A PR author with write access | Trigger plans on their PR, comment `stackorder apply` if policy allows; add a stack or instance that nothing on the default branch maps, so that an instance applies under an unprotected environment of its own name and a stack without instances under `default`, which has no reviewers; only an [IAM trust policy pinned to the environment](/configuration/environments-and-authorization#instances) stops such an apply | Bypass required approvals, branch protection or GitHub environment reviewers; skip policy checks recorded on the stack |
 | A modified workflow in a PR | Change what runs in the plan job on that PR | Post results the server accepts, when `STACKORDER_REQUIRED_WORKFLOW_REF` pins the reusable workflow; assume the AWS role, when the role's trust policy pins `job_workflow_ref` or the environment |
 | A leaked App private key | Everything the server can | Everything the server cannot; rotate in the App settings and redeploy |
 

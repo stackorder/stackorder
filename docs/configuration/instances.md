@@ -6,7 +6,7 @@ Every instance is a stack of its own wherever a stack appears: the graph, the af
 
 ## Keys and names {#keys}
 
-An instance is keyed `path:instance`. The suffix names an instance of the directory; it is never, by itself, a Terraform workspace.
+An instance is keyed `path:instance`. The suffix names an instance of the directory; it is never, by itself, a Terraform workspace. The one exception is the CLI's `--stack path:x` on a directory without instances, where `x` selects the ad hoc workspace `x` as before instances existed; see [Stack keys](/reference/cli#stack-keys).
 
 ```text
 infra/network                 a directory with no instances
@@ -67,7 +67,9 @@ A stack's `.stackorder.yaml` can name its instances:
 instances: [shared]
 ```
 
-A null item in the list, a `-` with nothing after it, is an error. The list replaces anything `from_var_files` would derive for the directory. A matched var file whose name equals a listed instance is still that instance's var file. A matched file whose name is not listed is not used, and the scan warns about it.
+A null item in the list, a `-` with nothing after it, is an error, and so is a name listed twice. The list replaces anything `from_var_files` would derive for the directory. A matched var file whose name equals a listed instance is still that instance's var file. A matched file whose name is not listed is not used, and the scan warns about it.
+
+An empty list or map, `instances: []` or `instances: {}`, declares nothing: the directory falls through to `from_var_files` and the later rules. To keep a directory with matching var files out of the graph, exclude it with `stacks.exclude`.
 
 ### A map with overrides {#overrides}
 
@@ -97,7 +99,7 @@ Its default GitHub environment is not. An instance runs its applies under the en
 
 ## Workspaces {#workspace}
 
-An instance selects no Terraform workspace unless its `workspace` is set. Instances then differ by their state key, which [`backend_config`](#backend-config) renders per instance.
+An instance selects no Terraform workspace unless its `workspace` is set; only the CLI's ad hoc `--stack path:x` on a directory without instances selects one from the suffix alone. Instances then differ by their state key, which [`backend_config`](#backend-config) renders per instance.
 
 To give each instance a workspace of its own name instead, set a template in the stack's `.stackorder.yaml`, or in an instance override:
 
@@ -119,11 +121,11 @@ The settings of an instance come from three levels: the root `stackorder.yaml`, 
 | `depends_on`, `ignore_inferred` | The stack's list followed by the instance's |
 | `environment` | The first of the instance's `environment`, the stack's and the best match in the root `environments` map that renders non-empty, else the instance name, else `default` |
 | `workspace` | The instance's, else the stack's, rendered; none when neither is set or it renders empty or `default` |
-| `plan_output` | The instance's, else the stack's, else the root's, rendered |
+| `plan_output` | The instance's, else the stack's, else the root's |
 | `tool`, `tool_version` | The stack's, else the root's |
 | `apply.allowed_teams` | The most specific non-empty list: the instance's, else the stack's, else the root's |
 
-`workspace`, `plan_output`, `tool` and `tool_version` take the most specific value that is set and render it; an empty result does not fall back to a less specific level. `environment` is the exception: an empty result falls through to the next source.
+`workspace`, `plan_output`, `tool` and `tool_version` take the most specific value that is set. `workspace` is then rendered, and an empty result does not fall back to a less specific level. `plan_output`, `tool` and `tool_version` are not templates. `environment` is rendered too, but an empty result falls through to the next source.
 
 An `env` value is replaced as a whole. An instance that sets `TF_VAR_role: admin` replaces a stack's `{ plan: reader, apply: deployer }`, for every mode.
 
@@ -291,7 +293,7 @@ A `depends_on` entry may name an instance, and may use a template:
 depends_on:
   - infra/network                 # the same instance: infra/network:production for infra/kyc:production
   - infra/dns:shared              # one named instance
-  - "infra/iam:{{ .Instance }}"   # the same as a bare path, spelled out
+  - "infra/iam:{{ .Instance }}"   # the same instance, and never falls back to the target's only stack
 ```
 
 A rendered entry without a suffix that names a directory with instances resolves:
@@ -341,6 +343,8 @@ environments:
 ```
 
 or an override in the stack's `instances` map. A stack with no instance name that matches nothing still runs under `default`.
+
+The environment of an apply comes from the default branch, but a pull request can add an instance, or a directory, that the default branch does not declare. It then runs under whatever the default branch's rules give its name, which for an unmapped instance is an environment of that name that GitHub creates unprotected. See [Per instance](./environments-and-authorization#instances) for what stops such an apply and how to close the gap.
 
 Only applies run under the instance's environment. Pull request plans have no environment, and the plans and drift checks the server dispatches run under `default`, as for every stack. See [Which environment and role a job gets](./workflows#environments).
 

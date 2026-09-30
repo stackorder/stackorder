@@ -448,7 +448,7 @@ stackorder 1.0.0 (a1b2c3d, 2026-09-28T09:00:00Z, go1.26.0, linux/amd64)
 | `GITHUB_ACTIONS`, `GITHUB_*`, `ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, `GITHUB_OUTPUT`, `GITHUB_STEP_SUMMARY` | Provided by the runner. |
 | `GITHUB_TOKEN` | Used only for the neutral fallback checks. |
 
-Terraform, OpenTofu and the [hooks](/configuration/workflows#hooks) run with the process environment, then `TF_IN_AUTOMATION=1`, `TF_INPUT=0` and `CHECKPOINT_DISABLE=1`, then the stack's [`env`](/configuration/instances#env) for the command's mode, then:
+Terraform and OpenTofu run with the process environment, then `TF_IN_AUTOMATION=1`, `TF_INPUT=0` and `CHECKPOINT_DISABLE=1`, then the stack's [`env`](/configuration/instances#env) for the command's mode, then the variables below. The [hooks](/configuration/workflows#hooks) get the process environment, the stack's `env` and the same variables, without the three automation variables:
 
 | Variable | Value |
 | --- | --- |

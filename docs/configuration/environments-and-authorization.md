@@ -87,7 +87,15 @@ environments:
 
 A key with an instance part wins over one without, then the longest prefix wins. An instance override in the stack's `instances` map, or the stack's own `environment`, wins over the map. See [GitHub environments](./instances#environments).
 
-The server reads the environment of an apply from the default branch's configuration, per instance, so a pull request cannot move its own apply to a weaker environment.
+The server reads the environment of an apply from the default branch's configuration, per instance, never from the pull request's own files. A pull request cannot remap a stack or instance the default branch declares.
+
+It can add new ones, though. A pull request can add a stack directory, or an instance of an existing directory, that the default branch does not declare, and it chooses the name. The apply environment of such a key follows the default branch's rules as they stand: the directory's own `environment` in its default-branch `.stackorder.yaml`, else the best match in the default branch's `environments` map, else the environment of the instance's own name, else `default`. An instance nothing maps therefore runs under the environment of its own name, and GitHub creates an environment it does not know unprotected on first use. Suppose the default branch declares `infra/kyc:production` under `infra-production`. A pull request that adds an instance `hotfix` to `infra/kyc`, with the production state object in its `backend_config`, applies under `hotfix`, or under `infra-hotfix` with a template such as `"infra/": "infra-{{ .Instance }}"`. Neither has required reviewers or a protection rule, so layers 3 and 4 do not hold the job, and the `allowed_teams` of the `production` override do not apply to it; the stack's or the root's do.
+
+What stops such an apply is [layer 5](#layer-5): the role that can write the production state trusts only the `production` environment's subject, so a job under `hotfix` gets no credentials for it. Narrow the gap further:
+
+- Map every path prefix that holds stacks to an existing, protected environment with a fixed name, such as `"infra/": infra-apply`, rather than a template that yields a new name per instance.
+- Put every `.stackorder.yaml` and every directory that holds var files under a trusted code owner in `CODEOWNERS`, with a rule broad enough to own directories a pull request adds.
+- In `before_merge` mode, set `apply.require_codeowner_review: true`, so an owner of each stack approves the head commit before it applies. A stack no rule owns passes that check.
 
 In the repository settings, under **Environments**, configure `production`:
 
@@ -152,7 +160,7 @@ None of the above matters if a tampered workflow can assume the apply role direc
 
 `repo:acme/infra:environment:production` appears in the token's `sub` only when the job ran under that environment, and so only after its protection rules passed.
 
-With instances nothing changes: the subject names the instance's environment. Give each environment its apply role and select it in `aws-role-arn-map` by instance, with a key such as `:production`, or by exact key, `infra/network:production`. See [AWS roles](./instances#aws-roles).
+With instances nothing changes: the subject names the instance's environment. Give each environment its apply role and select it in `aws-role-arn-map` by instance, with a key such as `:production`, or by exact key, `infra/network:production`. The map key comes from names a pull request controls, so this pin is what ties each role to its gate. See [AWS roles](./instances#aws-roles).
 
 ### Pinning the reusable workflow
 
