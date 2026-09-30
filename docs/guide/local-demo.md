@@ -48,7 +48,7 @@ STACKORDER_BASE_URL=http://localhost:8080 \
 go run ./cmd/stackorder-server
 ```
 
-This is what `make dev` runs, after `docker compose up -d postgres localstack`. Without the GitHub App variables the server starts in [setup mode](/reference/server-configuration#setup-mode): it runs the migrations, warns that `STACKORDER_SESSION_KEY` is not set, and logs `stackorder server started` with `"setup_mode":true`. Add `STACKORDER_LOG_FORMAT=text` for readable logs.
+This is what `make dev` runs, after `docker compose up -d postgres localstack`. Without the GitHub App variables the server starts in [setup mode](/reference/server-configuration#setup-mode): it runs the migrations, warns that `STACKORDER_SESSION_KEY` is not set, logs `stackorder server started` with `"setup_mode":true`, then logs a `setup_url` line with a one-time [setup token](/reference/server-configuration#setup-token). Add `STACKORDER_LOG_FORMAT=text` for readable logs. If you run the server in Docker instead, with `docker compose --profile server up -d`, `docker compose logs server | grep setup_url` shows the same line.
 
 Back in the first terminal:
 
@@ -62,11 +62,17 @@ go run ./cmd/stackorder-server healthcheck
 ```text
 {"status":"ok","version":"dev","setup_mode":true}
 {"status":"ok","version":"dev","setup_mode":true}
-{"code":"unavailable","message":"setup is required: the GitHub App is not configured yet; open http://localhost:8080/setup"}
+{"code":"unavailable","message":"setup is required: the GitHub App is not configured yet; open http://localhost:8080/setup with the setup token from the server log"}
 stackorder-server healthcheck: GET http://127.0.0.1:8080/healthz: 200 OK
 ```
 
-The page at `http://localhost:8080/setup` holds the manifest of the App the server would create: its name (`stackorder-localhost-8080`), webhook URL, permissions and events. A browser submits that manifest to GitHub as soon as the page loads, so read it with `curl -s http://localhost:8080/setup` instead. If you open it in a browser, do not confirm the App on GitHub: GitHub could not deliver webhooks to `localhost`.
+The page at `http://localhost:8080/setup` holds the manifest of the App the server would create: its name (`stackorder-localhost-8080`), webhook URL, permissions and events. Without the token it answers `403`. A browser submits the manifest to GitHub as soon as the page loads, so read it with `curl` instead, passing the `setup_url` from the server's log. `-L` follows the redirect that drops the token, and `-b ''` keeps the cookie that replaces it:
+
+```sh
+curl -sL -b '' 'http://localhost:8080/setup?token=<token from the log>'
+```
+
+If you open it in a browser, do not confirm the App on GitHub: GitHub could not deliver webhooks to `localhost`.
 
 ## 3. Build the CLI {#cli}
 

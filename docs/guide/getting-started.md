@@ -82,7 +82,13 @@ The repository ships a Terraform module in `deploy/terraform` that creates an EC
 
 ## 2. Create the GitHub App {#create-app}
 
-Open `https://stackorder.example.com/setup` in a browser.
+At start-up the server logs a `setup_url` line: the setup page's URL with a one-time [setup token](/reference/server-configuration#setup-token). Take it from the container's log:
+
+```sh
+docker logs stackorder 2>&1 | grep setup_url
+```
+
+On AWS, read it from the task logs as [Deploy on AWS](/operations/deploy-aws#first-deploy) shows. Open that URL in a browser. `/setup` without the token answers `403`, so nobody else who reaches the server can create the App under their own account.
 
 The page renders a GitHub App manifest with the webhook URL, [permissions](/reference/github-app#permissions) and [events](/reference/github-app#events) already filled in, and posts it to GitHub. Confirm the App on GitHub. GitHub returns the App id, private key, webhook secret and OAuth client id and secret in one exchange, and the page prints them **once** as environment variables:
 
