@@ -1,12 +1,18 @@
-# Comparison
+---
+title: Terraform tool architecture compared
+---
+
+# Architecture differences from other Terraform tools
+
+This page explains where Stackorder's design differs and why it runs nothing itself. For which tool to pick, see [the full comparison with Atlantis, HCP Terraform, Spacelift, env zero, Scalr, Terrakube, Stategraph and OpenTaco](https://stackorder.io/compare/) on stackorder.io.
 
 Stackorder keeps the execution model of an Actions-based tool and shrinks everything else. The server coordinates and remembers; it never runs Terraform and never holds cloud credentials.
 
 ::: info Last reviewed 2026-09-30
-Competitor facts on this page come from each vendor's own documentation, linked under [Sources](#sources). These products change often; check the sources before you decide. The website's comparison is at [stackorder.io/compare](https://stackorder.io/compare/).
+Competitor facts on this page come from each vendor's own documentation, linked under [Sources](#sources). These products change often; check the sources before you decide.
 :::
 
-|  | HCP Terraform | Terrakube | Stategraph (formerly Terrateam) | Stackorder |
+|  | [HCP Terraform](https://stackorder.io/compare/hcp-terraform/) | [Terrakube](https://stackorder.io/compare/terrakube/) | [Stategraph](https://stackorder.io/compare/stategraph/) (formerly Terrateam) | Stackorder |
 | --- | --- | --- | --- | --- |
 | Where Terraform runs | HashiCorp-hosted VMs by default, or self-hosted agents | Its own executors: a pod pool, Kubernetes Jobs or self-hosted agents | Your GitHub Actions or GitLab CI runners | GitHub Actions |
 | State backend | Built in | Built in, on its configured object storage | Bring your own | Bring your own S3 |

@@ -4,7 +4,7 @@ description: The Stackorder design, the source of truth for behaviour.
 outline: [2, 3]
 ---
 
-# Stackorder: lightweight Terraform orchestration on GitHub Actions
+# Stackorder design document
 
 Sep 28, 2026 · @Francis Dortort
 
