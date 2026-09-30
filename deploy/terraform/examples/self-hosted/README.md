@@ -54,6 +54,11 @@ summary`), because this stack's resources hold the server's own secrets.
 
 ## Upgrades
 
+When moving this stack from module v0.1.0, which read the App id and
+OAuth client id from `stackorder/github-app`, set the `github_app_id` and
+`github_oauth_client_id` variables in the same pull request. Left null,
+they put the server back into setup mode.
+
 Open a pull request that changes `stackorder_version` (and the module
 `ref`). The plan shows a new task definition revision. On `stackorder
 apply`, ECS starts the new task next to the old one; the old task keeps
