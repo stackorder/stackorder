@@ -122,6 +122,9 @@ refused.
 - Security groups cannot filter by host name, so the service egress rule is
   443 to `0.0.0.0/0`; everything else is closed. For stricter egress, put a
   proxy or firewall on the NAT path.
+- The load balancer's only egress is port 8080 to the tasks, plus 443 to
+  `alb_https_egress_cidrs`, or to anywhere when single sign-on is set (see
+  [Single sign-on in front of the UI](#single-sign-on-in-front-of-the-ui)).
 - The load balancer accepts 80 and 443 from `ingress_cidrs`, by default
   anywhere, because GitHub delivers webhooks and GitHub-hosted runners call
   the API from large, changing ranges.
@@ -171,6 +174,13 @@ behind the load balancer; scripts that call other `/v1` endpoints with an
 API key need a rule of their own. The module keeps priorities 1 to 99 for
 its rules: attach yours to the `https_listener_arn` output at 100 or
 above, forwarding to `target_group_arn`.
+
+The load balancer calls the identity provider's token and user info
+endpoints itself, so it needs HTTPS egress, which its security group
+otherwise lacks. Identity providers publish no fixed address ranges, so
+with authentication set and `alb_https_egress_cidrs` empty the module
+allows 443 to `0.0.0.0/0`; set `alb_https_egress_cidrs` to narrow that,
+for example to a proxy or to a provider that does publish its ranges.
 
 The AWS provider has no write-only argument for the OIDC client secret, so
 the listener stores `client_secret` in Terraform state, next to the
@@ -495,6 +505,7 @@ No modules.
 | [aws\_subnet.private](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/subnet) | resource |
 | [aws\_subnet.public](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/subnet) | resource |
 | [aws\_vpc.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc) | resource |
+| [aws\_vpc\_security\_group\_egress\_rule.alb\_https](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_egress_rule) | resource |
 | [aws\_vpc\_security\_group\_egress\_rule.alb\_to\_service](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_egress_rule) | resource |
 | [aws\_vpc\_security\_group\_egress\_rule.service\_https](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_egress_rule) | resource |
 | [aws\_vpc\_security\_group\_egress\_rule.service\_to\_db](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_egress_rule) | resource |
@@ -538,6 +549,7 @@ No modules.
 | <a name="input_waf_web_acl_arn"></a> [waf\_web\_acl\_arn](#input\_waf\_web\_acl\_arn) | ARN of a regional AWS WAFv2 web ACL in the module's region to associate with the load balancer. Null associates none. | `string` | `null` | no |
 | <a name="input_oidc_authentication"></a> [oidc\_authentication](#input\_oidc\_authentication) | OpenID Connect provider with which the load balancer authenticates people before forwarding, as the authenticate\_oidc action of the HTTPS listener. Webhooks, health checks, and runner, CLI and metrics requests that carry a bearer token bypass it. The listener stores client\_secret in Terraform state. Null authenticates nobody at the load balancer. Sensitive. | `object({ issuer = string authorization_endpoint = string token_endpoint = string user_info_endpoint = string client_id = string client_secret = string scope = optional(string) session_cookie_name = optional(string) session_timeout = optional(number) on_unauthenticated_request = optional(string) authentication_request_extra_params = optional(map(string)) })` | `null` | no |
 | <a name="input_cognito_authentication"></a> [cognito\_authentication](#input\_cognito\_authentication) | Amazon Cognito user pool with which the load balancer authenticates people before forwarding, as the authenticate\_cognito action of the HTTPS listener, with the same bypass as oidc\_authentication. At most one of oidc\_authentication and cognito\_authentication may be set. Null authenticates nobody at the load balancer. | `object({ user_pool_arn = string user_pool_client_id = string user_pool_domain = string scope = optional(string) session_cookie_name = optional(string) session_timeout = optional(number) on_unauthenticated_request = optional(string) authentication_request_extra_params = optional(map(string)) })` | `null` | no |
+| <a name="input_alb_https_egress_cidrs"></a> [alb\_https\_egress\_cidrs](#input\_alb\_https\_egress\_cidrs) | IPv4 or IPv6 CIDRs the load balancer may reach on port 443, as it must to reach the identity provider of oidc\_authentication or cognito\_authentication. Empty allows none, or 0.0.0.0/0 when either authentication is set, because identity providers publish no fixed address ranges. | `list(string)` | `[]` | no |
 | <a name="input_image"></a> [image](#input\_image) | Container image repository of the server. | `string` | `"ghcr.io/stackorder/stackorder"` | no |
 | <a name="input_image_tag"></a> [image\_tag](#input\_image\_tag) | Tag or digest (sha256:...) of the server image. Pin a release such as 1.2.3 so upgrades are explicit plans. | `string` | `"latest"` | no |
 | <a name="input_desired_count"></a> [desired\_count](#input\_desired\_count) | Number of server tasks. All coordination goes through Postgres, so a second task adds availability without any other change. | `number` | `1` | no |

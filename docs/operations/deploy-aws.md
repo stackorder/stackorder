@@ -29,7 +29,7 @@ Set exactly one of `route53_zone_id`, to have the module issue a DNS-validated c
 | RDS PostgreSQL 17 (`db.t4g.micro`, gp3, encrypted), or Aurora Serverless v2 | The database, with `rds.force_ssl = 1`, 7 days of point-in-time recovery, deletion protection and a final snapshot |
 | Three Secrets Manager secrets | `DATABASE_URL`; a JSON secret with the App credentials, `STACKORDER_SESSION_KEY` and `STACKORDER_METRICS_TOKEN`, injected through ECS `secrets`; and a copy of the metrics token for scrapers |
 | Execution role and task role | The task role has no permissions unless the artifact bucket or ECS Exec is enabled |
-| Security groups | Load balancer: 80 and 443 from `ingress_cidrs`. Tasks: 8080 from the load balancer, 443 out, Postgres to the database. Database: Postgres from the tasks |
+| Security groups | Load balancer: 80 and 443 from `ingress_cidrs`, 8080 to the tasks, and 443 out to `alb_https_egress_cidrs`, or anywhere with single sign-on. Tasks: 8080 from the load balancer, 443 out, Postgres to the database. Database: Postgres from the tasks |
 | CloudWatch log group | The server's logs, 30 days by default |
 | Artifact bucket, with `artifact_bucket_enabled` | Full plan text, expiring after `artifact_retention_days` |
 | CloudWatch alarms, with `alarms_enabled` | Target 5xx, unhealthy targets, CPU, and database free storage or ACU utilization |
@@ -78,6 +78,7 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 | `waf_web_acl_arn` | `string` | `null` | ARN of a regional AWS WAFv2 web ACL in the module's region to associate with the load balancer. Null associates none. |
 | `oidc_authentication` | `object` (sensitive) | `null` | OpenID Connect provider with which the load balancer authenticates people before forwarding, as the authenticate_oidc action of the HTTPS listener. Webhooks, health checks, and runner, CLI and metrics requests that carry a bearer token bypass it. The listener stores client_secret in Terraform state. Null authenticates nobody at the load balancer. |
 | `cognito_authentication` | `object` | `null` | Amazon Cognito user pool with which the load balancer authenticates people before forwarding, as the authenticate_cognito action of the HTTPS listener, with the same bypass as oidc_authentication. At most one of oidc_authentication and cognito_authentication may be set. Null authenticates nobody at the load balancer. |
+| `alb_https_egress_cidrs` | `list(string)` | `[]` | IPv4 or IPv6 CIDRs the load balancer may reach on port 443, as it must to reach the identity provider of oidc_authentication or cognito_authentication. Empty allows none, or 0.0.0.0/0 when either authentication is set, because identity providers publish no fixed address ranges. |
 
 ### Service
 
@@ -205,7 +206,7 @@ Machines cannot sign in interactively, so the module adds listener rules that fo
 
 The server still authenticates every request these rules let through. The UI's own `/v1` calls carry a session cookie rather than a bearer token, so they stay behind the load balancer, and scripts that call other `/v1` endpoints with an API key need a rule of their own. The module keeps priorities 1 to 99; attach your own rules to the `https_listener_arn` output at 100 or above.
 
-The AWS provider has no write-only argument for the OIDC client secret, so the listener stores `client_secret` in Terraform state. With Google Workspace, create a "Web application" OAuth client with the redirect URI `https://<domain_name>/oauth2/idpresponse` and set the consent screen's user type to Internal, which is what limits sign-in to your Workspace. `deploy/terraform/README.md` has a complete example.
+The load balancer calls the identity provider itself, so it needs HTTPS egress. Identity providers publish no fixed address ranges, so with authentication set and `alb_https_egress_cidrs` empty the module allows 443 to `0.0.0.0/0`; set `alb_https_egress_cidrs` to narrow it. The AWS provider has no write-only argument for the OIDC client secret, so the listener stores `client_secret` in Terraform state. With Google Workspace, create a "Web application" OAuth client with the redirect URI `https://<domain_name>/oauth2/idpresponse` and set the consent screen's user type to Internal, which is what limits sign-in to your Workspace. `deploy/terraform/README.md` has a complete example.
 
 ## First deployment {#first-deploy}
 

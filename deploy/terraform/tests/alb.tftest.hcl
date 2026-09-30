@@ -75,6 +75,11 @@ run "listener_outputs" {
     condition     = length(aws_lb_listener_rule.bypass) == 0
     error_message = "Without authentication the module must add no listener rules."
   }
+
+  assert {
+    condition     = length(aws_vpc_security_group_egress_rule.alb_https) == 0
+    error_message = "Without authentication or alb_https_egress_cidrs the load balancer must reach nothing but the service."
+  }
 }
 
 run "oidc_authentication" {
@@ -191,6 +196,17 @@ run "oidc_authentication" {
     ])
     error_message = "The UI, the GitHub sign-in and the setup pages must stay behind the load balancer's authentication."
   }
+
+  assert {
+    condition = (
+      keys(aws_vpc_security_group_egress_rule.alb_https) == ["0.0.0.0/0"] &&
+      aws_vpc_security_group_egress_rule.alb_https["0.0.0.0/0"].cidr_ipv4 == "0.0.0.0/0" &&
+      aws_vpc_security_group_egress_rule.alb_https["0.0.0.0/0"].from_port == 443 &&
+      aws_vpc_security_group_egress_rule.alb_https["0.0.0.0/0"].to_port == 443 &&
+      aws_vpc_security_group_egress_rule.alb_https["0.0.0.0/0"].ip_protocol == "tcp"
+    )
+    error_message = "With authentication and no alb_https_egress_cidrs the load balancer must reach HTTPS anywhere, to call the identity provider."
+  }
 }
 
 run "cognito_authentication" {
@@ -291,4 +307,49 @@ run "cognito_bad_user_pool_arn" {
   }
 
   expect_failures = [var.cognito_authentication]
+}
+
+run "cognito_with_egress_cidrs" {
+  command = plan
+
+  variables {
+    cognito_authentication = {
+      user_pool_arn       = "arn:aws:cognito-idp:eu-west-1:123456789012:userpool/eu-west-1_AbCdEfGhI"
+      user_pool_client_id = "1example23456789"
+      user_pool_domain    = "acme-stackorder"
+    }
+    alb_https_egress_cidrs = ["198.51.100.0/24", "2001:db8::/32"]
+  }
+
+  assert {
+    condition = (
+      toset(compact([for r in aws_vpc_security_group_egress_rule.alb_https : r.cidr_ipv4])) == toset(["198.51.100.0/24"]) &&
+      toset(compact([for r in aws_vpc_security_group_egress_rule.alb_https : r.cidr_ipv6])) == toset(["2001:db8::/32"]) &&
+      alltrue([for r in aws_vpc_security_group_egress_rule.alb_https : r.from_port == 443 && r.to_port == 443])
+    )
+    error_message = "alb_https_egress_cidrs must replace the default, with IPv4 and IPv6 CIDRs on port 443."
+  }
+}
+
+run "egress_cidrs_without_authentication" {
+  command = plan
+
+  variables {
+    alb_https_egress_cidrs = ["203.0.113.10/32"]
+  }
+
+  assert {
+    condition     = keys(aws_vpc_security_group_egress_rule.alb_https) == ["203.0.113.10/32"]
+    error_message = "alb_https_egress_cidrs must apply without authentication too, for listener rules of the caller's own."
+  }
+}
+
+run "egress_cidrs_invalid" {
+  command = plan
+
+  variables {
+    alb_https_egress_cidrs = ["accounts.google.com"]
+  }
+
+  expect_failures = [var.alb_https_egress_cidrs]
 }

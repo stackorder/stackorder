@@ -255,6 +255,17 @@ variable "cognito_authentication" {
   }
 }
 
+variable "alb_https_egress_cidrs" {
+  description = "IPv4 or IPv6 CIDRs the load balancer may reach on port 443, as it must to reach the identity provider of oidc_authentication or cognito_authentication. Empty allows none, or 0.0.0.0/0 when either authentication is set, because identity providers publish no fixed address ranges."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for c in var.alb_https_egress_cidrs : can(cidrhost(c, 0))])
+    error_message = "alb_https_egress_cidrs must list valid CIDRs."
+  }
+}
+
 variable "image" {
   description = "Container image repository of the server."
   type        = string

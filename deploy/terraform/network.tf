@@ -18,6 +18,8 @@ locals {
   vpc_id             = var.create_vpc ? aws_vpc.this[0].id : var.vpc_id
   public_subnet_ids  = var.create_vpc ? aws_subnet.public[*].id : var.public_subnet_ids
   private_subnet_ids = var.create_vpc ? aws_subnet.private[*].id : var.private_subnet_ids
+
+  alb_https_egress_cidrs = length(var.alb_https_egress_cidrs) > 0 ? distinct(var.alb_https_egress_cidrs) : (local.alb_authentication ? ["0.0.0.0/0"] : [])
 }
 
 resource "aws_vpc" "this" {
@@ -178,6 +180,20 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_service" {
   from_port                    = local.container_port
   to_port                      = local.container_port
   referenced_security_group_id = aws_security_group.service.id
+
+  tags = var.tags
+}
+
+resource "aws_vpc_security_group_egress_rule" "alb_https" {
+  for_each = toset(local.alb_https_egress_cidrs)
+
+  security_group_id = aws_security_group.alb.id
+  description       = "HTTPS to the identity provider"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  cidr_ipv4         = strcontains(each.value, ":") ? null : each.value
+  cidr_ipv6         = strcontains(each.value, ":") ? each.value : null
 
   tags = var.tags
 }
