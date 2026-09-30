@@ -27,10 +27,17 @@ summary`), because this stack's resources hold the server's own secrets.
    ```
 
 2. `terraform init && terraform apply`. With no App credentials the server
-   starts in setup mode.
-3. Open the `setup_url` output and create the GitHub App. Store the values
-   the page prints as JSON keyed by variable name (`GITHUB_APP_ID`,
-   `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`,
+   starts in setup mode, with a single task.
+3. Take the setup URL with its one-time token from the task logs, open it
+   and create the GitHub App. The `setup_url` output lacks the token and
+   answers 403:
+
+   ```sh
+   aws logs tail "$(terraform output -raw log_group_name)" --since 15m | grep setup_url
+   ```
+
+   Store the values the page prints as JSON keyed by variable name
+   (`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`,
    `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`):
 
    ```sh

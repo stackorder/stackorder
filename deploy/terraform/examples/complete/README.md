@@ -12,9 +12,17 @@ terraform apply -var domain_name=stackorder.example.com -var route53_zone_id=Z01
 ```
 
 The first apply leaves the GitHub App inputs unset, so the server starts in
-setup mode. Open the `setup_url` output, create the App, then apply again
-with the five values the page printed, through `TF_VAR_*` environment
-variables so they stay out of shell history:
+setup mode, with one task. `/setup` opens only with the one-time token the
+server logs at start-up, so take the URL with its token from the task logs
+rather than from the `setup_url` output:
+
+```sh
+aws logs tail "$(terraform output -raw log_group_name)" --since 15m | grep setup_url
+```
+
+Open that URL, create the App, then apply again with the five values the
+page printed, through `TF_VAR_*` environment variables so they stay out of
+shell history:
 
 ```sh
 export TF_VAR_github_app_id="$(jq -r .GITHUB_APP_ID github-app.json)"

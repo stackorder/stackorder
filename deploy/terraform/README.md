@@ -633,7 +633,7 @@ No modules.
 | <a name="output_url"></a> [url](#output\_url) | Public URL of the server (STACKORDER\_BASE\_URL). |
 | <a name="output_alb_dns_name"></a> [alb\_dns\_name](#output\_alb\_dns\_name) | DNS name of the load balancer; point a CNAME or alias here when DNS is not managed by the module. |
 | <a name="output_alb_zone_id"></a> [alb\_zone\_id](#output\_alb\_zone\_id) | Route53 zone id of the load balancer, for alias records. |
-| <a name="output_setup_url"></a> [setup\_url](#output\_setup\_url) | Page that creates the GitHub App from a manifest on the first deploy. |
+| <a name="output_setup_url"></a> [setup\_url](#output\_setup\_url) | Page that creates the GitHub App from a manifest on the first deploy. It opens only with the one-time token the server logs at start-up: take the full URL from the setup\_url line in the log\_group\_name log group. |
 | <a name="output_webhook_url"></a> [webhook\_url](#output\_webhook\_url) | Webhook URL of the GitHub App. |
 | <a name="output_ecs_cluster_name"></a> [ecs\_cluster\_name](#output\_ecs\_cluster\_name) | Name of the ECS cluster. |
 | <a name="output_ecs_service_name"></a> [ecs\_service\_name](#output\_ecs\_service\_name) | Name of the ECS service. |

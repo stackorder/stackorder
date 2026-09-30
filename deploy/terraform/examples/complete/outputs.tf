@@ -4,8 +4,13 @@ output "url" {
 }
 
 output "setup_url" {
-  description = "Open this after the first apply to create the GitHub App."
+  description = "Page that creates the GitHub App from a manifest on the first deploy. It opens only with the one-time token the server logs at start-up: take the full URL from the setup_url line in the log_group_name log group."
   value       = module.stackorder.setup_url
+}
+
+output "log_group_name" {
+  description = "CloudWatch log group of the server, where it logs the setup URL with its one-time token."
+  value       = module.stackorder.log_group_name
 }
 
 output "webhook_url" {
