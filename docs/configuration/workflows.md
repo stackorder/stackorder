@@ -148,13 +148,15 @@ Here the repository secret `STACKORDER_ENV` holds `CLOUDFLARE_API_TOKEN=<token>`
 
 `secrets: inherit` passes nothing to these workflows. GitHub passes inherited secrets only to a reusable workflow in the caller's own organization or enterprise, and `stackorder/actions` is in the `stackorder` organization, so pass the secret by name as above. The files on this page leave `secrets: inherit` out for that reason.
 
-GitHub also gives a called job that declares a GitHub environment that environment's secret in place of the caller's secret of the same name. The jobs of `run.yml` declare the stack's environment, so an environment secret named `ENV` replaces the whole `env` secret, without merging, for the jobs under that environment: applies under `production` read the `ENV` secret of `production`, and plan and drift dispatches, which run under `default`, read the one of `default`. Plan jobs of `plan.yml` declare no environment and get only what the calling workflow passes.
+GitHub also gives a called job that declares a GitHub environment that environment's secret in place of the caller's secret of the same name. The jobs of `run.yml` declare the stack's environment, so an environment secret named `ENV`, when it exists, replaces the whole `env` secret, without merging, for the jobs under that environment: applies under `production` read the `ENV` secret of `production`, and plan and drift dispatches, which run under `default`, read the one of `default`. Plan jobs of `plan.yml` declare no environment and get only what the calling workflow passes.
+
+The environment secret takes effect only for a secret the caller passes, so pass `env` even when `STACKORDER_ENV` is unset. Without it, the job gets an empty `env` secret. This is the runner's observed behaviour, not a guarantee: GitHub's documentation does not cover it.
 
 ### What a plan may hold {#env-plans}
 
 A pull request plan runs the pull request's code, and so does a plan the server dispatches for a pull request. That code can read every variable of its job and send it anywhere, and a pull request can edit its own calling workflow to pass any repository or organization secret. Treat provider tokens like the AWS roles:
 
-- Pass plans a read-only token, from a repository secret or the `ENV` secret of `default`.
+- Pass plans a read-only token, from a repository secret or the `ENV` secret of `default`. The `ENV` secret of `default` replaces the passed secret for dispatched plans and drift checks, when it exists, so keep it read-only too.
 - Keep a token that can change infrastructure only in the `ENV` secret of the environments whose protection rules gate applies. The job gets it after those rules pass.
 
 A credential read by the provider from its own environment variable, such as `CLOUDFLARE_API_TOKEN`, never reaches the plan file. A credential passed as a Terraform variable through `TF_VAR_` does, unless the variable is [ephemeral](./instances#ephemeral): the saved plan stores the value, the `plan` action uploads the plan file as a workflow artifact that anyone who can read the repository can download, and the apply reuses the plan-time value. Declare such a variable `ephemeral`:
