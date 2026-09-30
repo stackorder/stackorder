@@ -23,7 +23,7 @@ Set exactly one of `route53_zone_id`, to have the module issue a DNS-validated c
 | Resource | Purpose |
 | --- | --- |
 | VPC with public and private subnets and NAT, unless `create_vpc = false` | Two availability zones by default; one NAT gateway unless `single_nat_gateway = false` |
-| Application Load Balancer, HTTPS listener with TLS 1.3, HTTP redirect | Forwards to port 8080; health checks on `/readyz`; 30 s deregistration delay; access logs to an S3 bucket (`alb_access_logs_enabled`) and a WAF web ACL (`waf_web_acl_arn`) are optional |
+| Application Load Balancer, HTTPS listener with TLS 1.3, HTTP redirect | Forwards to port 8080; health checks on `/readyz`; 30 s deregistration delay; access logs to an S3 bucket (`alb_access_logs_enabled`), a WAF web ACL (`waf_web_acl_arn`) and single sign-on (`oidc_authentication` or `cognito_authentication`) are optional |
 | ACM certificate and Route53 records, with `route53_zone_id` | The certificate and alias for `domain_name` |
 | ECS cluster and Fargate service, 1 or 2 tasks | Runs `ghcr.io/stackorder/stackorder` as user `65532`, read-only root file system, with the deployment circuit breaker; the container health check runs `stackorder-server healthcheck` |
 | RDS PostgreSQL 17 (`db.t4g.micro`, gp3, encrypted), or Aurora Serverless v2 | The database, with `rds.force_ssl = 1`, 7 days of point-in-time recovery, deletion protection and a final snapshot |
@@ -76,6 +76,8 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 | `alb_access_logs_enabled` | `bool` | `false` | Write load balancer access logs to an S3 bucket the module creates, encrypted with SSE-S3 as ELB log delivery requires. |
 | `alb_access_logs_retention_days` | `number` | `90` | Days after which objects in the access log bucket expire. |
 | `waf_web_acl_arn` | `string` | `null` | ARN of a regional AWS WAFv2 web ACL in the module's region to associate with the load balancer. Null associates none. |
+| `oidc_authentication` | `object` (sensitive) | `null` | OpenID Connect provider with which the load balancer authenticates people before forwarding, as the authenticate_oidc action of the HTTPS listener. Webhooks, health checks, and runner, CLI and metrics requests that carry a bearer token bypass it. The listener stores client_secret in Terraform state. Null authenticates nobody at the load balancer. |
+| `cognito_authentication` | `object` | `null` | Amazon Cognito user pool with which the load balancer authenticates people before forwarding, as the authenticate_cognito action of the HTTPS listener, with the same bypass as oidc_authentication. At most one of oidc_authentication and cognito_authentication may be set. Null authenticates nobody at the load balancer. |
 
 ### Service
 
@@ -182,7 +184,28 @@ By default the container runs `stackorder-server healthcheck` every 30 s with a 
 | `artifact_bucket` | Name of the artifact bucket, or null when artifact_bucket_enabled is false. |
 | `alb_access_logs_bucket` | Name of the load balancer access log bucket, or null when alb_access_logs_enabled is false. |
 | `security_group_ids` | Security group ids of the load balancer, the service and the database. |
+| `alb_arn` | ARN of the load balancer. |
+| `https_listener_arn` | ARN of the HTTPS listener, for listener rules of your own at priority 100 or above; the module keeps priorities 1 to 99 for its rules. |
+| `http_listener_arn` | ARN of the HTTP listener, which redirects to HTTPS. |
+| `target_group_arn` | ARN of the target group of the server's tasks, for listener rules that forward to the server. |
 | `log_group_name` | CloudWatch log group of the server. |
+
+## Single sign-on in front of the UI {#sso}
+
+Set `oidc_authentication` for any OpenID Connect provider, such as Google Workspace, Microsoft Entra ID or Okta, or `cognito_authentication` for a Cognito user pool, and the HTTPS listener authenticates people before the server sees them: its default action becomes authenticate, then forward. The UI, `/setup` and the server's own GitHub sign-in (`/auth/login` and `/auth/callback`) stay behind it. People still get their Stackorder identity and permissions from GitHub, because the server does not read the load balancer's `x-amzn-oidc-*` headers.
+
+Machines cannot sign in interactively, so the module adds listener rules that forward without authentication:
+
+| Priority | Path | Other conditions | Callers |
+| --- | --- | --- | --- |
+| 1 | `/webhooks/github` | `POST` | GitHub webhook deliveries, verified by their signature |
+| 2 | `/healthz`, `/readyz` | `GET` or `HEAD` | Uptime checks and external monitoring |
+| 3 | `/v1/runs`, `/v1/runs/*`, `/v1/unlock`, `/v1/me` | `Authorization: Bearer *` | Actions jobs with their OIDC token, and the CLI with an OIDC token or an API key |
+| 4 | `/metrics` | `GET`, `Authorization: Bearer *` | Prometheus with the metrics token |
+
+The server still authenticates every request these rules let through. The UI's own `/v1` calls carry a session cookie rather than a bearer token, so they stay behind the load balancer, and scripts that call other `/v1` endpoints with an API key need a rule of their own. The module keeps priorities 1 to 99; attach your own rules to the `https_listener_arn` output at 100 or above.
+
+The AWS provider has no write-only argument for the OIDC client secret, so the listener stores `client_secret` in Terraform state. With Google Workspace, create a "Web application" OAuth client with the redirect URI `https://<domain_name>/oauth2/idpresponse` and set the consent screen's user type to Internal, which is what limits sign-in to your Workspace. `deploy/terraform/README.md` has a complete example.
 
 ## First deployment {#first-deploy}
 

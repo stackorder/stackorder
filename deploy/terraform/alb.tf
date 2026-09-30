@@ -25,6 +25,14 @@ locals {
   ]...)
 
   certificate_arn = var.certificate_arn != null ? var.certificate_arn : one(aws_acm_certificate_validation.this[*].certificate_arn)
+
+  alb_authentication = nonsensitive(var.oidc_authentication != null) || var.cognito_authentication != null
+  alb_bypass_rules = {
+    webhooks = { priority = 1, paths = ["/webhooks/github"], methods = ["POST"], bearer = false }
+    health   = { priority = 2, paths = ["/healthz", "/readyz"], methods = ["GET", "HEAD"], bearer = false }
+    api      = { priority = 3, paths = ["/v1/runs", "/v1/runs/*", "/v1/unlock", "/v1/me"], methods = [], bearer = true }
+    metrics  = { priority = 4, paths = ["/metrics"], methods = ["GET"], bearer = true }
+  }
 }
 
 resource "aws_lb" "this" {
@@ -117,8 +125,52 @@ resource "aws_lb_listener" "https" {
   ssl_policy        = var.ssl_policy
   certificate_arn   = local.certificate_arn
 
+  dynamic "default_action" {
+    for_each = nonsensitive(var.oidc_authentication != null) ? [1] : []
+
+    content {
+      type  = "authenticate-oidc"
+      order = 1
+
+      authenticate_oidc {
+        issuer                              = nonsensitive(var.oidc_authentication.issuer)
+        authorization_endpoint              = nonsensitive(var.oidc_authentication.authorization_endpoint)
+        token_endpoint                      = nonsensitive(var.oidc_authentication.token_endpoint)
+        user_info_endpoint                  = nonsensitive(var.oidc_authentication.user_info_endpoint)
+        client_id                           = nonsensitive(var.oidc_authentication.client_id)
+        client_secret                       = var.oidc_authentication.client_secret
+        scope                               = nonsensitive(var.oidc_authentication.scope)
+        session_cookie_name                 = nonsensitive(var.oidc_authentication.session_cookie_name)
+        session_timeout                     = nonsensitive(var.oidc_authentication.session_timeout)
+        on_unauthenticated_request          = nonsensitive(var.oidc_authentication.on_unauthenticated_request)
+        authentication_request_extra_params = nonsensitive(var.oidc_authentication.authentication_request_extra_params)
+      }
+    }
+  }
+
+  dynamic "default_action" {
+    for_each = var.cognito_authentication == null ? [] : [var.cognito_authentication]
+
+    content {
+      type  = "authenticate-cognito"
+      order = 1
+
+      authenticate_cognito {
+        user_pool_arn                       = default_action.value.user_pool_arn
+        user_pool_client_id                 = default_action.value.user_pool_client_id
+        user_pool_domain                    = default_action.value.user_pool_domain
+        scope                               = default_action.value.scope
+        session_cookie_name                 = default_action.value.session_cookie_name
+        session_timeout                     = default_action.value.session_timeout
+        on_unauthenticated_request          = default_action.value.on_unauthenticated_request
+        authentication_request_extra_params = default_action.value.authentication_request_extra_params
+      }
+    }
+  }
+
   default_action {
     type             = "forward"
+    order            = local.alb_authentication ? 2 : null
     target_group_arn = aws_lb_target_group.this.arn
   }
 
@@ -130,4 +182,45 @@ resource "aws_lb_listener" "https" {
       error_message = "Set exactly one of route53_zone_id (the module issues and validates a certificate and creates the DNS record) or certificate_arn (an existing certificate; DNS is left to you)."
     }
   }
+}
+
+resource "aws_lb_listener_rule" "bypass" {
+  for_each = { for k, v in local.alb_bypass_rules : k => v if local.alb_authentication }
+
+  listener_arn = aws_lb_listener.https.arn
+  priority     = each.value.priority
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.this.arn
+  }
+
+  condition {
+    path_pattern {
+      values = each.value.paths
+    }
+  }
+
+  dynamic "condition" {
+    for_each = length(each.value.methods) > 0 ? [each.value.methods] : []
+
+    content {
+      http_request_method {
+        values = condition.value
+      }
+    }
+  }
+
+  dynamic "condition" {
+    for_each = each.value.bearer ? [1] : []
+
+    content {
+      http_header {
+        http_header_name = "Authorization"
+        values           = ["Bearer *"]
+      }
+    }
+  }
+
+  tags = merge(var.tags, { Name = "${var.name}-${each.key}" })
 }

@@ -139,6 +139,73 @@ refused.
   the literal path. The server itself requires the metrics bearer token
   instead; see [Metrics](#metrics).
 
+## Single sign-on in front of the UI
+
+`oidc_authentication` (any OpenID Connect provider) or
+`cognito_authentication` (a Cognito user pool) makes the HTTPS listener
+authenticate people before the server sees them: its default action
+becomes `authenticate-oidc` or `authenticate-cognito`, then `forward`.
+The UI, `/setup` and the server's own GitHub sign-in (`/auth/login` and
+`/auth/callback`) all stay behind it, so a person signs in to the identity
+provider first and to GitHub second. The server does not read the
+load balancer's `x-amzn-oidc-*` headers; people still get their Stackorder
+identity and permissions from GitHub.
+
+Machines cannot sign in interactively, so the module adds listener rules
+that forward without authentication:
+
+| Priority | Path | Other conditions | Callers |
+| --- | --- | --- | --- |
+| 1 | `/webhooks/github` | `POST` | GitHub webhook deliveries, which the server verifies by their signature |
+| 2 | `/healthz`, `/readyz` | `GET` or `HEAD` | Uptime checks and external monitoring |
+| 3 | `/v1/runs`, `/v1/runs/*`, `/v1/unlock`, `/v1/me` | `Authorization: Bearer *` | Actions jobs with their OIDC token, and the CLI with an OIDC token or an API key |
+| 4 | `/metrics` | `GET`, `Authorization: Bearer *` | Prometheus with the metrics token |
+
+These are the endpoints the CLI and runners call, and the server still
+authenticates every request that reaches them. A request that spells one
+of these paths differently, for example with percent-escapes, misses the
+rule and meets the load balancer's authentication instead, so the rules
+fail closed. The UI's own calls to
+`/v1` carry a session cookie rather than a bearer token, so they stay
+behind the load balancer; scripts that call other `/v1` endpoints with an
+API key need a rule of their own. The module keeps priorities 1 to 99 for
+its rules: attach yours to the `https_listener_arn` output at 100 or
+above, forwarding to `target_group_arn`.
+
+The AWS provider has no write-only argument for the OIDC client secret, so
+the listener stores `client_secret` in Terraform state, next to the
+database password and the App private key.
+
+With Google Workspace, create an OAuth client of type "Web application"
+whose authorised redirect URI is `https://<domain_name>/oauth2/idpresponse`,
+the load balancer's fixed callback path, and set the OAuth consent
+screen's user type to Internal. Only the Internal user type limits sign-in
+to your Workspace: the `hd` parameter below only preselects the account.
+
+```hcl
+module "stackorder" {
+  source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.1.0"
+
+  domain_name     = "stackorder.acme.com"
+  certificate_arn = "arn:aws:acm:eu-north-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+  image_tag       = "0.1.0"
+
+  oidc_authentication = {
+    issuer                 = "https://accounts.google.com"
+    authorization_endpoint = "https://accounts.google.com/o/oauth2/v2/auth"
+    token_endpoint         = "https://oauth2.googleapis.com/token"
+    user_info_endpoint     = "https://openidconnect.googleapis.com/v1/userinfo"
+    client_id              = var.google_client_id
+    client_secret          = var.google_client_secret
+    scope                  = "openid email"
+
+    authentication_request_extra_params = {
+      hd = "acme.com"
+    }
+  }
+}
+```
+
 ## Load balancer access logs
 
 `alb_access_logs_enabled = true` creates a bucket named
@@ -389,6 +456,7 @@ No modules.
 | [aws\_lb.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb) | resource |
 | [aws\_lb\_listener.http](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_listener) | resource |
 | [aws\_lb\_listener.https](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_listener) | resource |
+| [aws\_lb\_listener\_rule.bypass](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_listener_rule) | resource |
 | [aws\_lb\_target\_group.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_target_group) | resource |
 | [aws\_nat\_gateway.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/nat_gateway) | resource |
 | [aws\_rds\_cluster.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/rds_cluster) | resource |
@@ -468,6 +536,8 @@ No modules.
 | <a name="input_alb_access_logs_enabled"></a> [alb\_access\_logs\_enabled](#input\_alb\_access\_logs\_enabled) | Write load balancer access logs to an S3 bucket the module creates, encrypted with SSE-S3 as ELB log delivery requires. | `bool` | `false` | no |
 | <a name="input_alb_access_logs_retention_days"></a> [alb\_access\_logs\_retention\_days](#input\_alb\_access\_logs\_retention\_days) | Days after which objects in the access log bucket expire. | `number` | `90` | no |
 | <a name="input_waf_web_acl_arn"></a> [waf\_web\_acl\_arn](#input\_waf\_web\_acl\_arn) | ARN of a regional AWS WAFv2 web ACL in the module's region to associate with the load balancer. Null associates none. | `string` | `null` | no |
+| <a name="input_oidc_authentication"></a> [oidc\_authentication](#input\_oidc\_authentication) | OpenID Connect provider with which the load balancer authenticates people before forwarding, as the authenticate\_oidc action of the HTTPS listener. Webhooks, health checks, and runner, CLI and metrics requests that carry a bearer token bypass it. The listener stores client\_secret in Terraform state. Null authenticates nobody at the load balancer. Sensitive. | `object({ issuer = string authorization_endpoint = string token_endpoint = string user_info_endpoint = string client_id = string client_secret = string scope = optional(string) session_cookie_name = optional(string) session_timeout = optional(number) on_unauthenticated_request = optional(string) authentication_request_extra_params = optional(map(string)) })` | `null` | no |
+| <a name="input_cognito_authentication"></a> [cognito\_authentication](#input\_cognito\_authentication) | Amazon Cognito user pool with which the load balancer authenticates people before forwarding, as the authenticate\_cognito action of the HTTPS listener, with the same bypass as oidc\_authentication. At most one of oidc\_authentication and cognito\_authentication may be set. Null authenticates nobody at the load balancer. | `object({ user_pool_arn = string user_pool_client_id = string user_pool_domain = string scope = optional(string) session_cookie_name = optional(string) session_timeout = optional(number) on_unauthenticated_request = optional(string) authentication_request_extra_params = optional(map(string)) })` | `null` | no |
 | <a name="input_image"></a> [image](#input\_image) | Container image repository of the server. | `string` | `"ghcr.io/stackorder/stackorder"` | no |
 | <a name="input_image_tag"></a> [image\_tag](#input\_image\_tag) | Tag or digest (sha256:...) of the server image. Pin a release such as 1.2.3 so upgrades are explicit plans. | `string` | `"latest"` | no |
 | <a name="input_desired_count"></a> [desired\_count](#input\_desired\_count) | Number of server tasks. All coordination goes through Postgres, so a second task adds availability without any other change. | `number` | `1` | no |
@@ -532,4 +602,8 @@ No modules.
 | <a name="output_artifact_bucket"></a> [artifact\_bucket](#output\_artifact\_bucket) | Name of the artifact bucket, or null when artifact\_bucket\_enabled is false. |
 | <a name="output_alb_access_logs_bucket"></a> [alb\_access\_logs\_bucket](#output\_alb\_access\_logs\_bucket) | Name of the load balancer access log bucket, or null when alb\_access\_logs\_enabled is false. |
 | <a name="output_security_group_ids"></a> [security\_group\_ids](#output\_security\_group\_ids) | Security group ids of the load balancer, the service and the database. |
+| <a name="output_alb_arn"></a> [alb\_arn](#output\_alb\_arn) | ARN of the load balancer. |
+| <a name="output_https_listener_arn"></a> [https\_listener\_arn](#output\_https\_listener\_arn) | ARN of the HTTPS listener, for listener rules of your own at priority 100 or above; the module keeps priorities 1 to 99 for its rules. |
+| <a name="output_http_listener_arn"></a> [http\_listener\_arn](#output\_http\_listener\_arn) | ARN of the HTTP listener, which redirects to HTTPS. |
+| <a name="output_target_group_arn"></a> [target\_group\_arn](#output\_target\_group\_arn) | ARN of the target group of the server's tasks, for listener rules that forward to the server. |
 | <a name="output_log_group_name"></a> [log\_group\_name](#output\_log\_group\_name) | CloudWatch log group of the server. |

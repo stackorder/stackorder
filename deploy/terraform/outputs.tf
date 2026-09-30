@@ -77,6 +77,26 @@ output "security_group_ids" {
   }
 }
 
+output "alb_arn" {
+  description = "ARN of the load balancer."
+  value       = aws_lb.this.arn
+}
+
+output "https_listener_arn" {
+  description = "ARN of the HTTPS listener, for listener rules of your own at priority 100 or above; the module keeps priorities 1 to 99 for its rules."
+  value       = aws_lb_listener.https.arn
+}
+
+output "http_listener_arn" {
+  description = "ARN of the HTTP listener, which redirects to HTTPS."
+  value       = aws_lb_listener.http.arn
+}
+
+output "target_group_arn" {
+  description = "ARN of the target group of the server's tasks, for listener rules that forward to the server."
+  value       = aws_lb_target_group.this.arn
+}
+
 output "log_group_name" {
   description = "CloudWatch log group of the server."
   value       = aws_cloudwatch_log_group.this.name

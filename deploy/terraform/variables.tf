@@ -191,6 +191,70 @@ variable "waf_web_acl_arn" {
   }
 }
 
+variable "oidc_authentication" {
+  description = "OpenID Connect provider with which the load balancer authenticates people before forwarding, as the authenticate_oidc action of the HTTPS listener. Webhooks, health checks, and runner, CLI and metrics requests that carry a bearer token bypass it. The listener stores client_secret in Terraform state. Null authenticates nobody at the load balancer."
+  type = object({
+    issuer                              = string
+    authorization_endpoint              = string
+    token_endpoint                      = string
+    user_info_endpoint                  = string
+    client_id                           = string
+    client_secret                       = string
+    scope                               = optional(string)
+    session_cookie_name                 = optional(string)
+    session_timeout                     = optional(number)
+    on_unauthenticated_request          = optional(string)
+    authentication_request_extra_params = optional(map(string))
+  })
+  default   = null
+  sensitive = true
+
+  validation {
+    condition = nonsensitive(var.oidc_authentication == null || alltrue([
+      for url in [
+        try(var.oidc_authentication.issuer, ""), try(var.oidc_authentication.authorization_endpoint, ""),
+        try(var.oidc_authentication.token_endpoint, ""), try(var.oidc_authentication.user_info_endpoint, ""),
+      ] : startswith(url, "https://")
+    ]))
+    error_message = "oidc_authentication needs https URLs for issuer, authorization_endpoint, token_endpoint and user_info_endpoint."
+  }
+
+  validation {
+    condition     = nonsensitive(try(contains(["authenticate", "allow", "deny"], coalesce(var.oidc_authentication.on_unauthenticated_request, "authenticate")), true))
+    error_message = "oidc_authentication.on_unauthenticated_request must be authenticate, allow or deny."
+  }
+}
+
+variable "cognito_authentication" {
+  description = "Amazon Cognito user pool with which the load balancer authenticates people before forwarding, as the authenticate_cognito action of the HTTPS listener, with the same bypass as oidc_authentication. At most one of oidc_authentication and cognito_authentication may be set. Null authenticates nobody at the load balancer."
+  type = object({
+    user_pool_arn                       = string
+    user_pool_client_id                 = string
+    user_pool_domain                    = string
+    scope                               = optional(string)
+    session_cookie_name                 = optional(string)
+    session_timeout                     = optional(number)
+    on_unauthenticated_request          = optional(string)
+    authentication_request_extra_params = optional(map(string))
+  })
+  default = null
+
+  validation {
+    condition     = nonsensitive(var.oidc_authentication == null) || var.cognito_authentication == null
+    error_message = "Set at most one of oidc_authentication and cognito_authentication."
+  }
+
+  validation {
+    condition     = var.cognito_authentication == null || can(regex("^arn:[a-z-]+:cognito-idp:[a-z0-9-]+:[0-9]{12}:userpool/.+$", try(var.cognito_authentication.user_pool_arn, "")))
+    error_message = "cognito_authentication.user_pool_arn must be a Cognito user pool ARN."
+  }
+
+  validation {
+    condition     = try(contains(["authenticate", "allow", "deny"], coalesce(var.cognito_authentication.on_unauthenticated_request, "authenticate")), true)
+    error_message = "cognito_authentication.on_unauthenticated_request must be authenticate, allow or deny."
+  }
+}
+
 variable "image" {
   description = "Container image repository of the server."
   type        = string
