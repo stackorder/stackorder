@@ -52,6 +52,14 @@ Git-pinned modules never make a consumer "changed" in a pull request. A change i
 
 When the module repository has the App installed and pushes a semver tag, the server records the version. The module page in the UI then lists every consumer stack, the ref it pins, and how many releases it is behind. Bumping is left to Renovate or Dependabot.
 
+<Screenshot
+  name="ui-module-consumers"
+  alt="A module page in the web UI for the git module acme/terraform-modules//eks-addons: four released versions from v0.7.2 to v0.10.0, and three consumer stacks in two repositories, two pinned to v0.8.0 and two versions behind, one pinned to v0.10.0 and up to date."
+  :width="780"
+  :height="653"
+  caption="The module page of a git module in the web UI, with sample data. One consumer is in another repository, acme/platform-infra."
+/>
+
 ## Viewing the cross-repo graph {#viewing}
 
 - The repository graph, in the UI and from `GET /v1/repos/{owner}/{repo}/graph`, includes upstream stacks from other repositories, marked `external: true`.

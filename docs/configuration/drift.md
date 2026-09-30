@@ -38,6 +38,14 @@ Only one server instance schedules at a time; the scheduler is elected leader wi
 - `GET /v1/overview` and `GET /v1/repos` report drifted counts.
 - The drifted-stacks gauge in [metrics](/reference/metrics).
 
+<Screenshot
+  name="ui-stack-drift"
+  alt="A stack page in the web UI for stacks/prod/eks: its environment, tool and state location, then cards for the last apply, the last plan, a drift result marked drifted with one resource to change, checked two days ago, with issue #57, and the stack lock held by PR #42."
+  :width="768"
+  :height="603"
+  caption="A stack page in the web UI, with sample data. The Drift card shows the latest drift check and its issue."
+/>
+
 The UI shows the latest row per stack. Drift history is kept 90 days by default, set by `STACKORDER_DRIFT_RETENTION`; the latest result of each stack is always kept.
 
 ## Drift from upstream changes {#cross-repo}
