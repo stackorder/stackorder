@@ -21,7 +21,7 @@ Whoever creates the GitHub App owns it. Between the first deploy and the App's c
 
 - The server generates the token from 32 random bytes at start, or takes `STACKORDER_SETUP_TOKEN`, and logs the setup URL with it. Only people who can read the server's log can open the page.
 - The token is compared in constant time and traded for a signed cookie before the page loads, so it never reaches GitHub. The manifest callback converts a code only for the browser that opened the page.
-- Once an App is created, the token stops working until the server restarts.
+- Once an App is created, the token stops working on the instance that created it, until that instance restarts. Other instances that share the token keep accepting it until they restart, so run one instance during setup.
 - With `STACKORDER_ALLOW_RESETUP=true` a configured server also serves the token-gated setup, so anyone who can read its log can create a replacement App. Set it only while replacing the App.
 
 ## Controls that belong to GitHub {#github-controls}

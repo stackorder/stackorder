@@ -528,9 +528,11 @@ hour, bound to the token) and answers 303 to the same URL without the
 token; without the token or the cookie the page answers 403.
 `GET /setup/callback` converts a code only with the signed state cookie the
 form page set. Once a callback has created an App the token and its cookie
-stop working until the server restarts; `/setup` then says an App exists
-and the callback answers 409. `GET /setup/installed` needs no token: it
-echoes only the installation id GitHub passes.
+stop working on that instance until it restarts; its `/setup` then says an
+App exists and its callback answers 409. The flag is in memory, so other
+instances sharing the token keep accepting it until they restart, which is
+why one instance during setup is the recommendation. `GET /setup/installed`
+needs no token: it echoes only the installation id GitHub passes.
 
 ## Run state machine
 

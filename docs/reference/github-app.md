@@ -60,7 +60,7 @@ Installations made while the server was in setup mode are learned at start-up: t
 
 The manifest sets the webhook URL to `<base URL>/webhooks/github`, the setup redirect to `/setup/callback`, the sign-in callback to `/auth/callback` and the post-installation page to `/setup/installed`. The App is private. On GitHub Enterprise Server set `GITHUB_API_URL` and `GITHUB_WEB_URL` before opening `/setup`; the flow is the same.
 
-Without the token, `/setup` answers `403`, so nobody else who reaches the server between the deploy and the setup can create the App under their own account. The token stops working once an App is created, and a generated one changes at every start.
+Without the token, `/setup` answers `403`, so nobody else who reaches the server between the deploy and the setup can create the App under their own account. The token stops working on the instance that created an App, and a generated one changes at every start.
 
 Opening `/setup` on a server that already has App credentials shows a page saying so. Only with [`STACKORDER_ALLOW_RESETUP=true`](/reference/server-configuration#setup-mode) does it link to creating another App anyway (`/setup?force=1`), for instance after moving the server to a new URL, which needs the setup token too; without it `/setup?force=1` and `/setup/callback` answer `404`.
 

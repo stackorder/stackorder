@@ -28,7 +28,7 @@ Values are trimmed of surrounding white space, and an empty value counts as unse
 | `STACKORDER_ARTIFACT_BUCKET` | unset | S3 bucket name, not a URL, for full plan text. See [below](#artifact-bucket). |
 | `STACKORDER_ARTIFACT_PREFIX` | empty | Key prefix inside the bucket. Setting it without a bucket is an error. |
 | `AWS_ENDPOINT_URL_S3` | unset | Only read with a bucket: an S3-compatible endpoint, used with path-style addressing, such as LocalStack. |
-| `STACKORDER_SESSION_KEY` | generated | 32 bytes, hex encoded (64 characters), that sign session and sign-in cookies. When unset the server generates one at each start and logs a warning, so sessions end at every restart and are not shared between instances. |
+| `STACKORDER_SESSION_KEY` | generated | 32 bytes, hex encoded (64 characters), that sign session, sign-in and setup cookies. When unset the server generates one at each start and logs a warning, so sessions end at every restart and are not shared between instances. |
 | `STACKORDER_METRICS_TOKEN` | unset | When set, `GET /metrics` requires `Authorization: Bearer <token>`. |
 | `STACKORDER_PLAN_TEXT_RETENTION` | `720h` | How long stored plan text is kept (30 days). |
 | `STACKORDER_EVENT_RETENTION` | `168h` | How long webhook events and finished jobs are kept (7 days). |
@@ -62,8 +62,8 @@ Whoever creates the App owns it, so `/setup` opens only with a one-time token. A
 
 - Open that URL in the browser you create the App with. The server checks the token, sets a signed cookie valid for an hour, and redirects to `/setup` without the token, so the token never reaches GitHub. Add `&org=` or `&name=` to the URL, or open `/setup?org=<organisation>` afterwards in the same browser.
 - Without the token or the cookie, `/setup` answers `403` with a page saying where to find the URL.
-- The token stops working once an App is created. Until the server restarts, `/setup` then says an App exists.
-- A generated token changes at every start, and each instance generates its own. Run one instance until the App exists, or set the same `STACKORDER_SETUP_TOKEN` on every instance.
+- The token stops working on the instance that created an App. Until that instance restarts, its `/setup` says an App exists. Other instances that share the token keep accepting it until they restart, which is why one instance during setup is the recommendation.
+- A generated token changes at every start, and each instance generates its own. Run one instance until the App exists, or set the same `STACKORDER_SETUP_TOKEN` and `STACKORDER_SESSION_KEY` on every instance: the setup cookies are signed with the session key.
 - With `STACKORDER_SETUP_TOKEN` set, the log line shows `<STACKORDER_SETUP_TOKEN>` in place of the token. That token opens `/setup` again after every restart, so unset it once the App exists.
 - With `STACKORDER_ALLOW_RESETUP=true` the server logs `/setup?force=1&token=…`. Creating a replacement App needs the token too, so anyone who can read the log can start one while the variable is set.
 
