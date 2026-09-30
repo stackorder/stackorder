@@ -286,9 +286,12 @@ logs on. ELB log delivery accepts only SSE-S3, so this bucket ignores
 `kms_key_arn`. Its policy lets only log delivery for this account's
 `<name>` load balancer write, under `AWSLogs/<account>/`, and denies plain
 HTTP; objects expire after `alb_access_logs_retention_days` (90). The logs
-hold full request URLs, including the short-lived, single-use `code`
-parameters of the OAuth and App setup callbacks, but no headers or bodies,
-so bearer tokens and webhook payloads stay out of them.
+hold full request URLs, but no headers or bodies. The URLs include the
+short-lived, single-use `code` parameters of the OAuth and App setup
+callbacks and the setup token of `/setup?token=`, which opens setup until
+an App is created. Treat read access to this bucket like read access to
+the server's log while setup is open, or turn the logs on after the App
+exists. Bearer tokens and webhook payloads stay out of them.
 
 The module never deletes logs. Setting `alb_access_logs_enabled = false`
 turns the load balancer's access logs off before the bucket goes, but the
