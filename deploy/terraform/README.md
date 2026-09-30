@@ -549,7 +549,9 @@ random provider and check the values written to the secrets through the
 module's locals. They need Terraform 1.11.4 or later: 1.11.0 to 1.11.3
 return values for write-only attributes from mock providers, which fails
 the plans. CI validates the module and its examples, and runs the tests,
-on the latest 1.11 and 1.14 releases.
+on the latest 1.11 and 1.14 releases. OpenTofu rejects the tests' mock
+provider syntax at `init`, so run them with Terraform; to validate the
+module with OpenTofu, copy it without the `tests` directory.
 
 ## Requirements
 
