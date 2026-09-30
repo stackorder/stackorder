@@ -170,10 +170,10 @@ Called from `stackorder-plan.yml` on `pull_request`.
 | Job | Runs when | Does |
 | --- | --- | --- |
 | `resolve` | The head repository is not a fork | Checks out with full history, installs `stackorder`, runs the `resolve` action, and exposes `matrix`, `count`, `run-id`, `unconfirmed` and the installed `stackorder-version` |
-| `plan` | `count` is above zero | One job per matrix entry, named `plan <key>`, with `fail-fast: false` and `max-parallel`: checks out the entry's `sha`, installs the tool, installs the same `stackorder` version, selects and assumes the AWS role, restores the plugin cache, runs the `plan` action |
+| `plan` | `count` is above zero | One job per matrix entry, named `plan <key>`, with `fail-fast: false` and `max-parallel`: checks out the entry's `sha`, installs the tool, installs the same `stackorder` version, exports `env`, selects and assumes the AWS role, restores the plugin cache, runs the `plan` action |
 | `fork-notice` | The head repository is a fork | Writes the reason nothing was planned to the job summary |
 
-Inputs: `server-url` (required), `aws-role-arn`, `aws-role-arn-map`, `aws-role-session-name`, `aws-region`, `tool`, `tool-version`, `stackorder-version`, `runner`, `max-parallel`, `working-directory`, `base-ref`, `stacks`.
+Inputs: `server-url` (required), `aws-role-arn`, `aws-role-arn-map`, `aws-role-session-name`, `aws-region`, `tool`, `tool-version`, `stackorder-version`, `runner`, `max-parallel`, `working-directory`, `base-ref`, `stacks`, `env`. Secret: `env`, optional.
 
 ### `run.yml` {#run-yml}
 
@@ -182,14 +182,16 @@ Called from `stackorder-run.yml`, which the server dispatches once per wave and 
 - runs under `environment: ${{ matrix.environment }}` and in the concurrency group `stackorder-stack-<key>`, without cancel-in-progress;
 - fails before checkout unless `mode` is `plan`, `apply` or `drift`;
 - checks out `sha`, falling back to the entry's `sha`, then to the dispatched ref;
-- installs the entry's tool and `stackorder`, selects and assumes the AWS role, restores the plugin cache;
+- installs the entry's tool and `stackorder`, exports `env`, selects and assumes the AWS role, restores the plugin cache;
 - runs exactly one of the `plan`, `apply` or `drift` actions, according to `mode`.
 
-Inputs: `run-id`, `mode` and `stacks` (required), `wave`, `sha`, `server-url` (required), `aws-role-arn-map`, `aws-role-arn`, `aws-plan-role-arn`, `aws-role-session-name`, `aws-region`, `tool`, `tool-version`, `stackorder-version`, `runner`, `max-parallel`, `working-directory`.
+Inputs: `run-id`, `mode` and `stacks` (required), `wave`, `sha`, `server-url` (required), `aws-role-arn-map`, `aws-role-arn`, `aws-plan-role-arn`, `aws-role-session-name`, `aws-region`, `tool`, `tool-version`, `stackorder-version`, `runner`, `max-parallel`, `working-directory`, `env`. Secret: `env`, optional; an environment secret named `ENV` on the job's GitHub environment takes its place.
 
 **Role selection.** For `mode: apply` the role comes from `aws-role-arn-map`, whose keys are path prefixes (`infra/`), exact stack keys (`infra/network:production`) or instances in any directory (`:production`). The first match wins, in this order: the exact key, then `:instance`, then the longest prefix the stack path starts with, whole segments only (a key containing `:` is never a prefix); else `aws-role-arn`. The `:instance` rule reads the entry's `instance`, or its `workspace` for an entry from an older CLI. For `mode: plan` and `mode: drift` the map is ignored: those dispatches run under the `default` environment and assume `aws-plan-role-arn`, else `aws-role-arn`. When no role results, the job logs a notice and skips AWS credentials. `plan.yml` selects roles the same way as an apply, from the map and then `aws-role-arn`.
 
 **Session name.** `aws-role-session-name` is passed to `configure-aws-credentials` as `role-session-name`. It is a name, or a JSON object, recognised by its leading `{`, with `plan`, `apply` and `drift` keys from which the job's mode picks one: `drift` falls back to `plan`, and `plan.yml` always uses `plan`. Every byte outside `[A-Za-z0-9_+=,.@-]` becomes `-`, and the name is cut at 64 characters. Nothing is added, so every stack of a job's mode gets the same name. An empty result keeps the action's default, `GitHubActions`.
+
+**Environment variables.** The `env` input and the `env` secret hold environment variables as `KEY=VALUE` lines or `KEY<<DELIMITER` multi-line values, the syntax of `$GITHUB_ENV`. A step after `setup` and before the AWS credentials step masks every value of the secret, then appends the input and the secret, in that order, to `$GITHUB_ENV`. It refuses the prefixes `GITHUB_`, `RUNNER_`, `ACTIONS_` and `STACKORDER_` and the names `PATH`, `HOME`, `NODE_OPTIONS`, `BASH_ENV` and `LD_PRELOAD`, in any letter case, failing the job with an error that names the variable and exporting nothing. `plan.yml` runs the same step in its plan jobs, never in `resolve`. See [Provider credentials](/configuration/workflows#env).
 
 ### Hooks {#hooks}
 
