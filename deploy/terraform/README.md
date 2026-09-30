@@ -155,7 +155,10 @@ when applying it as well as when planning, with `TF_VAR_*` variables or
 `-var`, or read them in the calling configuration with an ephemeral
 resource such as `ephemeral "aws_secretsmanager_secret_version"`, which is
 read again at apply time, as the [self-hosted](examples/self-hosted)
-example does.
+example does. Terraform refuses to apply a saved plan when an ephemeral
+input set at plan is missing. OpenTofu instead uses the input's default,
+so a `session_key` or `metrics_token` omitted at apply makes the module
+write new generated values in place of the chosen ones.
 
 **Warning: under Stackorder, the App inputs reach plan jobs.** Stackorder
 applies saved plans, so the ephemeral inputs must reach its plan jobs as
