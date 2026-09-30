@@ -14,7 +14,7 @@ This is the design document, the source of truth for behaviour, reproduced as wr
 
 ## Summary and positioning
 
-Stackorder is a GitHub App plus a small control-plane server that decides *which* Terraform or OpenTofu stacks to run and *in what order*, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay entirely inside the user's GitHub org and AWS account; the server only ever sees metadata.
+Stackorder is a GitHub App plus a small control-plane server that decides *which* Terraform or OpenTofu stacks to run and *in what order*, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay entirely inside the user's GitHub org and AWS account; the server receives metadata and redacted, size-capped plan text, never cloud credentials or Terraform state.
 
 The server has exactly two jobs:
 
@@ -57,7 +57,7 @@ Non-goals, deliberately:
 
 ## System overview
 
-Three trust zones, and only the GitHub zone touches all the others. The server exchanges metadata with GitHub and with runner jobs; it never talks to AWS.
+Three trust zones, and only the GitHub zone touches all the others. The server exchanges metadata and redacted plan text with GitHub and with runner jobs; it never talks to AWS.
 
 ```mermaid
 flowchart TB

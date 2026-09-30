@@ -29,7 +29,7 @@ Stackorder plans every stack a pull request affects and applies them in dependen
 
 ## What it does
 
-Stackorder is a GitHub App plus a small control-plane server that decides **which** stacks to run and **in what order**, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay inside your GitHub org and AWS account; the server only ever sees metadata.
+Stackorder is a GitHub App plus a small control-plane server that decides **which** stacks to run and **in what order**, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay inside your GitHub org and AWS account; the server receives metadata and redacted, size-capped plan text, never cloud credentials or Terraform state.
 
 The server has exactly two jobs:
 

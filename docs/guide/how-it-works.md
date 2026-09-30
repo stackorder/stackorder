@@ -9,7 +9,7 @@ GitHub triggers plans natively on every pull request push. The server dispatches
 
 ## System overview {#system-overview}
 
-There are three trust zones, and only the GitHub zone touches the other two. The server exchanges metadata with GitHub and with runner jobs. It never talks to AWS on your behalf.
+There are three trust zones, and only the GitHub zone touches the other two. The server exchanges metadata and redacted plan text with GitHub and with runner jobs. It never talks to AWS on your behalf.
 
 ```mermaid
 flowchart TB

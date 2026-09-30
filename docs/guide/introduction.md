@@ -7,7 +7,7 @@ description: 'What Stackorder is and is not: a GitHub App and a small server tha
 
 Stackorder decides **which** Terraform or OpenTofu stacks a change affects and **in what order** to apply them. GitHub Actions does all of the running.
 
-It is a GitHub App plus a small control-plane server. Execution, credentials, state and modules stay inside your GitHub org and your AWS account. The server only ever sees metadata.
+It is a GitHub App plus a small control-plane server. Execution, credentials, state and modules stay inside your GitHub org and your AWS account. The server receives metadata and redacted, size-capped plan text, never cloud credentials or Terraform state.
 
 ::: info About these pages
 The guide, configuration, reference and operations pages describe the code as released. The [design document](/design/) explains why it works this way, with implementation notes where the code departs from it, and the [architecture contract](/design/architecture) pins the names and shapes.
