@@ -363,7 +363,7 @@ The metric names are listed on [Metrics and tracing](/reference/metrics); spans 
 - Upgrades: migrations run at start-up under a lock; the previous image keeps serving until the new task passes `/readyz`.
 
 ::: info Implementation note
-The image is built on `gcr.io/distroless/static:nonroot` and declares `HEALTHCHECK CMD ["/stackorder-server", "healthcheck"]`. The server also reads `STACKORDER_LISTEN`, `GITHUB_WEB_URL`, `GITHUB_OIDC_ISSUER`, `GITHUB_OIDC_JWKS_URL`, `STACKORDER_ARTIFACT_PREFIX`, `STACKORDER_SESSION_KEY`, `STACKORDER_METRICS_TOKEN`, the three retention durations, `STACKORDER_WORKERS`, the log settings and `OTEL_EXPORTER_OTLP_ENDPOINT`; without the App variables it starts in setup mode. The Terraform module's task egress is HTTPS to anywhere through NAT, since security groups cannot name hosts. See [Server configuration](/reference/server-configuration).
+The image is built on `gcr.io/distroless/static:nonroot` and declares `HEALTHCHECK CMD ["/stackorder-server", "healthcheck"]`. The server also reads `STACKORDER_LISTEN`, `GITHUB_WEB_URL`, `GITHUB_OIDC_ISSUER`, `GITHUB_OIDC_JWKS_URL`, `STACKORDER_ARTIFACT_PREFIX`, `STACKORDER_SESSION_KEY`, `STACKORDER_METRICS_TOKEN`, the three retention durations, `STACKORDER_WORKERS`, the log settings and `OTEL_EXPORTER_OTLP_ENDPOINT`; without the App variables it starts in setup mode. The Terraform module's task egress is HTTPS to anywhere, through NAT or, with `public_tasks`, from the tasks' public IPs, since security groups cannot name hosts. See [Server configuration](/reference/server-configuration).
 :::
 
 ## The GitHub App
