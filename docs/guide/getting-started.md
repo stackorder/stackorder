@@ -229,7 +229,7 @@ apply:
 
 If you work alone, set `require_approvals: 0`: nobody else can approve your pull requests, and your own review never counts. See [Settings for a single owner](/configuration/environments-and-authorization#single-owner).
 
-Everything else keeps its default: stacks under `stacks/**`, `modules/**` treated as modules rather than stacks, applies before merge, dependents propagated. The full list is on the [`stackorder.yaml` page](/configuration/stackorder-yaml).
+Everything else keeps its default: stacks under `stacks/**`, `modules/**` treated as modules rather than stacks, applies before merge, dependents propagated. The full list is on the [`stackorder.yaml` page](/configuration/stackorder-yaml). If your stacks are top-level directories rather than under `stacks/`, see [Layouts](/configuration/stackorder-yaml#layouts).
 
 Declare dependencies between stacks in the dependent stack's directory. In `stacks/prod/apps/.stackorder.yaml`:
 

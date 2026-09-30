@@ -137,6 +137,66 @@ plan_output: full                 # or summary
 
 The environment is what lets GitHub environment protection rules and the AWS trust policy gate applies per stack. See [Environments and authorization](./environments-and-authorization).
 
+## Layouts {#layouts}
+
+`stacks.discover` and `modules.paths` describe where stacks and modules live. The defaults fit a repository with its stacks under `stacks/` and its shared modules under `modules/`. A flat repository, where each top-level directory is a stack and keeps its own modules beside it, needs two settings.
+
+| | Nested, the default | Flat |
+| --- | --- | --- |
+| Stacks | Any directory under `stacks/` | Top-level directories |
+| Modules | Under `modules/` | Under `modules/`, and under a stack's own `modules/` |
+| `stacks.discover` | `["stacks/**"]` | `["*"]` |
+| `modules.paths` | `["modules/**"]` | `["modules/**", "*/modules/**"]` |
+
+The nested layout needs no `stacks` or `modules` keys:
+
+```text
+acme/infra
+├── stackorder.yaml
+├── modules/
+│   └── vpc/
+└── stacks/
+    ├── prod/
+    │   └── vpc/
+    └── staging/
+        └── vpc/
+```
+
+The flat layout:
+
+```text
+acme/infra
+├── stackorder.yaml
+├── modules/
+│   └── tags/
+├── network/
+│   ├── main.tf
+│   └── modules/
+│       └── subnet/
+└── app/
+    ├── main.tf
+    └── modules/
+        └── svc/
+```
+
+```yaml
+stacks:
+  discover: ["*"]
+modules:
+  paths: ["modules/**", "*/modules/**"]
+environments:
+  "network/": production
+  "app/": production
+```
+
+- `*` matches one path segment, so only top-level directories are candidates, and each one with a `backend "s3"` block is a stack, keyed by its name: `network`, `app`. A directory nested inside one, such as `app/modules/svc`, is never a stack.
+- `modules/` matches `*` too, but `modules/**` also matches the `modules` directory itself, so it stays a module directory even with a `backend` block.
+- A module a stack calls, such as `./modules/svc` or `../modules/tags`, is a module node without any `modules.paths` entry, and a change to it plans the stacks that use it. `*/modules/**` adds the component-local modules no stack calls yet to the graph as well.
+- A top-level directory without a `backend` block, such as `examples/`, is skipped silently. One with another backend, such as a `bootstrap/` directory on local state, is skipped with a warning on every scan; add it to `stacks.exclude` to silence it.
+- Environment keys are path prefixes as in any layout, so `"network/"` maps the `network` stack.
+
+`stackorder graph` prints the stacks and modules a configuration finds, without a server. See [`graph`](/reference/cli#graph).
+
 ## Globs
 
 Globs use `**` for any number of directories and `*` within one path segment. Stack paths are repository relative, slash separated, with no leading `./` and no trailing `/`.
