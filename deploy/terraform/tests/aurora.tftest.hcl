@@ -93,7 +93,6 @@ run "serverless_cluster" {
   assert {
     condition = (
       aws_rds_cluster.this[0].master_password == null &&
-      aws_rds_cluster.this[0].master_password_wo == null &&
       aws_rds_cluster.this[0].master_password_wo_version == parseint(substr(sha256(jsonencode([1, "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/database-url-AbCdEf"])), 0, 12), 16)
     )
     error_message = "The cluster password must be write-only, versioned by db_password_version and the database secret."

@@ -49,10 +49,11 @@ locals {
 
   db_resource_id = var.use_aurora_serverless ? one(aws_rds_cluster.this[*].cluster_resource_id) : one(aws_db_instance.this[*].resource_id)
 
-  # The versions follow the database and the key set too, so both ends of a write-only value are written in one apply.
+  # The versions also follow the database, the secrets and the App ids, so both ends of a write-only value are written in one apply.
   db_password_version     = parseint(substr(sha256(jsonencode([var.db_password_version, aws_secretsmanager_secret.database.arn])), 0, 12), 16)
   database_secret_version = parseint(substr(sha256(jsonencode([var.db_password_version, local.db_resource_id])), 0, 12), 16)
-  app_secret_version      = parseint(substr(sha256(jsonencode([var.secrets_version, local.app_secret_keys])), 0, 12), 16)
+  app_secret_inputs       = [var.secrets_version, var.github_app_id, var.github_oauth_client_id, aws_secretsmanager_secret.app.arn, aws_secretsmanager_secret.metrics_token.arn]
+  app_secret_version      = parseint(substr(nonsensitive(sha256(jsonencode(local.app_secret_inputs))), 0, 12), 16)
 }
 
 resource "aws_secretsmanager_secret" "database" {

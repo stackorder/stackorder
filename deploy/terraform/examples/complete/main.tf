@@ -31,6 +31,7 @@ module "stackorder" {
   github_webhook_secret      = var.github_webhook_secret
   github_oauth_client_id     = var.github_oauth_client_id
   github_oauth_client_secret = var.github_oauth_client_secret
+  secrets_version            = var.secrets_version
   required_workflow_ref      = "stackorder/actions/.github/workflows/*.yml@refs/tags/v1*"
 
   artifact_bucket_enabled = true

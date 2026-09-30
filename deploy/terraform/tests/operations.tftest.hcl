@@ -24,6 +24,14 @@ override_resource {
   }
 }
 
+override_resource {
+  target          = aws_secretsmanager_secret.metrics_token
+  override_during = plan
+  values = {
+    arn = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-MnOpQr"
+  }
+}
+
 variables {
   domain_name     = "stackorder.example.com"
   route53_zone_id = "Z0123456789ABCDEFGHIJ"
@@ -324,10 +332,10 @@ run "secret_versions_follow_their_inputs" {
 
   assert {
     condition = (
-      aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, ["STACKORDER_METRICS_TOKEN", "STACKORDER_SESSION_KEY"]])), 0, 12), 16) &&
+      aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, null, null, "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl", "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-MnOpQr"])), 0, 12), 16) &&
       aws_secretsmanager_secret_version.metrics_token.secret_string_wo_version == aws_secretsmanager_secret_version.app.secret_string_wo_version
     )
-    error_message = "The app and metrics token secret versions must follow secrets_version and the app secret's keys."
+    error_message = "The app and metrics token secret versions must follow secrets_version, the App ids and both secrets."
   }
 }
 
@@ -347,7 +355,7 @@ run "db_password_rotation" {
   }
 
   assert {
-    condition     = aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, ["STACKORDER_METRICS_TOKEN", "STACKORDER_SESSION_KEY"]])), 0, 12), 16)
+    condition     = aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, null, null, "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl", "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-MnOpQr"])), 0, 12), 16)
     error_message = "Rotating the database password must leave the app secret alone."
   }
 }
@@ -361,7 +369,7 @@ run "secrets_version_rotation" {
 
   assert {
     condition = (
-      aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([2, ["STACKORDER_METRICS_TOKEN", "STACKORDER_SESSION_KEY"]])), 0, 12), 16) &&
+      aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([2, null, null, "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl", "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-MnOpQr"])), 0, 12), 16) &&
       aws_secretsmanager_secret_version.metrics_token.secret_string_wo_version == aws_secretsmanager_secret_version.app.secret_string_wo_version
     )
     error_message = "A new secrets_version must rewrite the app and metrics token secrets together."
@@ -383,8 +391,43 @@ run "configuring_the_app_rewrites_the_app_secret" {
   }
 
   assert {
-    condition     = aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_WEBHOOK_SECRET", "STACKORDER_METRICS_TOKEN", "STACKORDER_SESSION_KEY"]])), 0, 12), 16)
+    condition     = aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, "123456", null, "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl", "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-MnOpQr"])), 0, 12), 16)
     error_message = "Setting the App inputs must rewrite the app secret without a new secrets_version, since the task definition starts reading the new keys."
+  }
+}
+
+run "changing_the_app_id_rewrites_the_app_secret" {
+  command = plan
+
+  variables {
+    github_app_id          = "654321"
+    github_app_private_key = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n"
+    github_webhook_secret  = "webhook-secret"
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, "654321", null, "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl", "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-MnOpQr"])), 0, 12), 16)
+    error_message = "A new App id must rewrite the app secret, which holds it as GITHUB_APP_ID."
+  }
+}
+
+run "a_new_metrics_token_secret_rewrites_both_copies" {
+  command = plan
+
+  override_resource {
+    target          = aws_secretsmanager_secret.metrics_token
+    override_during = plan
+    values = {
+      arn = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-StUvWx"
+    }
+  }
+
+  assert {
+    condition = (
+      aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, null, null, "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl", "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-StUvWx"])), 0, 12), 16) &&
+      aws_secretsmanager_secret_version.metrics_token.secret_string_wo_version == aws_secretsmanager_secret_version.app.secret_string_wo_version
+    )
+    error_message = "A recreated metrics token secret must also rewrite the app secret, so both hold the same generated token."
   }
 }
 

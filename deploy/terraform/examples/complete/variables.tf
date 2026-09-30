@@ -55,3 +55,9 @@ variable "github_oauth_client_secret" {
   sensitive   = true
   ephemeral   = true
 }
+
+variable "secrets_version" {
+  description = "Increase after changing a GitHub App secret, so the module writes the new value."
+  type        = number
+  default     = 1
+}

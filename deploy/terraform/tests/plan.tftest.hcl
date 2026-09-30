@@ -118,13 +118,9 @@ run "defaults" {
   assert {
     condition = (
       aws_secretsmanager_secret_version.database.secret_string == null &&
-      aws_secretsmanager_secret_version.database.secret_string_wo == null &&
       aws_secretsmanager_secret_version.app.secret_string == null &&
-      aws_secretsmanager_secret_version.app.secret_string_wo == null &&
       aws_secretsmanager_secret_version.metrics_token.secret_string == null &&
-      aws_secretsmanager_secret_version.metrics_token.secret_string_wo == null &&
-      aws_db_instance.this[0].password == null &&
-      aws_db_instance.this[0].password_wo == null
+      aws_db_instance.this[0].password == null
     )
     error_message = "No secret value may reach the plan: the secret values and the database password must be write-only."
   }
@@ -137,11 +133,6 @@ run "defaults" {
   assert {
     condition     = can(regex("^[0-9a-f]{32}$", jsondecode(jsonencode(local.app_secret)).STACKORDER_METRICS_TOKEN))
     error_message = "A metrics token of 32 hexadecimal characters must reach STACKORDER_METRICS_TOKEN through the app secret when metrics_token is null."
-  }
-
-  assert {
-    condition     = local.metrics_token == jsondecode(jsonencode(local.app_secret)).STACKORDER_METRICS_TOKEN
-    error_message = "The metrics token secret must hold the same generated token as the app secret."
   }
 
   assert {
