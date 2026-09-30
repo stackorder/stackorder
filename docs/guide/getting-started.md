@@ -299,14 +299,21 @@ jobs:
 
 The `run-name` line lets the server recognise the workflow runs it dispatched, and the five inputs must all be declared, because the server sends all five. The `permissions` blocks matter: a called workflow can only narrow the permissions its caller grants. [Workflows](/configuration/workflows) explains each input and permission.
 
-Both reusable workflows require `server-url`, the server's base URL. The files above read it from the Actions variable `STACKORDER_SERVER_URL`; if it is empty, the CLI runs in local mode and every check ends up `unconfirmed`. Set it for the organization or the repository:
+Both reusable workflows require `server-url`, the server's base URL. The files above read it from the Actions variable `STACKORDER_SERVER_URL`; if it is empty, the CLI runs in local mode and every check ends up `unconfirmed`. In an organization, set it once for every repository:
 
 ```sh
 gh variable set STACKORDER_SERVER_URL --org acme --visibility all \
   --body https://stackorder.example.com
 ```
 
-AWS credentials come from the roles of step 4. If a provider needs another credential, such as a Cloudflare API token, pass it through the `env` secret of the reusable workflows: `secrets: inherit` passes nothing to them, since they are in another organization. Store a read-only token for plans as a repository secret, `STACKORDER_ENV` with the value `CLOUDFLARE_API_TOKEN=<token>`, and add to both files:
+A personal account has no organization variables, so set it on the repository instead. The same command sets it for a single repository in an organization, and a repository variable takes precedence over an organization variable of the same name:
+
+```sh
+gh variable set STACKORDER_SERVER_URL --repo acme/infra \
+  --body https://stackorder.example.com
+```
+
+AWS credentials come from the roles of step 4. If a provider needs another credential, such as a Cloudflare API token, pass it through the `env` secret of the reusable workflows: `secrets: inherit` passes nothing to them, since they belong to the `stackorder` organization, not to yours. Store a read-only token for plans as a repository secret, `STACKORDER_ENV` with the value `CLOUDFLARE_API_TOKEN=<token>`, and add to both files:
 
 ```yaml
     secrets:
