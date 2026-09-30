@@ -151,9 +151,24 @@ when applying it as well as when planning, with `TF_VAR_*` variables or
 `-var`, or read them in the calling configuration with an ephemeral
 resource such as `ephemeral "aws_secretsmanager_secret_version"`, which is
 read again at apply time, as the [self-hosted](examples/self-hosted)
-example does. Stackorder applies saved plans; to pass the values as
-variables there, set `TF_VAR_github_app_private_key` and the others in the
-`env` secret of the reusable workflows.
+example does.
+
+**Warning: under Stackorder, the App inputs reach plan jobs.** Stackorder
+applies saved plans, so the ephemeral inputs must reach its plan jobs as
+well as its applies, and the module requires `github_app_id`, the private
+key and the webhook secret together at plan time. Plan jobs for a pull
+request run that pull request's code, so anyone who can push a branch can
+read the values, whether they come in as `TF_VAR_*` variables or through
+an ephemeral read with the plan role. Passing them as `TF_VAR_*` in the
+`env` secret of the reusable workflows also puts the App private key in a
+repository or organization secret, and has two more problems: an `ENV`
+environment secret replaces the whole `env` secret, so a `production`
+`ENV` secret without them drops them from applies, and the `env` secret
+needs a `stackorder/actions` release after v1.0.0. Read the App secrets
+with an ephemeral resource instead, as the
+[self-hosted](examples/self-hosted) example does, keep the stack in a
+repository where only its operators can push branches, and see
+[Provider credentials](https://docs.stackorder.io/operations/security-hardening#provider-credentials).
 
 ## Configuration passed to the server
 
