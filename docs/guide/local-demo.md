@@ -62,7 +62,7 @@ go run ./cmd/stackorder-server healthcheck
 stackorder-server healthcheck: GET http://127.0.0.1:8080/healthz: 200 OK
 ```
 
-Open `http://localhost:8080/setup` in a browser to see the App the server would create: its name (`stackorder-localhost-8080`), webhook URL, permissions and events. Do not submit it for this demo: GitHub could not deliver webhooks to `localhost`.
+The page at `http://localhost:8080/setup` holds the manifest of the App the server would create: its name (`stackorder-localhost-8080`), webhook URL, permissions and events. A browser submits that manifest to GitHub as soon as the page loads, so read it with `curl -s http://localhost:8080/setup` instead. If you open it in a browser, do not confirm the App on GitHub: GitHub could not deliver webhooks to `localhost`.
 
 ## 3. Build the CLI {#cli}
 
