@@ -301,7 +301,7 @@ variable "verify_image" {
 }
 
 variable "desired_count" {
-  description = "Number of server tasks. All coordination goes through Postgres, so a second task adds availability without any other change."
+  description = "Number of server tasks, but one task while the GitHub App inputs are unset, so there is a single setup token. All coordination goes through Postgres, so a second task adds availability without any other change."
   type        = number
   default     = 1
 

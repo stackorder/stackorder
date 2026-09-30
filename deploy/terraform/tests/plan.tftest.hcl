@@ -563,12 +563,28 @@ run "desired_count_two" {
   command = plan
 
   variables {
-    desired_count = 2
+    desired_count          = 2
+    github_app_id          = "123456"
+    github_app_private_key = "-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\n"
+    github_webhook_secret  = "webhook-secret"
   }
 
   assert {
     condition     = aws_ecs_service.this.desired_count == 2
-    error_message = "desired_count must reach the service."
+    error_message = "desired_count must reach the service once the GitHub App is configured."
+  }
+}
+
+run "one_task_in_setup_mode" {
+  command = plan
+
+  variables {
+    desired_count = 2
+  }
+
+  assert {
+    condition     = aws_ecs_service.this.desired_count == 1
+    error_message = "While the GitHub App inputs are unset the service must run one task, so there is a single setup token."
   }
 }
 

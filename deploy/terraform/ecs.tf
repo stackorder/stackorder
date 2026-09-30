@@ -128,7 +128,7 @@ resource "aws_ecs_service" "this" {
   name                   = var.name
   cluster                = aws_ecs_cluster.this.id
   task_definition        = aws_ecs_task_definition.this.arn
-  desired_count          = var.desired_count
+  desired_count          = local.github_app_configured ? var.desired_count : 1
   launch_type            = "FARGATE"
   platform_version       = "LATEST"
   enable_execute_command = var.enable_execute_command

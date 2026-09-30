@@ -90,7 +90,7 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 | `image` | `string` | `"ghcr.io/stackorder/stackorder"` | Container image repository of the server. |
 | `image_tag` | `string` | `"latest"` | Tag or digest (sha256:...) of the server image. Pin a release such as 1.2.3 so upgrades are explicit plans. |
 | `verify_image` | `bool` | `true` | When image is on ghcr.io, check at plan time that image_tag can be pulled anonymously, as ECS pulls it, and fail the plan if not, instead of letting ECS retry the pull until the deployment times out. Needs HTTPS access to ghcr.io from where Terraform runs. |
-| `desired_count` | `number` | `1` | Number of server tasks. All coordination goes through Postgres, so a second task adds availability without any other change. |
+| `desired_count` | `number` | `1` | Number of server tasks, but one task while the GitHub App inputs are unset, so there is a single setup token. All coordination goes through Postgres, so a second task adds availability without any other change. |
 | `cpu` | `number` | `256` | Fargate task CPU units. |
 | `memory` | `number` | `512` | Fargate task memory in MiB; must be a valid combination with cpu. |
 | `cpu_architecture` | `string` | `"X86_64"` | CPU architecture of the task, X86_64 or ARM64. |
@@ -218,14 +218,14 @@ The load balancer calls the identity provider itself, so it needs HTTPS egress. 
 
 The server starts in setup mode while the GitHub App inputs are unset, serving only `/setup`, `/healthz` and `/readyz`. The first deployment uses that:
 
-1. Apply the module with the `github_*` inputs unset, and `desired_count` at 1. The service comes up in setup mode.
+1. Apply the module with the `github_*` inputs unset. The service comes up in setup mode, with one task whatever `desired_count` says, so there is a single setup token.
 2. Take the setup URL, with its one-time [setup token](/reference/server-configuration#setup-token), from the task logs:
 
    ```sh
    aws logs tail "$(terraform output -raw log_group_name)" --since 15m | grep setup_url
    ```
 
-   The `setup_url` output is the same page without the token, which answers `403`. Every task start generates a new token, so take the latest line. With two tasks, each has its own token and the load balancer may send the browser to the other one.
+   The `setup_url` output is the same page without the token, which answers `403`. Every task start generates a new token, so take the latest line. The module keeps one task until the App inputs are set because each task has its own token, and with two the load balancer could send the browser to the other one.
 3. Open that URL and create the App. The page prints the App id, private key, webhook secret and OAuth client id and secret once.
 4. Apply again with those five values. The App id, private key and webhook secret must be set together, as must the two OAuth values.
 5. Install the App on your repositories and continue with [Getting started](/guide/getting-started#install).

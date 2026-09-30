@@ -50,9 +50,10 @@ Stackorder deploys and upgrades itself ([self-hosted](examples/self-hosted)).
 
 ## First deploy and the GitHub App
 
-1. Apply with the `github_*` inputs unset, and `desired_count` at 1. The
-   server starts in setup mode and serves only `/setup`, `/healthz` and
-   `/readyz`.
+1. Apply with the `github_*` inputs unset. The server starts in setup mode
+   and serves only `/setup`, `/healthz` and `/readyz`. The module runs one
+   task while the App inputs are unset, whatever `desired_count` says, so
+   there is a single setup token.
 2. Take the setup URL from the task logs. `/setup` opens only with a
    one-time token, which the server logs with the URL at start-up:
 
@@ -61,8 +62,8 @@ Stackorder deploys and upgrades itself ([self-hosted](examples/self-hosted)).
    ```
 
    The `setup_url` output is the same page without the token, which
-   answers 403. Each task generates its own token at every start, so take
-   the latest line.
+   answers 403. The task generates a new token at every start, so take the
+   latest line.
 3. Open that URL. The page creates the GitHub App from a manifest with the
    right webhook URL (`webhook_url`), permissions and events, and prints
    the App id, private key, webhook secret and OAuth client id and secret
@@ -581,7 +582,7 @@ No modules.
 | <a name="input_image"></a> [image](#input\_image) | Container image repository of the server. | `string` | `"ghcr.io/stackorder/stackorder"` | no |
 | <a name="input_image_tag"></a> [image\_tag](#input\_image\_tag) | Tag or digest (sha256:...) of the server image. Pin a release such as 1.2.3 so upgrades are explicit plans. | `string` | `"latest"` | no |
 | <a name="input_verify_image"></a> [verify\_image](#input\_verify\_image) | When image is on ghcr.io, check at plan time that image\_tag can be pulled anonymously, as ECS pulls it, and fail the plan if not, instead of letting ECS retry the pull until the deployment times out. Needs HTTPS access to ghcr.io from where Terraform runs. | `bool` | `true` | no |
-| <a name="input_desired_count"></a> [desired\_count](#input\_desired\_count) | Number of server tasks. All coordination goes through Postgres, so a second task adds availability without any other change. | `number` | `1` | no |
+| <a name="input_desired_count"></a> [desired\_count](#input\_desired\_count) | Number of server tasks, but one task while the GitHub App inputs are unset, so there is a single setup token. All coordination goes through Postgres, so a second task adds availability without any other change. | `number` | `1` | no |
 | <a name="input_cpu"></a> [cpu](#input\_cpu) | Fargate task CPU units. | `number` | `256` | no |
 | <a name="input_memory"></a> [memory](#input\_memory) | Fargate task memory in MiB; must be a valid combination with cpu. | `number` | `512` | no |
 | <a name="input_cpu_architecture"></a> [cpu\_architecture](#input\_cpu\_architecture) | CPU architecture of the task, X86\_64 or ARM64. | `string` | `"X86_64"` | no |
