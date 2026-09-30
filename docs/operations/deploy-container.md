@@ -30,7 +30,13 @@ docker run -d --name stackorder --read-only -p 8080:8080 \
   ghcr.io/stackorder/stackorder:latest
 ```
 
-Leave out the five `GITHUB_*` variables on the first start: the server comes up in setup mode, and `/setup` creates the App and prints them. See [Getting started](/guide/getting-started#create-app).
+Leave out the five `GITHUB_*` variables on the first start: the server comes up in setup mode, and `/setup` creates the App and prints them. `/setup` needs the one-time token the server logs at start-up; take the full URL from the log:
+
+```sh
+docker logs stackorder 2>&1 | grep setup_url
+```
+
+With Compose, `docker compose logs stackorder | grep setup_url` shows the same line. See [Getting started](/guide/getting-started#create-app) and [the setup token](/reference/server-configuration#setup-token).
 
 ## Docker Compose {#compose}
 
