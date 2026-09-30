@@ -15,6 +15,14 @@ The server does exactly two things.
 1. **Dependency resolution.** It holds the graph of stacks, shared modules and the edges between them. For a change it computes the affected set, orders applies into waves, and serializes conflicting work with stack-level locks.
 2. **Observability.** It records every plan and apply per stack and per commit, surfaces drift, and shows the dependency graph and which stacks consume each module at which version. All of it is available through a small web UI, a JSON API and Prometheus metrics.
 
+<Screenshot
+  name="ui-overview"
+  alt="The Stackorder web UI overview: counts of repositories, stacks, drifted stacks and locks held, bars of stacks and runs by status, and a table of recent plan, apply and drift runs."
+  :width="880"
+  :height="691"
+  caption="The web UI's overview page, with sample data for an acme organization."
+/>
+
 ## What it is not
 
 Stackorder is deliberately not a state backend, a module registry, a secrets store, a policy engine or a runner.

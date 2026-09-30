@@ -93,6 +93,14 @@ Waves are the longest-path layering of the affected stacks over `depends_on` and
 - Within a wave the matrix runs with `fail-fast: false`, so unrelated stacks complete.
 - A failed stack marks every transitive dependent `blocked`, and the run ends after the current wave.
 
+<Screenshot
+  name="ui-run-waves"
+  alt="A run page in the web UI for a failed apply of PR #42: wave 0 with both VPC stacks applied, wave 1 with stacks/prod/eks failed and stacks/staging/eks applied, and wave 2 with stacks/prod/apps blocked and not dispatched."
+  :width="880"
+  :height="710"
+  caption="The run page of the web UI, with sample data: stacks/prod/eks failed in wave 1, so stacks/prod/apps is blocked and wave 2 was never dispatched. The PR keeps its locks."
+/>
+
 With `apply.from_plan: true`, the default, the apply job applies the saved plan file. If the artifact has expired, the CLI re-plans and refuses to apply unless the new plan's resource-address set matches the recorded one.
 
 ### Locks {#locks}

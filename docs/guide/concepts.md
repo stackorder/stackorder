@@ -104,6 +104,16 @@ flowchart BT
 
 A PR that edits `modules/vpc` affects both VPC stacks through their module edges. The change then reaches the EKS stacks through `depends_on`, and `stacks/prod/apps` through its inferred remote-state edge. `modules/eks` and its edges are recorded but untouched. Waves are the longest path from the roots of the affected subgraph, so the VPC stacks apply first and `stacks/prod/apps` last.
 
+The repository page of the web UI draws the same graph and can replay any run on it. Its arrows point the other way, from a dependency to what depends on it, which is the order a change travels and applies run. Replaying the plan of a PR that edits `modules/vpc` colours each affected stack by its status and badges it with its wave, and dims the nodes the change did not reach.
+
+<Screenshot
+  name="ui-graph-replay"
+  alt="The dependency graph in the web UI replaying a change to modules/vpc: both VPC stacks in wave 0, both EKS stacks in wave 1 and stacks/prod/apps in wave 2, all planned, with modules/eks and a git module dimmed."
+  :width="852"
+  :height="201"
+  caption="The example graph replayed in the web UI, with sample data. Solid arrows are depends_on, the dashed arrow is the inferred reads_state edge, and dotted arrows are uses_module. The sample repository also has a git module that modules/eks uses."
+/>
+
 ## The affected set {#affected-set}
 
 Given a graph at a commit and the list of changed paths, the server resolves the affected set in five steps.
