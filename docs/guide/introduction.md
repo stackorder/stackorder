@@ -38,21 +38,20 @@ Stackorder is deliberately not a state backend, a module registry, a secrets sto
 
 ## The pitch
 
-Terrateam's execution model with a strictly smaller server, no Docker on the runner side, and dependencies (stack to stack, stack to module, across repos) as the server's core data structure rather than an add-on.
+The execution model of Stategraph (formerly Terrateam), where Terraform runs on your own CI runners, with one server container plus Postgres, no Docker on the runner side, and dependencies (stack to stack, stack to module, across repos) as the server's core data structure.
 
 ## How it compares
 
-|  | Terraform Cloud / HCP Terraform | Terrakube | Terrateam | Stackorder |
+|  | HCP Terraform | Terrakube | Stategraph | Stackorder |
 | --- | --- | --- | --- | --- |
-| Where Terraform runs | HashiCorp-hosted workers or self-hosted agents | Its own executor pods | GitHub Actions | GitHub Actions |
-| State backend | Built in (remote backend) | Built in | Bring your own (S3 etc.) | Bring your own S3 |
-| Module registry | Built in | Built in | None | None; tracks module consumers from git sources only |
-| Runtime footprint | SaaS | API, executor, UI, Redis, Minio, Postgres | Server + Postgres; Docker-based action image | One container + Postgres; non-Docker actions |
-| Cross-stack dependencies | Run triggers | Workspace triggers | Layered runs | First-class graph incl. modules and cross-repo edges |
-| Cloud credentials held by server | Yes (or agent) | Yes | No | No |
-| Human auth | Own accounts, SSO | Own accounts | GitHub | GitHub OAuth via the App |
+| Where Terraform runs | HashiCorp-hosted VMs by default, or self-hosted agents | Its own executors: a pod pool, Kubernetes Jobs or self-hosted agents | Your GitHub Actions or GitLab CI runners | GitHub Actions |
+| State backend | Built in | Built in, on its configured object storage | Bring your own | Bring your own S3 |
+| Module registry and tracking | Built-in private registry; the Explorer shows module usage | Built-in private module and provider registry | A module-aware indexer, off by default, plans the directories that use a changed local module | No registry; tracks module consumers from git sources only |
+| Runtime footprint | SaaS; self-hosted Terraform Enterprise runs containers with PostgreSQL, object storage and Vault | API, executor, registry, UI, Dex (with OpenLDAP by default), a Redis-compatible store, object storage and Postgres | Server + Postgres behind a public HTTPS URL; Docker container action on the runner | One container + Postgres; non-Docker actions |
+| Cross-stack dependencies | Run triggers between workspaces; linked Stacks | Shared remote state in the stable 2.33 line; run triggers only in 2.34 pre-releases | Layered runs within one repository | First-class graph incl. modules and cross-repo edges |
+| Cloud credentials held by server | Yes: stored as variables, or short-lived per-run credentials through OIDC | Yes: stored as variables; with dynamic credentials it holds an OIDC signing key and mints tokens | No; they stay on the runner | No |
 
-The [comparison page](./comparison) goes through each row.
+The [comparison page](./comparison) goes through each row and links the source of every competitor claim, last reviewed 2026-09-30.
 
 ## What a repository needs
 
