@@ -10,9 +10,9 @@ Competitor facts on this page come from each vendor's own documentation, linked 
 | --- | --- | --- | --- | --- |
 | Where Terraform runs | HashiCorp-hosted VMs by default, or self-hosted agents | Its own executors: a pod pool, Kubernetes Jobs or self-hosted agents | Your GitHub Actions or GitLab CI runners | GitHub Actions |
 | State backend | Built in | Built in, on its configured object storage | Bring your own | Bring your own S3 |
-| Module registry and tracking | Built-in private registry; the Explorer shows module usage | Built-in private module and provider registry | A module-aware indexer, off by default, plans the directories that use a changed local module | No registry; tracks module consumers from git sources only |
+| Module registry and tracking | Built-in private registry; the Explorer shows module usage | Built-in private module and provider registry | A module-aware indexer, off by default, plans the directories that use a changed local module | No registry; lists each module's consumers, and for git modules how many releases they are behind |
 | Runtime footprint | SaaS; self-hosted Terraform Enterprise runs containers with PostgreSQL, object storage and Vault | API, executor, registry, UI, Dex (with OpenLDAP by default), a Redis-compatible store, object storage and Postgres | Server + Postgres behind a public HTTPS URL; Docker container action on the runner | One container + Postgres; non-Docker actions |
-| Cross-stack dependencies | Run triggers between workspaces; linked Stacks | Shared remote state in the stable 2.33 line; run triggers only in 2.34 pre-releases | Layered runs within one repository | First-class graph incl. modules and cross-repo edges |
+| Cross-stack dependencies | Run triggers between workspaces; linked Stacks | Shared remote state in the stable 2.33 line; run triggers only in 2.34 pre-releases | Layered runs within one repository | A graph of stacks, modules and cross-repo edges; applies in waves |
 | Cloud credentials held by server | Yes: stored as variables, or short-lived per-run credentials through OIDC | Yes: stored as variables; with dynamic credentials it holds an OIDC signing key and mints tokens | No; they stay on the runner | No |
 
 HCP Terraform is the SaaS formerly called Terraform Cloud, renamed on April 22, 2024; Terraform Enterprise is its self-hosted distribution, and HashiCorp has been an IBM company since February 27, 2025. The Stategraph column is Stategraph Orchestration. It reads `.stategraph/config.yml`, and still reads `.terrateam/config.yml` when that file is absent.
@@ -27,9 +27,9 @@ Terraform runs in your GitHub Actions jobs, on GitHub-hosted or self-hosted runn
 
 State stays in your S3 bucket, locked with `use_lockfile = true` (Terraform or OpenTofu 1.10 and later) or a DynamoDB table. Each stack's `backend "s3"` block is the source of truth. The CLI reads `bucket`, `key` and `region` from it to run `init` and to report the location, so the UI can link a stack to its state object. Stackorder never takes or releases the state lock; its own [orchestration lock](./concepts#locks) sits above it.
 
-### Module registry
+### Module registry and tracking
 
-There is none. Modules are referenced by git or local path. Stackorder indexes the references so it can answer "who consumes this module, at which version", and records registry modules so the UI can list their consumers. It shows version lag; bumping versions is left to Renovate or Dependabot.
+There is none, and Stackorder hosts no module code. Modules are referenced by local path, git source or registry address. Stackorder indexes those references so it can answer "who consumes this module, at which version", and the UI lists the consumers of every module, registry modules included. When a git module's repository pushes a semver tag, the server records the version, so the UI shows how many releases each consumer is behind. Only local modules propagate changes to the stacks that use them. Bumping versions is left to Renovate or Dependabot. See [Module version tracking](./concepts#module-versions).
 
 ### Runtime footprint
 
@@ -39,15 +39,11 @@ On the runner side, the actions are one JavaScript action that installs a static
 
 ### Cross-stack dependencies
 
-The dependency graph is the server's core data structure, not an add-on. It has stacks and modules as nodes and three edge kinds: explicit `depends_on`, `uses_module` parsed from module sources, and `reads_state` inferred from `terraform_remote_state`. Edges can point at stacks in other repositories. See [Concepts](./concepts#edges).
+The dependency graph is the server's core data structure, not an add-on. It has stacks and modules as nodes and three edge kinds: explicit `depends_on`, `uses_module` parsed from module sources, and `reads_state` inferred from `terraform_remote_state`. Applies run in [waves](./concepts#waves) layered by the longest path through the affected part of the graph, and a failed stack blocks its dependents. Edges can point at stacks in other repositories; they appear in the graph and can trigger plan-only runs downstream, but each run applies one repository. See [Concepts](./concepts#edges).
 
-### Cloud credentials held by the server
+### Cloud credentials held by server
 
 None. The runner assumes your IAM role with its own GitHub OIDC token. The server's only outbound calls are to GitHub, for its API and its OIDC signing keys, and to Postgres, plus two optional ones: an S3 bucket of its own for full plan text, and an OTLP endpoint for traces. A compromised server can dispatch workflows and post comments, but cannot read state or assume your roles. See the [security model](/reference/security-model).
-
-### Human auth
-
-People sign in to the web UI with GitHub, through the App's OAuth client with the `read:org` scope. A session is issued only to a user whose own account, or one of whose organisations, has the App installed, and the UI shows only those accounts' repositories. Authorization to apply reuses GitHub: repository permissions, teams, CODEOWNERS and environments.
 
 ## When something else fits better
 
