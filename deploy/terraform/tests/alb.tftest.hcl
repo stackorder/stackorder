@@ -328,16 +328,15 @@ run "cognito_with_egress_cidrs" {
       user_pool_client_id = "1example23456789"
       user_pool_domain    = "acme-stackorder"
     }
-    alb_https_egress_cidrs = ["198.51.100.0/24", "2001:db8::/32"]
+    alb_https_egress_cidrs = ["198.51.100.0/24", "203.0.113.0/24"]
   }
 
   assert {
     condition = (
-      toset(compact([for r in aws_vpc_security_group_egress_rule.alb_https : r.cidr_ipv4])) == toset(["198.51.100.0/24"]) &&
-      toset(compact([for r in aws_vpc_security_group_egress_rule.alb_https : r.cidr_ipv6])) == toset(["2001:db8::/32"]) &&
+      toset([for r in aws_vpc_security_group_egress_rule.alb_https : r.cidr_ipv4]) == toset(["198.51.100.0/24", "203.0.113.0/24"]) &&
       alltrue([for r in aws_vpc_security_group_egress_rule.alb_https : r.from_port == 443 && r.to_port == 443])
     )
-    error_message = "alb_https_egress_cidrs must replace the default, with IPv4 and IPv6 CIDRs on port 443."
+    error_message = "alb_https_egress_cidrs must replace the default, with its IPv4 CIDRs on port 443."
   }
 }
 
@@ -359,6 +358,16 @@ run "egress_cidrs_invalid" {
 
   variables {
     alb_https_egress_cidrs = ["accounts.google.com"]
+  }
+
+  expect_failures = [var.alb_https_egress_cidrs]
+}
+
+run "egress_cidrs_ipv6" {
+  command = plan
+
+  variables {
+    alb_https_egress_cidrs = ["2001:db8::/32"]
   }
 
   expect_failures = [var.alb_https_egress_cidrs]

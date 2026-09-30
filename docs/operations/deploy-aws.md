@@ -81,7 +81,7 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 | `waf_web_acl_arn` | `string` | `null` | ARN of a regional AWS WAFv2 web ACL in the module's region to associate with the load balancer. Null associates none. |
 | `oidc_authentication` | `object` (sensitive) | `null` | OpenID Connect provider with which the load balancer authenticates people before forwarding, as the authenticate_oidc action of the HTTPS listener. Webhooks, health checks, and runner, CLI and metrics requests that carry a bearer token bypass it. The listener stores client_secret in Terraform state. Null authenticates nobody at the load balancer. |
 | `cognito_authentication` | `object` | `null` | Amazon Cognito user pool with which the load balancer authenticates people before forwarding, as the authenticate_cognito action of the HTTPS listener, with the same bypass as oidc_authentication. At most one of oidc_authentication and cognito_authentication may be set. Null authenticates nobody at the load balancer. |
-| `alb_https_egress_cidrs` | `list(string)` | `[]` | IPv4 or IPv6 CIDRs the load balancer may reach on port 443, as it must to reach the identity provider of oidc_authentication or cognito_authentication. Empty allows none, or 0.0.0.0/0 when either authentication is set, because identity providers publish no fixed address ranges. |
+| `alb_https_egress_cidrs` | `list(string)` | `[]` | IPv4 CIDRs the load balancer may reach on port 443, as it must to reach the identity provider of oidc_authentication or cognito_authentication. Empty allows none, or 0.0.0.0/0 when either authentication is set, because identity providers publish no fixed address ranges. |
 
 ### Service
 

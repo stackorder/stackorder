@@ -194,8 +194,7 @@ resource "aws_vpc_security_group_egress_rule" "alb_https" {
   ip_protocol       = "tcp"
   from_port         = 443
   to_port           = 443
-  cidr_ipv4         = strcontains(each.value, ":") ? null : each.value
-  cidr_ipv6         = strcontains(each.value, ":") ? each.value : null
+  cidr_ipv4         = each.value
 
   tags = var.tags
 }
