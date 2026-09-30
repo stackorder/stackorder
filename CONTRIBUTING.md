@@ -138,7 +138,8 @@ Terraform module. Work through the list in order for every release.
    - `docs/operations/deploy-aws.md`: `ref=vX.Y.Z` and `image_tag`.
    - `docs/index.md`: the current release.
 
-   When the release needs a newer `stackorder/actions`, the changelog names
+   `make docs` fails when one of them does not match the new heading. When
+   the release needs a newer `stackorder/actions`, the changelog names
    the minimum version.
 2. **Tag.** Tag that commit `vX.Y.Z` and push it together with `main`, so
    the docs site, which deploys on the push to `main`, never pins a tag that
