@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -24,6 +25,13 @@ const (
 	setupAuthPurpose = "setup-auth"
 	setupAuthTTL     = time.Hour
 	maxAppName       = 34
+	setupConvertTTL  = time.Minute
+)
+
+const (
+	setupIdle int32 = iota
+	setupConverting
+	setupCreated
 )
 
 var (
@@ -91,7 +99,7 @@ func (s *server) resetupClosed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) setupTokenMatches(presented string) bool {
-	if s.cfg.SetupToken == "" || s.setupUsed.Load() {
+	if s.cfg.SetupToken == "" || s.setupState.Load() != setupIdle {
 		return false
 	}
 	got, want := sha256.Sum256([]byte(presented)), sha256.Sum256([]byte(s.cfg.SetupToken))
@@ -103,7 +111,7 @@ func (s *server) setupTokenProof() string {
 }
 
 func (s *server) hasSetupProof(r *http.Request) bool {
-	if s.cfg.SetupToken == "" || s.setupUsed.Load() {
+	if s.cfg.SetupToken == "" || s.setupState.Load() != setupIdle {
 		return false
 	}
 	c, err := r.Cookie(setupAuthCookie)
@@ -141,6 +149,28 @@ func (s *server) setupAlreadyUsed(w http.ResponseWriter, r *http.Request, status
 	})
 }
 
+func (s *server) setupInProgress(w http.ResponseWriter, r *http.Request) {
+	s.renderMessage(w, r, http.StatusConflict, "Setup in progress", message{
+		Heading: "A GitHub App is being created",
+		Lines: []string{
+			"Another request from this page is fetching the new App's credentials from GitHub.",
+			"Reload this page in a moment: it shows the outcome, or lets you try again if GitHub failed.",
+		},
+	})
+}
+
+func (s *server) setupBusy(w http.ResponseWriter, r *http.Request, createdStatus int) bool {
+	switch s.setupState.Load() {
+	case setupCreated:
+		s.setupAlreadyUsed(w, r, createdStatus)
+	case setupConverting:
+		s.setupInProgress(w, r)
+	default:
+		return false
+	}
+	return true
+}
+
 func (s *server) acceptSetupToken(w http.ResponseWriter, r *http.Request, q url.Values) {
 	if !s.setupTokenMatches(q.Get("token")) {
 		s.setupTokenRequired(w, r)
@@ -165,9 +195,11 @@ func (s *server) setup(w http.ResponseWriter, r *http.Request) {
 			Lines:   []string{"It was started with GitHub App credentials, so there is nothing to set up."},
 			Links:   []pageLink{{Href: "/", Text: "Open Stackorder"}},
 		}
-		switch {
-		case s.cfg.AllowResetup && s.setupUsed.Load():
+		switch state := s.setupState.Load(); {
+		case s.cfg.AllowResetup && state == setupCreated:
 			m.Lines = append(m.Lines, "Another App was created from this page since the server started; restart the server with its credentials.")
+		case s.cfg.AllowResetup && state == setupConverting:
+			m.Lines = append(m.Lines, "Another App is being created from this page; reload in a moment.")
 		case s.cfg.AllowResetup:
 			m.Lines = append(m.Lines, "Creating another App is only useful to replace the current one, for instance after moving the server to a new URL; the new App's credentials then replace the configured ones. It needs the setup token the server prints in its log when it starts.")
 			m.Links = append(m.Links, pageLink{Href: "/setup?force=1", Text: "Create another App anyway"})
@@ -179,8 +211,7 @@ func (s *server) setup(w http.ResponseWriter, r *http.Request) {
 		s.resetupClosed(w, r)
 		return
 	}
-	if s.setupUsed.Load() {
-		s.setupAlreadyUsed(w, r, http.StatusOK)
+	if s.setupBusy(w, r, http.StatusOK) {
 		return
 	}
 	if q.Has("token") {
@@ -250,8 +281,7 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 		s.resetupClosed(w, r)
 		return
 	}
-	if s.setupUsed.Load() {
-		s.setupAlreadyUsed(w, r, http.StatusConflict)
+	if s.setupBusy(w, r, http.StatusConflict) {
 		return
 	}
 	q := r.URL.Query()
@@ -281,13 +311,17 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if !s.setupUsed.CompareAndSwap(false, true) {
-		s.setupAlreadyUsed(w, r, http.StatusConflict)
+	if !s.setupState.CompareAndSwap(setupIdle, setupConverting) {
+		if !s.setupBusy(w, r, http.StatusConflict) {
+			s.setupInProgress(w, r)
+		}
 		return
 	}
-	creds, err := gh.CreateAppFromManifest(r.Context(), gh.Config{BaseURL: s.apiURL, HTTPClient: s.hc}, code)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), setupConvertTTL)
+	defer cancel()
+	creds, err := gh.CreateAppFromManifest(ctx, gh.Config{BaseURL: s.apiURL, HTTPClient: s.hc}, code)
 	if err != nil {
-		s.setupUsed.Store(false)
+		s.setupState.Store(setupIdle)
 		if errors.Is(err, gh.ErrNotFound) {
 			s.clearCookie(w, setupCookie, "/setup")
 			s.renderMessage(w, r, http.StatusBadRequest, "Setup failed", message{
@@ -304,6 +338,7 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	s.setupState.Store(setupCreated)
 	s.clearCookie(w, setupCookie, "/setup")
 	s.clearCookie(w, setupAuthCookie, "/setup")
 	s.log.InfoContext(r.Context(), "github app created from manifest", "request_id", requestIDOf(r), "app_id", creds.ID, "slug", creds.Slug)

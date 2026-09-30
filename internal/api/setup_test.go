@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"html"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -464,22 +466,42 @@ func TestResetupNeedsTheToken(t *testing.T) {
 
 type blockingTransport struct {
 	next    http.RoundTripper
+	once    sync.Once
 	started chan struct{}
 	release chan struct{}
 }
 
 func (b *blockingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	close(b.started)
+	b.once.Do(func() { close(b.started) })
 	<-b.release
 	return b.next.RoundTrip(r)
 }
 
-func TestConcurrentCallbacksCreateOneApp(t *testing.T) {
+func newBlockedSetupEnv(t *testing.T, mutate ...func(*Config, *Deps)) (*setupEnv, *blockingTransport) {
+	t.Helper()
 	block := &blockingTransport{started: make(chan struct{}), release: make(chan struct{})}
-	e := newSetupEnv(t, func(_ *Config, d *Deps) {
+	e := newSetupEnv(t, append(mutate, func(_ *Config, d *Deps) {
 		block.next = d.HTTPClient.Transport
 		d.HTTPClient = &http.Client{Transport: block}
-	})
+	})...)
+	return e, block
+}
+
+func callback(t *testing.T, code string, f setupForm) *http.Request {
+	t.Helper()
+	return withCookie(newRequest(t, http.MethodGet, "/setup/callback?code="+code+"&state="+url.QueryEscape(f.action.Query().Get("state")), nil), f.cookie)
+}
+
+func assertSetupInProgress(t *testing.T, rec *httptest.ResponseRecorder, msg string) {
+	t.Helper()
+	assert.Equal(t, http.StatusConflict, rec.Code, msg)
+	assert.Contains(t, rec.Body.String(), "A GitHub App is being created", msg)
+	assert.NotContains(t, rec.Body.String(), "no longer opens setup", msg)
+	assert.Empty(t, rec.Result().Cookies(), "%s: the state and proof cookies survive, so a reload can finish the creation", msg)
+}
+
+func TestConcurrentCallbacksCreateOneApp(t *testing.T) {
+	e, block := newBlockedSetupEnv(t)
 	e.gh.SetManifestConversion("code-a", gh.AppCredentials{ID: 10, Slug: "a", PEM: "pem", WebhookSecret: "w"})
 	e.gh.SetManifestConversion("code-b", gh.AppCredentials{ID: 11, Slug: "b", PEM: "pem", WebhookSecret: "w"})
 	first := e.open(t, "/setup")
@@ -497,4 +519,54 @@ func TestConcurrentCallbacksCreateOneApp(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Contains(t, rec.Body.String(), "GITHUB_APP_ID=10")
 	assert.Equal(t, 1, conversions(e.gh))
+}
+
+func TestSetupReloadDuringAFailingCreation(t *testing.T) {
+	e, block := newBlockedSetupEnv(t)
+	e.gh.SetManifestConversion("code-c", gh.AppCredentials{ID: 12, Slug: "c", PEM: "pem", WebhookSecret: "w"})
+	f := e.open(t, "/setup")
+	e.gh.FailNext("POST /app-manifests/{code}/conversions", http.StatusBadGateway, 1)
+
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- e.do(callback(t, "code-c", f)) }()
+	<-block.started
+	assertSetupInProgress(t, e.do(callback(t, "code-c", f)), "a reload of the callback")
+	assertSetupInProgress(t, e.get(t, "/setup"), "the setup page in another tab")
+	close(block.release)
+	rec := <-done
+	require.Equal(t, http.StatusBadGateway, rec.Code, rec.Body.String())
+
+	rec = e.do(callback(t, "code-c", f))
+	require.Equal(t, http.StatusOK, rec.Code, "the reload the failure page advises converts the same code")
+	assert.Contains(t, rec.Body.String(), "GITHUB_APP_ID=12")
+}
+
+func TestCancelledCallbackStillCreatesTheApp(t *testing.T) {
+	e, block := newBlockedSetupEnv(t)
+	e.gh.SetManifestConversion("code-d", gh.AppCredentials{ID: 13, Slug: "d", PEM: "pem", WebhookSecret: "w"})
+	f := e.open(t, "/setup")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- e.do(callback(t, "code-d", f).WithContext(ctx)) }()
+	<-block.started
+	cancel()
+	close(block.release)
+	rec := <-done
+	require.Equal(t, http.StatusOK, rec.Code, "a browser leaving the page does not abort a conversion GitHub may have completed: %s", rec.Body.String())
+	assert.Equal(t, 1, conversions(e.gh))
+
+	rec = e.do(callback(t, "code-d", f))
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "no longer opens setup")
+}
+
+func TestResetupPageWhileAnAppIsBeingCreated(t *testing.T) {
+	e := newSetupEnv(t, func(c *Config, _ *Deps) { c.SetupMode, c.AllowResetup = false, true })
+	e.srv.setupState.Store(setupConverting)
+	rec := e.do(newRequest(t, http.MethodGet, "/setup", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Another App is being created")
+	assert.NotContains(t, rec.Body.String(), "force=1")
+	assertSetupInProgress(t, e.do(newRequest(t, http.MethodGet, "/setup?force=1", nil)), "resetup while converting")
 }

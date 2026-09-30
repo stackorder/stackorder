@@ -64,8 +64,11 @@
 // token, and redirects to the same URL without it, so the token never
 // reaches GitHub. Without the token or the cookie the page answers 403.
 // GET /setup/callback converts a code only with the state cookie that the
-// gated page issued. Once a callback has created an App, the token and its
-// cookies stop working until the process restarts with a new token. GET
+// gated page issued, and finishes the conversion even if the browser goes
+// away. While it runs, /setup and other callbacks answer 409 and keep their
+// cookies, so a reload after a failed conversion can retry. Once a callback
+// has created an App, the token and its cookies stop working until the
+// process restarts with a new token. GET
 // /setup/installed stays open: it shows nothing but the installation id
 // GitHub passes to it.
 package api

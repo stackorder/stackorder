@@ -527,7 +527,10 @@ time, sets the signed `stackorder_setup_auth` cookie (path `/setup`, one
 hour, bound to the token) and answers 303 to the same URL without the
 token; without the token or the cookie the page answers 403.
 `GET /setup/callback` converts a code only with the signed state cookie the
-form page set. Once a callback has created an App the token and its cookie
+form page set, and finishes the conversion even if the browser disconnects.
+While a conversion runs, `/setup` and other callbacks answer 409 and keep
+their cookies, so a reload after a failed conversion retries the same code.
+Once a callback has created an App the token and its cookie
 stop working on that instance until it restarts; its `/setup` then says an
 App exists and its callback answers 409. The flag is in memory, so other
 instances sharing the token keep accepting it until they restart, which is

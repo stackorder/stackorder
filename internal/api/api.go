@@ -39,7 +39,7 @@ type server struct {
 	slugMu sync.Mutex
 	slug   string
 
-	setupUsed atomic.Bool
+	setupState atomic.Int32
 }
 
 // New returns the HTTP handler serving every endpoint of the server: the
