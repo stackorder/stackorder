@@ -453,3 +453,40 @@ func TestResetupNeedsTheToken(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "no longer opens setup")
 	assert.NotContains(t, rec.Body.String(), "manifest-form")
 }
+
+type blockingTransport struct {
+	next    http.RoundTripper
+	started chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	close(b.started)
+	<-b.release
+	return b.next.RoundTrip(r)
+}
+
+func TestConcurrentCallbacksCreateOneApp(t *testing.T) {
+	block := &blockingTransport{started: make(chan struct{}), release: make(chan struct{})}
+	e := newSetupEnv(t, func(_ *Config, d *Deps) {
+		block.next = d.HTTPClient.Transport
+		d.HTTPClient = &http.Client{Transport: block}
+	})
+	e.gh.SetManifestConversion("code-a", gh.AppCredentials{ID: 10, Slug: "a", PEM: "pem", WebhookSecret: "w"})
+	e.gh.SetManifestConversion("code-b", gh.AppCredentials{ID: 11, Slug: "b", PEM: "pem", WebhookSecret: "w"})
+	first := e.open(t, "/setup")
+	second := e.open(t, "/setup")
+
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-a&state="+url.QueryEscape(first.action.Query().Get("state")), nil), first.cookie))
+	}()
+	<-block.started
+	rec := e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-b&state="+url.QueryEscape(second.action.Query().Get("state")), nil), second.cookie))
+	assert.Equal(t, http.StatusConflict, rec.Code, "a callback racing one that is converting its code creates nothing")
+	close(block.release)
+	rec = <-done
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "GITHUB_APP_ID=10")
+	assert.Equal(t, 1, conversions(e.gh))
+}

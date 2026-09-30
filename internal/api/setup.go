@@ -99,7 +99,7 @@ func (s *server) setupTokenMatches(presented string) bool {
 }
 
 func (s *server) setupTokenProof() string {
-	return s.sign(setupAuthPurpose + "\x00" + s.cfg.SetupToken)
+	return s.sign("setup-token-proof\x00" + s.cfg.SetupToken)
 }
 
 func (s *server) hasSetupProof(r *http.Request) bool {
@@ -277,8 +277,13 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if !s.setupUsed.CompareAndSwap(false, true) {
+		s.setupAlreadyUsed(w, r, http.StatusConflict)
+		return
+	}
 	creds, err := gh.CreateAppFromManifest(r.Context(), gh.Config{BaseURL: s.apiURL, HTTPClient: s.hc}, code)
 	if err != nil {
+		s.setupUsed.Store(false)
 		if errors.Is(err, gh.ErrNotFound) {
 			s.clearCookie(w, setupCookie, "/setup")
 			s.renderMessage(w, r, http.StatusBadRequest, "Setup failed", message{
@@ -295,7 +300,6 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	s.setupUsed.Store(true)
 	s.clearCookie(w, setupCookie, "/setup")
 	s.clearCookie(w, setupAuthCookie, "/setup")
 	s.log.InfoContext(r.Context(), "github app created from manifest", "request_id", requestIDOf(r), "app_id", creds.ID, "slug", creds.Slug)
