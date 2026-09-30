@@ -18,7 +18,7 @@ This repository was tested with:
 | OpenTofu | 1.12.6 |
 | LocalStack (S3 and STS, for the end-to-end tests) | 4.0 |
 
-The stacks need Terraform or OpenTofu 1.10 or later for `use_lockfile`, and the `infra/` stacks need Terraform 1.10 or OpenTofu 1.11 or later for their `ephemeral` variable. The `infra/` stacks and the `stacks.instances` and `env` keys in `stackorder.yaml` also need a Stackorder server and CLI with stack instances, which is newer than v0.1.0; v0.1.0 rejects those keys as unknown. `validate.yml` pins the same Terraform and OpenTofu versions, and the Stackorder end-to-end suite runs against this repository with both tools.
+The stacks need Terraform or OpenTofu 1.10 or later for `use_lockfile`, and the `infra/` stacks need Terraform 1.10 or OpenTofu 1.11 or later for their `ephemeral` variable. `validate.yml` pins the same Terraform and OpenTofu versions, and the Stackorder end-to-end suite runs against this repository with both tools.
 
 ## Layout
 

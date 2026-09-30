@@ -100,7 +100,7 @@ An apply is dispatched once per wave and environment, at most `apply.max_paralle
 | `aws-role-arn` | both | empty | The IAM role for stacks that match nothing in `aws-role-arn-map`, and for plan and drift dispatches when `aws-plan-role-arn` is empty. |
 | `aws-role-arn-map` | both | empty | A JSON object from key to IAM role ARN. A key is a path prefix (`stacks/prod/`), an exact stack key (`infra/network:production`) or an instance in any directory (`:production`). The exact key wins, then `:instance`, then the longest prefix; a key with `:` is never a prefix. In `run.yml` only apply jobs use it. |
 | `aws-plan-role-arn` | `run.yml` | empty | The IAM role for plan and drift dispatches, which run under the `default` environment. |
-| `aws-role-session-name` | both | empty | The AWS role session name: a name, or a JSON object with `plan`, `apply` and `drift` keys, `drift` falling back to `plan`; `plan.yml` uses `plan`. Every character outside `[A-Za-z0-9_+=,.@-]` becomes `-` and the name is cut at 64 characters. Empty keeps the credentials action's default, `GitHubActions`. Since actions v1.1.0. |
+| `aws-role-session-name` | both | empty | The AWS role session name: a name, or a JSON object with `plan`, `apply` and `drift` keys, `drift` falling back to `plan`; `plan.yml` uses `plan`. Every character outside `[A-Za-z0-9_+=,.@-]` becomes `-` and the name is cut at 64 characters. Empty keeps the credentials action's default, `GitHubActions`. |
 | `aws-region` | both | `us-east-1` | The AWS region for the credentials. |
 | `tool` | both | `terraform` | `terraform` or `tofu`, for stacks whose matrix entry names no tool. |
 | `tool-version` | both | `latest` | The tool version to install, for stacks whose matrix entry pins none. |
@@ -112,7 +112,7 @@ An apply is dispatched once per wave and environment, at most `apply.max_paralle
 | `stacks` | `plan.yml` | empty | Comma separated stack keys to restrict the plan to. |
 | `run-id`, `mode`, `wave`, `sha`, `stacks` | `run.yml` | | The dispatch inputs, passed through. `run-id`, `mode` and `stacks` are required. |
 
-Instances need `stackorder/actions` v1.1.0 or later for the key forms of `aws-role-arn-map` and for `aws-role-session-name`; see [AWS roles](./instances#aws-roles). When no role applies to a stack, the job logs a notice and skips AWS credentials, which suits self-hosted runners with an instance role. Reading `aws-role-arn-map` needs `jq` on the runner.
+Instances select their apply role with the key forms of `aws-role-arn-map`, and name their AWS session with `aws-role-session-name`; see [AWS roles](./instances#aws-roles). When no role applies to a stack, the job logs a notice and skips AWS credentials, which suits self-hosted runners with an instance role. Reading `aws-role-arn-map` needs `jq` on the runner.
 
 Every job installs the stack's tool with `hashicorp/setup-terraform@v3` or `opentofu/setup-opentofu@v1` (wrapper disabled), sets `STACKORDER_TOOL` to it, installs `stackorder` with the [`setup` action](/reference/actions#setup), and caches providers in `$RUNNER_TEMP/terraform-plugin-cache` with `actions/cache@v4`, keyed on the stack's `.terraform.lock.hcl`.
 

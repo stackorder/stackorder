@@ -110,9 +110,8 @@ dependencies.
   separated, no `./`, no trailing `/`. The suffix names an instance of the
   directory (see [Stack instances](#stack-instances)); it is never, by
   itself, a Terraform workspace. A stack that sets `workspace: blue` and
-  declares no instances is one instance named `blue` whose Terraform
-  workspace is `blue`, so its key, state object and behaviour are what they
-  were before instances existed.
+  declares no instances is one instance named `blue`, keyed `path:blue`,
+  whose Terraform workspace is `blue`.
 - Qualified stack key: `owner/repo//key`. A cross-repo `depends_on` target
   becomes a `v1.Stack` with `External: true`, `Repo` set, `Path` and
   `Instance` split out, and `Key` set to the qualified key, so it can never
@@ -208,7 +207,7 @@ policy from the default branch with the same pure functions.
 
 ### Configuration
 
-Root `stackorder.yaml` gains:
+Root `stackorder.yaml` has these instance keys:
 
 ```yaml
 stacks:
@@ -226,7 +225,7 @@ environments:
   "infra/": "infra-{{ .Instance }}"             # prefix, prefix:instance or :instance
 ```
 
-`.stackorder.yaml` gains `instances`, `backend_config`, `var_files` and
+`.stackorder.yaml` has `instances`, `backend_config`, `var_files` and
 `env`. `instances` is a list of names or a map from name to overrides;
 JSON always uses the map form (`v1.StackConfig.Instances`, custom
 (un)marshalling). An override (`v1.InstanceConfig`) may set `environment`,
@@ -240,10 +239,10 @@ a stack with instances is a template such as `"{{ .Instance }}"`.
   in `instances`; else one per file matched by `from_var_files`, named by
   the file's base name up to its first `.`, sorted; else `[workspace]` when
   the stack's rendered `workspace` is neither empty nor `default` (the
-  legacy single instance; the template renders with an empty `.Instance`);
+  single workspace instance; the template renders with an empty `.Instance`);
   else one instance with an empty name and a suffix-less key. A derived name that
   is not a valid instance name (`default.tfvars.json`, say), two matched
-  files that derive the same name, and a legacy workspace that renders to
+  files that derive the same name, and a stack workspace that renders to
   an invalid instance name are errors naming the file; a matched file whose
   derived name is not in an explicit `instances` list is a warning
   (`config.VarFileWarnings`) and is not used. Matches are ignored when
@@ -277,7 +276,7 @@ a stack with instances is a template such as `"{{ .Instance }}"`.
   A rendering error is a validation error of the file that holds the
   template. `config.Render` is the one implementation.
 - `environments` keys are `prefix`, `prefix:instance` or `:instance`. A
-  key matches when its prefix matches the path as before (whole segments;
+  key matches when its prefix matches the path (whole segments;
   an empty prefix, allowed only with an instance part, matches every path)
   and, when it has an instance part, that part equals the instance. The
   most specific key wins: one with an instance part before one without,
@@ -292,14 +291,14 @@ a stack with instances is a template such as `"{{ .Instance }}"`.
   that renders non-empty; `Effective.EnvironmentConfigured` reports that
   one did), the instance name, `v1.DefaultEnvironment`. An instance is
   therefore protected by the GitHub environment of its own name unless
-  mapped elsewhere. This changes
-  the environment of a legacy `workspace: blue` stack from `default` to
-  `blue`; such a stack sets `environment: default` to keep it.
+  mapped elsewhere. A `workspace: blue` stack without instances therefore
+  applies under `blue`; it sets `environment: default` to apply under
+  `default`.
 - `config.Resolve(root, path, stack, instance) (Effective, error)` is pure
   and, through `config.ResolveMatched(root, path, stack, instance,
   matchedVarFiles)`, which the scanner and the CLI call to add the matched
   var file, is the one place that merges and renders. `path` carries no
-  suffix and an instance `default` means none. `Effective` gains
+  suffix and an instance `default` means none. `Effective` carries
   `Instance`, `EnvironmentConfigured`, `BackendConfig`, `VarFiles` and
   `Env` (rendered, per mode; `EnvFor(mode)`). It does not need to know
   where an instance came from: the server calls it with the instance it
@@ -311,9 +310,7 @@ a stack with instances is a template such as `"{{ .Instance }}"`.
   instance name in any letter case, since GitHub environment names ignore
   case. A null list item under `instances` or a null `env` value is an
   error.
-- Validation stays strict (`KnownFields`): a CLI or server older than this
-  contract rejects a file that uses the new keys, loudly. Upgrade the
-  server before the repositories.
+- Validation is strict (`KnownFields`): an unknown key is an error.
 
 ### Scan and graph
 
@@ -353,9 +350,8 @@ a stack with instances is a template such as `"{{ .Instance }}"`.
 - `--stack path:instance`, help text `stack key: path or path:instance`.
   With instances, declared in `instances` or derived from `from_var_files`,
   the suffix must name one and a bare `path` is an error listing them; with
-  none, the suffix is the legacy workspace (equal to `workspace` when set,
-  ad hoc otherwise, and a valid instance name either way), as documented
-  before this contract. `check --stack` resolves the key the same way,
+  none, the suffix is a Terraform workspace (equal to `workspace` when set,
+  ad hoc otherwise, and a valid instance name either way). `check --stack` resolves the key the same way,
   but only warns when the stack cannot be loaded for another reason, so a
   verdict can still be posted from a job without a checkout.
 - `init` passes `Effective.BackendConfig`, files resolved to absolute paths
@@ -381,13 +377,13 @@ a stack with instances is a template such as `"{{ .Instance }}"`.
   instance)`, never from a field read off the raw file. The stack config
   is nil when the default branch has no stack file in that directory; the
   environment recorded on the plan row is never used. Dispatch grouping
-  by environment, binding and deployment protection are unchanged.
+  by environment, binding and deployment protection work as for any stack.
 - Runs whose keys share a directory are independent: separate locks,
   separate concurrency groups, separate artifacts.
 
 ### Actions
 
-- `aws-role-arn-map` keys are `prefix/` (as before), `path:instance` (an
+- `aws-role-arn-map` keys are `prefix/`, `path:instance` (an
   exact key) or `:instance` (that instance in any directory). Precedence:
   exact key, then `:instance`, then the longest prefix, then
   `aws-role-arn`. Plan and drift jobs keep the single plan role.
@@ -435,7 +431,7 @@ back to `aws-role-arn`. `plan.yml` selects from the map the same way.
 `drift` keys (`drift` falls back to `plan`; `plan.yml` uses `plan`),
 sanitised to `[\w+=,.@-]` and 64 characters and passed as
 `role-session-name`; empty keeps `GitHubActions`. The key forms and the session name ship in
-`stackorder/actions` v1.1.0.
+`stackorder/actions` v1.0.0.
 
 Job names carry the stack key last: `run.yml` names its jobs
 `<mode> wave <n> <key>` and `plan.yml` its plan jobs `plan <key>`. The

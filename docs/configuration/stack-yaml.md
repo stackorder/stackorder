@@ -108,5 +108,3 @@ The file is parsed strictly. It is rejected when it has:
 - a template that does not parse, uses an action or builtin outside the [allowed set](./instances#templates), fails to render, or renders more than 4096 bytes.
 
 An empty file is valid and changes nothing.
-
-A CLI or server older than the instance keys rejects a file that uses them. Upgrade the server first.

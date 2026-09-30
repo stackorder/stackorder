@@ -187,8 +187,6 @@ Inputs: `run-id`, `mode` and `stacks` (required), `wave`, `sha`, `server-url` (r
 
 **Session name.** `aws-role-session-name` is passed to `configure-aws-credentials` as `role-session-name`. It is a name, or a JSON object, recognised by its leading `{`, with `plan`, `apply` and `drift` keys from which the job's mode picks one: `drift` falls back to `plan`, and `plan.yml` always uses `plan`. Every byte outside `[A-Za-z0-9_+=,.@-]` becomes `-`, and the name is cut at 64 characters. Nothing is added, so every stack of a job's mode gets the same name. An empty result keeps the action's default, `GitHubActions`.
 
-The key forms of `aws-role-arn-map` and `aws-role-session-name` are in `stackorder/actions` v1.1.0 and later.
-
 ### Hooks {#hooks}
 
 The CLI runs `.stackorder/hooks/pre-plan.sh`, `post-plan.sh`, `pre-apply.sh` and `post-apply.sh` itself when they exist, so they need no workflow step. See [Hooks](/configuration/workflows#hooks).

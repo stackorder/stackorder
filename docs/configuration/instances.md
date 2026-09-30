@@ -6,7 +6,7 @@ Every instance is a stack of its own wherever a stack appears: the graph, the af
 
 ## Keys and names {#keys}
 
-An instance is keyed `path:instance`. The suffix names an instance of the directory; it is never, by itself, a Terraform workspace. The one exception is the CLI's `--stack path:x` on a directory without instances, where `x` selects the ad hoc workspace `x` as before instances existed; see [Stack keys](/reference/cli#stack-keys).
+An instance is keyed `path:instance`. The suffix names an instance of the directory; it is never, by itself, a Terraform workspace. The one exception is the CLI's `--stack path:x` on a directory without instances, where `x` selects the ad hoc workspace `x`; see [Stack keys](/reference/cli#stack-keys).
 
 ```text
 infra/network                 a directory with no instances
@@ -31,7 +31,7 @@ There are four ways to declare the instances of a directory. The first that appl
 
 1. The names in the stack's `instances` key.
 2. One instance per file that the root `stacks.instances.from_var_files` glob matches in the stack directory.
-3. The stack's `workspace`, as one instance of that name: the legacy form. A `workspace` of `default`, or one that renders empty, is no workspace, and one that renders to an invalid instance name is an error.
+3. The stack's `workspace`, as one instance of that name. A `workspace` of `default`, or one that renders empty, is no workspace, and one that renders to an invalid instance name is an error.
 4. Otherwise one instance with an empty name, keyed by the bare path.
 
 ### From var files {#from-var-files}
@@ -91,11 +91,11 @@ An override may set `environment`, `workspace`, `backend_config`, `var_files`, `
 
 In JSON, such as a stack's `config` in the API, `instances` is always a map.
 
-### The legacy `workspace` stack {#legacy-workspace}
+### A `workspace` stack without instances {#workspace-stack}
 
-A stack that sets `workspace: blue` and declares no instances is one instance named `blue` whose Terraform workspace is `blue`. Its key, `path:blue`, and its state object are what they were before instances existed.
+A stack that sets `workspace: blue` and declares no instances is one instance named `blue`, keyed `path:blue`, whose Terraform workspace is `blue`.
 
-Its default GitHub environment is not. An instance runs its applies under the environment of its own name unless something maps it elsewhere, so this stack's applies move from `default` to `blue`. Set `environment: default` in its `.stackorder.yaml` to keep the old environment. See [GitHub environments](#environments).
+Like any instance, it runs its applies under the environment of its own name, `blue`, unless something maps it elsewhere. Set `environment: default` in its `.stackorder.yaml` to apply under `default`. See [GitHub environments](#environments).
 
 ## Workspaces {#workspace}
 
@@ -324,7 +324,7 @@ An instance is therefore protected by the GitHub environment of its own name unl
 
 | Key | Matches |
 | --- | --- |
-| `infra/` | Every stack under `infra/`, as before |
+| `infra/` | Every stack under `infra/` |
 | `infra/:production` | The `production` instance of every stack under `infra/` |
 | `:production` | The `production` instance in any directory |
 
@@ -372,7 +372,7 @@ aws-role-session-name: '{"plan": "stackorder-plan", "drift": "stackorder-drift",
 
 Every character outside `[A-Za-z0-9_+=,.@-]` becomes `-`, and the name is cut at 64 characters. Nothing is added to it, so every stack of a job's mode gets the same name. Empty, or an object with no value for the mode, keeps the credentials action's default, `GitHubActions`. A session name is chosen by the workflow, so it is a label, not a security boundary.
 
-Both inputs ship in `stackorder/actions` v1.1.0. See [Reusable workflow inputs](./workflows#inputs).
+See [Reusable workflow inputs](./workflows#inputs).
 
 ## One bootstrap role and a provider role per account {#bootstrap-roles}
 

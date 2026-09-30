@@ -163,5 +163,3 @@ All problems are reported together, each with the key that caused it.
 ## Per-stack overrides
 
 A `.stackorder.yaml` in a stack directory declares dependencies and instances, adds `backend_config`, `var_files` and `env`, and overrides `tool`, `tool_version`, `workspace`, `environment`, `plan_output` and `apply.allowed_teams` for that stack. See [`.stackorder.yaml`](./stack-yaml) and [Stack instances](./instances).
-
-A CLI or server older than these keys rejects a file that uses them. Upgrade the server before the repositories, and pin `stackorder-version` in the workflows to a CLI that knows them.
