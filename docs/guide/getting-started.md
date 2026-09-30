@@ -263,7 +263,6 @@ jobs:
       server-url: ${{ vars.STACKORDER_SERVER_URL }}
       aws-role-arn: arn:aws:iam::123456789012:role/stackorder-plan
       tool: tofu
-    secrets: inherit
 ```
 
 `.github/workflows/stackorder-run.yml` is dispatched by the server only:
@@ -296,7 +295,6 @@ jobs:
       stacks: ${{ inputs.stacks }}
       aws-plan-role-arn: arn:aws:iam::123456789012:role/stackorder-plan
       aws-role-arn-map: '{"stacks/prod/": "arn:aws:iam::123456789012:role/stackorder-apply-prod", "stacks/staging/": "arn:aws:iam::123456789012:role/stackorder-apply-staging"}'
-    secrets: inherit
 ```
 
 The `run-name` line lets the server recognise the workflow runs it dispatched, and the five inputs must all be declared, because the server sends all five. The `permissions` blocks matter: a called workflow can only narrow the permissions its caller grants. [Workflows](/configuration/workflows) explains each input and permission.
@@ -307,6 +305,15 @@ Both reusable workflows require `server-url`, the server's base URL. The files a
 gh variable set STACKORDER_SERVER_URL --org acme --visibility all \
   --body https://stackorder.example.com
 ```
+
+AWS credentials come from the roles of step 4. If a provider needs another credential, such as a Cloudflare API token, pass it through the `env` secret of the reusable workflows: `secrets: inherit` passes nothing to them, since they are in another organization. Store a read-only token for plans as a repository secret, `STACKORDER_ENV` with the value `CLOUDFLARE_API_TOKEN=<token>`, and add to both files:
+
+```yaml
+    secrets:
+      env: ${{ secrets.STACKORDER_ENV }}
+```
+
+A token that can change infrastructure goes in an environment secret named `ENV` on `production`, which replaces the repository secret for applies under that environment. See [Provider credentials](/configuration/workflows#env).
 
 ## 8. Protect the default branch {#branch-protection}
 

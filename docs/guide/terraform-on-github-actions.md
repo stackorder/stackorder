@@ -76,7 +76,6 @@ jobs:
       server-url: ${{ vars.STACKORDER_SERVER_URL }}
       aws-role-arn: arn:aws:iam::123456789012:role/stackorder-plan
       tool: terraform
-    secrets: inherit
 ```
 
 The run workflow, `stackorder-run.yml`, runs only when the server dispatches it; [Workflows](/configuration/workflows#run) has the file. Each gap above maps to one thing Stackorder does:
@@ -98,6 +97,10 @@ Trigger a workflow on `pull_request`, assume a read-only AWS role with `aws-acti
 ### How do I apply Terraform in dependency order across multiple stacks?
 
 Declare the dependencies and let a tool order them. In Stackorder, `depends_on` in a stack's `.stackorder.yaml` orders the run, and a `terraform_remote_state` read of another stack's state is inferred as an ordering edge too. Module sources decide which stacks are affected, not their order. Affected stacks are layered into waves by the longest path through the graph, and a cycle fails `stackorder/resolve` with the cycle spelled out. Edges to stacks in other repositories appear in the graph and can trigger plan-only runs there, but each run applies one repository.
+
+### How do I pass a provider API token to Terraform in GitHub Actions?
+
+Store it as a secret and export it to the job's environment, where the provider reads it, such as `CLOUDFLARE_API_TOKEN` for Cloudflare. With Stackorder, pass the reusable workflows an `env` secret of `KEY=VALUE` lines, `env: ${{ secrets.STACKORDER_ENV }}` under `secrets:`, since `secrets: inherit` passes nothing to a workflow in another organization. The job masks every value and exports it before Terraform runs. Keep plan tokens read-only, put write tokens in the `ENV` secret of the environments that gate applies, and declare a token passed as a `TF_VAR_` variable `ephemeral`, so the saved plan does not store it. See [Provider credentials](/configuration/workflows#env).
 
 ### Does it work with OpenTofu (setup-opentofu)?
 
