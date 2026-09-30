@@ -32,13 +32,15 @@ It is deliberately **not** a state backend, module registry, secrets store, poli
 
 ## How it compares
 
-|                          | Terraform Cloud / HCP | Terrakube            | Terrateam                     | Stackorder                                         |
-| ------------------------ | --------------------- | -------------------- | ----------------------------- | -------------------------------------------------- |
-| Where Terraform runs     | HashiCorp workers     | Own executor pods    | GitHub Actions                | GitHub Actions                                     |
-| State backend            | Built in              | Built in             | Bring your own                | Bring your own S3                                  |
-| Runtime footprint        | SaaS                  | API, executor, UI, Redis, Minio, Postgres | Server + Postgres; Docker action image | One container + Postgres; non-Docker actions |
-| Cross-stack dependencies | Run triggers          | Workspace triggers   | Layered runs                  | First-class graph incl. modules and cross-repo edges |
-| Server holds cloud creds | Yes (or agent)        | Yes                  | No                            | No                                                 |
+|  | HCP Terraform | Terrakube | Stategraph (formerly Terrateam) | Stackorder |
+| --- | --- | --- | --- | --- |
+| Where Terraform runs | HashiCorp-hosted VMs or self-hosted agents | Its own executors | Your GitHub Actions or GitLab CI runners | GitHub Actions |
+| State backend | Built in | Built in | Bring your own | Bring your own S3 |
+| Runtime footprint | SaaS, or self-hosted Terraform Enterprise | API, executor, registry, UI, Dex, Redis-compatible store, object storage, Postgres | Server + Postgres; Docker action on the runner | One container + Postgres; non-Docker actions |
+| Cross-stack dependencies | Run triggers; linked Stacks | Shared remote state; run triggers only in 2.34 pre-releases | Layered runs within one repository | First-class graph incl. modules and cross-repo edges |
+| Server holds cloud creds | Yes: stored, or short-lived per run through OIDC | Yes: stored, or mints OIDC tokens | No | No |
+
+Last reviewed 2026-09-30. The [comparison page](docs/guide/comparison.md) cites a source for every competitor claim; the website's comparison is at [stackorder.io/compare](https://stackorder.io/compare/).
 
 ## Design principles
 
@@ -195,7 +197,7 @@ depends_on:
   - acme/network-infra//stacks/prod/tgw
 ```
 
-A directory deployed several times, such as a component with one var file per environment, declares **instances**: `infra/network:production` and `infra/network:staging` are two stacks with their own state key, var files, environment variables, GitHub environment and apply role, all rendered from templates in `stackorder.yaml`. `stacks.instances.from_var_files: "workspaces/*.tfvars.json"` derives them from the files, and `backend_config`, `var_files` and `env` replace the per-directory scripts other tools need. [Stack instances](docs/configuration/instances.md) has the keys, a worked example of one bootstrap role with a provider role per account, and a migration table from Terrateam.
+A directory deployed several times, such as a component with one var file per environment, declares **instances**: `infra/network:production` and `infra/network:staging` are two stacks with their own state key, var files, environment variables, GitHub environment and apply role, all rendered from templates in `stackorder.yaml`. `stacks.instances.from_var_files: "workspaces/*.tfvars.json"` derives them from the files, and `backend_config`, `var_files` and `env` replace per-directory scripts. [Stack instances](docs/configuration/instances.md) has the keys, a worked example of one bootstrap role with a provider role per account, and a migration table from Stategraph.
 
 ## Layout
 
