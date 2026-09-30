@@ -10,6 +10,7 @@ Stackorder's design keeps the server away from your cloud: it holds no AWS crede
 | --- | --- | --- |
 | [Trust policies pinned to the OIDC subject](#trust-policies) | AWS IAM | A workflow that is not the gated job obtaining credentials |
 | [Environment gates](#environments) | GitHub repository settings | An apply starting without a human or rule approving it |
+| [Provider credentials](#provider-credentials) | GitHub secrets | A plan, which runs pull request code, holding a token that can change infrastructure |
 | [Required workflow ref](#workflow-ref) | Server and AWS | A locally edited workflow posting results or assuming a role |
 | [Metrics token](#metrics) | Server | Anyone on the network reading operational metrics |
 | [Branch protection](#branch-protection) | GitHub | Merging without plans, applies or reviews; editing the workflow files unreviewed |
@@ -211,6 +212,15 @@ In the repository settings, under **Environments**:
 - Required reviewers on private repositories need GitHub Enterprise. Without them, the trust policy remains the hard stop, and the [deployment protection rule](/configuration/environments-and-authorization#layer-4) can replace the human.
 - A personal account has no teams, and a private repository on GitHub Free has no environment settings at all. See [Personal accounts and GitHub Free](/configuration/environments-and-authorization#free-plan) for what still holds.
 - The App cannot approve a deployment: it has no Environments permission, and an App cannot be a required reviewer.
+
+## Provider credentials {#provider-credentials}
+
+Credentials for providers besides AWS, such as a Cloudflare API token, reach the jobs through the `env` secret of the reusable workflows (see [Provider credentials](/configuration/workflows#env)). Unlike an AWS role, such a token has no trust policy that checks which job presents it, so where it is stored is the whole control:
+
+- **Plans get read-only tokens.** Pull request plans, and the plans the server dispatches for a pull request, run the pull request's code, which can read the job's environment. A pull request can also edit its calling workflow to pass any repository or organization secret. Keep only read-only tokens in repository and organization secrets.
+- **Write tokens live in environment secrets.** Store a token that can change infrastructure as the secret `ENV` of each apply environment, such as `production`. GitHub gives it only to a job under that environment, after its protection rules pass, and in the `run.yml` job it replaces the `env` secret the caller passes. With deployment branches limited to the default branch, a workflow on a pull request's branch cannot use the environment at all. Never store one on `default`, where plans and drift checks run.
+- **Keep tokens out of the plan file.** A provider reading its own environment variable, such as `CLOUDFLARE_API_TOKEN`, never writes it to the plan. A token passed as a `TF_VAR_` variable is saved in the plan file, which the `plan` action uploads as a workflow artifact, unless the variable is declared `ephemeral`.
+- **Name secrets so the CLI redacts them.** The job masks the `env` secret's values in its log, but what the CLI sends to the server is redacted by variable name. Use names with a `TOKEN`, `SECRET`, `PASSWORD` or `API_KEY` component, and mark Terraform variables `sensitive`.
 
 ## Required workflow ref {#workflow-ref}
 
