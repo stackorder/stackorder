@@ -1,3 +1,20 @@
+<p align="center">
+  <a href="https://stackorder.io">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset=".github/assets/lockup-dark.svg">
+      <img alt="stackorder" src=".github/assets/lockup-light.svg" height="45">
+    </picture>
+  </a>
+</p>
+
+<p align="center">Lightweight Terraform and OpenTofu orchestration on GitHub Actions.</p>
+
+<p align="center">
+  <a href="https://stackorder.io">Website</a> ·
+  <a href="https://docs.stackorder.io">Documentation</a> ·
+  <a href="https://github.com/stackorder/stackorder">stackorder/stackorder</a>
+</p>
+
 # Stackorder example infrastructure
 
 A small Terraform monorepo wired for [Stackorder](https://github.com/stackorder/stackorder). Its dependency graph has two local modules consumed by stacks, a module that calls another module, explicit `depends_on` edges, an inferred `terraform_remote_state` edge, a suppressed one, a stack that falls back to the `default` environment, and a directory deployed once per environment as [stack instances](#stack-instances).
@@ -12,7 +29,7 @@ This repository was tested with:
 
 | Component | Version |
 | --- | --- |
-| [`stackorder/stackorder`](https://github.com/stackorder/stackorder) (server and CLI) | v0.1.0 |
+| [`stackorder/stackorder`](https://github.com/stackorder/stackorder) (server and CLI) | v0.2.0 |
 | [`stackorder/actions`](https://github.com/stackorder/actions) (`plan.yml`, `run.yml`) | v1.0.0, called as `@v1` |
 | Terraform | 1.14.4 |
 | OpenTofu | 1.12.6 |
@@ -25,6 +42,7 @@ The stacks need Terraform or OpenTofu 1.10 or later for `use_lockfile`, and the 
 ```text
 stackorder.yaml                 repository policy: discovery, environments, apply gate, drift
 .github/CODEOWNERS              owning teams per path
+.github/assets/                 README logos and the repository social preview image
 .github/workflows/
   stackorder-plan.yml           PR plans through stackorder/actions plan.yml
   stackorder-run.yml            server-dispatched plan, apply and drift through run.yml
@@ -245,7 +263,7 @@ The module tests use `command = plan` only, so they need no backend and no netwo
 
 ## Hooks
 
-The CLI runs `.stackorder/hooks/post-plan.sh` after each plan, in CI and locally, with `STACKORDER_STACK`, `STACKORDER_RUN_ID`, `STACKORDER_PLAN_JSON` and `STACKORDER_PLAN_FILE` set. The example prints one line per stack:
+The CLI runs `.stackorder/hooks/post-plan.sh` after each plan, in CI and locally, with `STACKORDER_STACK` (the stack key, for example `infra/kyc:production`), `STACKORDER_STACK_PATH` (the stack directory), `STACKORDER_INSTANCE` (the instance name, empty for the `stacks/` stacks), `STACKORDER_RUN_ID`, `STACKORDER_PLAN_JSON` and `STACKORDER_PLAN_FILE` set, plus the stack's `env` for the mode, such as `TF_VAR_environment` and `TF_VAR_role`. The example prints one line per stack:
 
 ```text
 post-plan: stacks/prod/vpc: 4 resources in plan, 0 with changes
