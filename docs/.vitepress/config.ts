@@ -3,6 +3,7 @@ import { withMermaid } from 'vitepress-plugin-mermaid'
 import { inlineCodeVerbatim, repositoryLinks, taskLists } from './markdown'
 
 const repository = 'https://github.com/stackorder/stackorder'
+const site = 'https://docs.stackorder.io'
 const base = process.env.DOCS_BASE || '/'
 
 const guide: DefaultTheme.SidebarItem[] = [
@@ -96,7 +97,25 @@ export default withMermaid(
       ['link', { rel: 'apple-touch-icon', href: `${base}apple-touch-icon.png` }],
       ['link', { rel: 'manifest', href: `${base}site.webmanifest` }],
       ['meta', { name: 'theme-color', content: '#2F3E46' }],
+      ['meta', { property: 'og:type', content: 'website' }],
+      ['meta', { property: 'og:site_name', content: 'Stackorder' }],
+      ['meta', { property: 'og:image', content: `${site}/og-image.png` }],
+      ['meta', { property: 'og:image:width', content: '1200' }],
+      ['meta', { property: 'og:image:height', content: '630' }],
+      ['meta', { property: 'og:image:alt', content: 'stackorder: Terraform and OpenTofu orchestration on GitHub Actions' }],
+      ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ],
+    sitemap: { hostname: site },
+    transformHead({ pageData, title, description }) {
+      if (pageData.isNotFound) return
+      const url = `${site}/${pageData.relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')}`
+      return [
+        ['link', { rel: 'canonical', href: url }],
+        ['meta', { property: 'og:url', content: url }],
+        ['meta', { property: 'og:title', content: title }],
+        ['meta', { property: 'og:description', content: description }],
+      ]
+    },
     markdown: {
       config(md) {
         md.use(repositoryLinks)
