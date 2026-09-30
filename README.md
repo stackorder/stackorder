@@ -5,7 +5,7 @@
   </picture>
 </h1>
 
-<p align="center">Lightweight Terraform and OpenTofu orchestration on GitHub Actions.</p>
+<p align="center">Which stacks, in what order. Terraform and OpenTofu orchestration on GitHub Actions.</p>
 
 <p align="center">
   <a href="https://stackorder.io">Website</a>
@@ -15,13 +15,21 @@
   <a href="https://github.com/stackorder/stackorder/releases">Releases</a>
 </p>
 
-Stackorder is a GitHub App plus a small control-plane server that decides **which** stacks to run and **in what order**, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay inside your GitHub org and AWS account; the server only ever sees metadata.
+<p align="center">
+  <a href="https://github.com/stackorder/stackorder/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/stackorder/stackorder"></a>
+  <a href="LICENSE"><img alt="Licence: Apache-2.0" src="https://img.shields.io/badge/licence-Apache--2.0-blue"></a>
+  <a href="https://github.com/stackorder/stackorder/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/stackorder/stackorder/actions/workflows/ci.yml/badge.svg"></a>
+</p>
 
-> **Status:** v0.1.0, the first release. The server, the `stackorder` CLI, the embedded UI, the Terraform deployment module and the [`stackorder/actions`](https://github.com/stackorder/actions) v1.0.0 workflows implement the [design](https://docs.stackorder.io/design/): pull request plans with checks and a sticky comment, the apply gate and `stackorder apply` comments, `before_merge` and `on_merge` applies in dependency waves, stack locks, module and `terraform_remote_state` edges, cross-repo `depends_on`, stack instances for directories deployed once per environment, with templated backend configuration, var files and per-mode variables, scheduled drift checks with issues, the graph and module pages in the UI, the JSON API and Prometheus metrics. Where the code departs from the design, [ARCHITECTURE.md](ARCHITECTURE.md) records how, and the [changelog](CHANGELOG.md) lists the departures.
->
-> How it is tested: unit tests for every package (`go test ./...`, no Docker, no network); integration tests that run the server on Postgres, an in-memory fake of the GitHub API and the CLI against a fake `terraform` binary through whole pull request, apply, drift and cross-repo flows; and end-to-end tests that run the real Terraform 1.14 and OpenTofu 1.12 binaries against a LocalStack 4.0 S3 bucket and the [`stackorder/example-infra`](https://github.com/stackorder/example-infra) monorepo, with the server in-process and the CLI as a separate process for every job. The UI has Vitest and Playwright tests, and the Terraform module has `terraform test` suites and is validated on Terraform 1.14, and through its examples on 1.9. Not covered by the default suites: a real GitHub organisation (`TestLiveGitHub` runs only when one is configured), real AWS, and GitHub Enterprise Server, which is supported through configuration but has not been run against.
+Stackorder plans every stack a pull request affects and applies them in dependency waves on your GitHub Actions runners. Its server never holds cloud credentials or state.
+
+**Try it:** the [local demo](docs/guide/local-demo.md) (no GitHub App, no AWS account) · [getting started](docs/guide/getting-started.md) (GitHub App and AWS)
+
+> **Status:** v0.1.0, released 2026-09-29. The [changelog](CHANGELOG.md) lists what ships and where the code departs from the [design](https://docs.stackorder.io/design/); [How it is tested](#how-it-is-tested) says what the tests cover and what they do not.
 
 ## What it does
+
+Stackorder is a GitHub App plus a small control-plane server that decides **which** stacks to run and **in what order**, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay inside your GitHub org and AWS account; the server only ever sees metadata.
 
 The server has exactly two jobs:
 
@@ -262,6 +270,16 @@ make sync-example     # refresh the vendored copy of example-infra used by the i
 ```
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the test suites, their environment variables, commit conventions and releases.
+
+## How it is tested
+
+- **Unit tests** for every package (`go test ./...`), with no Docker and no network.
+- **Integration tests** run the server on Postgres, with an in-memory fake of the GitHub API, and the CLI against a fake `terraform` binary, through whole pull request, apply, drift and cross-repo flows.
+- **End-to-end tests** run the real Terraform 1.14 and OpenTofu 1.12 binaries against a LocalStack 4.0 S3 bucket and the [`stackorder/example-infra`](https://github.com/stackorder/example-infra) monorepo, with the server in-process and the CLI as a separate process for every job.
+- **The UI** has Vitest and Playwright tests.
+- **The Terraform module** has `terraform test` suites and is validated on Terraform 1.14, and through its examples on 1.9.
+
+Not covered by the default suites: a real GitHub organisation (`TestLiveGitHub` runs only when one is configured), real AWS, and GitHub Enterprise Server, which is supported through configuration but has not been run against.
 
 ## Documentation
 
