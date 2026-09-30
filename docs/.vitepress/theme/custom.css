@@ -179,6 +179,11 @@
   height: auto;
 }
 
+.vp-doc .mermaid p {
+  margin: 0;
+  line-height: inherit;
+}
+
 .vp-doc ul.contains-task-list {
   padding-left: 0.25rem;
   list-style: none;
