@@ -37,9 +37,14 @@ func TestApplyEnvironment(t *testing.T) {
 			want:     "blue",
 		},
 		{
-			name: "no default-branch stack file keeps the recorded environment",
+			name: "without a default-branch stack file the pull request's recorded environment is ignored",
 			src:  store.RunStack{Key: "stacks/dev/app", Path: "stacks/dev/app", Environment: "recorded"},
-			want: "recorded",
+			want: v1.DefaultEnvironment,
+		},
+		{
+			name: "a directory missing from the default branch takes the default-branch environments match",
+			src:  store.RunStack{Key: "stacks/prod/new", Path: "stacks/prod/new", Environment: "weaker"},
+			want: "production",
 		},
 		{
 			name: "an instance without a default-branch stack file runs under its own name",

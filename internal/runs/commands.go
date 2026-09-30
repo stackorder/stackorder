@@ -557,10 +557,6 @@ func applyEnvironment(cfg *v1.RepoConfig, defaults map[string]*v1.StackConfig, s
 	if err != nil {
 		return "", fmt.Errorf("runs: environment of %s: %w", src.Key, err)
 	}
-	dir, _ := keyDir(src.Key, src.Path)
-	if eff.Instance == "" && defaults[dir] == nil && !eff.EnvironmentConfigured && src.Environment != "" {
-		return src.Environment, nil
-	}
 	return eff.Environment, nil
 }
 

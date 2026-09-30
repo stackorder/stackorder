@@ -378,7 +378,9 @@ a stack with instances is a template such as `"{{ .Instance }}"`.
 
 - Apply-time environment, `allowed_teams` and `plan_output` come from
   `config.Resolve(defaultBranchRoot, path, defaultBranchStackConfig,
-  instance)`, never from a field read off the raw file. Dispatch grouping
+  instance)`, never from a field read off the raw file. The stack config
+  is nil when the default branch has no stack file in that directory; the
+  environment recorded on the plan row is never used. Dispatch grouping
   by environment, binding and deployment protection are unchanged.
 - Runs whose keys share a directory are independent: separate locks,
   separate concurrency groups, separate artifacts.
