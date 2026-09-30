@@ -86,6 +86,46 @@ const design: DefaultTheme.SidebarItem[] = [
   },
 ]
 
+const sections = { guide, configuration, reference, operations, design }
+const crumbs = new Map(
+  Object.values(sections).flatMap((groups) =>
+    groups.flatMap((group) =>
+      (group.items ?? []).map((item) => [item.link, { group: group.text, groupLink: group.items![0].link, text: item.text }]),
+    ),
+  ),
+)
+
+function structuredData(link: string, url: string, title: string, description: string, lastUpdated?: number) {
+  const home = { '@type': 'WebSite', '@id': `${site}/#website`, name: 'Stackorder docs', url: `${site}/` }
+  if (link === '/') return { '@context': 'https://schema.org', '@graph': [home] }
+  const crumb = crumbs.get(link)
+  const trail = [
+    { name: 'Docs', item: `${site}/` },
+    ...(crumb ? [{ name: crumb.group, item: `${site}${crumb.groupLink}` }] : []),
+    { name: crumb?.text ?? title, item: url },
+  ]
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      home,
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: trail.map((entry, i) => ({ '@type': 'ListItem', position: i + 1, ...entry })),
+      },
+      {
+        '@type': 'TechArticle',
+        headline: title,
+        description,
+        url,
+        inLanguage: 'en-US',
+        ...(lastUpdated ? { dateModified: new Date(lastUpdated).toISOString() } : {}),
+        isPartOf: { '@id': `${site}/#website` },
+        publisher: { '@type': 'Organization', name: 'Stackorder', url: website },
+      },
+    ],
+  }
+}
+
 export default withMermaid(
   defineConfig({
     title: 'Stackorder',
@@ -113,12 +153,17 @@ export default withMermaid(
     sitemap: { hostname: site },
     transformHead({ pageData, title, description }) {
       if (pageData.isNotFound) return
-      const url = `${site}/${pageData.relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')}`
+      const link = `/${pageData.relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')}`
+      const url = `${site}${link}`
+      const data = structuredData(link, url, pageData.title, description, pageData.lastUpdated)
       return [
         ['link', { rel: 'canonical', href: url }],
         ['meta', { property: 'og:url', content: url }],
         ['meta', { property: 'og:title', content: title }],
         ['meta', { property: 'og:description', content: description }],
+        ['meta', { name: 'twitter:title', content: title }],
+        ['meta', { name: 'twitter:description', content: description }],
+        ['script', { type: 'application/ld+json' }, JSON.stringify(data).replaceAll('<', '\\u003c')],
       ]
     },
     markdown: {
