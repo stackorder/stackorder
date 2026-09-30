@@ -40,15 +40,15 @@ It is deliberately **not** a state backend, module registry, secrets store, poli
 
 ## How it compares
 
-|  | HCP Terraform | Terrakube | Stategraph (formerly Terrateam) | Stackorder |
-| --- | --- | --- | --- | --- |
-| Where Terraform runs | HashiCorp-hosted VMs or self-hosted agents | Its own executors | Your GitHub Actions or GitLab CI runners | GitHub Actions |
-| State backend | Built in | Built in | Bring your own | Bring your own S3 |
-| Runtime footprint | SaaS, or self-hosted Terraform Enterprise | API, executor, registry, UI, Dex, Redis-compatible store, object storage, Postgres | Server + Postgres; Docker action on the runner | One container + Postgres; non-Docker actions |
-| Cross-stack dependencies | Run triggers; linked Stacks | Shared remote state; run triggers only in 2.34 pre-releases | Layered runs within one repository | First-class graph incl. modules and cross-repo edges |
-| Server holds cloud creds | Yes: stored, or short-lived per run through OIDC | Yes: stored, or mints OIDC tokens | No | No |
+|  | Atlantis | HCP Terraform | Terrakube | Stategraph (formerly Terrateam) | Stackorder |
+| --- | --- | --- | --- | --- | --- |
+| Where Terraform runs | On the Atlantis server itself | HashiCorp-hosted VMs or self-hosted agents | Its own executors | Your GitHub Actions or GitLab CI runners | GitHub Actions |
+| State backend | Bring your own; any except local state | Built in | Built in | Bring your own | Bring your own S3 |
+| Runtime footprint | One Go binary or container, no external database; a persistent disk for plans and locks, or Redis for locks | SaaS, or self-hosted Terraform Enterprise | API, executor, registry, UI, Dex, Redis-compatible store, object storage, Postgres | Server + Postgres; Docker action on the runner | One container + Postgres; non-Docker actions |
+| Cross-stack dependencies | `execution_order_group` and `depends_on` within one `atlantis.yaml` | Run triggers; linked Stacks | Shared remote state; run triggers only in 2.34 pre-releases | Layered runs within one repository | A graph of stacks, modules and cross-repo edges; applies in waves |
+| Server holds cloud creds | Yes: the server runs Terraform | Yes: stored, or short-lived per run through OIDC | Yes: stored, or mints OIDC tokens | No | No |
 
-Last reviewed 2026-09-30. The [comparison page](docs/guide/comparison.md) cites a source for every competitor claim; the website's comparison is at [stackorder.io/compare](https://stackorder.io/compare/).
+Last reviewed 2026-09-30. The [comparison page](docs/guide/comparison.md) cites a source for every HCP Terraform, Terrakube and Stategraph claim, and [Stackorder vs Atlantis](https://stackorder.io/compare/atlantis/) cites the Atlantis column. The [full comparison](https://stackorder.io/compare/) also covers Spacelift, env zero, Scalr and OpenTaco.
 
 ## Design principles
 
