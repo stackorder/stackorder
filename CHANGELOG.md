@@ -2,7 +2,7 @@
 
 All notable changes to this repository are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases follow [Semantic Versioning](https://semver.org/). The CLI, the server image and the Terraform module are released together from one `vX.Y.Z` tag.
 
-## [0.1.0] - 2026-09-29
+## [0.1.0] - 2026-09-30
 
 The first release. It works with [`stackorder/actions`](https://github.com/stackorder/actions) v1.0.0 or later.
 
