@@ -67,8 +67,9 @@
 // gated page issued, and finishes the conversion even if the browser goes
 // away. While it runs, /setup and other callbacks answer 409 and keep their
 // cookies, so a reload after a failed conversion can retry. Once a callback
-// has created an App, the token and its cookies stop working until the
-// process restarts with a new token. GET
+// has created an App, the token and its cookies stop working on the process
+// that created it until it restarts; the flag is in memory, so other
+// processes sharing the token keep accepting it until they restart. GET
 // /setup/installed stays open: it shows nothing but the installation id
 // GitHub passes to it.
 package api
