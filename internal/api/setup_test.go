@@ -347,6 +347,9 @@ func TestSetupNeedsTheToken(t *testing.T) {
 		assertSetupRefused(t, e.do(newRequest(t, http.MethodGet, "/setup?token="+url.QueryEscape(token), nil)), "token "+token)
 	}
 	assert.NotContains(t, e.logs.String(), testSetupToken)
+	refused := html.UnescapeString(e.do(newRequest(t, http.MethodGet, "/setup", nil)).Body.String())
+	assert.Contains(t, refused, "open /setup?token= followed by its value")
+	assert.NotContains(t, refused, "force=1", "setup mode needs no force=1")
 }
 
 func TestSetupTokenIsTradedForACookie(t *testing.T) {
@@ -439,6 +442,11 @@ func TestResetupNeedsTheToken(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `href="/setup?force=1"`)
 	assertSetupRefused(t, e.do(newRequest(t, http.MethodGet, "/setup?force=1", nil)), "force without the token")
 	assertSetupRefused(t, e.do(newRequest(t, http.MethodGet, "/setup?force=1&token=nope", nil)), "force with a wrong token")
+	refused := html.UnescapeString(e.do(newRequest(t, http.MethodGet, "/setup?force=1", nil)).Body.String())
+	assert.Contains(t, refused, "open /setup?force=1&token= followed by its value", "a token without force=1 only reaches the page saying an App is configured")
+	rec = e.do(newRequest(t, http.MethodGet, "/setup?token="+url.QueryEscape(testSetupToken), nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Nil(t, cookieNamed(rec.Result(), setupAuthCookie), "which is why the page names force=1")
 
 	e.gh.SetManifestConversion("code-7", gh.AppCredentials{ID: 7, Slug: "s", PEM: "pem", WebhookSecret: "w"})
 	f := e.open(t, "/setup?force=1")

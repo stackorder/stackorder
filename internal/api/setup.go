@@ -115,11 +115,15 @@ func (s *server) hasSetupProof(r *http.Request) bool {
 }
 
 func (s *server) setupTokenRequired(w http.ResponseWriter, r *http.Request) {
+	setupURL := "/setup?token="
+	if !s.cfg.SetupMode {
+		setupURL = "/setup?force=1&token="
+	}
 	s.renderMessage(w, r, http.StatusForbidden, "Setup token required", message{
 		Heading: "Setup needs the setup token",
 		Lines: []string{
 			"Creating the GitHub App needs the one-time setup token the server prints in its log when it starts, so that nobody else who reaches this page can register the App under their own account.",
-			"Find the log line with setup_url, with docker compose logs or in the server's CloudWatch log group, and open that URL in this browser. If you set STACKORDER_SETUP_TOKEN, open /setup?token= followed by its value.",
+			"Find the log line with setup_url, with docker compose logs or in the server's CloudWatch log group, and open that URL in this browser. If you set STACKORDER_SETUP_TOKEN, open " + setupURL + " followed by its value.",
 			"The token works until an App is created. A generated token changes each time the server starts.",
 		},
 	})
