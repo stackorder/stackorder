@@ -25,7 +25,7 @@ Stackorder plans every stack a pull request affects and applies them in dependen
 
 **Try it:** the [local demo](docs/guide/local-demo.md) (no GitHub App, no AWS account) · [getting started](docs/guide/getting-started.md) (GitHub App and AWS)
 
-> **Status:** v0.1.0, released 2026-09-29. The [changelog](CHANGELOG.md) lists what ships and where the code departs from the [design](https://docs.stackorder.io/design/); [How it is tested](#how-it-is-tested) says what the tests cover and what they do not.
+> **Status:** v0.1.0, the first release. The [changelog](CHANGELOG.md) lists what ships and where the code departs from the [design](https://docs.stackorder.io/design/); [How it is tested](#how-it-is-tested) says what the tests cover and what they do not.
 
 ## What it does
 
