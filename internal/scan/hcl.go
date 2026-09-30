@@ -15,13 +15,12 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
+	"github.com/stackorder/stackorder/internal/config"
 )
 
 const (
-	backendS3          = "s3"
-	remoteStateType    = "terraform_remote_state"
-	defaultWorkspace   = "default"
-	defaultWorkspaceKP = "env:"
+	backendS3       = "s3"
+	remoteStateType = "terraform_remote_state"
 )
 
 var (
@@ -61,17 +60,7 @@ type remoteState struct {
 }
 
 func (r remoteState) objectKey() string {
-	return stateObjectKey(r.prefix, r.workspace, r.key)
-}
-
-func stateObjectKey(prefix, workspace, key string) string {
-	if workspace == "" || workspace == defaultWorkspace {
-		return key
-	}
-	if prefix == "" {
-		prefix = defaultWorkspaceKP
-	}
-	return prefix + "/" + workspace + "/" + key
+	return config.StateObjectKey(r.prefix, r.workspace, r.key)
 }
 
 type hclReader struct {

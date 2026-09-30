@@ -694,7 +694,7 @@ func (s *scanner) inferRemoteState(explicit map[string]map[string]bool) {
 		if st.Backend == nil || st.Backend.Bucket == "" || st.Backend.Key == "" {
 			continue
 		}
-		loc := stateLocation{st.Backend.Bucket, stateObjectKey(st.Backend.WorkspaceKeyPrefix, st.Workspace, st.Backend.Key)}
+		loc := stateLocation{st.Backend.Bucket, config.StateObjectKey(st.Backend.WorkspaceKeyPrefix, st.Workspace, st.Backend.Key)}
 		writers[loc] = append(writers[loc], key)
 	}
 	for loc, keys := range writers {

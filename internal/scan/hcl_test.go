@@ -287,26 +287,6 @@ data "terraform_remote_state" "no_key" {
 	}
 }
 
-func TestStateObjectKey(t *testing.T) {
-	tests := []struct {
-		prefix, workspace, key string
-		want                   string
-	}{
-		{key: "vpc.tfstate", want: "vpc.tfstate"},
-		{workspace: "default", key: "vpc.tfstate", want: "vpc.tfstate"},
-		{workspace: "blue", key: "vpc.tfstate", want: "env:/blue/vpc.tfstate"},
-		{prefix: "ws", workspace: "blue", key: "vpc.tfstate", want: "ws/blue/vpc.tfstate"},
-		{prefix: "ws", key: "vpc.tfstate", want: "vpc.tfstate"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
-			if got := stateObjectKey(tt.prefix, tt.workspace, tt.key); got != tt.want {
-				t.Errorf("stateObjectKey(%q, %q, %q) = %q, want %q", tt.prefix, tt.workspace, tt.key, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestDiagnosticsAndPathErrors(t *testing.T) {
 	var warnings []string
 	r := &hclReader{warn: func(format string, args ...any) { warnings = append(warnings, fmt.Sprintf(format, args...)) }}

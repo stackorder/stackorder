@@ -69,6 +69,17 @@ func InstanceOf(instance, workspace string) string {
 	return workspace
 }
 
+// StateObjectKey returns the S3 object key of a stack's state: key in the
+// default workspace (workspace empty or "default"), else
+// prefix/workspace/key, where an empty prefix is the S3 backend's default
+// workspace_key_prefix "env:".
+func StateObjectKey(prefix, workspace, key string) string {
+	if workspace == "" || workspace == "default" {
+		return key
+	}
+	return cmp.Or(prefix, "env:") + "/" + workspace + "/" + key
+}
+
 // VarFileInstance names the instance a from_var_files match stands for: the
 // file's base name up to its first ".".
 func VarFileInstance(file string) string {

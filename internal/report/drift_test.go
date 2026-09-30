@@ -56,6 +56,31 @@ func TestDriftIssueKey(t *testing.T) {
 	}
 }
 
+func TestDriftIssueState(t *testing.T) {
+	backend := &v1.Backend{Type: "s3", Bucket: "acme-state", Key: "network.tfstate"}
+	tests := []struct {
+		name  string
+		stack v1.StackDetail
+		want  string
+	}{
+		{"the default workspace", v1.StackDetail{Key: "infra/network", Backend: backend}, "s3://acme-state/network.tfstate"},
+		{"a workspace named default", v1.StackDetail{Key: "infra/network", Workspace: "default", Backend: backend}, "s3://acme-state/network.tfstate"},
+		{"an instance workspace", v1.StackDetail{Key: "infra/network:production", Instance: "production", Workspace: "production", Backend: backend}, "s3://acme-state/env:/production/network.tfstate"},
+		{
+			"a workspace key prefix",
+			v1.StackDetail{Key: "infra/network:staging", Instance: "staging", Workspace: "staging",
+				Backend: &v1.Backend{Type: "s3", Bucket: "acme-state", Key: "network.tfstate", WorkspaceKeyPrefix: "workspaces"}},
+			"s3://acme-state/workspaces/staging/network.tfstate",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, body := DriftIssue(tt.stack, v1.DriftStatus{Drifted: true}, testOpts)
+			assert.Contains(t, body, "**State:** `"+tt.want+"`")
+		})
+	}
+}
+
 func TestDriftIssueTitle(t *testing.T) {
 	assert.Equal(t, "Drift detected in stacks/prod/vpc", DriftIssueTitle("stacks/prod/vpc"))
 	assert.Equal(t, "Drift detected in stacks/dev/app:green", DriftIssueTitle("stacks/dev/app:green"))

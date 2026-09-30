@@ -68,7 +68,7 @@ func driftMeta(stack v1.StackDetail, drift v1.DriftStatus, o Options) string {
 		parts = append(parts, "**Environment:** "+code(stack.Environment))
 	}
 	if be := stack.Backend; be != nil && be.Bucket != "" {
-		parts = append(parts, "**State:** "+code("s3://"+be.Bucket+"/"+be.Key))
+		parts = append(parts, "**State:** "+code("s3://"+be.Bucket+"/"+config.StateObjectKey(be.WorkspaceKeyPrefix, stack.Workspace, be.Key)))
 	}
 	if u := o.stackURL(stack.ID); u != "" {
 		parts = append(parts, link("Stack details", u))
