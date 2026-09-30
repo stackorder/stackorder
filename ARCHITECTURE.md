@@ -2,7 +2,7 @@
 
 This file is the contract between the packages of this repository and the
 `stackorder/actions` and `stackorder/example-infra` repositories. The
-[design document](https://claude.ai/artifact/W3gQnvGu5Fw9DSXApYE766) is the
+[design document](https://docs.stackorder.io/design/) is the
 source of truth for behaviour; this file pins the shapes, names and library
 choices that let packages be built independently and still fit together,
 and records where the implementation deliberately departs from the design.
