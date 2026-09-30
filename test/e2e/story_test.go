@@ -43,6 +43,11 @@ const (
 	prodQueue    = "stacks/prod/queue"
 	stagingQueue = "stacks/staging/queue"
 
+	kycProduction  = "infra/kyc:production"
+	kycStaging     = "infra/kyc:staging"
+	registryShared = "infra/registry:shared"
+	sharedBackend  = "infra/state.s3.tfbackend"
+
 	plaintextSecret = "e2e-plaintext-hunter2"
 	stickyMarker    = "<!-- stackorder:sticky -->"
 	commentLimit    = 65536
@@ -56,6 +61,22 @@ var stateKeys = map[string]string{
 	stagingVPC:  "staging/vpc.tfstate",
 	stagingApps: "staging/apps.tfstate",
 	legacyDNS:   "legacy/dns.tfstate",
+
+	kycProduction:  "kyc/production.tfstate",
+	kycStaging:     "kyc/staging.tfstate",
+	registryShared: "registry/shared.tfstate",
+}
+
+var instanceStacks = []string{kycProduction, kycStaging, registryShared}
+
+var instanceNames = map[string]string{kycProduction: "production", kycStaging: "staging", registryShared: "shared"}
+
+const roleHook = `#!/usr/bin/env bash
+echo "stackorder-e2e ${0##*/}: role=${TF_VAR_role-} instance=${STACKORDER_INSTANCE-}"
+`
+
+func hookLine(hook, key, role string) string {
+	return "stackorder-e2e " + hook + ".sh: role=" + role + " instance=" + instanceNames[key]
 }
 
 var bootstrapOrder = []string{prodVPC, stagingVPC, prodEKS, prodApps, stagingApps, legacyDNS}
@@ -196,6 +217,9 @@ func (s *story) run(t *testing.T) {
 		{"expired_artifact", s.expiredArtifact},
 		{"drift", s.drift},
 		{"workspace_stack", s.workspaceStack},
+		{"instances", s.instances},
+		{"shared_checkout", s.sharedCheckout},
+		{"watch_path", s.watchPath},
 		{"vanished_job", s.vanishedJob},
 	}
 	for _, step := range steps {
@@ -374,7 +398,7 @@ func (s *story) adopt(t *testing.T) {
 	assert.Equal(t, gh.ConclusionSuccess, s.checkRun(t, report.CheckApply, head).Conclusion,
 		"a before_merge pull request that affects nothing gets a green apply check so branch protection can pass")
 	known := s.stacks(t)
-	for _, key := range bootstrapOrder {
+	for _, key := range append(slices.Clone(bootstrapOrder), instanceStacks...) {
 		assert.Contains(t, known, key, "the resolve job registered the graph")
 	}
 
@@ -396,6 +420,10 @@ func (s *story) bootstrap(t *testing.T) {
 		assert.Positive(t, st.Serial, "%s has a state serial", key)
 		assert.NotEmpty(t, st.Resources, "%s state holds resources", key)
 		s.serials[key] = st.Serial
+	}
+	for _, key := range instanceStacks {
+		_, ok := s.ls.state(t, stateKeys[key])
+		assert.False(t, ok, "%s is left for the instances step to apply through a pull request", key)
 	}
 	vpc := s.ls.requireState(t, stateKeys[prodVPC])
 	assert.Equal(t, "vpc-6754af9632a2745e8", vpc.Outputs["vpc_id"].Value)
@@ -870,7 +898,7 @@ func (s *story) drift(t *testing.T) {
 
 func (s *story) workspaceStack(t *testing.T) {
 	head := s.repo.commit(t, "sandbox-blue", s.main, "feat(sandbox): add the blue workspace stack",
-		writeFile("stacks/sandbox/blue/.stackorder.yaml", "workspace: blue\n"),
+		writeFile("stacks/sandbox/blue/.stackorder.yaml", "workspace: blue\nenvironment: default\n"),
 		writeFile("stacks/sandbox/blue/backend.tf", sandboxBackendHCL),
 		writeFile("stacks/sandbox/blue/main.tf", sandboxMainHCL))
 	pr := s.openAndPlan(t, 5, "sandbox-blue", s.main, head, "feat(sandbox): add the blue workspace stack")
@@ -878,8 +906,9 @@ func (s *story) workspaceStack(t *testing.T) {
 	require.Len(t, pr.matrix.Include, 1, "one plan job for the one affected stack")
 	entry := pr.matrix.Include[0]
 	assert.Equal(t, "blue", entry.Workspace)
+	assert.Equal(t, "blue", entry.Instance, "a legacy workspace stack is the one instance named after its workspace")
 	assert.Equal(t, "stacks/sandbox/blue", entry.Stack)
-	assert.Equal(t, v1.DefaultEnvironment, entry.Environment, "stacks/sandbox/ matches no environment prefix")
+	assert.Equal(t, v1.DefaultEnvironment, entry.Environment, "a legacy workspace stack keeps the default environment by setting it")
 	planned := pr.plans[sandboxBlue]
 	assert.Contains(t, planned.stdout, `workspace "blue"`, "the plan job selects the workspace")
 	assert.Equal(t, "stackorder-plan-stacks-sandbox-blue-blue-a355f972-"+head, planned.outputs["artifact"])
@@ -900,8 +929,193 @@ func (s *story) workspaceStack(t *testing.T) {
 	assert.False(t, inDefault, "nothing is written to the default workspace's key")
 	stack := s.stacks(t)[sandboxBlue]
 	assert.Equal(t, "blue", stack.Workspace)
+	assert.Equal(t, "blue", stack.Instance)
 	require.NotNil(t, stack.Backend)
 	assert.Equal(t, "sandbox/blue.tfstate", stack.Backend.Key)
+	s.noLockObjects(t)
+}
+
+func (s *story) instances(t *testing.T) {
+	head := s.repo.commit(t, "kyc-size", s.main, "feat(kyc): describe the instance size",
+		replaceIn("infra/kyc/main.tf", "variable \"instance_size\" {\n  type = string\n}",
+			"variable \"instance_size\" {\n  type        = string\n  description = \"Instance size of the environment.\"\n}"),
+		writeScript(".stackorder/hooks/pre-plan.sh", roleHook),
+		writeScript(".stackorder/hooks/pre-apply.sh", roleHook))
+	pr := s.openAndPlan(t, 7, "kyc-size", s.main, head, "feat(kyc): describe the instance size")
+	require.ElementsMatch(t, instanceStacks, pr.affected)
+	assert.Equal(t, [][]string{{kycProduction, kycStaging}, {registryShared}}, sortedWaves(pr.waves),
+		"a change to infra/kyc affects both of its instances, and infra/registry:shared depends on one of them")
+
+	type planned struct {
+		stack, instance, workspace, environment string
+		wave                                    int
+	}
+	entries := map[string]planned{}
+	for _, e := range pr.matrix.Include {
+		entries[e.Key] = planned{e.Stack, e.Instance, e.Workspace, e.Environment, e.Wave}
+		assert.Equal(t, head, e.SHA, "%s plans the head commit", e.Key)
+	}
+	assert.Equal(t, map[string]planned{
+		kycProduction:  {"infra/kyc", "production", "", "production", 0},
+		kycStaging:     {"infra/kyc", "staging", "", "staging", 0},
+		registryShared: {"infra/registry", "shared", "", "shared", 1},
+	}, entries, "each matrix entry carries its instance and the GitHub environment of that instance")
+	assert.Equal(t, v1.PlanArtifactName(kycProduction, head), pr.plans[kycProduction].outputs["artifact"])
+	for _, key := range instanceStacks {
+		assert.Equal(t, "true", pr.plans[key].outputs["has-changes"], "%s has no state yet", key)
+		assert.Equal(t, "false", pr.plans[key].outputs["unconfirmed"], "the server confirmed the plan of %s", key)
+		assert.Contains(t, pr.plans[key].stdout, hookLine("pre-plan", key, "plan"), "the plan of %s gets the plan value of env", key)
+	}
+
+	plan := s.runJSON(t, pr.runID)
+	require.Equal(t, v1.RunPlanned, plan.Status)
+	for _, key := range []string{kycProduction, kycStaging} {
+		rs := runStack(t, plan, key)
+		assert.Equal(t, []v1.Reason{v1.ReasonChanged}, rs.Reasons, key)
+		assert.Equal(t, v1.PlanArtifactName(key, head), rs.PlanArtifact, key)
+		require.NotNil(t, rs.Summary, key)
+		assert.Equal(t, []string{"terraform_data.kyc"}, rs.Summary.Added, key)
+	}
+	registry := runStack(t, plan, registryShared)
+	assert.Equal(t, []v1.Reason{v1.ReasonDependent}, registry.Reasons)
+	require.NotNil(t, registry.Summary)
+	assert.Equal(t, []string{"terraform_data.registry"}, registry.Summary.Added)
+
+	s.approve(t, pr)
+	before := len(s.applyDispatches())
+	s.command(t, pr, "stackorder apply")
+	runID := s.applyRunOf(t, before)
+	jobs := s.rn.drive(t, runID, nil)
+
+	type dispatched struct {
+		round       int
+		wave        string
+		environment string
+		stacks      []string
+	}
+	var got []dispatched
+	seen := map[int64]bool{}
+	for _, j := range jobs {
+		assert.Equal(t, 0, j.result.code,
+			"the apply of %s from its saved plan succeeds only if the CLI supplies TF_VAR_role=deploy for the ephemeral role variable: %s", j.entry.Key, j.result)
+		assert.Contains(t, j.result.stdout, hookLine("pre-apply", j.entry.Key, "deploy"), "the apply of %s gets the apply value of env", j.entry.Key)
+		assert.NotContains(t, j.result.stderr, "planning again", "%s applies the saved plan", j.entry.Key)
+		assert.Equal(t, pr.head, j.dispatch.Inputs["sha"], j.entry.Key)
+		if !seen[j.dispatch.RunID] {
+			seen[j.dispatch.RunID] = true
+			got = append(got, dispatched{j.round, j.dispatch.Inputs["wave"], j.entry.Environment, keysOf(entriesOf(t, j.dispatch))})
+		}
+	}
+	assert.ElementsMatch(t, []dispatched{
+		{0, "0", "production", []string{kycProduction}},
+		{0, "0", "staging", []string{kycStaging}},
+		{1, "1", "shared", []string{registryShared}},
+	}, got, "one apply dispatch per wave and environment, the instances of one directory apart")
+
+	run := s.runJSON(t, runID)
+	assert.Equal(t, v1.RunApplied, run.Status)
+	assert.Equal(t, map[string]v1.StackStatus{
+		kycProduction: v1.StackApplied, kycStaging: v1.StackApplied, registryShared: v1.StackApplied,
+	}, statuses(run))
+	for _, key := range instanceStacks {
+		assert.Equal(t, gh.ConclusionSuccess, s.checkRun(t, "stackorder/apply: "+key, pr.head).Conclusion, key)
+	}
+
+	outputs := map[string][2]any{}
+	for _, key := range instanceStacks {
+		st := s.ls.requireState(t, stateKeys[key])
+		outputs[key] = [2]any{st.Outputs["environment"].Value, st.Outputs["instance_size"].Value}
+		s.serials[key] = st.Serial
+	}
+	assert.Equal(t, map[string][2]any{
+		kycProduction:  {"production", "large"},
+		kycStaging:     {"staging", "small"},
+		registryShared: {"shared", "medium"},
+	}, outputs, "each instance applied with its own env and var file into its own state object")
+
+	locks := s.locks(t)
+	for _, key := range instanceStacks {
+		assert.Equal(t, 7, locks[key], "#7 holds the lock on %s until it merges", key)
+	}
+	s.mergePull(t, pr)
+	locks = s.locks(t)
+	for _, key := range instanceStacks {
+		assert.NotContains(t, locks, key, "merging #7 released the lock on %s", key)
+	}
+
+	type registered struct {
+		path, instance, environment, stateKey string
+	}
+	known := map[string]registered{}
+	for key, st := range s.stacks(t) {
+		if !slices.Contains(instanceStacks, key) {
+			continue
+		}
+		r := registered{path: st.Path, instance: st.Instance, environment: st.Environment}
+		if st.Backend != nil {
+			r.stateKey = st.Backend.Key
+		}
+		known[key] = r
+	}
+	assert.Equal(t, map[string]registered{
+		kycProduction:  {"infra/kyc", "production", "production", stateKeys[kycProduction]},
+		kycStaging:     {"infra/kyc", "staging", "staging", stateKeys[kycStaging]},
+		registryShared: {"infra/registry", "shared", "shared", stateKeys[registryShared]},
+	}, known, "the server lists every instance as a stack of its own")
+
+	for i, key := range []string{kycStaging, registryShared} {
+		job, drift := s.driftCheck(t, key, 3+i)
+		assert.Equal(t, 0, job.result.code, "the drift check of %s finds its var file, env and state object: %s", key, job.result)
+		assert.Equal(t, "false", job.result.outputs["drifted"], key)
+		assert.Equal(t, instanceNames[key], job.entry.Instance, key)
+		assert.Empty(t, job.entry.Workspace, key)
+		rs := runStack(t, drift, key)
+		require.NotNil(t, rs.Summary, key)
+		assert.True(t, rs.Summary.Empty(), "%s has not drifted: %+v", key, rs.Summary)
+		detail := s.stacks(t)[key]
+		require.NotNil(t, detail.Drift, key)
+		assert.False(t, detail.Drift.Drifted, key)
+	}
+	s.noLockObjects(t)
+}
+
+func (s *story) sharedCheckout(t *testing.T) {
+	ws := s.repo.checkout(t, s.main)
+	local := map[string]string{cli.EnvServerURL: ""}
+	for _, key := range []string{kycProduction, kycStaging, registryShared, kycProduction} {
+		if key == kycStaging {
+			writeFile("infra/kyc/.terraform/environment", "blue")(t, ws)
+		}
+		res := s.rn.exec(t, ws, local, "plan", "--stack", key)
+		require.Equal(t, 0, res.code, "plan of %s in a checkout another instance initialised: %s", key, res)
+		assert.Equal(t, "false", res.outputs["has-changes"],
+			"%s re-initialised onto %s in the default workspace, so it plans clean against the state #7 applied: %s", key, stateKeys[key], res)
+		assert.Contains(t, res.stdout, hookLine("pre-plan", key, "plan"), key)
+	}
+	for _, key := range instanceStacks {
+		assert.Equal(t, s.serials[key], s.ls.requireState(t, stateKeys[key]).Serial, "planning %s wrote nothing", key)
+	}
+	s.noLockObjects(t)
+}
+
+func (s *story) watchPath(t *testing.T) {
+	head := s.repo.commit(t, "shared-backend", s.main, "chore(infra): say who reads the shared backend config",
+		appendFile(sharedBackend, "# Read by every stack under infra/.\n"))
+	pr := s.openAndPlan(t, 8, "shared-backend", s.main, head, "chore(infra): say who reads the shared backend config")
+	require.ElementsMatch(t, instanceStacks, pr.affected, "a change to a file outside every stack directory affects the stacks that read it")
+	assert.Equal(t, [][]string{{kycProduction, kycStaging}, {registryShared}}, sortedWaves(pr.waves))
+
+	run := s.runJSON(t, pr.runID)
+	require.Equal(t, v1.RunPlanned, run.Status)
+	for _, key := range []string{kycProduction, kycStaging} {
+		assert.Equal(t, []v1.Reason{v1.ReasonWatchPath}, runStack(t, run, key).Reasons, key)
+	}
+	assert.Equal(t, []v1.Reason{v1.ReasonWatchPath, v1.ReasonDependent}, runStack(t, run, registryShared).Reasons)
+	for _, key := range instanceStacks {
+		assert.Equal(t, "false", pr.plans[key].outputs["has-changes"], "%s plans clean against the state #7 applied", key)
+		assert.Equal(t, v1.PlanArtifactName(key, head), pr.plans[key].outputs["artifact"], key)
+	}
+	s.closePull(t, pr)
 	s.noLockObjects(t)
 }
 

@@ -170,6 +170,14 @@ func writeFile(path, content string) edit {
 	}
 }
 
+func writeScript(path, content string) edit {
+	return func(t *testing.T, dir string) {
+		t.Helper()
+		writeFile(path, content)(t, dir)
+		require.NoError(t, os.Chmod(filepath.Join(dir, filepath.FromSlash(path)), 0o755))
+	}
+}
+
 func appendFile(path, content string) edit {
 	return func(t *testing.T, dir string) {
 		t.Helper()

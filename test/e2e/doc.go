@@ -23,11 +23,15 @@
 //
 // TestEndToEnd tells one story per tool, terraform and tofu, selected by
 // the repository's tool setting: adopting the repository, bootstrapping
-// every stack with apply --local, planning and applying a pull request
-// wave by wave, refusing an apply behind another pull request's locks and
-// releasing them with unlock, re-planning for an expired plan artifact and
-// refusing a plan that no longer matches, detecting and resolving drift,
-// a stack in a non-default workspace, and failing a run whose job ended
+// the stacks under stacks/ with apply --local, planning and applying a
+// pull request wave by wave, refusing an apply behind another pull
+// request's locks and releasing them with unlock, re-planning for an
+// expired plan artifact and refusing a plan that no longer matches,
+// detecting and resolving drift, a stack in a non-default workspace,
+// planning, applying and drift-checking the instances of one directory,
+// each with its own var file, per-mode env, environment and state object,
+// planning them one after another in a single checkout, affecting them
+// through a shared backend config file, and failing a run whose job ended
 // without reporting. A tool whose binary is missing is skipped.
 //
 // Environment:

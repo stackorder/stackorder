@@ -41,13 +41,16 @@ separate process for every job. GitHub is played by the in-memory fake of
 `internal/testutil/oidcfake`, because a real organisation only talks to a
 server it can reach from the internet. The suite runs once with Terraform
 and once with OpenTofu, and skips a tool whose binary is not on `PATH`;
-each takes one to two minutes. Each run is one story: bootstrap every stack
-with `apply --local`, plan a `modules/vpc` change, apply it wave by wave
-from a `stackorder apply` comment, refuse an apply behind another pull
-request's locks and release them with `stackorder unlock`, re-plan for an
-expired plan artifact and refuse one that no longer matches, open and
-close a drift issue, apply a stack in a non-default workspace, and fail a
-run whose apply job ends without reporting.
+each takes one to two minutes. Each run is one story: bootstrap the stacks
+under `stacks/` with `apply --local`, plan a `modules/vpc` change, apply it
+wave by wave from a `stackorder apply` comment, refuse an apply behind
+another pull request's locks and release them with `stackorder unlock`,
+re-plan for an expired plan artifact and refuse one that no longer matches,
+open and close a drift issue, apply a stack in a non-default workspace,
+plan, apply and drift-check the `infra/` stack instances, each with its own
+var file, per-mode env, GitHub environment and state object, plan them one
+after another in a single checkout, affect them all through their shared
+backend config file, and fail a run whose apply job ends without reporting.
 
 It needs Docker for `localstack/localstack:4.0` and Postgres, git 2.38 or
 later, and DNS that resolves `s3.localhost.localstack.cloud` to the loopback
