@@ -223,7 +223,7 @@ At the repository root:
 version: 1
 
 tool: tofu
-tool_version: "1.10.0"
+tool_version: "1.12.6"
 
 environments:
   "stacks/prod/": production

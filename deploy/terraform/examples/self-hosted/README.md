@@ -22,6 +22,9 @@ after v0.1.0 once it is published.
 `.stackorder.yaml` maps the stack to the `production` GitHub environment and
 keeps plan text out of the server and the PR comment (`plan_output:
 summary`), because this stack's resources hold the server's own secrets.
+The module needs Terraform or OpenTofu 1.11 or later, so the `tool_version`
+that applies to this stack, in the root `stackorder.yaml` or here, must be
+1.11 or later.
 
 ## Bootstrap, once, from a workstation
 
