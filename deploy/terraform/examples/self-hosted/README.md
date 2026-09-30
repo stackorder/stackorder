@@ -92,7 +92,11 @@ Stackorder applies, and the module writes them to its own secrets through
 write-only attributes. After changing a value in `stackorder/github-app`,
 for example to rotate the App private key, increase `secrets_version` in
 `main.tf` in the same pull request; without that the module does not
-rewrite its secret.
+rewrite its secret. Each increase also generates a new session key and
+metrics token, because this example sets neither `session_key` nor
+`metrics_token`: everyone signs in again, and scrapers must read the new
+token from the metrics token secret. Set both inputs to keep them stable;
+see [Secrets and Terraform state](../../README.md#secrets-and-terraform-state).
 
 ## Permissions
 
