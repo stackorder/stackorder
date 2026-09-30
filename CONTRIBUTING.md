@@ -112,11 +112,11 @@ from the README.
 ## Documentation site
 
 `make docs` runs the tests in `docs/test` and builds the VitePress site, and
-CI runs both on every pull request. Publishing to GitHub Pages runs from
-`.github/workflows/docs.yml` only when the repository variable `DOCS_DEPLOY`
-is `true`; set it once Pages is enabled for the repository (GitHub offers
-Pages on private repositories only on paid plans, so this stays off until the
-repository is public).
+CI runs both on every pull request. `.github/workflows/docs.yml` publishes the
+site to GitHub Pages at https://docs.stackorder.io on every push to `main` that
+touches it, gated on the repository variable `DOCS_DEPLOY` being `true`. See
+[Contributing to the docs](docs/contributing.md) for the Pages and DNS setup a
+fork needs.
 
 ## Releasing
 
