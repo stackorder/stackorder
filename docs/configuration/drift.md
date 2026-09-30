@@ -1,3 +1,7 @@
+---
+title: Terraform drift detection on a schedule
+---
+
 # Drift detection
 
 Drift is a difference between what a stack's code on the default branch says and what is deployed. Stackorder finds it by running a plan on a schedule. It never applies to fix drift; that stays a pull request.

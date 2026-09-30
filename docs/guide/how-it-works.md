@@ -1,3 +1,7 @@
+---
+title: How Terraform runs on GitHub Actions with Stackorder
+---
+
 # How it works
 
 GitHub triggers plans natively on every pull request push. The server dispatches applies one dependency wave at a time. That split keeps the server small and keeps plans working when it is down.

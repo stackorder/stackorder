@@ -1,7 +1,7 @@
 ---
 layout: home
-title: Stackorder
-titleTemplate: Terraform and OpenTofu orchestration on GitHub Actions
+title: Stackorder docs
+titleTemplate: Terraform orchestration on GitHub Actions
 
 hero:
   name: Stackorder

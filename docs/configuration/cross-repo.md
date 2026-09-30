@@ -1,3 +1,7 @@
+---
+title: Cross-repository Terraform dependencies
+---
+
 # Cross-repo dependencies
 
 A stack can depend on a stack in another repository, and a stack can use a module from another repository. Stackorder records both kinds of edge, so the graph and the UI span repositories. What it cannot do is order a single run across repositories: each run applies the stacks of one repository.

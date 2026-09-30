@@ -1,3 +1,7 @@
+---
+title: stackorder CLI reference
+---
+
 # CLI
 
 All runner-side logic lives in one static Go binary, `stackorder`. The actions in `stackorder/actions` are thin wrappers around it, and the same binary works on a laptop: `stackorder graph`, `stackorder affected --base main` and `stackorder plan --stack stacks/prod/vpc` behave the same locally and in CI.

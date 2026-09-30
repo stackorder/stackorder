@@ -1,3 +1,7 @@
+---
+title: Getting started with Stackorder
+---
+
 # Getting started
 
 This guide takes one repository from nothing to a first `stackorder apply`. You deploy the server, create the GitHub App, create two kinds of AWS role, and add three files to the repository.

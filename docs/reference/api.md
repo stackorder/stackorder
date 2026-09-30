@@ -1,3 +1,7 @@
+---
+title: Stackorder JSON API reference
+---
+
 # API
 
 The server exposes one JSON API for three callers: runners, people and automation. All request and response bodies are the types in the Go package `github.com/stackorder/stackorder/api/v1`, which automation can import to decode responses.

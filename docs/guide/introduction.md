@@ -1,3 +1,7 @@
+---
+title: Introduction to Stackorder
+---
+
 # Introduction
 
 Stackorder decides **which** Terraform or OpenTofu stacks a change affects and **in what order** to apply them. GitHub Actions does all of the running.

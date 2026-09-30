@@ -89,6 +89,7 @@ const design: DefaultTheme.SidebarItem[] = [
 export default withMermaid(
   defineConfig({
     title: 'Stackorder',
+    titleTemplate: ':title | Stackorder docs',
     description: 'Lightweight Terraform and OpenTofu orchestration on GitHub Actions.',
     lang: 'en-US',
     base,

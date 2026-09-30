@@ -1,3 +1,7 @@
+---
+title: 'Stackorder concepts: stacks, waves and locks'
+---
+
 # Concepts
 
 Stackorder works on a dependency graph. The graph has two node kinds, stacks and modules, and three edge kinds. A stack directory deployed several times is several stacks, one per instance. The runner builds the graph; the server stores it and computes the affected set and the apply order from it.
