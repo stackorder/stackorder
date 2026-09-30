@@ -261,7 +261,7 @@ scrape_configs:
 
 Do not rely on a load balancer path rule to hide `/metrics`: the server's router decodes percent-escapes before matching, so an escaped spelling of the path reaches the handler without matching a rule on the literal path.
 
-The Terraform module always sets the token: its sensitive `metrics_token` input, or 32 random hexadecimal characters when that is null. The token reaches the server through the App secret, and the module keeps a copy of it alone in a second secret, whose ARN is the `metrics_token_secret_arn` output. Grant Prometheus `secretsmanager:GetSecretValue` on that secret only, since the App secret also holds the App private key, and write its value to the `credentials_file` above. See [What the module passes to the server](/operations/deploy-aws#server-environment).
+The Terraform module always sets the token: its ephemeral, sensitive `metrics_token` input, or, when that is null, 32 random hexadecimal characters generated whenever the module writes the App secret. The token reaches the server through the App secret, and the module keeps a copy of it alone in a second secret, whose ARN is the `metrics_token_secret_arn` output. Grant Prometheus `secretsmanager:GetSecretValue` on that secret only, since the App secret also holds the App private key, and write its value to the `credentials_file` above. See [What the module passes to the server](/operations/deploy-aws#server-environment).
 
 ## Branch protection {#branch-protection}
 

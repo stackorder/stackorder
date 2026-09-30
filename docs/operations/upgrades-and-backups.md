@@ -65,4 +65,6 @@ What a lost database costs you: history, drift results and locks. Plans and appl
 | Session key | Change `STACKORDER_SESSION_KEY` on every instance at once. Everyone is signed out. |
 | API keys | Only their SHA-256 is stored. Create a new key, switch the automation to it, then revoke the old one; see [API keys](/reference/server-configuration#api-keys). |
 
+With the [Terraform module](./deploy-aws#secrets), a new value in one of its ephemeral inputs reaches the App secret only in an apply that also increases `secrets_version`, and `db_password_version` rotates the database password.
+
 There are no runner-side secrets to rotate: runners authenticate with short-lived OIDC tokens.

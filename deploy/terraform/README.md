@@ -70,6 +70,8 @@ Stackorder deploys and upgrades itself ([self-hosted](examples/self-hosted)).
    once.
 4. Apply again with those five values. The App id, private key and webhook
    secret must be set together, as must the two OAuth values.
+   Setting them rewrites the app secret without a change to
+   `secrets_version`.
 
 If the image cannot be pulled anonymously from ghcr.io, the first plan
 fails rather than the apply hanging on the ECS deployment; see
@@ -86,8 +88,46 @@ secret value rolls the service onto it. A third secret holds a copy of the
 metrics token alone, for scrapers (see [Metrics](#metrics)); the task does
 not read it.
 
-The values pass through Terraform state. Keep state encrypted and readable
-only by the roles that plan and apply this stack.
+## Secrets and Terraform state
+
+No secret value reaches Terraform state or a saved plan. The App private
+key, webhook secret and OAuth client secret, `session_key` and
+`metrics_token` are ephemeral inputs. The database password, and the
+session key and metrics token when those inputs are null, come from
+ephemeral `random_password` resources. They reach AWS only through
+write-only attributes: `secret_string_wo` on the secret versions and
+`password_wo` (RDS) or `master_password_wo` (Aurora) on the database. State
+still describes the deployment, so keep it encrypted and access controlled,
+but it holds none of these values.
+
+A write-only value is sent only when its version changes, so a changed
+input does nothing until a version moves:
+
+- `secrets_version` rewrites the app and metrics token secrets. Increase it
+  after changing any ephemeral input. Each rewrite generates a new session
+  key and metrics token unless `session_key` and `metrics_token` are set:
+  everyone signs in again and scrapers must read the new token. Set both
+  inputs to keep them stable.
+- `db_password_version` generates a new database password and writes it to
+  the database and to the `DATABASE_URL` secret in the same apply.
+- The module rewrites the app and metrics token secrets on its own when
+  the App or OAuth inputs are first set or removed, because the task
+  definition then reads other keys, and writes a new database password and
+  `DATABASE_URL` when the database or its secret is created or replaced.
+
+The generated values are new on every run, and only an apply that writes
+them keeps them, in the secrets. If an apply fails after changing the
+database password but before writing `DATABASE_URL`, increase
+`db_password_version` and apply again.
+
+A saved plan does not carry ephemeral values. Supply the ephemeral inputs
+when applying it as well as when planning, with `TF_VAR_*` variables or
+`-var`, or read them in the calling configuration with an ephemeral
+resource such as `ephemeral "aws_secretsmanager_secret_version"`, which is
+read again at apply time, as the [self-hosted](examples/self-hosted)
+example does. Stackorder applies saved plans; to pass the values as
+variables there, set `TF_VAR_github_app_private_key` and the others in the
+`env` secret of the reusable workflows.
 
 ## Configuration passed to the server
 
@@ -271,8 +311,8 @@ browsers handle badly:
 ## Metrics
 
 `GET /metrics` always requires `Authorization: Bearer <token>`. The token
-is `metrics_token`, or 32 random hexadecimal characters when it is null,
-and reaches the server as `STACKORDER_METRICS_TOKEN` through the app
+is `metrics_token`, or 32 random hexadecimal characters generated whenever
+the app secret is written when it is null, and reaches the server as `STACKORDER_METRICS_TOKEN` through the app
 secret. Because the app secret also holds the App private key, the module
 writes a copy of the token alone, as plain text, to a second secret whose
 ARN is the `metrics_token_secret_arn` output. Grant the scraper
@@ -307,10 +347,10 @@ task. To keep the tasks apart, scrape them directly from inside the VPC;
 that needs an ingress rule for port 8080 from the scraper on the service
 security group (`security_group_ids.service`).
 
-To rotate a generated token, replace it with
-`terraform apply -replace='module.stackorder.random_password.metrics_token[0]'`.
-The new app secret version rolls the service, and the scraper must read
-the new value from the metrics token secret.
+To rotate a generated token, increase `secrets_version`. The new app
+secret version rolls the service, and the scraper must read the new value
+from the metrics token secret. A generated session key changes too, unless
+`session_key` is set.
 
 ## IAM
 
@@ -363,6 +403,20 @@ seconds and cancelled handlers 5 more; claimed but unstarted jobs go back
 to the queue. `stop_timeout_seconds` (60, at most 120 on Fargate) is how
 long ECS waits after SIGTERM before it kills the container, which also
 leaves room for the trace exporter's final flush.
+
+Upgrading the module from v0.1.0, which kept the secrets in state, needs
+Terraform or OpenTofu 1.11. The first apply removes `random_password.db`,
+`random_bytes.session_key` and `random_password.metrics_token` from state,
+which touches nothing in AWS, writes a new database password to the
+database and to `DATABASE_URL`, and rewrites the app and metrics token
+secrets, so the service rolls. Until the new tasks replace the old ones,
+the old tasks keep their open database connections but cannot open new
+ones. Unless `session_key` and `metrics_token` are set, both are new:
+everyone signs in again, and scrapers must read the new token. Older state
+versions, for example in a versioned S3 bucket, still hold the values of
+v0.1.0: the database password, session key and generated token in them no
+longer work, but the App private key, webhook secret and OAuth client
+secret stay valid until you rotate them in the App settings.
 
 ## Container health check
 
@@ -435,8 +489,10 @@ terraform init -backend=false
 terraform test
 ```
 
-The tests plan against mock providers and need no AWS account. They need
-Terraform 1.11 or later, the same floor as the module, which CI checks by
+The tests plan against mock AWS and HTTP providers and need no AWS account.
+Mock providers cannot serve ephemeral resources, so the tests use the real
+random provider and check the values written to the secrets through the
+module's locals. They need Terraform 1.11 or later, the same floor as the module, which CI checks by
 validating the module and its examples on 1.11 and 1.14.
 
 ## Requirements

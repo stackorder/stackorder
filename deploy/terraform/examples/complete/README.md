@@ -35,8 +35,11 @@ terraform apply -var domain_name=stackorder.example.com -var route53_zone_id=Z01
 
 where `github-app.json` holds the printed values keyed by variable name.
 
-The values end up in Terraform state, so keep the state encrypted and
-access controlled.
+The private key and the two secrets are ephemeral variables, so they stay
+out of Terraform state and out of saved plans. Export them again for every
+plan and apply, including the apply of a saved plan. After changing any of
+them later, also increase the module's `secrets_version`, or the secret
+keeps the old value.
 
 `/metrics` requires a bearer token the module generates; the
 `metrics_token_secret_arn` output names the secret Prometheus reads it

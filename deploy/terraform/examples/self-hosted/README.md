@@ -36,14 +36,17 @@ summary`), because this stack's resources hold the server's own secrets.
    aws logs tail "$(terraform output -raw log_group_name)" --since 15m | grep setup_url
    ```
 
-   Store the values the page prints as JSON keyed by variable name
-   (`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`,
-   `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`):
+   Store the secret values the page prints as JSON keyed by variable name
+   (`GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`,
+   `GITHUB_OAUTH_CLIENT_SECRET`):
 
    ```sh
    aws secretsmanager put-secret-value --secret-id stackorder/github-app --secret-string file://github-app.json
    ```
 
+   The App id and OAuth client id are not secret: set the `github_app_id`
+   and `github_oauth_client_id` variables, for example in a committed
+   `terraform.tfvars`.
 4. `terraform apply` again. The new secret version rolls the service onto
    the App credentials.
 5. Install the App on the repository, add the two workflow files and commit
@@ -64,10 +67,22 @@ Roll back from a workstation with `terraform apply -var
 stackorder_version=<previous>` and release the orchestration lock with
 `stackorder unlock stacks/prod/stackorder` once the server is back.
 
+## Secrets
+
+`stackorder/github-app` is read with an ephemeral resource on every plan
+and apply, so its values reach neither the state nor the saved plan that
+Stackorder applies, and the module writes them to its own secrets through
+write-only attributes. After changing a value in `stackorder/github-app`,
+for example to rotate the App private key, increase `secrets_version` in
+`main.tf` in the same pull request; without that the module does not
+rewrite its secret.
+
 ## Permissions
 
-The plan role of this stack needs `secretsmanager:GetSecretValue` on
-`stackorder/github-app` and on the three secrets the module creates, because
-refreshing a secret version reads its value. The state object holds the
-database password and the App private key: restrict it to the plan and
-apply roles and keep bucket encryption on.
+The plan and apply roles of this stack need `secretsmanager:GetSecretValue`
+on `stackorder/github-app`. Refreshing the module's secret versions reads
+their version ids, which takes `secretsmanager:ListSecretVersionIds` with
+AWS provider 6.26 or later and `secretsmanager:GetSecretValue` before
+that. The state object no longer holds the database password or the App
+private key, but it describes the whole deployment: restrict it to the
+plan and apply roles and keep bucket encryption on.

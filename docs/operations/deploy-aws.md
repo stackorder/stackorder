@@ -229,10 +229,24 @@ The server starts in setup mode while the GitHub App inputs are unset, serving o
 
    The `setup_url` output is the same page without the token, which answers `403`. Every task start generates a new token, so take the latest line. The module keeps one task until the App inputs are set because each task has its own token, and with two the load balancer could send the browser to the other one.
 3. Open that URL and create the App. The page prints the App id, private key, webhook secret and OAuth client id and secret once.
-4. Apply again with those five values. The App id, private key and webhook secret must be set together, as must the two OAuth values.
+4. Apply again with those five values. The App id, private key and webhook secret must be set together, as must the two OAuth values. Setting them rewrites the App secret without a change to `secrets_version`.
 5. Install the App on your repositories and continue with [Getting started](/guide/getting-started#install).
 
-The values pass through Terraform state. Keep state encrypted and readable only by the roles that plan and apply this stack. The task definition carries the version ids of both secrets as Docker labels, so changing a secret value rolls the service onto it.
+The task definition carries the version ids of both secrets as Docker labels, so a new secret version rolls the service onto it.
+
+### Secrets and Terraform state {#secrets}
+
+No secret value reaches Terraform state or a saved plan. The App private key, webhook secret and OAuth client secret, `session_key` and `metrics_token` are ephemeral inputs. The database password, and the session key and metrics token when those inputs are null, come from ephemeral `random_password` resources. They reach AWS only through write-only attributes: `secret_string_wo` on the secret versions and `password_wo` or `master_password_wo` on the database. State still describes the deployment, so keep it encrypted and access controlled, but it holds none of these values.
+
+A write-only value is sent only when its version changes, so a changed input does nothing until a version moves:
+
+- `secrets_version` rewrites the App and metrics token secrets. Increase it after changing any ephemeral input. Each rewrite generates a new session key and metrics token unless `session_key` and `metrics_token` are set, which signs everyone out and means scrapers must read the new token.
+- `db_password_version` generates a new database password and writes it to the database and to the `DATABASE_URL` secret in the same apply.
+- The module rewrites the App and metrics token secrets on its own when the App or OAuth inputs are first set or removed, and writes a new database password and `DATABASE_URL` when the database or its secret is created or replaced.
+
+If an apply fails after changing the database password but before writing `DATABASE_URL`, increase `db_password_version` and apply again.
+
+A saved plan does not carry ephemeral values. Supply the ephemeral inputs when applying it as well as when planning, with `TF_VAR_*` variables or `-var`, or read them in the calling configuration with an ephemeral resource such as `ephemeral "aws_secretsmanager_secret_version"`, which is read again at apply time, as `examples/self-hosted` does. Stackorder applies saved plans; to pass the values as variables there, set `TF_VAR_github_app_private_key` and the others in the `env` secret of the reusable workflows.
 
 ## Upgrades {#upgrades}
 
@@ -243,6 +257,8 @@ The values pass through Terraform state. Keep state encrypted and readable only 
 ECS retries a failed image pull until the deployment times out, so a private package or a tag that does not exist yet would otherwise hold the apply for the whole of `deployment_timeout` (20m by default). For images on ghcr.io, `verify_image` makes the plan fetch an anonymous pull token and the manifest of `image_tag`, as ECS would, and fail with an explanation unless ghcr.io answers 200. The check needs HTTPS access to ghcr.io from wherever Terraform runs; `verify_image = false` skips it.
 
 Pin a specific version rather than `latest`, so an apply is the only thing that changes the running version. Take a database snapshot before an upgrade that includes migrations. See [Upgrades and backups](./upgrades-and-backups).
+
+Upgrading the module from v0.1.0, which kept the secrets in state, needs Terraform or OpenTofu 1.11. The first apply removes the module's `random_password` and `random_bytes` resources from state, which touches nothing in AWS, writes a new database password to the database and to `DATABASE_URL`, and rewrites the App and metrics token secrets, so the service rolls. Until the new tasks replace the old ones, the old tasks keep their open database connections but cannot open new ones. Unless `session_key` and `metrics_token` are set, both are new: everyone signs in again, and scrapers must read the new token. Older state versions, for example in a versioned S3 bucket, still hold the values of v0.1.0. The database password, session key and generated token in them no longer work, but the App private key, webhook secret and OAuth client secret stay valid until you rotate them in the App settings.
 
 ## Scaling out {#scale-out}
 
@@ -263,7 +279,7 @@ terraform init -backend=false
 terraform test
 ```
 
-The tests plan against mock providers and need no AWS account. They need Terraform 1.11 or later, the same floor as the module.
+The tests plan against mock AWS and HTTP providers and need no AWS account. Mock providers cannot serve ephemeral resources, so the tests use the real random provider and check the values written to the secrets through the module's locals. They need Terraform 1.11 or later, the same floor as the module.
 
 ## Managing the module with Stackorder {#dogfooding}
 
