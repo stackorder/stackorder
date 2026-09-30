@@ -664,7 +664,6 @@ jobs:
     with:
       aws-role-arn: arn:aws:iam::123456789012:role/stackorder-plan
       tool: tofu
-    secrets: inherit
 ```
 
 **`.github/workflows/stackorder-run.yml`**
@@ -687,13 +686,12 @@ jobs:
       wave: ${{ inputs.wave }}
       stacks: ${{ inputs.stacks }}
       aws-role-arn-map: '{"stacks/prod/": "arn:aws:iam::123456789012:role/stackorder-apply-prod", "stacks/staging/": "arn:aws:iam::123456789012:role/stackorder-apply-staging"}'
-    secrets: inherit
     # each apply job runs under the GitHub environment from stackorder.yaml,
     # so the environment's protection rules gate it
 ```
 
 ::: info Implementation note
-As written, the two files do not run: both reusable workflows require `server-url`, the calling jobs must grant the permissions, and the dispatch wrapper must declare the `sha` input, set `run-name` and pass `aws-plan-role-arn`. The complete files are on [Workflows](/configuration/workflows).
+As written, the two files do not run: both reusable workflows require `server-url`, the calling jobs must grant the permissions, and the dispatch wrapper must declare the `sha` input, set `run-name` and pass `aws-plan-role-arn`. The complete files are on [Workflows](/configuration/workflows). `secrets: inherit` passes nothing to a reusable workflow in another organization, so the files do not use it; provider credentials go in the workflows' [`env` secret](/configuration/workflows#env).
 :::
 
 Branch protection on the default branch requires the `stackorder/plan` and `stackorder/apply` checks. The plan role needs read access to state and the read-only permissions the providers need to plan; the apply role has the write permissions. Both trust the GitHub OIDC provider with `sub` restricted to the repo and, for apply, the environment.
