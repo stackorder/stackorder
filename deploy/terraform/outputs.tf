@@ -14,7 +14,7 @@ output "alb_zone_id" {
 }
 
 output "setup_url" {
-  description = "Page that creates the GitHub App from a manifest on the first deploy."
+  description = "Page that creates the GitHub App from a manifest on the first deploy. It opens only with the one-time token the server logs at start-up: take the full URL from the setup_url line in the log_group_name log group."
   value       = "${local.url}/setup"
 }
 

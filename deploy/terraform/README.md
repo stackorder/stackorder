@@ -50,13 +50,24 @@ Stackorder deploys and upgrades itself ([self-hosted](examples/self-hosted)).
 
 ## First deploy and the GitHub App
 
-1. Apply with the `github_*` inputs unset. The server starts in setup mode
-   and serves only `/setup`, `/healthz` and `/readyz`.
-2. Open the `setup_url` output. The page creates the GitHub App from a
-   manifest with the right webhook URL (`webhook_url`), permissions and
-   events, and prints the App id, private key, webhook secret and OAuth
-   client id and secret once.
-3. Apply again with those five values. The App id, private key and webhook
+1. Apply with the `github_*` inputs unset, and `desired_count` at 1. The
+   server starts in setup mode and serves only `/setup`, `/healthz` and
+   `/readyz`.
+2. Take the setup URL from the task logs. `/setup` opens only with a
+   one-time token, which the server logs with the URL at start-up:
+
+   ```sh
+   aws logs tail "$(terraform output -raw log_group_name)" --since 15m | grep setup_url
+   ```
+
+   The `setup_url` output is the same page without the token, which
+   answers 403. Each task generates its own token at every start, so take
+   the latest line.
+3. Open that URL. The page creates the GitHub App from a manifest with the
+   right webhook URL (`webhook_url`), permissions and events, and prints
+   the App id, private key, webhook secret and OAuth client id and secret
+   once.
+4. Apply again with those five values. The App id, private key and webhook
    secret must be set together, as must the two OAuth values.
 
 The module writes one Secrets Manager secret with the full `DATABASE_URL`

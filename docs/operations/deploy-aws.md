@@ -170,7 +170,7 @@ By default the container runs `stackorder-server healthcheck` every 30 s with a 
 | `url` | Public URL of the server (STACKORDER_BASE_URL). |
 | `alb_dns_name` | DNS name of the load balancer; point a CNAME or alias here when DNS is not managed by the module. |
 | `alb_zone_id` | Route53 zone id of the load balancer, for alias records. |
-| `setup_url` | Page that creates the GitHub App from a manifest on the first deploy. |
+| `setup_url` | Page that creates the GitHub App from a manifest on the first deploy. It opens only with the one-time token the server logs at start-up: take the full URL from the `setup_url` line in the `log_group_name` log group. |
 | `webhook_url` | Webhook URL of the GitHub App. |
 | `ecs_cluster_name` | Name of the ECS cluster. |
 | `ecs_service_name` | Name of the ECS service. |
@@ -188,10 +188,17 @@ By default the container runs `stackorder-server healthcheck` every 30 s with a 
 
 The server starts in setup mode while the GitHub App inputs are unset, serving only `/setup`, `/healthz` and `/readyz`. The first deployment uses that:
 
-1. Apply the module with the `github_*` inputs unset. The service comes up in setup mode.
-2. Open the `setup_url` output and create the App. The page prints the App id, private key, webhook secret and OAuth client id and secret once.
-3. Apply again with those five values. The App id, private key and webhook secret must be set together, as must the two OAuth values.
-4. Install the App on your repositories and continue with [Getting started](/guide/getting-started#install).
+1. Apply the module with the `github_*` inputs unset, and `desired_count` at 1. The service comes up in setup mode.
+2. Take the setup URL, with its one-time [setup token](/reference/server-configuration#setup-token), from the task logs:
+
+   ```sh
+   aws logs tail "$(terraform output -raw log_group_name)" --since 15m | grep setup_url
+   ```
+
+   The `setup_url` output is the same page without the token, which answers `403`. Every task start generates a new token, so take the latest line. With two tasks, each has its own token and the load balancer may send the browser to the other one.
+3. Open that URL and create the App. The page prints the App id, private key, webhook secret and OAuth client id and secret once.
+4. Apply again with those five values. The App id, private key and webhook secret must be set together, as must the two OAuth values.
+5. Install the App on your repositories and continue with [Getting started](/guide/getting-started#install).
 
 The values pass through Terraform state. Keep state encrypted and readable only by the roles that plan and apply this stack. The task definition carries the version ids of both secrets as Docker labels, so changing a secret value rolls the service onto it.
 
