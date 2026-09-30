@@ -45,8 +45,19 @@ where `github-app.json` holds the printed values keyed by variable name.
 The private key and the two secrets are ephemeral variables, so they stay
 out of Terraform state and out of saved plans. Export them again for every
 plan and apply, including the apply of a saved plan. After changing any of
-them later, also increase `secrets_version`, for example with
-`-var secrets_version=2`, or the secret keeps the old value.
+them later, also increase `secrets_version`, or the secret keeps the old
+value. Keep the new value for every later plan and apply, by changing its
+default in `variables.tf` or setting it in a committed `terraform.tfvars`:
+
+```hcl
+secrets_version = 2
+```
+
+A one-off `-var secrets_version=2` reverts on the next apply without it.
+Any change to `secrets_version`, a decrease included, rewrites the app and
+metrics token secrets and generates a new session key and metrics token
+unless `session_key` and `metrics_token` are set: everyone signs in again,
+and scrapers must read the new token.
 
 `/metrics` requires a bearer token the module generates; the
 `metrics_token_secret_arn` output names the secret Prometheus reads it
