@@ -112,7 +112,7 @@ In a workflow, the `setup` action downloads the archive for the runner, verifies
 
 ### Terraform module
 
-[`deploy/terraform`](deploy/terraform) runs the server on ECS Fargate behind an ALB with RDS PostgreSQL or Aurora Serverless v2, with Terraform 1.9 or later or OpenTofu:
+[`deploy/terraform`](deploy/terraform) runs the server on ECS Fargate behind an ALB with RDS PostgreSQL or Aurora Serverless v2, with Terraform or OpenTofu 1.11 or later:
 
 ```hcl
 module "stackorder" {
@@ -275,7 +275,7 @@ make sync-example     # refresh the vendored copy of example-infra used by the i
 - **Integration tests** run the server on Postgres, with an in-memory fake of the GitHub API, and the CLI against a fake `terraform` binary, through whole pull request, apply, drift and cross-repo flows.
 - **End-to-end tests** run the real Terraform 1.14 and OpenTofu 1.12 binaries against a LocalStack 4.0 S3 bucket and the [`stackorder/example-infra`](https://github.com/stackorder/example-infra) monorepo, with the server in-process and the CLI as a separate process for every job.
 - **The UI** has Vitest and Playwright tests.
-- **The Terraform module** has `terraform test` suites and is validated on Terraform 1.14, and through its examples on 1.9.
+- **The Terraform module** has `terraform test` suites and is validated, with its examples, on Terraform 1.11 and 1.14.
 
 Not covered by the default suites: a real GitHub organisation (`TestLiveGitHub` runs only when one is configured), real AWS, and GitHub Enterprise Server, which is supported through configuration but has not been run against.
 

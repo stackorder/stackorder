@@ -4,7 +4,7 @@ description: 'Deploy the Stackorder server on AWS with the Terraform module in d
 
 # Deploy on AWS
 
-The repository ships a Terraform module in `deploy/terraform` that deploys the server on ECS Fargate behind an Application Load Balancer, with PostgreSQL on RDS or Aurora Serverless v2. It works with Terraform and OpenTofu, and Stackorder uses it to deploy itself, so it is also a working example of a stack Stackorder can manage.
+The repository ships a Terraform module in `deploy/terraform` that deploys the server on ECS Fargate behind an Application Load Balancer, with PostgreSQL on RDS or Aurora Serverless v2. It works with Terraform 1.11 or later and OpenTofu 1.11 or later, and Stackorder uses it to deploy itself, so it is also a working example of a stack Stackorder can manage.
 
 ```hcl
 module "stackorder" {
@@ -261,7 +261,7 @@ terraform init -backend=false
 terraform test
 ```
 
-The tests plan against mock providers and need no AWS account. They need Terraform 1.11 or later; using the module as a child module works from Terraform 1.9.
+The tests plan against mock providers and need no AWS account. They need Terraform 1.11 or later, the same floor as the module.
 
 ## Managing the module with Stackorder {#dogfooding}
 

@@ -37,13 +37,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        terraform: [1.9.x, 1.14.x]
+        terraform: [1.11.x, 1.14.x]
         dir: [., examples/complete, examples/existing-vpc, examples/self-hosted]
-        exclude:
-          - terraform: 1.9.x
-            dir: .
-          - terraform: 1.9.x
-            dir: examples/self-hosted
     defaults:
       run:
         working-directory: deploy/terraform/${{ matrix.dir }}

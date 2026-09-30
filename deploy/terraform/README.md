@@ -2,7 +2,7 @@
 
 Terraform module that runs the Stackorder server on ECS Fargate behind an
 Application Load Balancer, with PostgreSQL on RDS or Aurora Serverless v2.
-It works with Terraform and OpenTofu.
+It works with Terraform 1.11 or later and OpenTofu 1.11 or later.
 
 ```text
                  GitHub webhooks, runners, people
@@ -435,17 +435,17 @@ terraform init -backend=false
 terraform test
 ```
 
-The tests plan against mock providers and need no AWS account. They use
-`override_during = plan`, and `terraform init` in this directory reads
-them, so working on the module needs Terraform 1.11 or later. Using it as
-a child module works from Terraform 1.9, which CI checks by validating the
-examples on 1.9.
+The tests plan against mock providers and need no AWS account. They need
+Terraform 1.11 or later, the same floor as the module, which CI checks by
+validating the module and its examples on 1.11 and 1.14.
 
 ## Requirements
 
+Terraform 1.11 or later, or OpenTofu 1.11 or later.
+
 | Name | Version |
 |------|---------|
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.9 |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.11 |
 | <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 6.0 |
 | <a name="requirement_http"></a> [http](#requirement\_http) | ~> 3.4 |
 | <a name="requirement_random"></a> [random](#requirement\_random) | ~> 3.6 |
