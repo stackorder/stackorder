@@ -243,7 +243,9 @@ The task definition carries the version ids of both secrets as Docker labels, so
 
 ### Secrets and Terraform state {#secrets}
 
-The module puts no secret value in Terraform state or in a saved plan, as long as the caller passes the secret inputs as ephemeral values too. The App private key, webhook secret and OAuth client secret, `session_key` and `metrics_token` are ephemeral inputs. The database password, and the session key and metrics token when those inputs are null, come from ephemeral `random_password` resources. They reach AWS only through write-only attributes: `secret_string_wo` on the secret versions and `password_wo` or `master_password_wo` on the database. State still describes the deployment, so keep it encrypted and access controlled, but it holds none of these values.
+The module keeps the App private key, webhook secret and OAuth client secret, the session key, the metrics token and the database password out of Terraform state and saved plans, as long as the caller passes the secret inputs as ephemeral values too. The three App secrets, `session_key` and `metrics_token` are ephemeral inputs. The database password, and the session key and metrics token when those inputs are null, come from ephemeral `random_password` resources. They reach AWS only through write-only attributes: `secret_string_wo` on the secret versions and `password_wo` or `master_password_wo` on the database. State still describes the deployment, so keep it encrypted and access controlled, but it holds none of these values.
+
+Two inputs are exceptions and stay in state and in saved plans: the `client_secret` of `oidc_authentication`, which the load balancer listener keeps (see [Single sign-on](#sso)), and every value passed through `extra_environment`.
 
 A write-only value is sent only when its version changes, so a changed input does nothing until a version moves:
 
