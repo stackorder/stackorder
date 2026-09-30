@@ -311,6 +311,22 @@ module "b_long" {
 			},
 		},
 		{
+			name: "a directory whose name contains a colon is skipped with a warning",
+			files: map[string]string{
+				"stackorder.yaml":   "version: 1\nstacks:\n  discover: [\"infra/*\"]\n  include: [\"tools/x:y\"]\n",
+				"infra/a:b/main.tf": s3Block("b", "ab.tfstate"),
+				"infra/c/main.tf":   s3Block("b", "c.tfstate"),
+				"tools/x:y/main.tf": s3Block("b", "xy.tfstate"),
+			},
+			want: &v1.Graph{
+				Stacks: []v1.Stack{defaultStack("infra/c", state("b", "c.tfstate"), nil)},
+				Warnings: []string{
+					"infra/a:b: the directory name contains ':', so it cannot be a stack key; not a stack",
+					"tools/x:y: the directory name contains ':', so it cannot be a stack key; not a stack",
+				},
+			},
+		},
+		{
 			name:  "the repository root is never an included stack",
 			files: map[string]string{"stackorder.yaml": "version: 1\nstacks:\n  include: [\".\"]\n"},
 			want: &v1.Graph{

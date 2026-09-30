@@ -382,6 +382,10 @@ func (s *scanner) discoverStacks() error {
 		default:
 			continue
 		}
+		if strings.Contains(dir, ":") {
+			s.warn("%s: the directory name contains ':', so it cannot be a stack key; not a stack", dir)
+			continue
+		}
 		if err := s.addStack(dir, dc); err != nil {
 			return err
 		}
