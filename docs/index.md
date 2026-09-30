@@ -6,8 +6,8 @@ titleTemplate: Terraform orchestration on GitHub Actions
 
 hero:
   name: Stackorder
-  text: Which stacks, in what order.
-  tagline: Lightweight Terraform and OpenTofu orchestration on GitHub Actions
+  text: '<span class="visually-hidden">: </span>Terraform and OpenTofu orchestration on GitHub Actions'
+  tagline: Which stacks, in what order. Stackorder plans every stack a pull request affects and applies them in dependency waves on GitHub Actions. Open source, self-hosted, and the server holds no cloud credentials.
   image:
     light: /mark-light.svg
     dark: /mark-dark.svg
@@ -17,22 +17,25 @@ hero:
       text: Getting started
       link: /guide/getting-started
     - theme: alt
+      text: Local demo
+      link: /guide/local-demo
+    - theme: alt
       text: GitHub
       link: https://github.com/stackorder/stackorder
 
 features:
+  - title: Plans on every pull request
+    details: One check per affected stack and one sticky comment. A change to a stack, to a local module it uses or to a stack whose state it reads plans it, and the stacks that depend on it.
+    link: /guide/concepts#affected-set
+    linkText: The affected set
+  - title: Applies in dependency waves
+    details: A <code>stackorder apply</code> comment or the merge applies the affected stacks wave by wave, in the order of the dependency graph. A failed stack blocks its dependents.
+    link: /guide/how-it-works#waves
+    linkText: Waves
   - title: A coordinator, not an executor
     details: The server holds no cloud credentials, no state and no plan files with secrets. A compromised server can trigger workflows and post comments. It cannot touch infrastructure.
     link: /reference/security-model
     linkText: Security model
-  - title: GitHub is the control plane
-    details: OIDC, repo permissions, CODEOWNERS, environments with required reviewers, check runs, secrets and compute all come from GitHub. Stackorder adds the dependency graph and a memory of what ran.
-    link: /configuration/environments-and-authorization
-    linkText: Apply authorization
-  - title: Heavy work on the runner, one binary each side
-    details: HCL parsing, git diffing, terraform plan and redaction run in your Actions job, in one Go CLI that behaves the same on a laptop, and the plan action uploads the plan file. The server is one Go binary with an embedded UI, plus Postgres. No Docker on the runner.
-    link: /guide/how-it-works
-    linkText: How it works
   - title: Degrade gracefully, never silently
     details: If the server is down, pull request plans still run and are marked unconfirmed. Applies fail closed, so nobody mistakes a fallback for a green light.
     link: /operations/troubleshooting
@@ -40,6 +43,8 @@ features:
 ---
 
 ## The smallest setup
+
+Stackorder works with GitHub.com, S3 state and AWS roles through GitHub OIDC. Current release: v0.1.0.
 
 A repository needs a root `stackorder.yaml`, two thin workflow files, and the Stackorder GitHub App installed. Everything has a default, so the smallest valid configuration is one line:
 
