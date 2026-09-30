@@ -9,8 +9,12 @@
   --border: #d5d9e0;
   --text: #1b1f24;
   --text-muted: #5b6573;
-  --link: #0a58ca;
-  --focus: #2f6fe4;
+  --link: #a4472f;
+  --link-hover: #8d321a;
+  --focus: #a4472f;
+  --accent: #a4472f;
+  --accent-hover: #8d321a;
+  --on-accent: #ffffff;
   --shadow: 0 1px 2px rgb(15 23 42 / 8%);
   --brand-ink: #2f3e46;
   --brand-accent: #a4472f;
@@ -54,8 +58,12 @@
     --border: #2e3540;
     --text: #e6e9ee;
     --text-muted: #9aa4b2;
-    --link: #7fb0ff;
-    --focus: #7fb0ff;
+    --link: #f2a28a;
+    --link-hover: #ffb8a0;
+    --focus: #f2a28a;
+    --accent: #f2a28a;
+    --accent-hover: #ffb8a0;
+    --on-accent: #1a2930;
     --shadow: 0 1px 2px rgb(0 0 0 / 40%);
     --brand-ink: #f4f1de;
     --brand-accent: #f2a28a;
@@ -112,6 +120,10 @@ body {
 a {
   color: var(--link);
   text-underline-offset: 2px;
+}
+
+a:where(:not(.button)):hover {
+  color: var(--link-hover);
 }
 
 :focus-visible {
@@ -649,13 +661,14 @@ details.card[open] > summary {
 }
 
 .button--primary {
-  background: var(--running-fg);
-  border-color: var(--running-fg);
-  color: var(--surface);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
 }
 
 .button--primary:hover {
-  background: var(--link);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .button--danger {
