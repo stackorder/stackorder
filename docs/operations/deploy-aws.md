@@ -234,7 +234,7 @@ The server starts in setup mode while the GitHub App inputs are unset, serving o
      --service "$(terraform output -raw ecs_service_name)" --force-new-deployment
    ```
 
-   With `log_level = "error"` the line is not logged; keep `info` or `warn` until the App exists, or set `STACKORDER_SETUP_TOKEN` through `extra_environment` and open `/setup?token=` followed by its value.
+   With `log_level = "error"` the line is not logged; keep `info` or `warn` until the App exists, or set `STACKORDER_SETUP_TOKEN` through `extra_environment` and open `/setup?token=` followed by its value. A token set that way is plain text in the task definition and in state, so remove it once the App exists.
 3. Open that URL and create the App. The page prints the App id, private key, webhook secret and OAuth client id and secret once.
 4. Apply again with those five values. The App id, private key and webhook secret must be set together, as must the two OAuth values. Setting them rewrites the App secret without a change to `secrets_version`.
 5. Install the App on your repositories and continue with [Getting started](/guide/getting-started#install).

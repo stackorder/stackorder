@@ -73,7 +73,9 @@ Stackorder deploys and upgrades itself ([self-hosted](examples/self-hosted)).
 
    With `log_level = "error"` the line is not logged; keep `info` or
    `warn` until the App exists, or set `STACKORDER_SETUP_TOKEN` through
-   `extra_environment` and open `/setup?token=` followed by its value.
+   `extra_environment` and open `/setup?token=` followed by its value. A
+   token set that way is plain text in the task definition and in state,
+   so remove it once the App exists.
 3. Open that URL. The page creates the GitHub App from a manifest with the
    right webhook URL (`webhook_url`), permissions and events, and prints
    the App id, private key, webhook secret and OAuth client id and secret
