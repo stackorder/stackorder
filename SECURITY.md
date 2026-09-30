@@ -37,7 +37,7 @@ A good report shows one of these doing something the [security model](https://do
 Out of scope:
 
 - Vulnerabilities in Terraform, OpenTofu, providers, GitHub, GitHub Actions or AWS themselves. Report those to their maintainers.
-- Findings that require an attacker who already controls a GitHub organisation owner account, the AWS account, or the server's own secrets and database.
+- Findings that require an attacker who already controls a GitHub organisation owner account or the AWS account.
 - What the security model already lists as possible for a compromised party, such as a compromised server dispatching workflows and posting comments, or a PR author with write access adding a stack that nothing maps to a protected environment. A way to go beyond those limits is in scope.
 - Deployments that leave out the controls the [security hardening](https://docs.stackorder.io/operations/security-hardening) guide describes, such as trust policies pinned to the environment, unless Stackorder's own documentation led to the gap.
 
