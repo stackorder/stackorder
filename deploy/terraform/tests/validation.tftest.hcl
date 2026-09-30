@@ -3,11 +3,6 @@ mock_provider "aws" {
   source          = "./tests/mocks/aws"
 }
 
-mock_provider "random" {
-  override_during = plan
-  source          = "./tests/mocks/random"
-}
-
 mock_provider "http" {
   override_during = plan
   source          = "./tests/mocks/http"
@@ -246,6 +241,26 @@ run "session_key_not_hex" {
   }
 
   expect_failures = [var.session_key]
+}
+
+run "db_password_version_zero" {
+  command = plan
+
+  variables {
+    db_password_version = 0
+  }
+
+  expect_failures = [var.db_password_version]
+}
+
+run "secrets_version_fraction" {
+  command = plan
+
+  variables {
+    secrets_version = 1.5
+  }
+
+  expect_failures = [var.secrets_version]
 }
 
 run "required_workflow_ref_empty" {

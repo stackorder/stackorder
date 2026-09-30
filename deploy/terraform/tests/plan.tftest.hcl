@@ -3,11 +3,6 @@ mock_provider "aws" {
   source          = "./tests/mocks/aws"
 }
 
-mock_provider "random" {
-  override_during = plan
-  source          = "./tests/mocks/random"
-}
-
 mock_provider "http" {
   override_during = plan
   source          = "./tests/mocks/http"
@@ -44,14 +39,6 @@ variables {
 
 run "defaults" {
   command = plan
-
-  override_resource {
-    target          = random_password.metrics_token[0]
-    override_during = plan
-    values = {
-      result = "0123456789abcdef0123456789abcdef"
-    }
-  }
 
   assert {
     condition     = jsondecode(aws_ecs_task_definition.this.container_definitions)[0].readonlyRootFilesystem == true
@@ -124,36 +111,42 @@ run "defaults" {
   }
 
   assert {
-    condition     = nonsensitive(aws_secretsmanager_secret_version.database.secret_string) == "postgres://stackorder:mockdatabasepassword@stackorder.abcdefghijkl.eu-west-1.rds.amazonaws.com:5432/stackorder?sslmode=require"
-    error_message = "DATABASE_URL must be the full DSN with the generated password and TLS required."
-  }
-
-  assert {
-    condition     = keys(jsondecode(nonsensitive(aws_secretsmanager_secret_version.app.secret_string))) == ["STACKORDER_METRICS_TOKEN", "STACKORDER_SESSION_KEY"]
-    error_message = "The app secret must hold only the metrics token and the session key until the App is configured."
+    condition     = can(regex("^postgres://stackorder:[0-9A-Za-z]{40}@stackorder\\.abcdefghijkl\\.eu-west-1\\.rds\\.amazonaws\\.com:5432/stackorder\\?sslmode=require$", local.database_url))
+    error_message = "DATABASE_URL must be the full DSN with a generated 40 character password and TLS required."
   }
 
   assert {
     condition = (
-      length(random_password.metrics_token) == 1 &&
-      random_password.metrics_token[0].length == 32 &&
-      !random_password.metrics_token[0].upper &&
-      !random_password.metrics_token[0].lower &&
-      random_password.metrics_token[0].numeric &&
-      random_password.metrics_token[0].special &&
-      random_password.metrics_token[0].override_special == "abcdef"
+      aws_secretsmanager_secret_version.database.secret_string == null &&
+      aws_secretsmanager_secret_version.database.secret_string_wo == null &&
+      aws_secretsmanager_secret_version.app.secret_string == null &&
+      aws_secretsmanager_secret_version.app.secret_string_wo == null &&
+      aws_secretsmanager_secret_version.metrics_token.secret_string == null &&
+      aws_secretsmanager_secret_version.metrics_token.secret_string_wo == null &&
+      aws_db_instance.this[0].password == null &&
+      aws_db_instance.this[0].password_wo == null
     )
-    error_message = "A metrics token of 32 hexadecimal characters must be generated when metrics_token is null."
+    error_message = "No secret value may reach the plan: the secret values and the database password must be write-only."
   }
 
   assert {
-    condition     = jsondecode(nonsensitive(aws_secretsmanager_secret_version.app.secret_string)).STACKORDER_METRICS_TOKEN == "0123456789abcdef0123456789abcdef"
-    error_message = "The generated metrics token must reach STACKORDER_METRICS_TOKEN through the app secret."
+    condition     = keys(jsondecode(jsonencode(local.app_secret))) == ["STACKORDER_METRICS_TOKEN", "STACKORDER_SESSION_KEY"]
+    error_message = "The app secret must hold only the metrics token and the session key until the App is configured."
   }
 
   assert {
-    condition     = nonsensitive(aws_secretsmanager_secret_version.metrics_token.secret_string) == "0123456789abcdef0123456789abcdef"
-    error_message = "The metrics token secret must hold the same generated token as plain text."
+    condition     = can(regex("^[0-9a-f]{32}$", jsondecode(jsonencode(local.app_secret)).STACKORDER_METRICS_TOKEN))
+    error_message = "A metrics token of 32 hexadecimal characters must reach STACKORDER_METRICS_TOKEN through the app secret when metrics_token is null."
+  }
+
+  assert {
+    condition     = local.metrics_token == jsondecode(jsonencode(local.app_secret)).STACKORDER_METRICS_TOKEN
+    error_message = "The metrics token secret must hold the same generated token as the app secret."
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret_version.metrics_token.secret_string_wo_version == aws_secretsmanager_secret_version.app.secret_string_wo_version
+    error_message = "The metrics token secret must be rewritten whenever the app secret is, or a generated token would differ between them."
   }
 
   assert {
@@ -162,8 +155,8 @@ run "defaults" {
   }
 
   assert {
-    condition     = length(random_bytes.session_key) == 1 && length(nonsensitive(random_bytes.session_key[0].hex)) == 64
-    error_message = "A 32 byte session key must be generated when session_key is null."
+    condition     = can(regex("^[0-9a-f]{64}$", jsondecode(jsonencode(local.app_secret)).STACKORDER_SESSION_KEY))
+    error_message = "A 32 byte session key, as 64 hexadecimal characters, must be generated when session_key is null."
   }
 
   assert {
@@ -362,7 +355,7 @@ run "full_configuration" {
   }
 
   assert {
-    condition = jsondecode(nonsensitive(aws_secretsmanager_secret_version.app.secret_string)) == {
+    condition = jsondecode(jsonencode(local.app_secret)) == {
       GITHUB_APP_ID              = "123456"
       GITHUB_APP_PRIVATE_KEY     = "-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\n"
       GITHUB_OAUTH_CLIENT_ID     = "Iv23liABCDEF"
@@ -375,12 +368,7 @@ run "full_configuration" {
   }
 
   assert {
-    condition     = length(random_bytes.session_key) == 0 && length(random_password.metrics_token) == 0
-    error_message = "No session key or metrics token is generated when one is supplied."
-  }
-
-  assert {
-    condition     = nonsensitive(aws_secretsmanager_secret_version.metrics_token.secret_string) == "prometheus-scrape-token-2026"
+    condition     = local.metrics_token == "prometheus-scrape-token-2026"
     error_message = "The metrics token secret must hold the supplied token."
   }
 

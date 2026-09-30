@@ -448,7 +448,7 @@ Terraform 1.11 or later, or OpenTofu 1.11 or later.
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.11 |
 | <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 6.0 |
 | <a name="requirement_http"></a> [http](#requirement\_http) | ~> 3.4 |
-| <a name="requirement_random"></a> [random](#requirement\_random) | ~> 3.6 |
+| <a name="requirement_random"></a> [random](#requirement\_random) | ~> 3.7 |
 
 ## Providers
 
@@ -456,7 +456,7 @@ Terraform 1.11 or later, or OpenTofu 1.11 or later.
 |------|---------|
 | <a name="provider_aws"></a> [aws](#provider\_aws) | ~> 6.0 |
 | <a name="provider_http"></a> [http](#provider\_http) | ~> 3.4 |
-| <a name="provider_random"></a> [random](#provider\_random) | ~> 3.6 |
+| <a name="provider_random"></a> [random](#provider\_random) | ~> 3.7 |
 
 ## Modules
 
@@ -539,9 +539,9 @@ No modules.
 | [aws\_vpc\_security\_group\_ingress\_rule.db\_from\_service](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_ingress_rule) | resource |
 | [aws\_vpc\_security\_group\_ingress\_rule.service\_from\_alb](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_ingress_rule) | resource |
 | [aws\_wafv2\_web\_acl\_association.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/wafv2_web_acl_association) | resource |
-| [random\_bytes.session\_key](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/bytes) | resource |
-| [random\_password.db](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
-| [random\_password.metrics\_token](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
+| [random\_password.db](https://registry.terraform.io/providers/hashicorp/random/latest/docs/ephemeral-resources/password) | ephemeral resource |
+| [random\_password.metrics\_token](https://registry.terraform.io/providers/hashicorp/random/latest/docs/ephemeral-resources/password) | ephemeral resource |
+| [random\_password.session\_key](https://registry.terraform.io/providers/hashicorp/random/latest/docs/ephemeral-resources/password) | ephemeral resource |
 | [data.aws\_availability\_zones.available](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/availability_zones) | data source |
 | [data.aws\_caller\_identity.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity) | data source |
 | [data.aws\_partition.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/partition) | data source |
@@ -610,12 +610,14 @@ No modules.
 | <a name="input_aurora_max_acu"></a> [aurora\_max\_acu](#input\_aurora\_max\_acu) | Maximum Aurora Serverless v2 capacity in ACUs. | `number` | `2` | no |
 | <a name="input_kms_key_arn"></a> [kms\_key\_arn](#input\_kms\_key\_arn) | Customer managed KMS key for the Secrets Manager secrets and database storage. Null uses the AWS managed keys. | `string` | `null` | no |
 | <a name="input_github_app_id"></a> [github\_app\_id](#input\_github\_app\_id) | GitHub App id (GITHUB\_APP\_ID). Leave the App inputs null on the first deploy: the server starts in setup mode and /setup creates the App. | `string` | `null` | no |
-| <a name="input_github_app_private_key"></a> [github\_app\_private\_key](#input\_github\_app\_private\_key) | PEM private key of the GitHub App (GITHUB\_APP\_PRIVATE\_KEY). Sensitive. | `string` | `null` | no |
-| <a name="input_github_webhook_secret"></a> [github\_webhook\_secret](#input\_github\_webhook\_secret) | Webhook secret of the GitHub App (GITHUB\_WEBHOOK\_SECRET). Sensitive. | `string` | `null` | no |
+| <a name="input_github_app_private_key"></a> [github\_app\_private\_key](#input\_github\_app\_private\_key) | PEM private key of the GitHub App (GITHUB\_APP\_PRIVATE\_KEY). Ephemeral and sensitive. | `string` | `null` | no |
+| <a name="input_github_webhook_secret"></a> [github\_webhook\_secret](#input\_github\_webhook\_secret) | Webhook secret of the GitHub App (GITHUB\_WEBHOOK\_SECRET). Ephemeral and sensitive. | `string` | `null` | no |
 | <a name="input_github_oauth_client_id"></a> [github\_oauth\_client\_id](#input\_github\_oauth\_client\_id) | OAuth client id of the GitHub App, for human sign-in (GITHUB\_OAUTH\_CLIENT\_ID). | `string` | `null` | no |
-| <a name="input_github_oauth_client_secret"></a> [github\_oauth\_client\_secret](#input\_github\_oauth\_client\_secret) | OAuth client secret of the GitHub App (GITHUB\_OAUTH\_CLIENT\_SECRET). Sensitive. | `string` | `null` | no |
-| <a name="input_session_key"></a> [session\_key](#input\_session\_key) | 32 byte hex key for cookie signing (STACKORDER\_SESSION\_KEY). Null generates one. Sensitive. | `string` | `null` | no |
-| <a name="input_metrics_token"></a> [metrics\_token](#input\_metrics\_token) | Bearer token that GET /metrics requires (STACKORDER\_METRICS\_TOKEN), at least 16 printable ASCII characters without white space. Null generates 32 hexadecimal characters. Sensitive. | `string` | `null` | no |
+| <a name="input_github_oauth_client_secret"></a> [github\_oauth\_client\_secret](#input\_github\_oauth\_client\_secret) | OAuth client secret of the GitHub App (GITHUB\_OAUTH\_CLIENT\_SECRET). Ephemeral and sensitive. | `string` | `null` | no |
+| <a name="input_session_key"></a> [session\_key](#input\_session\_key) | 32 byte hex key for cookie signing (STACKORDER\_SESSION\_KEY). Null generates a new one whenever the app secret is written, which ends every session. Ephemeral and sensitive. | `string` | `null` | no |
+| <a name="input_metrics_token"></a> [metrics\_token](#input\_metrics\_token) | Bearer token that GET /metrics requires (STACKORDER\_METRICS\_TOKEN), at least 16 printable ASCII characters without white space. Null generates 32 hexadecimal characters whenever the app secret is written. Ephemeral and sensitive. | `string` | `null` | no |
+| <a name="input_db_password_version"></a> [db\_password\_version](#input\_db\_password\_version) | Version of the generated database password. Increase it to rotate the password: the database and the DATABASE\_URL secret get the new one in the same apply, and the service rolls. | `number` | `1` | no |
+| <a name="input_secrets_version"></a> [secrets\_version](#input\_secrets\_version) | Version of the app and metrics token secrets. Increase it after changing an ephemeral input, or to generate a new session key and metrics token; both secrets are rewritten and the service rolls. | `number` | `1` | no |
 | <a name="input_secret_recovery_window_days"></a> [secret\_recovery\_window\_days](#input\_secret\_recovery\_window\_days) | Days Secrets Manager keeps a deleted secret recoverable; 0 deletes immediately. | `number` | `30` | no |
 | <a name="input_github_api_url"></a> [github\_api\_url](#input\_github\_api\_url) | GitHub API base URL (GITHUB\_API\_URL); GitHub Enterprise Server uses https://&lt;host&gt;/api/v3. | `string` | `"https://api.github.com"` | no |
 | <a name="input_required_workflow_ref"></a> [required\_workflow\_ref](#input\_required\_workflow\_ref) | Glob that runner tokens' job\_workflow\_ref must match (STACKORDER\_REQUIRED\_WORKFLOW\_REF), such as stackorder/actions/.github/workflows/\*.yml@refs/tags/v1\*. Null accepts any workflow. | `string` | `null` | no |

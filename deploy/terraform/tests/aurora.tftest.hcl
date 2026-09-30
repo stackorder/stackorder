@@ -3,14 +3,17 @@ mock_provider "aws" {
   source          = "./tests/mocks/aws"
 }
 
-mock_provider "random" {
-  override_during = plan
-  source          = "./tests/mocks/random"
-}
-
 mock_provider "http" {
   override_during = plan
   source          = "./tests/mocks/http"
+}
+
+override_resource {
+  target          = aws_secretsmanager_secret.database
+  override_during = plan
+  values = {
+    arn = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/database-url-AbCdEf"
+  }
 }
 
 variables {
@@ -83,8 +86,22 @@ run "serverless_cluster" {
   }
 
   assert {
-    condition     = nonsensitive(aws_secretsmanager_secret_version.database.secret_string) == "postgres://stackorder:mockdatabasepassword@stackorder.cluster-abcdefghijkl.eu-west-1.rds.amazonaws.com:5432/stackorder?sslmode=require"
+    condition     = can(regex("^postgres://stackorder:[0-9A-Za-z]{40}@stackorder\\.cluster-abcdefghijkl\\.eu-west-1\\.rds\\.amazonaws\\.com:5432/stackorder\\?sslmode=require$", local.database_url))
     error_message = "DATABASE_URL must point at the cluster writer endpoint."
+  }
+
+  assert {
+    condition = (
+      aws_rds_cluster.this[0].master_password == null &&
+      aws_rds_cluster.this[0].master_password_wo == null &&
+      aws_rds_cluster.this[0].master_password_wo_version == parseint(substr(sha256(jsonencode([1, "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/database-url-AbCdEf"])), 0, 12), 16)
+    )
+    error_message = "The cluster password must be write-only, versioned by db_password_version and the database secret."
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret_version.database.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, "cluster-ABCDEFGHIJKLMNOPQRSTUVWXYZ"])), 0, 12), 16)
+    error_message = "The database secret must be rewritten when a new cluster is created, since the cluster gets the password generated in that apply."
   }
 
   assert {

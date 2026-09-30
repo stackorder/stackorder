@@ -31,6 +31,7 @@ variable "github_app_private_key" {
   type        = string
   default     = null
   sensitive   = true
+  ephemeral   = true
 }
 
 variable "github_webhook_secret" {
@@ -38,6 +39,7 @@ variable "github_webhook_secret" {
   type        = string
   default     = null
   sensitive   = true
+  ephemeral   = true
 }
 
 variable "github_oauth_client_id" {
@@ -51,4 +53,5 @@ variable "github_oauth_client_secret" {
   type        = string
   default     = null
   sensitive   = true
+  ephemeral   = true
 }

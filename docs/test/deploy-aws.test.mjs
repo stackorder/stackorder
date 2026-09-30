@@ -15,6 +15,7 @@ function blocks(hcl, kind) {
       type: attr('type')?.replace(/\(\{$/, ''),
       default: attr('default'),
       sensitive: attr('sensitive') === 'true',
+      ephemeral: attr('ephemeral') === 'true',
     })
   }
   return found
@@ -31,13 +32,18 @@ function rows(markdown) {
 
 const plain = (text) => text.replaceAll('`', '')
 
+const markers = (v) => {
+  const found = [v.ephemeral && 'ephemeral', v.sensitive && 'sensitive'].filter(Boolean)
+  return found.length ? ` (${found.join(', ')})` : ''
+}
+
 test('the inputs tables list every variable with its type, default and description', () => {
   const variables = blocks(read('deploy/terraform/variables.tf'), 'variable')
   const documented = rows(section(page, 'inputs').split('### What the module passes')[0])
   assert.deepEqual([...documented.keys()].sort(), [...variables.keys()].sort())
   for (const [name, v] of variables) {
     const [type, def, description] = documented.get(name)
-    assert.equal(type, `\`${v.type}\`${v.sensitive ? ' (sensitive)' : ''}`, `type of ${name}`)
+    assert.equal(type, `\`${v.type}\`${markers(v)}`, `type and markers of ${name}`)
     assert.equal(def, v.default === undefined ? 'required' : `\`${v.default}\``, `default of ${name}`)
     assert.equal(plain(description), v.description, `description of ${name}`)
   }

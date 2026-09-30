@@ -45,10 +45,11 @@ resource "aws_db_instance" "this" {
   allow_major_version_upgrade = var.allow_major_version_upgrade
   apply_immediately           = var.apply_immediately
 
-  db_name  = local.db_name
-  username = local.db_username
-  password = random_password.db.result
-  port     = local.db_port
+  db_name             = local.db_name
+  username            = local.db_username
+  password_wo         = ephemeral.random_password.db.result
+  password_wo_version = local.db_password_version
+  port                = local.db_port
 
   allocated_storage     = var.allocated_storage
   max_allocated_storage = var.max_allocated_storage
@@ -115,10 +116,11 @@ resource "aws_rds_cluster" "this" {
   allow_major_version_upgrade = var.allow_major_version_upgrade
   apply_immediately           = var.apply_immediately
 
-  database_name   = local.db_name
-  master_username = local.db_username
-  master_password = random_password.db.result
-  port            = local.db_port
+  database_name              = local.db_name
+  master_username            = local.db_username
+  master_password_wo         = ephemeral.random_password.db.result
+  master_password_wo_version = local.db_password_version
+  port                       = local.db_port
 
   storage_encrypted = true
   kms_key_id        = var.kms_key_arn

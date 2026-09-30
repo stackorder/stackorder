@@ -585,6 +585,7 @@ variable "github_app_private_key" {
   type        = string
   default     = null
   sensitive   = true
+  ephemeral   = true
 
   validation {
     condition     = var.github_app_private_key == null || can(regex("-----BEGIN [A-Z ]*PRIVATE KEY-----", var.github_app_private_key))
@@ -597,6 +598,7 @@ variable "github_webhook_secret" {
   type        = string
   default     = null
   sensitive   = true
+  ephemeral   = true
 }
 
 variable "github_oauth_client_id" {
@@ -615,13 +617,15 @@ variable "github_oauth_client_secret" {
   type        = string
   default     = null
   sensitive   = true
+  ephemeral   = true
 }
 
 variable "session_key" {
-  description = "32 byte hex key for cookie signing (STACKORDER_SESSION_KEY). Null generates one."
+  description = "32 byte hex key for cookie signing (STACKORDER_SESSION_KEY). Null generates a new one whenever the app secret is written, which ends every session."
   type        = string
   default     = null
   sensitive   = true
+  ephemeral   = true
 
   validation {
     condition     = var.session_key == null || can(regex("^[0-9a-fA-F]{64}$", var.session_key))
@@ -630,14 +634,37 @@ variable "session_key" {
 }
 
 variable "metrics_token" {
-  description = "Bearer token that GET /metrics requires (STACKORDER_METRICS_TOKEN), at least 16 printable ASCII characters without white space. Null generates 32 hexadecimal characters."
+  description = "Bearer token that GET /metrics requires (STACKORDER_METRICS_TOKEN), at least 16 printable ASCII characters without white space. Null generates 32 hexadecimal characters whenever the app secret is written."
   type        = string
   default     = null
   sensitive   = true
+  ephemeral   = true
 
   validation {
     condition     = var.metrics_token == null || can(regex("^[!-~]{16,}$", var.metrics_token))
     error_message = "metrics_token must be at least 16 printable ASCII characters without white space."
+  }
+}
+
+variable "db_password_version" {
+  description = "Version of the generated database password. Increase it to rotate the password: the database and the DATABASE_URL secret get the new one in the same apply, and the service rolls."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.db_password_version >= 1 && floor(var.db_password_version) == var.db_password_version
+    error_message = "db_password_version must be a whole number of at least 1."
+  }
+}
+
+variable "secrets_version" {
+  description = "Version of the app and metrics token secrets. Increase it after changing an ephemeral input, or to generate a new session key and metrics token; both secrets are rewritten and the service rolls."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.secrets_version >= 1 && floor(var.secrets_version) == var.secrets_version
+    error_message = "secrets_version must be a whole number of at least 1."
   }
 }
 

@@ -3,11 +3,6 @@ mock_provider "aws" {
   source          = "./tests/mocks/aws"
 }
 
-mock_provider "random" {
-  override_during = plan
-  source          = "./tests/mocks/random"
-}
-
 mock_provider "http" {
   override_during = plan
   source          = "./tests/mocks/http"
@@ -311,6 +306,85 @@ run "secret_rotation_redeploys" {
       "io.stackorder.app-secret-version"      = "00000000-0000-0000-0000-000000000001"
     }
     error_message = "The task definition must carry the secret versions so a new secret value rolls the service."
+  }
+}
+
+run "secret_versions_follow_their_inputs" {
+  command = plan
+
+  assert {
+    condition     = aws_db_instance.this[0].password_wo_version == parseint(substr(sha256(jsonencode([1, "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/database-url-AbCdEf"])), 0, 12), 16)
+    error_message = "The database password version must follow db_password_version and the database secret, so a new secret also sets a new password."
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret_version.database.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, "db-ABCDEFGHIJKLMNOPQRSTUVWXYZ"])), 0, 12), 16)
+    error_message = "The database secret version must follow db_password_version and the database resource id, so a new database also gets a new secret."
+  }
+
+  assert {
+    condition = (
+      aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, ["STACKORDER_METRICS_TOKEN", "STACKORDER_SESSION_KEY"]])), 0, 12), 16) &&
+      aws_secretsmanager_secret_version.metrics_token.secret_string_wo_version == aws_secretsmanager_secret_version.app.secret_string_wo_version
+    )
+    error_message = "The app and metrics token secret versions must follow secrets_version and the app secret's keys."
+  }
+}
+
+run "db_password_rotation" {
+  command = plan
+
+  variables {
+    db_password_version = 2
+  }
+
+  assert {
+    condition = (
+      aws_db_instance.this[0].password_wo_version == parseint(substr(sha256(jsonencode([2, "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/database-url-AbCdEf"])), 0, 12), 16) &&
+      aws_secretsmanager_secret_version.database.secret_string_wo_version == parseint(substr(sha256(jsonencode([2, "db-ABCDEFGHIJKLMNOPQRSTUVWXYZ"])), 0, 12), 16)
+    )
+    error_message = "A new db_password_version must write the database password and the DATABASE_URL secret in the same apply."
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, ["STACKORDER_METRICS_TOKEN", "STACKORDER_SESSION_KEY"]])), 0, 12), 16)
+    error_message = "Rotating the database password must leave the app secret alone."
+  }
+}
+
+run "secrets_version_rotation" {
+  command = plan
+
+  variables {
+    secrets_version = 2
+  }
+
+  assert {
+    condition = (
+      aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([2, ["STACKORDER_METRICS_TOKEN", "STACKORDER_SESSION_KEY"]])), 0, 12), 16) &&
+      aws_secretsmanager_secret_version.metrics_token.secret_string_wo_version == aws_secretsmanager_secret_version.app.secret_string_wo_version
+    )
+    error_message = "A new secrets_version must rewrite the app and metrics token secrets together."
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret_version.database.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, "db-ABCDEFGHIJKLMNOPQRSTUVWXYZ"])), 0, 12), 16)
+    error_message = "A new secrets_version must leave the database password alone."
+  }
+}
+
+run "configuring_the_app_rewrites_the_app_secret" {
+  command = plan
+
+  variables {
+    github_app_id          = "123456"
+    github_app_private_key = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n"
+    github_webhook_secret  = "webhook-secret"
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret_version.app.secret_string_wo_version == parseint(substr(sha256(jsonencode([1, ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_WEBHOOK_SECRET", "STACKORDER_METRICS_TOKEN", "STACKORDER_SESSION_KEY"]])), 0, 12), 16)
+    error_message = "Setting the App inputs must rewrite the app secret without a new secrets_version, since the task definition starts reading the new keys."
   }
 }
 

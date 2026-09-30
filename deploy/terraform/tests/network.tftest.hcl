@@ -3,11 +3,6 @@ mock_provider "aws" {
   source          = "./tests/mocks/aws"
 }
 
-mock_provider "random" {
-  override_during = plan
-  source          = "./tests/mocks/random"
-}
-
 mock_provider "http" {
   override_during = plan
   source          = "./tests/mocks/http"

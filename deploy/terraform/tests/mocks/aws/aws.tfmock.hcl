@@ -31,13 +31,15 @@ mock_data "aws_rds_engine_version" {
 
 mock_resource "aws_db_instance" {
   defaults = {
-    address = "stackorder.abcdefghijkl.eu-west-1.rds.amazonaws.com"
+    address     = "stackorder.abcdefghijkl.eu-west-1.rds.amazonaws.com"
+    resource_id = "db-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
   }
 }
 
 mock_resource "aws_rds_cluster" {
   defaults = {
-    endpoint = "stackorder.cluster-abcdefghijkl.eu-west-1.rds.amazonaws.com"
+    endpoint            = "stackorder.cluster-abcdefghijkl.eu-west-1.rds.amazonaws.com"
+    cluster_resource_id = "cluster-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
   }
 }
 

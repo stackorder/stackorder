@@ -22,8 +22,20 @@ variable "stackorder_version" {
   default     = "0.1.0"
 }
 
+variable "github_app_id" {
+  description = "GitHub App id printed by /setup. Null until the App exists, which keeps the server in setup mode."
+  type        = string
+  default     = null
+}
+
+variable "github_oauth_client_id" {
+  description = "OAuth client id of the GitHub App printed by /setup."
+  type        = string
+  default     = null
+}
+
 variable "github_app_secret_name" {
-  description = "Secrets Manager secret holding the values printed by /setup, as JSON keyed by environment variable name. Create it with {} before the first apply."
+  description = "Secrets Manager secret holding the secret values printed by /setup, as JSON keyed by environment variable name. Create it with {} before the first apply; it is read as an ephemeral value on every plan and apply, so it never reaches state."
   type        = string
   default     = "stackorder/github-app"
 }

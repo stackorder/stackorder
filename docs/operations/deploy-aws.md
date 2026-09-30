@@ -128,12 +128,14 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 | Input | Type | Default | Description |
 | --- | --- | --- | --- |
 | `github_app_id` | `string` | `null` | GitHub App id (GITHUB_APP_ID). Leave the App inputs null on the first deploy: the server starts in setup mode and /setup creates the App. |
-| `github_app_private_key` | `string` (sensitive) | `null` | PEM private key of the GitHub App (GITHUB_APP_PRIVATE_KEY). |
-| `github_webhook_secret` | `string` (sensitive) | `null` | Webhook secret of the GitHub App (GITHUB_WEBHOOK_SECRET). |
+| `github_app_private_key` | `string` (ephemeral, sensitive) | `null` | PEM private key of the GitHub App (GITHUB_APP_PRIVATE_KEY). |
+| `github_webhook_secret` | `string` (ephemeral, sensitive) | `null` | Webhook secret of the GitHub App (GITHUB_WEBHOOK_SECRET). |
 | `github_oauth_client_id` | `string` | `null` | OAuth client id of the GitHub App, for human sign-in (GITHUB_OAUTH_CLIENT_ID). |
-| `github_oauth_client_secret` | `string` (sensitive) | `null` | OAuth client secret of the GitHub App (GITHUB_OAUTH_CLIENT_SECRET). |
-| `session_key` | `string` (sensitive) | `null` | 32 byte hex key for cookie signing (STACKORDER_SESSION_KEY). Null generates one. |
-| `metrics_token` | `string` (sensitive) | `null` | Bearer token that GET /metrics requires (STACKORDER_METRICS_TOKEN), at least 16 printable ASCII characters without white space. Null generates 32 hexadecimal characters. |
+| `github_oauth_client_secret` | `string` (ephemeral, sensitive) | `null` | OAuth client secret of the GitHub App (GITHUB_OAUTH_CLIENT_SECRET). |
+| `session_key` | `string` (ephemeral, sensitive) | `null` | 32 byte hex key for cookie signing (STACKORDER_SESSION_KEY). Null generates a new one whenever the app secret is written, which ends every session. |
+| `metrics_token` | `string` (ephemeral, sensitive) | `null` | Bearer token that GET /metrics requires (STACKORDER_METRICS_TOKEN), at least 16 printable ASCII characters without white space. Null generates 32 hexadecimal characters whenever the app secret is written. |
+| `db_password_version` | `number` | `1` | Version of the generated database password. Increase it to rotate the password: the database and the DATABASE_URL secret get the new one in the same apply, and the service rolls. |
+| `secrets_version` | `number` | `1` | Version of the app and metrics token secrets. Increase it after changing an ephemeral input, or to generate a new session key and metrics token; both secrets are rewritten and the service rolls. |
 | `secret_recovery_window_days` | `number` | `30` | Days Secrets Manager keeps a deleted secret recoverable; 0 deletes immediately. |
 | `github_api_url` | `string` | `"https://api.github.com"` | GitHub API base URL (GITHUB_API_URL); GitHub Enterprise Server uses `https://<host>/api/v3`. |
 | `required_workflow_ref` | `string` | `null` | Glob that runner tokens' job_workflow_ref must match (STACKORDER_REQUIRED_WORKFLOW_REF), such as stackorder/actions/.github/workflows/*.yml@refs/tags/v1*. Null accepts any workflow. |

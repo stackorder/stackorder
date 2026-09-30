@@ -1,17 +1,18 @@
-resource "random_password" "db" {
+ephemeral "random_password" "db" {
   length  = 40
   special = false
 }
 
-resource "random_bytes" "session_key" {
-  count = nonsensitive(var.session_key == null) ? 1 : 0
-
-  length = 32
+ephemeral "random_password" "session_key" {
+  length           = 64
+  upper            = false
+  lower            = false
+  numeric          = true
+  special          = true
+  override_special = "abcdef"
 }
 
-resource "random_password" "metrics_token" {
-  count = nonsensitive(var.metrics_token == null) ? 1 : 0
-
+ephemeral "random_password" "metrics_token" {
   length           = 32
   upper            = false
   lower            = false
@@ -21,9 +22,9 @@ resource "random_password" "metrics_token" {
 }
 
 locals {
-  session_key   = var.session_key != null ? var.session_key : one(random_bytes.session_key[*].hex)
-  metrics_token = var.metrics_token != null ? var.metrics_token : one(random_password.metrics_token[*].result)
-  database_url  = "postgres://${local.db_username}:${random_password.db.result}@${local.db_address}:${local.db_port}/${local.db_name}?sslmode=require"
+  session_key   = var.session_key != null ? var.session_key : ephemeral.random_password.session_key.result
+  metrics_token = var.metrics_token != null ? var.metrics_token : ephemeral.random_password.metrics_token.result
+  database_url  = "postgres://${local.db_username}:${ephemeral.random_password.db.result}@${local.db_address}:${local.db_port}/${local.db_name}?sslmode=require"
 
   app_secret = merge(
     {
@@ -45,6 +46,13 @@ locals {
     local.github_app_configured ? ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_WEBHOOK_SECRET"] : [],
     local.github_oauth_configured ? ["GITHUB_OAUTH_CLIENT_ID", "GITHUB_OAUTH_CLIENT_SECRET"] : [],
   ))
+
+  db_resource_id = var.use_aurora_serverless ? one(aws_rds_cluster.this[*].cluster_resource_id) : one(aws_db_instance.this[*].resource_id)
+
+  # The versions follow the database and the key set too, so both ends of a write-only value are written in one apply.
+  db_password_version     = parseint(substr(sha256(jsonencode([var.db_password_version, aws_secretsmanager_secret.database.arn])), 0, 12), 16)
+  database_secret_version = parseint(substr(sha256(jsonencode([var.db_password_version, local.db_resource_id])), 0, 12), 16)
+  app_secret_version      = parseint(substr(sha256(jsonencode([var.secrets_version, local.app_secret_keys])), 0, 12), 16)
 }
 
 resource "aws_secretsmanager_secret" "database" {
@@ -57,8 +65,9 @@ resource "aws_secretsmanager_secret" "database" {
 }
 
 resource "aws_secretsmanager_secret_version" "database" {
-  secret_id     = aws_secretsmanager_secret.database.id
-  secret_string = local.database_url
+  secret_id                = aws_secretsmanager_secret.database.id
+  secret_string_wo         = local.database_url
+  secret_string_wo_version = local.database_secret_version
 }
 
 resource "aws_secretsmanager_secret" "app" {
@@ -71,8 +80,9 @@ resource "aws_secretsmanager_secret" "app" {
 }
 
 resource "aws_secretsmanager_secret_version" "app" {
-  secret_id     = aws_secretsmanager_secret.app.id
-  secret_string = jsonencode(local.app_secret)
+  secret_id                = aws_secretsmanager_secret.app.id
+  secret_string_wo         = jsonencode(local.app_secret)
+  secret_string_wo_version = local.app_secret_version
 }
 
 resource "aws_secretsmanager_secret" "metrics_token" {
@@ -85,6 +95,7 @@ resource "aws_secretsmanager_secret" "metrics_token" {
 }
 
 resource "aws_secretsmanager_secret_version" "metrics_token" {
-  secret_id     = aws_secretsmanager_secret.metrics_token.id
-  secret_string = local.metrics_token
+  secret_id                = aws_secretsmanager_secret.metrics_token.id
+  secret_string_wo         = local.metrics_token
+  secret_string_wo_version = local.app_secret_version
 }
