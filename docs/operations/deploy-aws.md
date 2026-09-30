@@ -224,10 +224,17 @@ The server starts in setup mode while the GitHub App inputs are unset, serving o
 2. Take the setup URL, with its one-time [setup token](/reference/server-configuration#setup-token), from the task logs:
 
    ```sh
-   aws logs tail "$(terraform output -raw log_group_name)" --since 15m | grep setup_url
+   aws logs tail "$(terraform output -raw log_group_name)" --since 1d | grep setup_url
    ```
 
-   The `setup_url` output is the same page without the token, which answers `403`. Every task start generates a new token, so take the latest line. The module keeps one task until the App inputs are set because each task has its own token, and with two the load balancer could send the browser to the other one.
+   The `setup_url` output is the same page without the token, which answers `403`. Every task start generates a new token, so take the latest line. The module keeps one task until the App inputs are set because each task has its own token, and with two the load balancer could send the browser to the other one. The server logs the line once, when the task starts; to get a new one, restart the task:
+
+   ```sh
+   aws ecs update-service --cluster "$(terraform output -raw ecs_cluster_name)" \
+     --service "$(terraform output -raw ecs_service_name)" --force-new-deployment
+   ```
+
+   With `log_level = "error"` the line is not logged; keep `info` or `warn` until the App exists, or set `STACKORDER_SETUP_TOKEN` through `extra_environment` and open `/setup?token=` followed by its value.
 3. Open that URL and create the App. The page prints the App id, private key, webhook secret and OAuth client id and secret once.
 4. Apply again with those five values. The App id, private key and webhook secret must be set together, as must the two OAuth values. Setting them rewrites the App secret without a change to `secrets_version`.
 5. Install the App on your repositories and continue with [Getting started](/guide/getting-started#install).

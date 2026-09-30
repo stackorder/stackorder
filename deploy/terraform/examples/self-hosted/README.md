@@ -33,7 +33,14 @@ summary`), because this stack's resources hold the server's own secrets.
    answers 403:
 
    ```sh
-   aws logs tail "$(terraform output -raw log_group_name)" --since 15m | grep setup_url
+   aws logs tail "$(terraform output -raw log_group_name)" --since 1d | grep setup_url
+   ```
+
+   The server logs the line once, when the task starts. To get a new one,
+   restart the task:
+
+   ```sh
+   aws ecs update-service --cluster stackorder --service stackorder --force-new-deployment
    ```
 
    Store the secret values the page prints as JSON keyed by variable name

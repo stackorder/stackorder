@@ -17,10 +17,17 @@ server logs at start-up, so take the URL with its token from the task logs
 rather than from the `setup_url` output:
 
 ```sh
-aws logs tail "$(terraform output -raw log_group_name)" --since 15m | grep setup_url
+aws logs tail "$(terraform output -raw log_group_name)" --since 1d | grep setup_url
 ```
 
-Open that URL, create the App, then apply again with the five values the
+The server logs the line once, when the task starts. To get a new one,
+restart the task:
+
+```sh
+aws ecs update-service --cluster stackorder --service stackorder --force-new-deployment
+```
+
+Open the URL, create the App, then apply again with the five values the
 page printed, through `TF_VAR_*` environment variables so they stay out of
 shell history:
 

@@ -58,12 +58,22 @@ Stackorder deploys and upgrades itself ([self-hosted](examples/self-hosted)).
    one-time token, which the server logs with the URL at start-up:
 
    ```sh
-   aws logs tail "$(terraform output -raw log_group_name)" --since 15m | grep setup_url
+   aws logs tail "$(terraform output -raw log_group_name)" --since 1d | grep setup_url
    ```
 
    The `setup_url` output is the same page without the token, which
    answers 403. The task generates a new token at every start, so take the
-   latest line.
+   latest line. The server logs the line once, when the task starts; to
+   get a new one, restart the task:
+
+   ```sh
+   aws ecs update-service --cluster "$(terraform output -raw ecs_cluster_name)" \
+     --service "$(terraform output -raw ecs_service_name)" --force-new-deployment
+   ```
+
+   With `log_level = "error"` the line is not logged; keep `info` or
+   `warn` until the App exists, or set `STACKORDER_SETUP_TOKEN` through
+   `extra_environment` and open `/setup?token=` followed by its value.
 3. Open that URL. The page creates the GitHub App from a manifest with the
    right webhook URL (`webhook_url`), permissions and events, and prints
    the App id, private key, webhook secret and OAuth client id and secret
