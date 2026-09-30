@@ -11,12 +11,12 @@ This guide takes one repository from nothing to a first `stackorder apply`. You 
 
 You need:
 
-- a GitHub organization where you can create and install GitHub Apps;
+- a GitHub organization or personal account where you can create and install GitHub Apps;
 - an AWS account with an S3 bucket for Terraform or OpenTofu state;
 - somewhere to run one container behind a public HTTPS URL, and a Postgres database;
 - Terraform or OpenTofu 1.10 or later if you want S3-native state locking with `use_lockfile`.
 
-The examples use the organization `acme`, the repository `acme/infra`, AWS account `123456789012` and the server URL `https://stackorder.example.com`. The repository looks like this:
+The examples use the organization `acme`, the repository `acme/infra`, AWS account `123456789012` and the server URL `https://stackorder.example.com`. On a personal account, read your user name for `acme`. A personal account has no teams, and a private repository on GitHub Free has no environment protection or branch protection; [Personal accounts and GitHub Free](/configuration/environments-and-authorization#free-plan) lists what changes. The repository looks like this:
 
 ```text
 acme/infra
@@ -110,13 +110,13 @@ For GitHub Enterprise Server, set `GITHUB_API_URL`, `GITHUB_WEB_URL` and `GITHUB
 
 ## 3. Install the App {#install}
 
-On GitHub, open the App's settings page and choose **Install App**. Install it on the `acme` organization and select:
+On GitHub, open the App's settings page and choose **Install App**. Install it on the `acme` organization, or on your personal account, and select:
 
 - the repositories that hold stacks, such as `acme/infra`;
 - repositories that hold shared git modules, so the server records their version tags;
 - repositories named by cross-repo `depends_on` entries.
 
-Then sign in at `https://stackorder.example.com` with GitHub. The UI shows the repositories of the organization where the App is installed.
+Then sign in at `https://stackorder.example.com` with GitHub. The UI shows the repositories of the accounts where the App is installed.
 
 ## 4. Create the AWS roles {#aws-roles}
 
@@ -199,7 +199,7 @@ To pin the roles to the canonical reusable workflow as well, see [the AWS trust 
 
 In the repository settings, under **Environments**, create `production`:
 
-- **Required reviewers**: a team, such as `acme/platform-prod`.
+- **Required reviewers**: a team, such as `acme/platform-prod`, or on a personal account, the users who may approve.
 - **Prevent self-review**: on, so the requester cannot approve their own deployment.
 - **Deployment branches**: the default branch only. Server-dispatched runs start from the default branch and check out the commit they are given.
 

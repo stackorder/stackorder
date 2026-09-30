@@ -202,7 +202,7 @@ In the repository settings, under **Environments**:
 
 | Environment | Required reviewers | Prevent self-review | Deployment branches |
 | --- | --- | --- | --- |
-| `production` | A team, such as `acme/platform-prod` | On | The default branch only |
+| `production` | A team, such as `acme/platform-prod`, or users on a personal account | On | The default branch only |
 | `staging` | Optional | On | The default branch only |
 | `default` | None | | The default branch only |
 

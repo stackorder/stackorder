@@ -106,7 +106,7 @@ What stops such an apply is [layer 5](#layer-5): the role that can write the pro
 
 In the repository settings, under **Environments**, configure `production`:
 
-- **Required reviewers**: a team. The job pauses until a listed user or team member approves in the Actions UI.
+- **Required reviewers**: a team, or on a personal account, users. The job pauses until a listed user or team member approves in the Actions UI.
 - **Prevent self-review**: on, so the requester cannot approve their own deployment.
 - **Deployment branches**: the default branch only. Server-dispatched runs start from the default branch.
 
