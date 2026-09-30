@@ -287,6 +287,7 @@ Not covered by the default suites: a real GitHub organisation (`TestLiveGitHub` 
 - [Design document](https://docs.stackorder.io/design/): the behaviour Stackorder implements, with notes where the code departs from it. Its source is [docs/design](docs/design/index.md).
 - [ARCHITECTURE.md](ARCHITECTURE.md): the contract between packages and repositories.
 - [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and contributing.
+- [SECURITY.md](SECURITY.md): supported versions and how to report a vulnerability privately.
 - [CHANGELOG.md](CHANGELOG.md): what each release contains.
 
 ## License
