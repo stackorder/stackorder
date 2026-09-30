@@ -1,19 +1,18 @@
 :root {
-  --vp-nav-logo-height: 30px;
-
-  --vp-c-brand-1: #0f766e;
-  --vp-c-brand-2: #115e59;
-  --vp-c-brand-3: #0d9488;
-  --vp-c-brand-soft: rgba(13, 148, 136, 0.14);
-
-  --vp-button-brand-bg: #0f766e;
-  --vp-button-brand-hover-bg: #115e59;
-  --vp-button-brand-active-bg: #134e4a;
-
-  --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: linear-gradient(120deg, #0f766e 30%, #14b8a6);
-  --vp-home-hero-image-background-image: linear-gradient(135deg, rgba(20, 184, 166, 0.35), rgba(15, 118, 110, 0.15));
-  --vp-home-hero-image-filter: blur(56px);
+  --so-slate: #2f3e46;
+  --so-sand: #f4f1de;
+  --so-terracotta: #f2a28a;
+  --so-terracotta-light: #ffb8a0;
+  --so-clay: #a4472f;
+  --so-clay-dark: #8d321a;
+  --so-neutral-50: #f9f8ef;
+  --so-neutral-200: #d5d5c7;
+  --so-neutral-300: #b7bab0;
+  --so-neutral-400: #9a9f9a;
+  --so-neutral-600: #626d6f;
+  --so-neutral-700: #48555a;
+  --so-neutral-900: #1a2930;
+  --so-neutral-950: #0c1a21;
 
   --so-font-display: 'Lato', ui-sans-serif, system-ui, sans-serif;
   --vp-font-family-base: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif,
@@ -21,19 +20,117 @@
   --vp-font-family-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, Menlo, Consolas,
     'Liberation Mono', monospace;
   --vp-code-font-size: 0.875em;
+  --vp-nav-logo-height: 30px;
+
+  --vp-c-bg: #ffffff;
+  --vp-c-bg-alt: var(--so-neutral-50);
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-bg-soft: var(--so-sand);
+
+  --vp-c-text-1: var(--so-slate);
+  --vp-c-text-2: var(--so-neutral-700);
+  --vp-c-text-3: var(--so-neutral-600);
+
+  --vp-c-border: var(--so-neutral-300);
+  --vp-c-divider: var(--so-neutral-200);
+  --vp-c-gutter: var(--so-neutral-200);
+
+  --vp-c-gray-1: var(--so-neutral-200);
+  --vp-c-gray-2: color-mix(in oklab, var(--so-neutral-200), var(--so-sand));
+  --vp-c-gray-3: var(--so-sand);
+  --vp-c-gray-soft: rgba(125, 134, 132, 0.14);
+
+  --vp-c-brand-1: var(--so-clay);
+  --vp-c-brand-2: var(--so-clay-dark);
+  --vp-c-brand-3: var(--so-clay);
+  --vp-c-brand-soft: rgba(164, 71, 47, 0.1);
+
+  --vp-code-color: var(--vp-c-text-1);
+
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-bg: var(--so-clay);
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-hover-bg: var(--so-clay-dark);
+  --vp-button-brand-active-text: #ffffff;
+  --vp-button-brand-active-bg: var(--so-clay-dark);
+
+  --vp-button-alt-border: var(--so-slate);
+  --vp-button-alt-text: var(--so-slate);
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-hover-border: var(--so-slate);
+  --vp-button-alt-hover-text: var(--so-slate);
+  --vp-button-alt-hover-bg: var(--so-sand);
+  --vp-button-alt-active-border: var(--so-slate);
+  --vp-button-alt-active-text: var(--so-slate);
+  --vp-button-alt-active-bg: var(--so-neutral-200);
+
+  --vp-home-hero-name-color: var(--vp-c-text-1);
+  --vp-home-hero-image-background-image: linear-gradient(var(--so-sand), var(--so-sand));
+  --vp-home-hero-image-filter: blur(56px);
 }
 
 .dark {
-  --vp-c-brand-1: #2dd4bf;
-  --vp-c-brand-2: #5eead4;
-  --vp-c-brand-3: #14b8a6;
-  --vp-c-brand-soft: rgba(45, 212, 191, 0.16);
+  --vp-c-bg: var(--so-neutral-900);
+  --vp-c-bg-alt: var(--so-neutral-950);
+  --vp-c-bg-elv: var(--so-slate);
+  --vp-c-bg-soft: var(--so-slate);
 
-  --vp-button-brand-bg: #0f766e;
-  --vp-button-brand-hover-bg: #0d9488;
-  --vp-button-brand-active-bg: #115e59;
+  --vp-c-text-1: var(--so-sand);
+  --vp-c-text-2: var(--so-neutral-200);
+  --vp-c-text-3: var(--so-neutral-300);
 
-  --vp-home-hero-name-background: linear-gradient(120deg, #14b8a6 30%, #5eead4);
+  --vp-c-border: var(--so-neutral-600);
+  --vp-c-divider: var(--so-neutral-700);
+  --vp-c-gutter: var(--so-neutral-950);
+
+  --vp-c-gray-1: var(--so-neutral-600);
+  --vp-c-gray-2: var(--so-neutral-700);
+  --vp-c-gray-3: var(--so-slate);
+  --vp-c-gray-soft: rgba(154, 159, 154, 0.16);
+
+  --vp-c-brand-1: var(--so-terracotta);
+  --vp-c-brand-2: var(--so-terracotta-light);
+  --vp-c-brand-3: var(--so-terracotta);
+  --vp-c-brand-soft: rgba(242, 162, 138, 0.12);
+
+  --vp-button-brand-text: var(--so-neutral-900);
+  --vp-button-brand-bg: var(--so-terracotta);
+  --vp-button-brand-hover-text: var(--so-neutral-900);
+  --vp-button-brand-hover-bg: var(--so-terracotta-light);
+  --vp-button-brand-active-text: var(--so-neutral-900);
+  --vp-button-brand-active-bg: var(--so-terracotta-light);
+
+  --vp-button-alt-border: var(--so-sand);
+  --vp-button-alt-text: var(--so-sand);
+  --vp-button-alt-hover-border: var(--so-sand);
+  --vp-button-alt-hover-text: var(--so-sand);
+  --vp-button-alt-hover-bg: var(--so-slate);
+  --vp-button-alt-active-border: var(--so-sand);
+  --vp-button-alt-active-text: var(--so-sand);
+  --vp-button-alt-active-bg: var(--so-neutral-700);
+
+  --vp-home-hero-image-background-image: linear-gradient(var(--so-slate), var(--so-slate));
+}
+
+:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
+}
+
+.VPHero .image-src {
+  width: 160px;
+}
+
+@media (min-width: 640px) {
+  .VPHero .image-src {
+    width: 224px;
+  }
+}
+
+@media (min-width: 960px) {
+  .VPHero .image-src {
+    width: 256px;
+  }
 }
 
 .vp-doc h1,
