@@ -124,12 +124,30 @@ Tags `vX.Y.Z` on this repository release the CLI binaries through
 GoReleaser, the server image on `ghcr.io/stackorder/stackorder` and the
 Terraform module. Work through the list in order for every release.
 
-1. **Changelog and docs.** In one commit on `main`, move the `Unreleased`
-   entries of `CHANGELOG.md` under a dated `X.Y.Z` heading and update the
-   versions the docs pin, such as `ref=vX.Y.Z` and `image_tag` in
-   `docs/operations/deploy-aws.md`. When the release needs a newer
-   `stackorder/actions`, the changelog names the minimum version.
-2. **Tag.** Tag that commit `vX.Y.Z` and push the tag.
+1. **Changelog and docs.** In one local commit on `main`, move the
+   `Unreleased` entries of `CHANGELOG.md` under a dated `X.Y.Z` heading and
+   update every version the docs pin:
+   - `README.md`: the status line, the CLI download, the `setup` action's
+     `version`, the server image tags, and the module's `ref=vX.Y.Z` and
+     `image_tag`.
+   - `deploy/terraform/README.md`: `ref=vX.Y.Z` and `image_tag` in both
+     examples.
+   - `deploy/terraform/examples/self-hosted/README.md`: `ref=vX.Y.Z`.
+   - `deploy/terraform/examples/self-hosted/variables.tf`: the default of
+     `stackorder_version`.
+   - `docs/operations/deploy-aws.md`: `ref=vX.Y.Z` and `image_tag`.
+   - `docs/index.md`: the current release.
+
+   When the release needs a newer `stackorder/actions`, the changelog names
+   the minimum version.
+2. **Tag.** Tag that commit `vX.Y.Z` and push it together with `main`, so
+   the docs site, which deploys on the push to `main`, never pins a tag that
+   does not exist:
+
+   ```sh
+   git tag vX.Y.Z
+   git push --atomic origin main vX.Y.Z
+   ```
 3. **Release workflow.** Watch the `release` workflow until every job
    passes. `cli` publishes the binaries, `image` pushes the tags `X.Y.Z`,
    `X.Y` and `latest`, and `visibility` checks from a runner without a
@@ -141,10 +159,12 @@ Terraform module. Work through the list in order for every release.
    [settings](https://github.com/orgs/stackorder/packages/container/stackorder/settings),
    chooses **Change visibility**, makes it public and re-runs the failed
    job. A public package cannot be made private again, so later releases
-   pass. Do not announce a release until the job passes: the Terraform
-   module's `verify_image` check refuses an image that cannot be pulled
-   anonymously, so a self-hosted apply against a private image fails at
-   plan time instead of hanging in ECS until the steady-state timeout.
+   pass. The docs site already shows the new pins, so fix a failed
+   `visibility` job right away, and do not announce the release until it
+   passes: the Terraform module's `verify_image` check refuses an image
+   that cannot be pulled anonymously, so a self-hosted apply against a
+   private image fails at plan time instead of hanging in ECS until the
+   steady-state timeout.
 5. **`stackorder/actions`.** When its actions or reusable workflows
    changed, tag `vX.Y.Z` in that repository, publish the GitHub release
    and move its `v1` tag to the new version. Otherwise it keeps its own
