@@ -14,10 +14,10 @@ It works with Terraform and OpenTofu.
                             8080
                               v
   private subnets   [ ECS service, 1-2 Fargate tasks ] --443--> api.github.com
-                              |                                  (through NAT)
-                            5432
+  (public subnets with        |                                 (through NAT, or
+   public_tasks = true)     5432                                from public IPs)
                               v
-                    [ RDS PostgreSQL or Aurora Serverless v2 ]
+  private subnets   [ RDS PostgreSQL or Aurora Serverless v2 ]
 ```
 
 The server holds no cloud credentials: its task role has no permissions
@@ -119,9 +119,17 @@ refused.
   an existing VPC the private subnets need a NAT route: the tasks pull the
   image from ghcr.io and reach api.github.com, Secrets Manager and
   CloudWatch Logs over their public endpoints.
+- `public_tasks = true` runs the tasks in the public subnets with public
+  IPs instead, and a created VPC gets no NAT gateway or Elastic IP. For a
+  single-user deployment the NAT gateway is the largest fixed cost after
+  the database, while each task's public IPv4 address costs a fraction of
+  it. The service security group still admits only the load balancer, so
+  the public IPs serve outbound traffic only. The database stays in the
+  private subnets, whose route table then has no default route; with an
+  existing VPC, `private_subnet_ids` stays required for it.
 - Security groups cannot filter by host name, so the service egress rule is
-  443 to `0.0.0.0/0`; everything else is closed. For stricter egress, put a
-  proxy or firewall on the NAT path.
+  443 to `0.0.0.0/0`; everything else is closed. For stricter egress, keep
+  the tasks private and put a proxy or firewall on the NAT path.
 - The load balancer's only egress is port 8080 to the tasks, plus 443 to
   `alb_https_egress_cidrs`, or to anywhere when single sign-on is set (see
   [Single sign-on in front of the UI](#single-sign-on-in-front-of-the-ui)).
@@ -529,13 +537,14 @@ No modules.
 |------|-------------|------|---------|:--------:|
 | <a name="input_name"></a> [name](#input\_name) | Name of the deployment, used as the name or prefix of every resource. Lowercase letters, digits and single hyphens, 2 to 24 characters. | `string` | `"stackorder"` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags added to every resource that supports them. | `map(string)` | `{}` | no |
-| <a name="input_create_vpc"></a> [create\_vpc](#input\_create\_vpc) | Create a VPC with public and private subnets and NAT. When false, vpc\_id, public\_subnet\_ids and private\_subnet\_ids are required. | `bool` | `true` | no |
+| <a name="input_create_vpc"></a> [create\_vpc](#input\_create\_vpc) | Create a VPC with public and private subnets and, unless public\_tasks is true, NAT. When false, vpc\_id, public\_subnet\_ids and private\_subnet\_ids are required. | `bool` | `true` | no |
 | <a name="input_vpc_cidr"></a> [vpc\_cidr](#input\_vpc\_cidr) | IPv4 CIDR of the VPC created when create\_vpc is true. Subnets are carved as eight equal blocks: public from the first four, private from the last four. | `string` | `"10.0.0.0/16"` | no |
 | <a name="input_vpc_id"></a> [vpc\_id](#input\_vpc\_id) | ID of an existing VPC. Required when create\_vpc is false, must be null otherwise. | `string` | `null` | no |
-| <a name="input_public_subnet_ids"></a> [public\_subnet\_ids](#input\_public\_subnet\_ids) | IDs of existing public subnets in at least two availability zones, for the load balancer. Required when create\_vpc is false. | `list(string)` | `[]` | no |
-| <a name="input_private_subnet_ids"></a> [private\_subnet\_ids](#input\_private\_subnet\_ids) | IDs of existing private subnets in at least two availability zones, with a route to the internet through NAT, for the tasks and the database. Required when create\_vpc is false. | `list(string)` | `[]` | no |
+| <a name="input_public_subnet_ids"></a> [public\_subnet\_ids](#input\_public\_subnet\_ids) | IDs of existing public subnets in at least two availability zones, for the load balancer and, when public\_tasks is true, the tasks. Required when create\_vpc is false. | `list(string)` | `[]` | no |
+| <a name="input_private_subnet_ids"></a> [private\_subnet\_ids](#input\_private\_subnet\_ids) | IDs of existing private subnets in at least two availability zones, for the database and, unless public\_tasks is true, the tasks, which then need a route to the internet through NAT. Required when create\_vpc is false. | `list(string)` | `[]` | no |
 | <a name="input_availability_zones"></a> [availability\_zones](#input\_availability\_zones) | Availability zones for the created VPC. Empty picks the first two available zones of the region. | `list(string)` | `[]` | no |
-| <a name="input_single_nat_gateway"></a> [single\_nat\_gateway](#input\_single\_nat\_gateway) | Use one NAT gateway for all private subnets instead of one per availability zone. | `bool` | `true` | no |
+| <a name="input_single_nat_gateway"></a> [single\_nat\_gateway](#input\_single\_nat\_gateway) | Use one NAT gateway and route table for all private subnets instead of one per availability zone. Without NAT, when public\_tasks is true, it only sets the number of private route tables. | `bool` | `true` | no |
+| <a name="input_public_tasks"></a> [public\_tasks](#input\_public\_tasks) | Run the tasks in the public subnets with public IP addresses instead of in the private subnets behind NAT, so a created VPC needs no NAT gateway. The service security group still admits only the load balancer; the database stays in the private subnets. | `bool` | `false` | no |
 | <a name="input_domain_name"></a> [domain\_name](#input\_domain\_name) | Fully qualified host name the server is reached at, such as stackorder.example.com. | `string` | n/a | yes |
 | <a name="input_route53_zone_id"></a> [route53\_zone\_id](#input\_route53\_zone\_id) | Route53 hosted zone in which to create the ACM validation records and the alias record for domain\_name. Exactly one of route53\_zone\_id and certificate\_arn must be set. | `string` | `null` | no |
 | <a name="input_certificate_arn"></a> [certificate\_arn](#input\_certificate\_arn) | ARN of an existing ACM certificate covering domain\_name. DNS for domain\_name is then left to the caller. Exactly one of route53\_zone\_id and certificate\_arn must be set. | `string` | `null` | no |

@@ -22,7 +22,7 @@ Set exactly one of `route53_zone_id`, to have the module issue a DNS-validated c
 
 | Resource | Purpose |
 | --- | --- |
-| VPC with public and private subnets and NAT, unless `create_vpc = false` | Two availability zones by default; one NAT gateway unless `single_nat_gateway = false` |
+| VPC with public and private subnets and NAT, unless `create_vpc = false` | Two availability zones by default; one NAT gateway unless `single_nat_gateway = false`, and none with `public_tasks = true` |
 | Application Load Balancer, HTTPS listener with TLS 1.3, HTTP redirect | Forwards to port 8080; health checks on `/readyz`; 30 s deregistration delay; access logs to an S3 bucket (`alb_access_logs_enabled`), a WAF web ACL (`waf_web_acl_arn`) and single sign-on (`oidc_authentication` or `cognito_authentication`) are optional |
 | ACM certificate and Route53 records, with `route53_zone_id` | The certificate and alias for `domain_name` |
 | ECS cluster and Fargate service, 1 or 2 tasks | Runs `ghcr.io/stackorder/stackorder` as user `65532`, read-only root file system, with the deployment circuit breaker; the container health check runs `stackorder-server healthcheck` |
@@ -37,6 +37,8 @@ Set exactly one of `route53_zone_id`, to have the module issue a DNS-validated c
 The server needs nothing else. It holds no AWS credentials for your infrastructure.
 
 Security groups filter by address, not by host name, so the tasks' egress is HTTPS to anywhere, through NAT: the tasks pull the image from ghcr.io and reach the GitHub API, GitHub's OIDC keys, Secrets Manager and CloudWatch Logs over their public endpoints. For stricter egress, put a proxy or firewall on the NAT path.
+
+For a single-user deployment the NAT gateway is the largest fixed cost after the database, so `public_tasks = true` runs the tasks in the public subnets with public IP addresses instead, and a created VPC gets no NAT gateway. The service security group still admits only the load balancer, so nothing can connect to the tasks' public addresses, and the database stays in the private subnets. With an existing VPC the tasks then use `public_subnet_ids`, and `private_subnet_ids` stays required for the database.
 
 ## Inputs {#inputs}
 
@@ -53,13 +55,14 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 
 | Input | Type | Default | Description |
 | --- | --- | --- | --- |
-| `create_vpc` | `bool` | `true` | Create a VPC with public and private subnets and NAT. When false, vpc_id, public_subnet_ids and private_subnet_ids are required. |
+| `create_vpc` | `bool` | `true` | Create a VPC with public and private subnets and, unless public_tasks is true, NAT. When false, vpc_id, public_subnet_ids and private_subnet_ids are required. |
 | `vpc_cidr` | `string` | `"10.0.0.0/16"` | IPv4 CIDR of the VPC created when create_vpc is true. Subnets are carved as eight equal blocks: public from the first four, private from the last four. |
 | `vpc_id` | `string` | `null` | ID of an existing VPC. Required when create_vpc is false, must be null otherwise. |
-| `public_subnet_ids` | `list(string)` | `[]` | IDs of existing public subnets in at least two availability zones, for the load balancer. Required when create_vpc is false. |
-| `private_subnet_ids` | `list(string)` | `[]` | IDs of existing private subnets in at least two availability zones, with a route to the internet through NAT, for the tasks and the database. Required when create_vpc is false. |
+| `public_subnet_ids` | `list(string)` | `[]` | IDs of existing public subnets in at least two availability zones, for the load balancer and, when public_tasks is true, the tasks. Required when create_vpc is false. |
+| `private_subnet_ids` | `list(string)` | `[]` | IDs of existing private subnets in at least two availability zones, for the database and, unless public_tasks is true, the tasks, which then need a route to the internet through NAT. Required when create_vpc is false. |
 | `availability_zones` | `list(string)` | `[]` | Availability zones for the created VPC. Empty picks the first two available zones of the region. |
-| `single_nat_gateway` | `bool` | `true` | Use one NAT gateway for all private subnets instead of one per availability zone. |
+| `single_nat_gateway` | `bool` | `true` | Use one NAT gateway and route table for all private subnets instead of one per availability zone. Without NAT, when public_tasks is true, it only sets the number of private route tables. |
+| `public_tasks` | `bool` | `false` | Run the tasks in the public subnets with public IP addresses instead of in the private subnets behind NAT, so a created VPC needs no NAT gateway. The service security group still admits only the load balancer; the database stays in the private subnets. |
 
 ### Name, TLS and ingress
 

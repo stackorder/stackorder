@@ -16,7 +16,7 @@ variable "tags" {
 }
 
 variable "create_vpc" {
-  description = "Create a VPC with public and private subnets and NAT. When false, vpc_id, public_subnet_ids and private_subnet_ids are required."
+  description = "Create a VPC with public and private subnets and, unless public_tasks is true, NAT. When false, vpc_id, public_subnet_ids and private_subnet_ids are required."
   type        = bool
   default     = true
 }
@@ -48,7 +48,7 @@ variable "vpc_id" {
 }
 
 variable "public_subnet_ids" {
-  description = "IDs of existing public subnets in at least two availability zones, for the load balancer. Required when create_vpc is false."
+  description = "IDs of existing public subnets in at least two availability zones, for the load balancer and, when public_tasks is true, the tasks. Required when create_vpc is false."
   type        = list(string)
   default     = []
 
@@ -59,7 +59,7 @@ variable "public_subnet_ids" {
 }
 
 variable "private_subnet_ids" {
-  description = "IDs of existing private subnets in at least two availability zones, with a route to the internet through NAT, for the tasks and the database. Required when create_vpc is false."
+  description = "IDs of existing private subnets in at least two availability zones, for the database and, unless public_tasks is true, the tasks, which then need a route to the internet through NAT. Required when create_vpc is false."
   type        = list(string)
   default     = []
 
@@ -81,9 +81,15 @@ variable "availability_zones" {
 }
 
 variable "single_nat_gateway" {
-  description = "Use one NAT gateway for all private subnets instead of one per availability zone."
+  description = "Use one NAT gateway and route table for all private subnets instead of one per availability zone. Without NAT, when public_tasks is true, it only sets the number of private route tables."
   type        = bool
   default     = true
+}
+
+variable "public_tasks" {
+  description = "Run the tasks in the public subnets with public IP addresses instead of in the private subnets behind NAT, so a created VPC needs no NAT gateway. The service security group still admits only the load balancer; the database stays in the private subnets."
+  type        = bool
+  default     = false
 }
 
 variable "domain_name" {

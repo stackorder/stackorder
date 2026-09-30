@@ -116,9 +116,9 @@ resource "aws_ecs_service" "this" {
   }
 
   network_configuration {
-    subnets          = local.private_subnet_ids
+    subnets          = local.task_subnet_ids
     security_groups  = [aws_security_group.service.id]
-    assign_public_ip = false
+    assign_public_ip = var.public_tasks
   }
 
   load_balancer {
@@ -137,5 +137,7 @@ resource "aws_ecs_service" "this" {
     aws_vpc_security_group_egress_rule.service_to_db,
     aws_route.private_nat,
     aws_route_table_association.private,
+    aws_route.public_internet,
+    aws_route_table_association.public,
   ]
 }

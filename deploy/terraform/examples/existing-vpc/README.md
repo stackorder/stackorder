@@ -7,7 +7,9 @@ CNAME (or an alias, using `alb_zone_id`) for `domain_name` at the
 
 The private subnets need a route to the internet through NAT, because the
 tasks pull the image from ghcr.io, call api.github.com and reach Secrets
-Manager and CloudWatch Logs over their public endpoints.
+Manager and CloudWatch Logs over their public endpoints. Without NAT, set
+`public_tasks = true` on the module: the tasks then run in the public
+subnets with public IPs, and the private subnets hold only the database.
 
 ```sh
 terraform init

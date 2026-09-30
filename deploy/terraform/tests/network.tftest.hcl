@@ -93,6 +93,11 @@ run "nat_per_zone" {
     condition     = length(aws_nat_gateway.this) == 3 && length(aws_route_table.private) == 3
     error_message = "single_nat_gateway = false must create a NAT gateway and route table per zone."
   }
+
+  assert {
+    condition     = length(aws_route.private_nat) == 3 && length(aws_route_table_association.private) == 3
+    error_message = "Each private route table must get a default route through its zone's NAT gateway."
+  }
 }
 
 run "existing_vpc" {
@@ -123,6 +128,11 @@ run "existing_vpc" {
   assert {
     condition     = toset(one(aws_ecs_service.this.network_configuration).subnets) == toset(["subnet-0000000000000000c", "subnet-0000000000000000d"])
     error_message = "Tasks must run in the private subnets."
+  }
+
+  assert {
+    condition     = one(aws_ecs_service.this.network_configuration).assign_public_ip == false
+    error_message = "Tasks in private subnets must not get public IPs."
   }
 
   assert {
@@ -388,4 +398,143 @@ run "waf_web_acl_other_region" {
   }
 
   expect_failures = [aws_wafv2_web_acl_association.this]
+}
+
+run "public_tasks" {
+  command = plan
+
+  variables {
+    public_tasks = true
+  }
+
+  override_resource {
+    target          = aws_subnet.public[0]
+    override_during = plan
+    values = {
+      id = "subnet-00000000000000p0a"
+    }
+  }
+
+  override_resource {
+    target          = aws_subnet.public[1]
+    override_during = plan
+    values = {
+      id = "subnet-00000000000000p1b"
+    }
+  }
+
+  override_resource {
+    target          = aws_subnet.private[0]
+    override_during = plan
+    values = {
+      id = "subnet-00000000000000q0a"
+    }
+  }
+
+  override_resource {
+    target          = aws_subnet.private[1]
+    override_during = plan
+    values = {
+      id = "subnet-00000000000000q1b"
+    }
+  }
+
+  assert {
+    condition     = length(aws_nat_gateway.this) == 0 && length(aws_eip.nat) == 0 && length(aws_route.private_nat) == 0
+    error_message = "public_tasks must create no NAT gateway, Elastic IP or NAT route."
+  }
+
+  assert {
+    condition     = length(aws_subnet.public) == 2 && length(aws_route.public_internet) == 1 && length(aws_route_table_association.public) == 2
+    error_message = "The public subnets and their internet route must remain."
+  }
+
+  assert {
+    condition     = length(aws_subnet.private) == 2 && length(aws_route_table.private) == 1 && length(aws_route_table_association.private) == 2
+    error_message = "The private subnets must remain, for the database, with a route table of their own."
+  }
+
+  assert {
+    condition     = one(aws_ecs_service.this.network_configuration).assign_public_ip == true
+    error_message = "Tasks in the public subnets need public IPs to reach ghcr.io, GitHub and the AWS endpoints."
+  }
+
+  assert {
+    condition     = toset(one(aws_ecs_service.this.network_configuration).subnets) == toset(["subnet-00000000000000p0a", "subnet-00000000000000p1b"])
+    error_message = "Tasks must run in the public subnets."
+  }
+
+  assert {
+    condition     = toset(aws_db_subnet_group.this.subnet_ids) == toset(["subnet-00000000000000q0a", "subnet-00000000000000q1b"])
+    error_message = "The database must stay in the private subnets."
+  }
+
+  assert {
+    condition = (
+      one(aws_ecs_service.this.network_configuration).security_groups == toset(["sg-00000000000000c2d"]) &&
+      aws_vpc_security_group_ingress_rule.service_from_alb.security_group_id == "sg-00000000000000c2d" &&
+      aws_vpc_security_group_ingress_rule.service_from_alb.referenced_security_group_id == "sg-00000000000000a1b"
+    )
+    error_message = "With public IPs the service must still admit traffic from the load balancer only."
+  }
+}
+
+run "public_tasks_nat_per_zone" {
+  command = plan
+
+  variables {
+    public_tasks       = true
+    single_nat_gateway = false
+    availability_zones = ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+  }
+
+  assert {
+    condition     = length(aws_nat_gateway.this) == 0 && length(aws_eip.nat) == 0 && length(aws_route.private_nat) == 0
+    error_message = "public_tasks must create no NAT gateway whatever single_nat_gateway says."
+  }
+
+  assert {
+    condition     = length(aws_route_table.private) == 3 && length(aws_route_table_association.private) == 3
+    error_message = "Private route tables must follow single_nat_gateway, not the NAT gateway count, so every private subnet keeps an association."
+  }
+}
+
+run "public_tasks_existing_vpc" {
+  command = plan
+
+  variables {
+    public_tasks       = true
+    create_vpc         = false
+    vpc_id             = "vpc-0123456789abcdef0"
+    public_subnet_ids  = ["subnet-0000000000000000a", "subnet-0000000000000000b"]
+    private_subnet_ids = ["subnet-0000000000000000c", "subnet-0000000000000000d"]
+  }
+
+  assert {
+    condition     = toset(one(aws_ecs_service.this.network_configuration).subnets) == toset(["subnet-0000000000000000a", "subnet-0000000000000000b"])
+    error_message = "With an existing VPC, public_tasks must run the tasks in public_subnet_ids."
+  }
+
+  assert {
+    condition     = one(aws_ecs_service.this.network_configuration).assign_public_ip
+    error_message = "Tasks in public subnets need public IPs."
+  }
+
+  assert {
+    condition     = toset(aws_db_subnet_group.this.subnet_ids) == toset(["subnet-0000000000000000c", "subnet-0000000000000000d"])
+    error_message = "The database must stay in private_subnet_ids."
+  }
+}
+
+run "public_tasks_existing_vpc_needs_private_subnets" {
+  command = plan
+
+  variables {
+    public_tasks      = true
+    create_vpc        = false
+    vpc_id            = "vpc-0123456789abcdef0"
+    public_subnet_ids = ["subnet-0000000000000000a", "subnet-0000000000000000b"]
+  }
+
+  expect_failures = [var.private_subnet_ids]
 }

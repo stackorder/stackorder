@@ -13,11 +13,13 @@ locals {
   azs = var.create_vpc ? (
     length(var.availability_zones) > 0 ? var.availability_zones : slice(sort(data.aws_availability_zones.available[0].names), 0, 2)
   ) : []
-  nat_gateway_count = var.create_vpc ? (var.single_nat_gateway ? 1 : length(local.azs)) : 0
+  private_route_table_count = var.create_vpc ? (var.single_nat_gateway ? 1 : length(local.azs)) : 0
+  nat_gateway_count         = var.public_tasks ? 0 : local.private_route_table_count
 
   vpc_id             = var.create_vpc ? aws_vpc.this[0].id : var.vpc_id
   public_subnet_ids  = var.create_vpc ? aws_subnet.public[*].id : var.public_subnet_ids
   private_subnet_ids = var.create_vpc ? aws_subnet.private[*].id : var.private_subnet_ids
+  task_subnet_ids    = var.public_tasks ? local.public_subnet_ids : local.private_subnet_ids
 
   alb_https_egress_cidrs = length(var.alb_https_egress_cidrs) > 0 ? distinct(var.alb_https_egress_cidrs) : (local.alb_authentication ? ["0.0.0.0/0"] : [])
 }
@@ -113,7 +115,7 @@ resource "aws_nat_gateway" "this" {
 }
 
 resource "aws_route_table" "private" {
-  count = local.nat_gateway_count
+  count = local.private_route_table_count
 
   vpc_id = aws_vpc.this[0].id
 
