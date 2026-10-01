@@ -37,9 +37,9 @@ func TestCommentsGolden(t *testing.T) {
 		stack("stacks/prod/eks", "production", 1, 0, withStatus(v1.StackSkipped), withSummary(0, 2, 0, 0)))
 	subsetRun.Waves = 2
 	tests := map[string]string{
-		"applied":            AppliedComment(appliedRun, false, testOpts),
-		"applied_no_changes": AppliedComment(quietRun, true, testOpts),
-		"applied_subset":     AppliedComment(subsetRun, false, Options{}),
+		"applied":            AppliedComment(ApplyRef{Run: appliedRun, CommentURL: "https://github.com/acme/infra/pull/42#issuecomment-9001"}, false, testOpts),
+		"applied_no_changes": AppliedComment(ApplyRef{Run: quietRun}, true, testOpts),
+		"applied_subset":     AppliedComment(ApplyRef{Run: subsetRun}, false, Options{}),
 		"refusal":            RefusalComment("stackorder apply", failures, testOpts),
 		"refusal_no_reasons": RefusalComment("stackorder apply stacks/prod/vpc", nil, testOpts),
 		"lock_warning":       LockWarningComment(locks, testOpts),
@@ -70,7 +70,7 @@ func TestRenderedCommentsNeverParseAsCommands(t *testing.T) {
 		LockWarningComment(locks, testOpts),
 		UnlockedComment(locks, "someone[bot]"),
 		UnconfirmedNote(""),
-		AppliedComment(applyRun(v1.RunApplied, plannedStacks()...), false, testOpts),
+		AppliedComment(ApplyRef{Run: applyRun(v1.RunApplied, plannedStacks()...), CommentURL: "https://github.com/acme/infra/pull/42#issuecomment-9001"}, false, testOpts),
 	)
 	for i, body := range bodies {
 		_, ok := command.Parse(body)
