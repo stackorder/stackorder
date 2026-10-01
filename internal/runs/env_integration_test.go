@@ -6,8 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -527,6 +529,16 @@ func (e *env) storedRun(id string) store.Run {
 	r, err := e.st.GetRun(e.ctx, uuid.MustParse(id))
 	require.NoError(e.t, err)
 	return r
+}
+
+func (e *env) patches(commentID int64) int {
+	n := 0
+	for _, r := range e.gh.Requests() {
+		if r.Method == http.MethodPatch && strings.HasSuffix(r.Path, "/issues/comments/"+strconv.FormatInt(commentID, 10)) {
+			n++
+		}
+	}
+	return n
 }
 
 func (e *env) comment(pr int, login, body string) gh.Comment {

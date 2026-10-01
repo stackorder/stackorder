@@ -303,6 +303,16 @@ func (s *story) stickies(pr int) []string {
 	return out
 }
 
+func (s *story) runComments(pr int) []string {
+	var out []string
+	for _, c := range s.comments(pr) {
+		if strings.HasPrefix(c.Body, "<!-- stackorder:run:") {
+			out = append(out, c.Body)
+		}
+	}
+	return out
+}
+
 func (s *story) commentsContaining(pr int, text string) []string {
 	var out []string
 	for _, c := range s.comments(pr) {
@@ -651,10 +661,15 @@ func (s *story) apply(t *testing.T) {
 	}, statuses(run))
 	assert.Equal(t, gh.ConclusionSuccess, s.checkRun(t, report.CheckApply, pr.head).Conclusion)
 	stickies := s.stickies(pr.number)
-	require.Len(t, stickies, 1, "the apply updates the one sticky comment instead of adding another")
+	require.Len(t, stickies, 1, "the apply leaves the one sticky comment in place")
 	heading := strings.SplitN(stickies[0], "\n", 3)
 	require.GreaterOrEqual(t, len(heading), 2, "the sticky comment has a heading after its marker: %s", stickies[0])
-	assert.Contains(t, heading[1], string(v1.RunApplied), "the sticky comment shows the applied run")
+	assert.Contains(t, heading[1], string(v1.RunPlanned), "the sticky comment keeps the plans")
+	applies := s.runComments(pr.number)
+	require.Len(t, applies, 1, "the apply posts one comment of its own")
+	applyHeading := strings.SplitN(applies[0], "\n", 3)
+	require.GreaterOrEqual(t, len(applyHeading), 2, "the apply comment has a heading after its marker: %s", applies[0])
+	assert.Contains(t, applyHeading[1], string(v1.RunApplied), "the apply comment shows the applied run")
 
 	for _, key := range []string{prodVPC, stagingVPC, prodApps} {
 		st := s.ls.requireState(t, stateKeys[key])
