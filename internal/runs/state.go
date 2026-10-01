@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
+	"github.com/stackorder/stackorder/internal/report"
 	"github.com/stackorder/stackorder/internal/store"
 )
 
@@ -87,10 +88,25 @@ func (s *Service) finishApply(ctx context.Context, repo store.Repo, run store.Ru
 		return err
 	}
 	s.onFinished(ctx, repo, run, status)
-	if status == v1.RunFailed && run.PRNumber > 0 {
-		s.comment(ctx, repo, run.PRNumber, applyFailedComment(run, rows, releasesOnCompletion(run)))
+	if run.PRNumber > 0 {
+		switch status {
+		case v1.RunFailed:
+			s.comment(ctx, repo, run.PRNumber, applyFailedComment(run, rows, releasesOnCompletion(run)))
+		case v1.RunApplied:
+			s.comment(ctx, repo, run.PRNumber, report.AppliedComment(appliedView(run, rows), releasesOnCompletion(run),
+				report.Options{BaseURL: s.cfg.BaseURL, RepoURL: repoWebURL(repo)}))
+		}
 	}
 	return s.propagateCrossRepo(ctx, repo, run, rows)
+}
+
+func appliedView(run store.Run, rows []store.RunStack) v1.Run {
+	view := run.ToV1()
+	view.Status = v1.RunApplied
+	for _, rs := range rows {
+		view.Stacks = append(view.Stacks, rs.ToV1())
+	}
+	return view
 }
 
 func releasesOnCompletion(run store.Run) bool {

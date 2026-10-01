@@ -372,6 +372,8 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	require.Len(t, wave2, 1)
 	assert.Equal(t, []string{apps}, entryKeys(entries(t, wave2[0])))
 	e.reportAll(wave2[0], nil)
+	_, err = e.svc.RecordResult(e.ctx, e.dispatchJob(wave2[0].RunID, "production"), apply.ID, apps, applyResult(true))
+	require.NoError(t, err, "a duplicate last result is accepted")
 	assert.Len(t, e.gh.Dispatches(), 4)
 	e.gh.CompleteWorkflowRun(repoName, wave2[0].RunID, gh.ConclusionSuccess)
 	require.NoError(t, e.svc.HandleWorkflowRun(e.ctx, e.gh.WorkflowRunEvent("completed", repoName, gh.WorkflowRun{ID: wave2[0].RunID})))
@@ -388,6 +390,17 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	assert.Equal(t, headSHA, check.HeadSHA)
 	assert.Contains(t, e.sticky(7), "### Stackorder: applied")
 	assert.Equal(t, map[string]int{vpc: 7, staging: 7, eks: 7, apps: 7}, e.locks(), "before_merge keeps the locks until the merge")
+	body := e.lastComment(7)
+	assert.True(t, strings.HasPrefix(body, "**Apply of `3333333` succeeded.** Applied 4 stacks in 3 waves: "), body)
+	assert.Contains(t, body, "stay held until this pull request merges")
+	assert.Contains(t, body, "[run details](https://stackorder.test/runs/"+apply.ID+")")
+	announced := 0
+	for _, c := range e.comments(7) {
+		if strings.HasPrefix(c, "**Apply of ") {
+			announced++
+		}
+	}
+	assert.Equal(t, 1, announced, "a duplicate last result announces the run once")
 
 	merged := e.gh.PullRequestEvent("closed", repoName, gh.PullRequest{
 		Number: 7, State: gh.IssueClosed, Merged: true, MergeCommitSHA: mergeSHA, HeadSHA: headSHA, BaseSHA: baseSHA, User: gh.User{Login: author},
@@ -621,6 +634,8 @@ func TestApplyOnMerge(t *testing.T) {
 	assert.Len(t, e.gh.Dispatches(), 4)
 	assert.Equal(t, v1.RunApplied, e.run(apply.ID.String()).Status)
 	assert.Empty(t, e.locks(), "an on_merge apply releases its locks when it completes")
+	assert.Contains(t, e.lastComment(7), "**Apply of `5555555` succeeded.**")
+	assert.Contains(t, e.lastComment(7), "The run's orchestration locks were released.")
 }
 
 func TestClosedUnmergedKeepsLocks(t *testing.T) {
