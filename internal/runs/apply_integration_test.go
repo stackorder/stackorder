@@ -423,7 +423,8 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	body := e.lastComment(7)
 	assert.True(t, strings.HasPrefix(body, "**Apply of `3333333` succeeded.** Applied 4 stacks in 3 waves: "), body)
 	assert.Contains(t, body, "stay held until this pull request merges")
-	assert.Contains(t, body, "[run details](https://stackorder.test/runs/"+apply.ID+")")
+	assert.Contains(t, body, "Per-stack results are in the [apply comment](https://github.com/acme/infra/pull/7#issuecomment-"+
+		strconv.FormatInt(applyComment.ID, 10)+") and the [run details](https://stackorder.test/runs/"+apply.ID+").")
 	announced := 0
 	for _, c := range e.comments(7) {
 		if strings.HasPrefix(c, "**Apply of ") {
@@ -549,7 +550,10 @@ func TestApplyFailureBlocksDependents(t *testing.T) {
 	assert.Contains(t, body, "`stacks/prod/eks` (failed)")
 	assert.Contains(t, body, "Blocked dependents: `stacks/prod/apps`, `stacks/prod/jobs`")
 	assert.Contains(t, body, "stay held")
-	applyBody := e.runComment(7, apply.ID).Body
+	failedComment := e.runComment(7, apply.ID)
+	assert.Contains(t, body, "Later waves were not dispatched. Per-stack results are in the [apply comment](https://github.com/acme/infra/pull/7#issuecomment-"+
+		strconv.FormatInt(failedComment.ID, 10)+").")
+	applyBody := failedComment.Body
 	assert.Contains(t, applyBody, "### Stackorder apply: failed")
 	assert.Contains(t, applyBody, "| blocked |")
 	assert.Equal(t, gh.ConclusionFailure, e.check(report.CheckApply).Conclusion)
@@ -683,7 +687,10 @@ func TestDeletedApplyCommentIsNotPostedAgain(t *testing.T) {
 	}
 	assert.Equal(t, v1.RunApplied, e.run(apply.ID).Status)
 	assert.Empty(t, e.runComments(7))
-	assert.Contains(t, e.lastComment(7), "**Apply of `3333333` succeeded.**")
+	reply := e.lastComment(7)
+	assert.Contains(t, reply, "**Apply of `3333333` succeeded.**")
+	assert.NotContains(t, reply, "apply comment")
+	assert.Contains(t, reply, "Per-stack results are in the [run details](https://stackorder.test/runs/"+apply.ID+").")
 	assert.Contains(t, e.sticky(7), "): applied, requested by octocat. [Run details](https://stackorder.test/runs/"+apply.ID+")",
 		"the sticky falls back to the run details")
 }

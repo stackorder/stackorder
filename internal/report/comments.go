@@ -151,7 +151,10 @@ func UnlockedComment(released []v1.LockInfo, actor string) string {
 // AppliedComment renders the comment posted when an apply run succeeds, so
 // the outcome lands after the command in the pull request timeline. released
 // tells whether the run's orchestration locks were released on completion.
-func AppliedComment(run v1.Run, released bool, o Options) string {
+// It points at the run's apply comment and run details, or at the apply
+// check when the run has neither.
+func AppliedComment(a ApplyRef, released bool, o Options) string {
+	run := a.Run
 	var b strings.Builder
 	b.WriteString("**Apply of " + code(shortSHA(run.SHA)) + " succeeded.** ")
 	b.WriteString(aggregateLine(run, run.Stacks, phaseApply) + "\n\n")
@@ -160,9 +163,18 @@ func AppliedComment(run v1.Run, released bool, o Options) string {
 	} else {
 		b.WriteString("The orchestration locks stay held until this pull request merges. ")
 	}
-	where := "the " + Escape(o.name()) + " comment"
-	if u := o.runURL(run); u != "" {
-		where += " and the " + link("run details", u)
+	details := o.runURL(run)
+	var where string
+	switch {
+	case a.CommentURL != "":
+		where = "the " + link("apply comment", a.CommentURL)
+		if details != "" {
+			where += " and the " + link("run details", details)
+		}
+	case details != "":
+		where = "the " + link("run details", details)
+	default:
+		where = "the " + code(CheckApply) + " check"
 	}
 	b.WriteString("Per-stack results are in " + where + ".\n")
 	return b.String()

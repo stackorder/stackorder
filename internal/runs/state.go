@@ -91,9 +91,10 @@ func (s *Service) finishApply(ctx context.Context, repo store.Repo, run store.Ru
 	if run.PRNumber > 0 {
 		switch status {
 		case v1.RunFailed:
-			s.comment(ctx, repo, run.PRNumber, applyFailedComment(run, rows, releasesOnCompletion(run)))
+			s.comment(ctx, repo, run.PRNumber, applyFailedComment(run, rows, releasesOnCompletion(run), commentURL(repo, run.PRNumber, run.CommentID)))
 		case v1.RunApplied:
-			s.comment(ctx, repo, run.PRNumber, report.AppliedComment(appliedView(run, rows), releasesOnCompletion(run),
+			ref := report.ApplyRef{Run: appliedView(run, rows), CommentURL: commentURL(repo, run.PRNumber, run.CommentID)}
+			s.comment(ctx, repo, run.PRNumber, report.AppliedComment(ref, releasesOnCompletion(run),
 				report.Options{BaseURL: s.cfg.BaseURL, RepoURL: repoWebURL(repo)}))
 		}
 	}
@@ -132,7 +133,7 @@ func (s *Service) onFinished(ctx context.Context, repo store.Repo, run store.Run
 	}
 }
 
-func applyFailedComment(run store.Run, rows []store.RunStack, released bool) string {
+func applyFailedComment(run store.Run, rows []store.RunStack, released bool, applyComment string) string {
 	var failed, blocked []string
 	for _, rs := range rows {
 		switch {
@@ -147,7 +148,11 @@ func applyFailedComment(run store.Run, rows []store.RunStack, released bool) str
 	if len(blocked) > 0 {
 		b.WriteString(" Blocked dependents: " + strings.Join(blocked, ", ") + ".")
 	}
-	b.WriteString(" Later waves were not dispatched.\n\n")
+	b.WriteString(" Later waves were not dispatched.")
+	if applyComment != "" {
+		b.WriteString(" Per-stack results are in the [apply comment](" + applyComment + ").")
+	}
+	b.WriteString("\n\n")
 	if released {
 		b.WriteString("The run's orchestration locks were released.\n")
 	} else {
