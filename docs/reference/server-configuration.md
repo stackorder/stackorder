@@ -46,7 +46,7 @@ Retention values are positive Go durations, such as `720h` or `90m`. URL variabl
 
 `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` and `GITHUB_WEBHOOK_SECRET` go together: set all three, or none. A partial set is an error.
 
-With none of them the server starts in **setup mode**. It connects to the database and runs the migrations, then serves only `/setup`, `/setup/callback`, `/setup/installed`, `/healthz` and `/readyz`; everything else answers `503` with code `unavailable`. It runs no workers, no scheduler and no GitHub client. `/healthz` and `/readyz` report `"setup_mode": true`.
+With none of them the server starts in **setup mode**. It connects to the database and runs the migrations, then serves only `/setup`, `/setup/callback`, `/setup/installed`, `/setup/logo.png`, `/healthz` and `/readyz`; everything else answers `503` with code `unavailable`. It runs no workers, no scheduler and no GitHub client. `/healthz` and `/readyz` report `"setup_mode": true`.
 
 Open the setup URL from the server log, create the App, set the printed variables and restart. See [Getting started](/guide/getting-started#create-app) and the [setup endpoints](/reference/api#setup).
 

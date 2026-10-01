@@ -53,8 +53,9 @@ Every minute the server also reconciles dispatches whose webhooks were lost: it 
 1. Start the server with `STACKORDER_BASE_URL` set and no App variables. It comes up in [setup mode](/reference/server-configuration#setup-mode) and logs a `setup_url` line: `https://<server>/setup?token=<token>`, with a one-time [setup token](/reference/server-configuration#setup-token).
 2. Open that URL. The server trades the token for a cookie and redirects to `/setup`. Add `&org=<organisation>` to the URL to create the App in an organisation. `&name=` chooses its name, up to 34 characters; the default is `stackorder-<host>`.
 3. The page posts the manifest to GitHub. Confirm the App there.
-4. GitHub redirects to `/setup/callback`, which exchanges the one-time code for the App id, private key, webhook secret and OAuth client id and secret, and prints them **once**, as environment variables, with the next steps and a link to install the App.
+4. GitHub redirects to `/setup/callback`, which exchanges the one-time code for the App id, private key, webhook secret and OAuth client id and secret, and prints them **once**, as environment variables, with the next steps, a link to install the App and a link to its settings to upload its logo.
 5. Store the values in your secret store, restart the server with them, and install the App on your repositories. GitHub then sends the browser to `/setup/installed`.
+6. [Upload the App's logo](#logo).
 
 Installations made while the server was in setup mode are learned at start-up: the server syncs the App's installations and repositories when it starts and daily at 04:00 UTC. The sync also forgets installations and repositories GitHub no longer lists, as a lost uninstall or removal webhook would have, but only after every listing succeeded.
 
@@ -63,6 +64,16 @@ The manifest sets the webhook URL to `<base URL>/webhooks/github`, the setup red
 Without the token, `/setup` answers `403`, so nobody else who reaches the server between the deploy and the setup can create the App under their own account. The token stops working on the instance that created an App, and a generated one changes at every start.
 
 Opening `/setup` on a server that already has App credentials shows a page saying so. Only with [`STACKORDER_ALLOW_RESETUP=true`](/reference/server-configuration#setup-mode) does it link to creating another App anyway (`/setup?force=1`), for instance after moving the server to a new URL, which needs the setup token too; without it `/setup?force=1` and `/setup/callback` answer `404`.
+
+## Logo {#logo}
+
+An App without a logo shows the avatar of the account that owns it, so its PR comments and checks look as if the person who ran `/setup` posted them. Neither the manifest nor GitHub's API can set the logo, so upload it once by hand:
+
+1. Save the Stackorder logo from `<base URL>/setup/logo.png`, a 512×512 PNG.
+2. Open the App's settings: `https://github.com/settings/apps/<slug>` for an App on a personal account, `https://github.com/organizations/<organisation>/settings/apps/<slug>` for one in an organisation. On GitHub Enterprise Server the host is `GITHUB_WEB_URL`. The page `/setup/callback` prints links to both the logo and the settings.
+3. On the **General** tab, under **Display information**, choose **Upload a logo**, select the file, and save.
+
+GitHub shows the new logo on the comments and checks the App already posted too.
 
 ## Token handling {#tokens}
 

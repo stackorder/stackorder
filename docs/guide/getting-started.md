@@ -122,6 +122,8 @@ On GitHub, open the App's settings page and choose **Install App**. Install it o
 - repositories that hold shared git modules, so the server records their version tags;
 - repositories named by cross-repo `depends_on` entries.
 
+In the App's settings, on the **General** tab under **Display information**, choose **Upload a logo** and upload the Stackorder logo from `https://stackorder.example.com/setup/logo.png`. Until the App has a logo, GitHub shows the avatar of the account that owns it on its comments and checks. See [Logo](/reference/github-app#logo).
+
 Then sign in at `https://stackorder.example.com` with GitHub. The UI shows the repositories of the accounts where the App is installed.
 
 ## 4. Create the AWS roles {#aws-roles}
