@@ -1,7 +1,7 @@
 // Package report renders every piece of text Stackorder posts to GitHub or
 // writes to the runner log: check run output, the sticky pull request
-// comment, apply gate refusals, lock notices, drift issues and step
-// summaries.
+// comment, the comment of each apply run, apply gate refusals, lock
+// notices, drift issues and step summaries.
 //
 // Every function is pure and deterministic. Output depends only on the
 // arguments; nothing reads the clock, the environment or the network, so
@@ -19,13 +19,15 @@ import (
 )
 
 const (
-	// Marker is the hidden first line that identifies the sticky comment.
+	// Marker is the hidden first line that identifies the sticky comment;
+	// RunMarker identifies the comment of an apply run.
 	Marker = "<!-- stackorder:sticky -->"
 	// MaxCheckText is GitHub's limit on a check run's summary and on its
 	// text, in characters; the renderer counts bytes, which is stricter.
 	MaxCheckText = 65535
-	// MaxComment is the size the sticky comment and other long bodies are
-	// kept under, just below GitHub's 65536 character limit.
+	// MaxComment is the size the sticky comment, the comment of an apply run
+	// and other long bodies are kept under, just below GitHub's 65536
+	// character limit.
 	MaxComment = 65000
 	// MaxPlanText is the cap on plan text sent by the CLI and stored by the
 	// server.
@@ -89,6 +91,17 @@ type Options struct {
 	// Locks lists orchestration locks other pull requests hold on stacks of
 	// the rendered run.
 	Locks []v1.LockInfo
+	// Applies lists the apply runs of the pull request, newest first, listed
+	// by the sticky comment.
+	Applies []ApplyRef
+}
+
+// ApplyRef is an apply run of a pull request and the comment that tracks it.
+type ApplyRef struct {
+	// Run is the apply run, without its stacks.
+	Run v1.Run
+	// CommentURL is the web URL of the run's comment, or "" when it has none.
+	CommentURL string
 }
 
 // Approval points at a deployment waiting for review in one GitHub

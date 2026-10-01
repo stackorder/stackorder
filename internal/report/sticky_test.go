@@ -65,10 +65,12 @@ func TestStickyCommentPathologicalInputs(t *testing.T) {
 	for i := range 500 {
 		o.Locks = append(o.Locks, v1.LockInfo{StackKey: fmt.Sprintf("stacks/prod/service-%02d", i), RunID: "r", PRNumber: 7})
 		o.PendingApprovals = append(o.PendingApprovals, Approval{Environment: fmt.Sprintf("env-%03d", i), URL: "https://github.com/acme/infra/actions/runs/1"})
+		o.Applies = append(o.Applies, ApplyRef{Run: applyRun(v1.RunApplied), CommentURL: fmt.Sprintf("https://github.com/acme/infra/pull/42#issuecomment-%d", i)})
 	}
 	out := StickyComment(run, o)
 	assert.LessOrEqual(t, len(out), MaxComment)
 	assert.True(t, strings.HasPrefix(out, Marker+"\n"))
+	assert.Contains(t, out, "#issuecomment-19)\n- … and 480 more\n")
 }
 
 func TestMarkerIsAlwaysTheFirstLine(t *testing.T) {
