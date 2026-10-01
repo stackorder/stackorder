@@ -162,6 +162,7 @@ type dataStore interface {
 
 	GetRun(ctx context.Context, id uuid.UUID) (store.Run, error)
 	ListRuns(ctx context.Context, f store.RunFilter) ([]store.Run, string, error)
+	RunsToV1(ctx context.Context, runs []store.Run) ([]v1.Run, error)
 	GetRunStacks(ctx context.Context, runID uuid.UUID) ([]store.RunStack, error)
 
 	GetStack(ctx context.Context, id uuid.UUID) (store.Stack, error)

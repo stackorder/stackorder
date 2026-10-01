@@ -107,9 +107,12 @@ func (s *server) repoRuns(w http.ResponseWriter, r *http.Request, id identity) e
 	if err != nil {
 		return storeCursorError(err)
 	}
-	page := v1.Page[v1.Run]{Items: make([]v1.Run, len(runs)), NextCursor: next}
-	for i, run := range runs {
-		page.Items[i] = run.ToV1()
+	items, err := s.db.RunsToV1(r.Context(), runs)
+	if err != nil {
+		return fmt.Errorf("list runs: %w", err)
+	}
+	page := v1.Page[v1.Run]{Items: items, NextCursor: next}
+	for i := range page.Items {
 		page.Items[i].HTMLURL = s.runURL(page.Items[i].ID)
 	}
 	s.writeJSON(w, r, http.StatusOK, page)
