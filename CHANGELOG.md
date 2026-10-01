@@ -4,6 +4,8 @@ All notable changes to this repository are documented here. The format follows [
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-01
+
 ### Added
 
 - The page `/setup/callback` has a step to give the App a logo, linking to the App's settings on GitHub and to the logo, served at `/setup/logo.png` in and out of setup mode. An App without a logo shows its owner's avatar on every comment and check, and GitHub sets the logo only in its settings page. See [Logo](docs/reference/github-app.md#logo).
@@ -17,6 +19,7 @@ All notable changes to this repository are documented here. The format follows [
 ### Fixed
 
 - The install and settings links on `/setup/callback` open in a new tab, so following one before storing the credentials no longer leaves the only page that shows them.
+- The web UI no longer scrolls sideways at phone width: screen reader text stays inside scrolling tables, the status cards of the overview shrink below 320px, and the run picker of a repository's graph fits the screen.
 
 ## [0.2.0] - 2026-09-30
 
@@ -174,6 +177,7 @@ Recorded in [ARCHITECTURE.md](ARCHITECTURE.md) and in the implementation notes o
 - The schema stores a stack's backend as one `backend` jsonb column and edges by `from_key` and `to_key`, keeps a ref-less family row per module, and adds tables for graph membership, checks, dispatches, OIDC `jti`s and the audit log.
 - Named checks accept `warn`, which passes; a stack's `apply.allowed_teams` replaces the root list rather than narrowing it.
 
-[Unreleased]: https://github.com/stackorder/stackorder/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/stackorder/stackorder/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/stackorder/stackorder/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/stackorder/stackorder/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/stackorder/stackorder/releases/tag/v0.1.0

@@ -19,7 +19,7 @@ variable "route53_zone_id" {
 variable "stackorder_version" {
   description = "Server release to run. Bumping it in a pull request is how Stackorder upgrades itself."
   type        = string
-  default     = "0.2.0"
+  default     = "0.3.0"
 }
 
 variable "github_app_id" {
