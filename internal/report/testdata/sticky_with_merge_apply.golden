@@ -7,7 +7,7 @@
 
 **Applies**
 
-The plans below stay as they were planned. Each apply reports its progress and result in its own comment.
+The plans below stay as they were planned. Each apply links its own comment, or its run details when it has no comment.
 
 - [`5e4d3c2`](https://github.com/acme/infra/commit/5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d): applied, started on merge by octocat. [Apply comment](https://github.com/acme/infra/pull/42#issuecomment-9002)
 
