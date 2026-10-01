@@ -153,9 +153,9 @@ func (s *Service) renderSticky(ctx context.Context, w *checkWriter, repo store.R
 	if err != nil {
 		return err
 	}
-	applies, _, err := w.tx.ListRuns(ctx, store.RunFilter{RepoID: repo.ID, PRNumber: pr, Mode: v1.ModeApply, Limit: 50})
+	applies, err := pullApplies(ctx, w.tx, repo.ID, pr)
 	if err != nil {
-		return storeErr(err, "apply runs of pull request %d", pr)
+		return err
 	}
 	for _, a := range applies {
 		opts.Applies = append(opts.Applies, report.ApplyRef{Run: a.ToV1(), CommentURL: commentURL(repo, pr, a.CommentID)})
@@ -247,6 +247,22 @@ func latestPlanRun(ctx context.Context, db *store.Store, repoID int64, pr int) (
 		return runs[0], true, nil
 	}
 	return store.Run{}, false, nil
+}
+
+func pullApplies(ctx context.Context, db *store.Store, repoID int64, pr int) ([]store.Run, error) {
+	f := store.RunFilter{RepoID: repoID, PRNumber: pr, Mode: v1.ModeApply, Limit: 500}
+	var out []store.Run
+	for {
+		page, next, err := db.ListRuns(ctx, f)
+		if err != nil {
+			return nil, storeErr(err, "apply runs of pull request %d", pr)
+		}
+		out = append(out, page...)
+		if next == "" {
+			return out, nil
+		}
+		f.Cursor = next
+	}
 }
 
 func stickyPlan(ctx context.Context, db *store.Store, plan store.Run) (v1.Run, error) {
