@@ -363,7 +363,7 @@ stackorder apply
 
 The App adds an eyes reaction when it receives the command and a rocket reaction when it dispatches, so a dropped command is visible. If the [apply gate](/guide/how-it-works#apply-gate) refuses, a comment names the failing check and the reason.
 
-Otherwise the server locks both stacks and dispatches wave 0, `stacks/prod/vpc`, to `stackorder-run.yml` under the `production` environment. Approve the deployment in the Actions UI; the sticky comment links straight to it. When wave 0 is green the server dispatches wave 1, `stacks/prod/apps`, which asks for approval again. A green last wave turns `stackorder/apply` green.
+Otherwise the server locks both stacks and dispatches wave 0, `stacks/prod/vpc`, to `stackorder-run.yml` under the `production` environment. Approve the deployment in the Actions UI; the sticky comment links straight to it. When wave 0 is green the server dispatches wave 1, `stacks/prod/apps`, which asks for approval again. A green last wave turns `stackorder/apply` green, and the App replies under your command with what was applied.
 
 Merge the pull request. The server releases the locks.
 

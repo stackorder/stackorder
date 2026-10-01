@@ -407,7 +407,7 @@ The manifest subscribes to `deployment_protection_rule` by default, except on Gi
 Sign-in asks GitHub for the `read:org` scope only. A session is issued to a user whose own account, or one of whose organisations, has the App installed.
 :::
 
-**Comment commands** (posted on the PR by anyone the apply policy allows; see Apply authorization): `stackorder plan [stack…]` re-plans; `stackorder apply [stack…]` applies, optionally a subset (dependency waves are still honoured within the subset); `stackorder unlock [stack…]` releases orchestration locks; `stackorder help` prints the list. The App reacts with an eyes emoji on receipt and a rocket when dispatched, so a dropped command is visible.
+**Comment commands** (posted on the PR by anyone the apply policy allows; see Apply authorization): `stackorder plan [stack…]` re-plans; `stackorder apply [stack…]` applies, optionally a subset (dependency waves are still honoured within the subset); `stackorder unlock [stack…]` releases orchestration locks; `stackorder help` prints the list. The App reacts with an eyes emoji on receipt and a rocket when dispatched, so a dropped command is visible, and replies with the result when an apply finishes, on success as on failure.
 
 ::: info Implementation note
 Commands are accepted only from users with push permission, whatever the apply policy; the gate then applies `allowed_teams`. `stackorder unlock` releases only the locks of the pull request it is posted on, and `stackorder plan` dispatches `mode: plan` under the environment `default`. The rate limit is counted from the audit log.
