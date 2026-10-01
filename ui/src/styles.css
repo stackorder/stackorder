@@ -176,6 +176,10 @@ code {
   color: var(--text-muted);
 }
 
+.nowrap {
+  white-space: nowrap;
+}
+
 .text-warning {
   color: var(--warning-fg);
 }

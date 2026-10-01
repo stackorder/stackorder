@@ -27,10 +27,12 @@ export function RunStacks({ run }: { run: Pick<Run, 'stack_count' | 'stack_keys'
       {shown.map((k, i) => (
         <span key={k}>
           {i > 0 && ', '}
-          <span class="mono">{k}</span>
+          <span class="mono nowrap">{k}</span>
         </span>
       ))}
-      {more > 0 && <span class="muted">{shown.length > 0 ? ` +${String(more)} more` : plural(more, 'stack')}</span>}
+      {more > 0 && (
+        <span class="muted nowrap">{shown.length > 0 ? ` +${String(more)} more` : plural(more, 'stack')}</span>
+      )}
     </span>
   );
 }
@@ -40,7 +42,7 @@ function RunStatus({ run }: { run: Run }) {
     <>
       <StatusBadge status={run.status} />
       {run.status === 'applying' && run.waves > 1 && (
-        <span class="muted">
+        <span class="muted nowrap">
           {' '}
           wave {run.current_wave} of {run.waves}
         </span>
@@ -52,7 +54,7 @@ function RunStatus({ run }: { run: Run }) {
 function RunDuration({ run }: { run: Run }) {
   if (!run.finished_at) return <span class="muted">—</span>;
   const ms = new Date(run.finished_at).getTime() - new Date(run.started_at ?? run.created_at).getTime();
-  return <>{formatDuration(ms)}</>;
+  return <span class="nowrap">{formatDuration(ms)}</span>;
 }
 
 /** The recent runs table, shared by the overview and the repository page. */
@@ -66,7 +68,7 @@ export function RunsTable({ runs, caption, showRepo = true }: { runs: Run[]; cap
       columns={[
         { key: 'id', header: 'Run', render: (r) => <RunLink id={r.id} /> },
         ...(showRepo ? [repoColumn] : []),
-        { key: 'what', header: 'What', render: (r) => runTitle(r) },
+        { key: 'what', header: 'What', render: (r) => <span class="nowrap">{runTitle(r)}</span> },
         { key: 'stacks', header: 'Stacks', render: (r) => <RunStacks run={r} /> },
         { key: 'changes', header: 'Changes', render: (r) => <SummaryCounts summary={r.summary} /> },
         { key: 'status', header: 'Status', render: (r) => <RunStatus run={r} /> },
@@ -75,7 +77,15 @@ export function RunsTable({ runs, caption, showRepo = true }: { runs: Run[]; cap
           header: 'Requested by',
           render: (r) => r.requested_by ?? <span class="muted">{r.trigger === 'schedule' ? 'scheduler' : '—'}</span>,
         },
-        { key: 'created', header: 'Started', render: (r) => <TimeAgo value={r.started_at ?? r.created_at} /> },
+        {
+          key: 'created',
+          header: 'Started',
+          render: (r) => (
+            <span class="nowrap">
+              <TimeAgo value={r.started_at ?? r.created_at} />
+            </span>
+          ),
+        },
         { key: 'duration', header: 'Duration', render: (r) => <RunDuration run={r} /> },
       ]}
     />
