@@ -42,7 +42,7 @@ function RunStatus({ run }: { run: Run }) {
       {run.status === 'applying' && run.waves > 1 && (
         <span class="muted">
           {' '}
-          wave {run.current_wave + 1}/{run.waves}
+          wave {run.current_wave} of {run.waves}
         </span>
       )}
     </>

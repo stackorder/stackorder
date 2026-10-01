@@ -47,7 +47,7 @@ describe('RunsTable', () => {
       />,
     );
     expect(screen.getAllByText(/wave/)).toHaveLength(1);
-    expect(screen.getByText('wave 2/3', { exact: false })).toBeInTheDocument();
+    expect(screen.getByText('wave 1 of 3', { exact: false })).toBeInTheDocument();
   });
 
   it('shows how long a finished run took and a dash for one still going', () => {
