@@ -137,7 +137,7 @@ func TestRunsToV1SumsUpStacks(t *testing.T) {
 	ids := f.stacks(keys...)
 
 	planned := f.run(store.CreateRunParams{SHA: "s1", PRNumber: 1, Status: v1.RunPlanned})
-	var rows []store.RunStack
+	rows := make([]store.RunStack, 0, len(keys))
 	for i, k := range keys {
 		rows = append(rows, store.RunStack{StackID: ids[k], Wave: len(keys) - 1 - i, Status: v1.StackPlanned})
 	}
