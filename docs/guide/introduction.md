@@ -22,9 +22,9 @@ The server does exactly two things.
 
 <Screenshot
   name="ui-overview"
-  alt="The Stackorder web UI overview: counts of repositories, stacks, drifted stacks and locks held, bars of stacks and runs by status, and a table of recent plan, apply and drift runs."
-  :width="880"
-  :height="691"
+  alt="The Stackorder web UI overview: counts of repositories, stacks, drifted stacks and locks held, bars of stacks and runs by status, and a table of recent plan, apply and drift runs with their stacks, planned changes and durations."
+  :width="1200"
+  :height="751"
   caption="The web UI's overview page, with sample data for an acme organization."
 />
 
