@@ -149,7 +149,7 @@ func (s *Service) renderSticky(ctx context.Context, w *checkWriter, repo store.R
 	if err != nil || !ok {
 		return err
 	}
-	pv, err := planViewAt(ctx, w.tx, repo.ID, pr, plan.SHA)
+	view, err := stickyPlan(ctx, w.tx, plan)
 	if err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func (s *Service) renderSticky(ctx context.Context, w *checkWriter, repo store.R
 	for _, a := range applies {
 		opts.Applies = append(opts.Applies, report.ApplyRef{Run: a.ToV1(), CommentURL: commentURL(repo, pr, a.CommentID)})
 	}
-	body := report.StickyComment(pv.v1(), opts)
+	body := report.StickyComment(view, opts)
 	if _, err := w.c.UpsertStickyComment(ctx, repo.FullName, pr, report.Marker, body); err != nil {
 		w.errs = append(w.errs, fmt.Errorf("runs: sticky comment on %s#%d: %w", repo.FullName, pr, err))
 	}
@@ -243,7 +243,21 @@ func latestPlanRun(ctx context.Context, db *store.Store, repoID int64, pr int) (
 			return r, true, nil
 		}
 	}
+	if len(runs) > 0 {
+		return runs[0], true, nil
+	}
 	return store.Run{}, false, nil
+}
+
+func stickyPlan(ctx context.Context, db *store.Store, plan store.Run) (v1.Run, error) {
+	if plan.Status == v1.RunSuperseded {
+		return runView(ctx, db, plan.ID)
+	}
+	pv, err := planViewAt(ctx, db, plan.RepoID, plan.PRNumber, plan.SHA)
+	if err != nil {
+		return v1.Run{}, err
+	}
+	return pv.v1(), nil
 }
 
 func (s *Service) reportOptions(ctx context.Context, db *store.Store, repo store.Repo, pr int) (report.Options, error) {
