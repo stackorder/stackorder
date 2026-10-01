@@ -103,7 +103,7 @@ stackorder apply stacks/prod/vpc stacks/prod/apps
 
 - Commands are accepted only from users with push permission on the repository; others are ignored, and audited as `command_ignored`.
 - Each pull request may send 10 commands a minute, counted from the audit log. The first command over the limit gets a comment asking to wait.
-- The App adds an eyes reaction when it accepts a command and a rocket when it dispatches, so a dropped command is visible. Every refusal is a comment with the reason.
+- The App adds an eyes reaction when it accepts a command and a rocket when it dispatches, so a dropped command is visible, and replies under an apply when it finishes, whether it succeeded or failed. Every refusal is a comment with the reason.
 - A comment runs at most once, however often GitHub delivers it. A command that fails part way is answered with a comment asking for it to be posted again.
 
 ## Checks and the sticky comment {#checks}

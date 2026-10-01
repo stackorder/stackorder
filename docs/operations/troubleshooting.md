@@ -135,6 +135,7 @@ The App adds an eyes reaction when it receives a command, and a rocket when it d
 | No reaction | The webhook did not arrive (see above); the commenter has no push permission (audited as `command_ignored`); the command is inside a code block or a quote; or the first two words of the line are not `stackorder` and a known verb |
 | A comment asking to wait | More than 10 commands in a minute on this PR |
 | Eyes, no rocket | The command was refused, or needed no dispatch (`help`, `unlock`); look for the reply comment |
+| Rocket on an apply, no reply yet | The apply is still running, or a wave is waiting for an environment approval. The Stackorder comment shows the current wave and links each pending approval, and the run details page lists every stack. The App replies under the command when the apply succeeds or fails. |
 | Rocket, nothing in Actions | Check that `.github/workflows/stackorder-run.yml` exists on the default branch and declares the inputs `run_id`, `mode`, `wave`, `sha` and `stacks`. A dispatch GitHub refuses is recorded as a warning on the run. |
 
 The command is the first line whose first word is `stackorder` and second word a known verb, both case insensitive.
