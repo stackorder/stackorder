@@ -764,6 +764,16 @@ func TestStickyFollowsAnApplyOnceItsPlansAreSuperseded(t *testing.T) {
 	assert.Contains(t, sticky, "- [`3333333`](https://github.com/acme/infra/commit/"+headSHA+"): applied, requested by octocat. ")
 }
 
+func TestStickyCountsEveryApplyOfThePullRequest(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.planned(7, headSHA)
+	_, err := e.st.Pool().Exec(e.ctx, `INSERT INTO runs (repo_id, sha, base_sha, pr_number, trigger, mode, status, requested_by)
+		SELECT $1, $2, $3, 7, 'comment', 'apply', 'failed', $4 FROM generate_series(1, 501)`, repoID, headSHA, baseSHA, applier)
+	require.NoError(t, err)
+	e.comment(7, applier, "stackorder apply")
+	assert.Contains(t, e.sticky(7), "- … and 482 more\n", "the list counts all 502 applies past the first page")
+}
+
 func TestApplyCommentOfASubset(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.planned(7, headSHA)
