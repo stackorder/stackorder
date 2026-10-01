@@ -192,20 +192,41 @@ func stickyCases() map[string]struct {
 	branded := testOpts
 	branded.ServerName = "Acme Infra Bot"
 
+	retried := applyRun(v1.RunApplying)
+	retried.ID = "7d1f0b2e-3c4a-4e5f-8a9b-0c1d2e3f4a52"
+	firstApply := applyRun(v1.RunFailed)
+	firstApply.ID = "7d1f0b2e-3c4a-4e5f-8a9b-0c1d2e3f4a51"
+	withApplies := testOpts
+	withApplies.Applies = []ApplyRef{
+		{Run: retried, CommentURL: "https://github.com/acme/infra/pull/42#issuecomment-9001"},
+		{Run: firstApply},
+	}
+
+	mergeApply := applyRun(v1.RunApplied)
+	mergeApply.ID = "7d1f0b2e-3c4a-4e5f-8a9b-0c1d2e3f4a53"
+	mergeApply.Trigger, mergeApply.RequestedBy = v1.TriggerPullRequest, "octocat"
+	mergeApply.SHA = "5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d"
+	withMergeApply := testOpts
+	withMergeApply.Applies = []ApplyRef{
+		{Run: mergeApply, CommentURL: "https://github.com/acme/infra/pull/42#issuecomment-9002"},
+	}
+
 	return map[string]struct {
 		run  v1.Run
 		opts Options
 	}{
-		"sticky_resolve_failed": {baseRun(v1.RunFailed), testOpts},
-		"sticky_no_changes":     {quietRun, branded},
-		"sticky_pending":        {baseRun(v1.RunPending), testOpts},
-		"sticky_planning":       {baseRun(v1.RunPlanning, planning...), testOpts},
-		"sticky_planned":        {baseRun(v1.RunPlanned, plannedStacks()...), testOpts},
-		"sticky_no_stacks":      {baseRun(v1.RunPlanned), Options{}},
-		"sticky_plan_failed":    {baseRun(v1.RunFailed, planFailed...), testOpts},
-		"sticky_unconfirmed":    {unconfirmedRun, testOpts},
-		"sticky_superseded":     {baseRun(v1.RunSuperseded, superseded...), testOpts},
-		"sticky_locks_warned":   {lockedRun, lockedOpts},
+		"sticky_resolve_failed":   {baseRun(v1.RunFailed), testOpts},
+		"sticky_no_changes":       {quietRun, branded},
+		"sticky_pending":          {baseRun(v1.RunPending), testOpts},
+		"sticky_planning":         {baseRun(v1.RunPlanning, planning...), testOpts},
+		"sticky_planned":          {baseRun(v1.RunPlanned, plannedStacks()...), testOpts},
+		"sticky_no_stacks":        {baseRun(v1.RunPlanned), Options{}},
+		"sticky_plan_failed":      {baseRun(v1.RunFailed, planFailed...), testOpts},
+		"sticky_unconfirmed":      {unconfirmedRun, testOpts},
+		"sticky_superseded":       {baseRun(v1.RunSuperseded, superseded...), testOpts},
+		"sticky_locks_warned":     {lockedRun, lockedOpts},
+		"sticky_with_applies":     {baseRun(v1.RunPlanned, plannedStacks()...), withApplies},
+		"sticky_with_merge_apply": {baseRun(v1.RunPlanned, plannedStacks()...), withMergeApply},
 	}
 }
 

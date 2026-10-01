@@ -18,11 +18,12 @@ const minDetailBody = 1024
 func StickyComment(run v1.Run, o Options) string {
 	stacks := sortedStacks(run.Stacks)
 	head := stickyHead(run, stacks, o)
+	applies := appliesSection(o)
 	approvals := approvalsSection(o)
 	locks := locksSection(run, o)
 	warnings := warningsSection(run.Warnings)
 	footer := stickyFooter()
-	room := MaxComment - len(head) - len(approvals) - len(locks) - len(warnings) - len(footer)
+	room := MaxComment - len(head) - len(applies) - len(approvals) - len(locks) - len(warnings) - len(footer)
 
 	var blocks []block
 	if run.Status != v1.RunSuperseded {
@@ -38,7 +39,7 @@ func StickyComment(run v1.Run, o Options) string {
 	}
 	details := renderDetails(blocks, room-len(table))
 
-	out := head + approvals + locks + table + details + warnings + footer
+	out := head + applies + approvals + locks + table + details + warnings + footer
 	if len(out) > MaxComment {
 		out, _ = TruncatePlan(out, MaxComment)
 	}
@@ -80,6 +81,28 @@ func runHead(title string, run v1.Run, stacks []v1.RunStack, o Options) string {
 		b.WriteString(aggregateLine(run, stacks, p) + "\n\n")
 	}
 	return b.String()
+}
+
+func appliesSection(o Options) string {
+	if len(o.Applies) == 0 {
+		return ""
+	}
+	items := make([]string, 0, len(o.Applies))
+	for _, a := range o.Applies {
+		r := a.Run
+		item := link(code(shortSHA(r.SHA)), o.commitURL(r.Repo, r.SHA)) + ": " + runStatusWord(r.Status)
+		if by := origin(r); by != "" {
+			item += ", " + by
+		}
+		item += "."
+		if a.CommentURL != "" {
+			item += " " + link("Apply comment", a.CommentURL)
+		} else if u := o.runIDURL(r.ID); u != "" {
+			item += " " + link("Run details", u)
+		}
+		items = append(items, item)
+	}
+	return "**Applies**\n\nThe plans below stay as they were planned. Each apply reports its progress and result in its own comment.\n\n" + bulletList(items, maxListItems) + "\n"
 }
 
 func aggregateLine(run v1.Run, stacks []v1.RunStack, p phase) string {

@@ -1,0 +1,142 @@
+<!-- stackorder:sticky -->
+### Stackorder: planned
+
+**Mode:** plan · **Commit:** [`3f9a2c1`](https://github.com/acme/infra/commit/3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c) · [Run details](https://stackorder.example.com/runs/5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70)
+
+5 stacks in 3 waves: 3 to add, 4 to change, 3 to destroy, 1 to replace.
+
+**Applies**
+
+The plans below stay as they were planned. Each apply reports its progress and result in its own comment.
+
+- [`3f9a2c1`](https://github.com/acme/infra/commit/3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c): applying, requested by alice. [Apply comment](https://github.com/acme/infra/pull/42#issuecomment-9001)
+- [`3f9a2c1`](https://github.com/acme/infra/commit/3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c): failed, requested by alice. [Run details](https://stackorder.example.com/runs/7d1f0b2e-3c4a-4e5f-8a9b-0c1d2e3f4a51)
+
+| Wave | Stack | Environment | Add | Change | Destroy | Replace | Status | Job |
+| ---: | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 0 | `stacks/prod/vpc` | production | 2 | 1 | 0 | 0 | planned | [log](https://github.com/acme/infra/actions/runs/1234567/job/101) |
+| 0 | `stacks/staging/vpc` | staging | 0 | 0 | 0 | 0 | planned | [log](https://github.com/acme/infra/actions/runs/1234567/job/102) |
+| 1 | `stacks/prod/eks` | production | 0 | 3 | 0 | 1 | planned | [log](https://github.com/acme/infra/actions/runs/1234567/job/103) |
+| 1 | `stacks/prod/secrets` | production | 1 | 0 | 1 | 0 | planned | [log](https://github.com/acme/infra/actions/runs/1234567/job/104) |
+| 2 | `stacks/prod/apps:blue` | production | 0 | 0 | 2 | 0 | planned | [log](https://github.com/acme/infra/actions/runs/1234567/job/105) |
+
+<details><summary><code>stacks/prod/vpc</code>: planned, 2 to add, 1 to change, 0 to destroy</summary>
+
+```hcl
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+  ~ update in-place
+  - destroy
+
+Terraform will perform the following actions:
+
+  # aws_vpc.main will be created
+  + resource "aws_vpc" "main" {
+      + id   = (known after apply)
+      + tags = {
+          + "team" = "platform"
+        }
+    }
+
+  # aws_subnet.private will be created
+  + resource "aws_subnet" "private" {
+      + id   = (known after apply)
+      + tags = {
+          + "team" = "platform"
+        }
+    }
+
+Plan: 2 to add, 0 to change, 0 to destroy.
+```
+
+</details>
+
+<details><summary><code>stacks/prod/eks</code>: planned, 0 to add, 3 to change, 0 to destroy, 1 to replace</summary>
+
+```hcl
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+  ~ update in-place
+  - destroy
+
+Terraform will perform the following actions:
+
+  # aws_eks_cluster.main will be updated in-place
+  ~ resource "aws_eks_cluster" "main" {
+      ~ id   = (known after apply)
+      ~ tags = {
+          ~ "team" = "platform"
+        }
+    }
+
+  # aws_eks_node_group.default will be updated in-place
+  ~ resource "aws_eks_node_group" "default" {
+      ~ id   = (known after apply)
+      ~ tags = {
+          ~ "team" = "platform"
+        }
+    }
+
+  # aws_iam_role.nodes will be updated in-place
+  ~ resource "aws_iam_role" "nodes" {
+      ~ id   = (known after apply)
+      ~ tags = {
+          ~ "team" = "platform"
+        }
+    }
+
+Plan: 0 to add, 3 to change, 0 to destroy.
+```
+
+</details>
+
+<details><summary><code>stacks/prod/secrets</code>: planned, 1 to add, 0 to change, 1 to destroy</summary>
+
+Plan output is set to `summary` for this stack, so only resource addresses are shown. The full plan is in the job log.
+
+**To add (1)**
+
+- `aws_secretsmanager_secret.db["primary"]`
+
+**To destroy (1)**
+
+- `aws_secretsmanager_secret.legacy`
+
+</details>
+
+<details><summary><code>stacks/prod/apps:blue</code>: planned, 0 to add, 0 to change, 2 to destroy</summary>
+
+```hcl
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+  ~ update in-place
+  - destroy
+
+Terraform will perform the following actions:
+
+  # kubernetes_deployment.api will be destroyed
+  - resource "kubernetes_deployment" "api" {
+      - id   = (known after apply)
+      - tags = {
+          - "team" = "platform"
+        }
+    }
+
+  # kubernetes_service.api will be destroyed
+  - resource "kubernetes_service" "api" {
+      - id   = (known after apply)
+      - tags = {
+          - "team" = "platform"
+        }
+    }
+
+Plan: 0 to add, 0 to change, 2 to destroy.
+```
+
+</details>
+
+---
+<sub>Commands: `stackorder plan [stack…]` · `stackorder apply [stack…]` · `stackorder unlock [stack…]` · `stackorder help`</sub>
