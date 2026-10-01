@@ -24,7 +24,7 @@ Stackorder degrades gracefully but never silently. Every refusal is a PR comment
 
 | Source | What it tells you |
 | --- | --- |
-| The check run output and the sticky PR comment | What the server decided, and why |
+| The check run output, the sticky PR comment and the apply's PR comment | What the server decided, and why |
 | The Actions job log | What the CLI did, and the error it got from the server or from Terraform |
 | The web UI run page | Waves, per-stack status, and links to job logs |
 | The App's delivery log on GitHub | Whether GitHub delivered a webhook, and the server's response |
@@ -135,7 +135,8 @@ The App adds an eyes reaction when it receives a command, and a rocket when it d
 | No reaction | The webhook did not arrive (see above); the commenter has no push permission (audited as `command_ignored`); the command is inside a code block or a quote; or the first two words of the line are not `stackorder` and a known verb |
 | A comment asking to wait | More than 10 commands in a minute on this PR |
 | Eyes, no rocket | The command was refused, or needed no dispatch (`help`, `unlock`); look for the reply comment |
-| Rocket on an apply, no reply yet | The apply is still running, or a wave is waiting for an environment approval. The Stackorder comment shows the current wave and links each pending approval, and the run details page lists every stack. The App replies under the command when the apply succeeds or fails. |
+| Rocket on an apply, no reply yet | The apply is still running, or a wave is waiting for an environment approval. The apply comment under the command shows the current wave and links each pending approval, and the run details page lists every stack. The App replies when the apply succeeds or fails. |
+| Rocket, but no apply comment | Every stack of the apply was a no-op, so it finished before its first update and the reply is its only comment; GitHub refused the dispatch, and the reply says the apply could not start (see the row below); or GitHub refused the comment, logged as `update github for run`, and the next update of the run posts it. A deleted apply comment is not posted again. |
 | Rocket, nothing in Actions | Check that `.github/workflows/stackorder-run.yml` exists on the default branch and declares the inputs `run_id`, `mode`, `wave`, `sha` and `stacks`. A dispatch GitHub refuses is recorded as a warning on the run. |
 
 The command is the first line whose first word is `stackorder` and second word a known verb, both case insensitive.
