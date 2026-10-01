@@ -22,7 +22,24 @@ func TestCommentsGolden(t *testing.T) {
 		{StackKey: "stacks/prod/vpc", RunID: runID, PRNumber: 42, TakenAt: t0, Reason: "apply"},
 		{StackKey: "stacks/prod/eks", RunID: runID, PRNumber: 42, TakenAt: t0},
 	}
+	applied := plannedStacks()
+	for i := range applied {
+		applied[i].Status = v1.StackApplied
+	}
+	applied[1].Status = v1.StackNoop
+	appliedRun := applyRun(v1.RunApplied, applied...)
+	quietRun := applyRun(v1.RunApplied,
+		stack("stacks/prod/vpc", "production", 0, 201, withStatus(v1.StackNoop), withSummary(0, 0, 0, 0)),
+		stack("stacks/prod/dns", "production", 1, 202, withStatus(v1.StackNoop), withSummary(0, 0, 0, 0)))
+	quietRun.Waves = 2
+	subsetRun := applyRun(v1.RunApplied,
+		stack("stacks/prod/vpc", "production", 0, 201, withStatus(v1.StackApplied), withSummary(1, 0, 0, 0)),
+		stack("stacks/prod/eks", "production", 1, 0, withStatus(v1.StackSkipped), withSummary(0, 2, 0, 0)))
+	subsetRun.Waves = 2
 	tests := map[string]string{
+		"applied":            AppliedComment(appliedRun, false, testOpts),
+		"applied_no_changes": AppliedComment(quietRun, true, testOpts),
+		"applied_subset":     AppliedComment(subsetRun, false, Options{}),
 		"refusal":            RefusalComment("stackorder apply", failures, testOpts),
 		"refusal_no_reasons": RefusalComment("stackorder apply stacks/prod/vpc", nil, testOpts),
 		"lock_warning":       LockWarningComment(locks, testOpts),
@@ -44,7 +61,7 @@ func TestCommentsGolden(t *testing.T) {
 
 func TestRenderedCommentsNeverParseAsCommands(t *testing.T) {
 	cases := stickyCases()
-	bodies := make([]string, 0, len(cases)+5+2*len(command.Verbs()))
+	bodies := make([]string, 0, len(cases)+6+2*len(command.Verbs()))
 	for _, tc := range cases {
 		bodies = append(bodies, StickyComment(tc.run, tc.opts))
 	}
@@ -54,6 +71,7 @@ func TestRenderedCommentsNeverParseAsCommands(t *testing.T) {
 		LockWarningComment(locks, testOpts),
 		UnlockedComment(locks, "someone[bot]"),
 		UnconfirmedNote(""),
+		AppliedComment(applyRun(v1.RunApplied, plannedStacks()...), false, testOpts),
 	)
 	for _, v := range command.Verbs() {
 		bodies = append(bodies, CommandAck(command.Command{Verb: v, Stacks: []string{"stacks/a"}}, true), CommandAck(command.Command{Verb: v}, false))
