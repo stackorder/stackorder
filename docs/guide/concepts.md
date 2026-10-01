@@ -170,5 +170,6 @@ A run is one pass over a set of stacks at one commit: a plan for a PR, an apply,
 | Run id | A UUID, used in URLs, workflow inputs and check run output |
 | Check runs | `stackorder/resolve`, `stackorder/plan`, `stackorder/plan: <key>`, `stackorder/apply`, `stackorder/apply: <key>`, and `stackorder/<check-name>: <key>` for named checks |
 | Sticky PR comment | One per PR, found by the hidden marker `<!-- stackorder:sticky -->` on its first line |
+| Apply PR comment | One per apply run of a pull request, found by the hidden marker `<!-- stackorder:run:<run id> -->` on its first line |
 | Plan artifact | `stackorder-plan-<slug>-<sha>`, the slug being the key with `/` and `:` replaced by `-`, then `-` and the first 8 hex characters of the key's SHA-256; the file inside is `<artifact name>.tfplan` |
 | Default environment | The instance name for an instance nothing maps; `default` for a stack with no instance that matches no prefix |

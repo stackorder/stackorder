@@ -121,15 +121,17 @@ sequenceDiagram
     S->>GH: comment naming the failing layer and the reason
   else the apply gate passes
     S->>S: take locks on every affected stack
+    S->>GH: apply comment under the command, edited as each wave runs
     loop each wave, in order
       S->>Run: workflow_dispatch, mode apply, wave n
       Note over Run: one job per stack, under its GitHub environment
       Run->>S: apply result per stack
       break a stack failed
         S->>GH: dependents blocked, stackorder/apply red, locks held
+        S->>GH: reply naming the failed stack
       end
     end
-    S->>GH: stackorder/apply green
+    S->>GH: stackorder/apply green and a reply under the apply comment
     Dev->>GH: Merge the pull request
     GH->>S: pull_request closed, locks released
   end
@@ -292,7 +294,7 @@ One Go binary, one distroless image of roughly 30 MB, one Postgres database, and
 | `worker` | Goroutine pool that claims events and jobs with `SELECT ... FOR UPDATE SKIP LOCKED`; every handler is idempotent so a crashed task's work is simply re-claimed. This replaces SQS. |
 | `graph` | Graph store and the resolution algorithm from the previous section: affected set, propagation, waves, cycle detection, cross-repo edges. Pure functions over in-memory structs, fully unit-testable. |
 | `runs` | State machine for a run: `pending`, `planning`, `planned`, `applying`, `applied`, `failed`, `unconfirmed`; per-stack sub-states including `blocked` and `noop`. Owns locks. |
-| `gh` | GitHub App client: JWT to installation token (cached until 5 minutes before expiry), check runs, sticky comment upsert, `workflow_dispatch`, `workflow_run` reconciliation. Retries with the `Retry-After` header respected. |
+| `gh` | GitHub App client: JWT to installation token (cached until 5 minutes before expiry), check runs, sticky comment upsert, marker lookup of an apply's comment, `workflow_dispatch`, `workflow_run` reconciliation. Retries with the `Retry-After` header respected. |
 | `oidc` | Verifies runner tokens against `https://token.actions.githubusercontent.com/.well-known/jwks` (cached), checks `aud`, `repository`, `sha`, `run_id` and optionally `job_workflow_ref`. |
 | `sched` | Cron scheduler for drift and stale-lock reminders; leader elected with a Postgres advisory lock so one task schedules and any task executes. |
 | `api` | JSON API for runners (OIDC), humans (session cookie from GitHub OAuth) and automation (admin API keys hashed in Postgres). |
@@ -313,7 +315,7 @@ The implementation has more packages: `config`, `scan`, `graph`, `report`, `comm
 | `stacks` | `id`, `repo_id`, `path`, `workspace`, `backend_bucket`, `backend_key`, `environment`, `config` (jsonb) | Stable identity across graphs, so history survives commits; `environment` is the GitHub environment the apply job runs under |
 | `modules` | `id`, `source_key`, `kind` (`local`, `git`, `registry`) | `source_key` is the normalised identity from the previous section |
 | `edges` | `graph_id`, `from_kind`, `from_id`, `to_kind`, `to_id`, `type`, `inferred`, `meta` | `meta` holds the git `ref` for module edges |
-| `runs` | `id`, `repo_id`, `sha`, `pr_number`, `trigger`, `mode`, `status`, `requested_by`, `started_at`, `finished_at` | `trigger` is `pull_request`, `comment`, `push`, `schedule`, `rerequest` |
+| `runs` | `id`, `repo_id`, `sha`, `pr_number`, `trigger`, `mode`, `status`, `requested_by`, `comment_id`, `started_at`, `finished_at` | `trigger` is `pull_request`, `comment`, `push`, `schedule`, `rerequest`; `comment_id` is the PR comment that tracks an apply |
 | `run_stacks` | `run_id`, `stack_id`, `wave`, `status`, `adds`, `changes`, `destroys`, `replaces`, `exit_code`, `job_url`, `plan_artifact`, `summary` (jsonb), `plan_text` (text, capped at 256 KB) | One row per stack per run; this is the observability core |
 | `locks` | `stack_id`, `run_id`, `pr_number`, `taken_at`, `reason` | Primary key on `stack_id`, so a lock is unique by construction |
 | `drift` | `stack_id`, `checked_at`, `drifted`, `summary` (jsonb), `issue_number` | Latest row per stack is what the UI shows; history kept 90 days |
@@ -376,7 +378,7 @@ The App is the server's only identity towards GitHub and the only way GitHub rea
 | --- | --- | --- |
 | Metadata | Read | Required for any App |
 | Contents | Read | Read `stackorder.yaml` at the default branch to decide policy without dispatching a job; read tags on module repos |
-| Pull requests | Write | Sticky comment, reaction on `stackorder apply`, reading approvals and mergeability |
+| Pull requests | Write | Sticky comment, apply comments, reaction on `stackorder apply`, reading approvals and mergeability |
 | Checks | Write | One check run per stack per phase, plus roll-ups |
 | Actions | Write | `workflow_dispatch` for `stackorder-run.yml`; reading `workflow_run` and `workflow_job` state; reading artifact metadata |
 | Issues | Write (optional) | Only if drift issues are enabled |
@@ -407,7 +409,7 @@ The manifest subscribes to `deployment_protection_rule` by default, except on Gi
 Sign-in asks GitHub for the `read:org` scope only. A session is issued to a user whose own account, or one of whose organisations, has the App installed.
 :::
 
-**Comment commands** (posted on the PR by anyone the apply policy allows; see Apply authorization): `stackorder plan [stack…]` re-plans; `stackorder apply [stack…]` applies, optionally a subset (dependency waves are still honoured within the subset); `stackorder unlock [stack…]` releases orchestration locks; `stackorder help` prints the list. The App reacts with an eyes emoji on receipt and a rocket when dispatched, so a dropped command is visible, and replies with the result when an apply finishes, on success as on failure.
+**Comment commands** (posted on the PR by anyone the apply policy allows; see Apply authorization): `stackorder plan [stack…]` re-plans; `stackorder apply [stack…]` applies, optionally a subset (dependency waves are still honoured within the subset); `stackorder unlock [stack…]` releases orchestration locks; `stackorder help` prints the list. The App reacts with an eyes emoji on receipt and a rocket when dispatched, so a dropped command is visible, posts one comment per apply under the command and edits it as the waves run, and replies with the result when an apply finishes, on success as on failure.
 
 ::: info Implementation note
 Commands are accepted only from users with push permission, whatever the apply policy; the gate then applies `allowed_teams`. `stackorder unlock` releases only the locks of the pull request it is posted on, and `stackorder plan` dispatches `mode: plan` under the environment `default`. The rate limit is counted from the audit log.
@@ -515,7 +517,7 @@ Write access to the repo is the floor, not the ceiling: apply is gated by five l
 
 **2. Code-owner approval as a prerequisite.** `CODEOWNERS` maps `stacks/prod/**` to `@acme/platform-prod`, and branch protection requires review from code owners. In `on_merge` mode that alone is a hard gate, since apply follows merge and GitHub will not merge without the owning team's approval. In `before_merge` mode, `apply.require_codeowner_review: true` makes the apply gate check that at least one `APPROVED` review on the current head SHA comes from a member of the owning team for each affected stack (`GET /repos/{owner}/{repo}/pulls/{n}/reviews`, filtered by `commit_id`), and `apply.four_eyes: true` refuses an apply requested by the PR author. Still a server check, but it reuses GitHub's review audit trail and pairs with the merge rule.
 
-**3. GitHub Environments.** The reusable `run.yml` declares `environment: ${{ matrix.environment }}` on the apply job, and the server assigns each stack an environment from the `environments` map in `stackorder.yaml`, whose keys are a path prefix, `prefix:instance` or `:instance` (overridable per stack and per instance; an instance nothing maps runs under the environment of its own name). Required reviewers on that environment pause the job until a listed user or team member approves in the Actions UI; "prevent self-review" stops the requester approving their own deployment, and a deployment-branch rule limits the environment to the default branch. The server cannot approve, because the App has no Environments permission and an App cannot be a required reviewer, so this gate holds even if the server is fully compromised. Two design consequences: the server dispatches each wave as one run per environment it touches, so a mixed run does not hold staging behind the prod reviewer; and the sticky PR comment links straight to the pending approval so reviewers do not hunt for it. With one dispatch per wave, a three-wave prod apply asks for three approvals; collapsing an apply into a single run with waves as chained jobs is listed under open questions.
+**3. GitHub Environments.** The reusable `run.yml` declares `environment: ${{ matrix.environment }}` on the apply job, and the server assigns each stack an environment from the `environments` map in `stackorder.yaml`, whose keys are a path prefix, `prefix:instance` or `:instance` (overridable per stack and per instance; an instance nothing maps runs under the environment of its own name). Required reviewers on that environment pause the job until a listed user or team member approves in the Actions UI; "prevent self-review" stops the requester approving their own deployment, and a deployment-branch rule limits the environment to the default branch. The server cannot approve, because the App has no Environments permission and an App cannot be a required reviewer, so this gate holds even if the server is fully compromised. Two design consequences: the server dispatches each wave as one run per environment it touches, so a mixed run does not hold staging behind the prod reviewer; and the apply's PR comment links straight to the pending approval so reviewers do not hunt for it. With one dispatch per wave, a three-wave prod apply asks for three approvals; collapsing an apply into a single run with waves as chained jobs is listed under open questions.
 
 ::: info Implementation note
 A stack that matches no prefix and sets no `environment` of its own runs under the environment `default`, never under an empty name. Plan and drift dispatches always run under `default`. A dispatch carries at most `apply.max_parallel` stacks, so a large wave for one environment is several runs, each gated on its own. See [Workflows](/configuration/workflows#environments).

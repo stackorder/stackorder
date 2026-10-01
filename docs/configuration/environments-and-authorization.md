@@ -116,7 +116,7 @@ The server cannot approve: the App has no Environments permission, and an App ca
 
 Two consequences of the design:
 
-- The server dispatches each wave as one run per environment it touches, so a mixed run does not hold staging behind the production reviewer. The sticky PR comment links straight to the pending approval.
+- The server dispatches each wave as one run per environment it touches, so a mixed run does not hold staging behind the production reviewer. The apply's PR comment links straight to the pending approval.
 - With one dispatch per wave, a three-wave production apply asks for three approvals.
 
 ## Layer 4: the App as a deployment protection rule {#layer-4}

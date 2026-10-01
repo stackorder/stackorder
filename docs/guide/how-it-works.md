@@ -141,21 +141,25 @@ sequenceDiagram
     S->>GH: comment naming the failing layer and the reason
   else the apply gate passes
     S->>S: take locks on every affected stack
+    S->>GH: apply comment under the command, edited as each wave runs
     loop each wave, in order
       S->>Run: workflow_dispatch, mode apply, wave n
       Note over Run: one job per stack, under its GitHub environment
       Run->>S: apply result per stack
       break a stack failed
         S->>GH: dependents blocked, stackorder/apply red, locks held
+        S->>GH: reply naming the failed stack
       end
     end
-    S->>GH: stackorder/apply green
+    S->>GH: stackorder/apply green and a reply under the apply comment
     Dev->>GH: Merge the pull request
     GH->>S: pull_request closed, locks released
   end
 ```
 
 The resolve job posts the repository's graph for the commit. The server answers with the affected stacks, and the plan matrix fans out one job per stack. After approval, the server takes stack locks and dispatches `stackorder-run.yml` per wave. A red wave blocks its dependents and stops the run. A green last wave turns the `stackorder/apply` check green, so the PR can merge.
+
+The sticky comment holds the plans of the head commit. An apply does not rewrite it, apart from its list of applies, which links each apply's own comment. Each apply of a pull request gets one comment, posted under its command, or after the merge in `on_merge` mode, and edited as the waves run: it shows the current wave, the pending environment approvals and a row per stack. When the apply succeeds or fails, the App replies with the result.
 
 In `on_merge` mode the gate runs when the PR merges, and the waves apply the merged commit. Branch protection and required reviews then gate the merge itself.
 

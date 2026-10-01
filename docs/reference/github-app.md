@@ -14,7 +14,7 @@ The manifest the server generates, in `internal/gh/manifest.go`, requests these 
 | --- | --- | --- | --- |
 | Metadata | Read | Required for any App | Always |
 | Contents | Read | Read `stackorder.yaml`, `.stackorder.yaml` files and `CODEOWNERS` at the default branch, and branch heads | Always |
-| Pull requests | Write | The sticky comment, refusal comments, reactions to commands, reviews, mergeability and head commits | Always |
+| Pull requests | Write | The sticky comment, the comment of each apply, refusal comments, reactions to commands, reviews, mergeability and head commits | Always |
 | Checks | Write | One check run per stack per phase, the roll-ups, named checks | Always |
 | Actions | Write | `workflow_dispatch` of `stackorder-run.yml`; reading workflow runs and jobs to reconcile | Always |
 | Issues | Write | Drift issues | `drift.open_issue: true` |
@@ -103,10 +103,10 @@ stackorder apply stacks/prod/vpc stacks/prod/apps
 
 - Commands are accepted only from users with push permission on the repository; others are ignored, and audited as `command_ignored`.
 - Each pull request may send 10 commands a minute, counted from the audit log. The first command over the limit gets a comment asking to wait.
-- The App adds an eyes reaction when it accepts a command and a rocket when it dispatches, so a dropped command is visible, and replies under an apply when it finishes, whether it succeeded or failed. Every refusal is a comment with the reason.
+- The App adds an eyes reaction when it accepts a command and a rocket when it dispatches, so a dropped command is visible. For an apply it then posts the apply comment under the command, edits it as the apply runs, and replies when the apply finishes, whether it succeeded or failed. Every refusal is a comment with the reason.
 - A comment runs at most once, however often GitHub delivers it. A command that fails part way is answered with a comment asking for it to be posted again.
 
-## Checks and the sticky comment {#checks}
+## Checks and comments {#checks}
 
 | Check run | Meaning |
 | --- | --- |
@@ -119,7 +119,9 @@ stackorder apply stacks/prod/vpc stacks/prod/apps
 
 Require `stackorder/plan` in branch protection, and `stackorder/apply` too in `before_merge` mode. In `on_merge` mode the apply runs after the merge, so a required `stackorder/apply` check would block every merge. Stackorder reports; GitHub enforces the merge.
 
-Each pull request has one sticky comment, found by the hidden marker `<!-- stackorder:sticky -->` on its first line and by the App's own login. It has a collapsible section per stack, and links to pending environment approvals.
+Each pull request has one sticky comment, found by the hidden marker `<!-- stackorder:sticky -->` on its first line and by the App's own login. It shows the plans of the head commit, with a collapsible section per stack, and lists the pull request's applies under **Applies**, each linking its apply comment, or the run details when it has none.
+
+Each apply run of a pull request has its own comment, whose first line is the hidden marker `<!-- stackorder:run:<run id> -->`. It shows the waves, the pending environment approvals and a row per stack, and the server edits it as the apply runs. The server records the comment's id, so each run keeps one comment, and a deleted apply comment is not posted again.
 
 ## Fork pull requests {#forks}
 
