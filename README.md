@@ -23,6 +23,15 @@
 
 Stackorder plans every stack a pull request affects and applies them in dependency waves on your GitHub Actions runners. Its server never holds cloud credentials or state.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/public/screenshots/ui-graph-replay-dark.png">
+    <img alt="The dependency graph in the web UI replaying a change to modules/vpc: both VPC stacks in wave 0, both EKS stacks in wave 1 and stacks/prod/apps in wave 2." src="docs/public/screenshots/ui-graph-replay-light.png" width="852">
+  </picture>
+  <br>
+  <sub>A change to <code>modules/vpc</code> replayed in the web UI, with sample data: five affected stacks in three apply waves.</sub>
+</p>
+
 **Try it:** the [local demo](docs/guide/local-demo.md) (no GitHub App, no AWS account) · [getting started](docs/guide/getting-started.md) (GitHub App and AWS)
 
 > **Status:** v0.3.0. The [changelog](CHANGELOG.md) lists what ships and where the code departs from the [design](https://docs.stackorder.io/design/); [How it is tested](#how-it-is-tested) says what the tests cover and what they do not.
@@ -65,6 +74,13 @@ Last reviewed 2026-09-30. The [comparison page](docs/guide/comparison.md) cites 
 3. A `stackorder apply` comment (`before_merge`, the default), or the merge itself (`on_merge`), goes through the apply gate: who asked, pull request state and approvals, fresh plans on the head commit, named policy checks, and locks. All failures are reported together in one comment. When the gate passes, the server takes locks on every affected stack and dispatches `.github/workflows/stackorder-run.yml` once per wave and GitHub environment, with the inputs `run_id`, `mode`, `wave`, `sha` and `stacks`.
 4. Each job of the reusable `run.yml` runs under the stack's GitHub environment, so environment reviewers and the AWS role's trust policy are the hard gates, and applies the plan file from the plan run. Wave n+1 is dispatched only when every stack of wave n has finished and none failed; a failed stack blocks its dependents.
 5. On a `drift.schedule`, the server dispatches `mode: drift` per stack under the environment `default` and can open one GitHub issue per drifted stack.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/public/screenshots/ui-run-waves-dark.png">
+    <img alt="A run page in the web UI for a failed apply of PR #42: wave 0 with both VPC stacks applied, wave 1 with stacks/prod/eks failed and stacks/staging/eks applied, and wave 2 with stacks/prod/apps blocked and not dispatched." src="docs/public/screenshots/ui-run-waves-light.png" width="720">
+  </picture>
+</p>
 
 The runner authenticates to the server with its GitHub OIDC token, bound to the pull request or to the dispatch it belongs to. There are no shared secrets between the runner and the server.
 
