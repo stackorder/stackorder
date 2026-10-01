@@ -105,6 +105,9 @@ func (s *Service) renderLocked(ctx context.Context, tx *store.Store, c *gh.Clien
 			return w.errs, err
 		}
 	}
+	if run.Mode == v1.ModeApply && run.PRNumber > 0 {
+		s.renderRunComment(ctx, w, &run, detail, opts)
+	}
 	if run.PRNumber > 0 {
 		if err := s.renderSticky(ctx, w, repo, run.PRNumber, opts); err != nil {
 			return w.errs, err
@@ -157,15 +160,24 @@ func (s *Service) renderSticky(ctx context.Context, w *checkWriter, repo store.R
 		if view, err = runView(ctx, w.tx, latest.ID); err != nil {
 			return err
 		}
-		if latest.Status == v1.RunApplying {
-			opts.PendingApprovals = s.pendingApprovals(ctx, w, latest)
-		}
 	}
 	body := report.StickyComment(view, opts)
 	if _, err := w.c.UpsertStickyComment(ctx, repo.FullName, pr, report.Marker, body); err != nil {
 		w.errs = append(w.errs, fmt.Errorf("runs: sticky comment on %s#%d: %w", repo.FullName, pr, err))
 	}
 	return nil
+}
+
+func (s *Service) renderRunComment(ctx context.Context, w *checkWriter, run *store.Run, detail v1.Run, opts report.Options) {
+	if run.CommentID != nil && *run.CommentID == 0 {
+		return
+	}
+	if run.Status == v1.RunApplying {
+		opts.PendingApprovals = s.pendingApprovals(ctx, w, *run)
+	}
+	if err := w.runComment(ctx, run, report.RunComment(detail, opts)); err != nil {
+		w.errs = append(w.errs, fmt.Errorf("runs: comment of run %s: %w", run.ID, err))
+	}
 }
 
 func (s *Service) pendingApprovals(ctx context.Context, w *checkWriter, run store.Run) []report.Approval {
@@ -293,6 +305,53 @@ func (w *checkWriter) upsert(ctx context.Context, run *store.Run, name string, p
 		run.CheckRuns = map[string]int64{}
 	}
 	run.CheckRuns[name] = cr.ID
+	return nil
+}
+
+func (w *checkWriter) runComment(ctx context.Context, run *store.Run, body string) error {
+	if run.CommentID != nil {
+		if *run.CommentID == 0 {
+			return nil
+		}
+		_, err := w.c.UpdateIssueComment(ctx, w.repo.FullName, *run.CommentID, body)
+		if !errors.Is(err, gh.ErrNotFound) {
+			return err
+		}
+		return w.setRunComment(ctx, run, 0)
+	}
+	found, err := w.c.OwnComments(ctx, w.repo.FullName, run.PRNumber, report.RunMarker(run.ID.String()))
+	if err != nil {
+		return err
+	}
+	var id int64
+	switch {
+	case len(found) > 0:
+		id = found[0].ID
+		for _, dup := range found[1:] {
+			if err := w.c.DeleteIssueComment(ctx, w.repo.FullName, dup.ID); err != nil && !errors.Is(err, gh.ErrNotFound) {
+				return err
+			}
+		}
+		if found[0].Body != body {
+			if _, err := w.c.UpdateIssueComment(ctx, w.repo.FullName, id, body); err != nil {
+				return err
+			}
+		}
+	case !run.Status.Terminal():
+		created, err := w.c.CreateIssueComment(ctx, w.repo.FullName, run.PRNumber, body)
+		if err != nil {
+			return err
+		}
+		id = created.ID
+	}
+	return w.setRunComment(ctx, run, id)
+}
+
+func (w *checkWriter) setRunComment(ctx context.Context, run *store.Run, id int64) error {
+	if err := w.tx.SetRunComment(ctx, run.ID, id); err != nil {
+		return err
+	}
+	run.CommentID = &id
 	return nil
 }
 

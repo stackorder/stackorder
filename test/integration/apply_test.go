@@ -132,11 +132,11 @@ func TestApplyAcrossWaves(t *testing.T) {
 	assert.Equal(t, "Applied: 1 added, 0 changed, 0 destroyed", f.check(head, report.StackCheckName(report.CheckApply, prodVPC)).Output.Title)
 	assert.Equal(t, "Applied: 0 added, 1 changed, 0 destroyed", f.check(head, report.StackCheckName(report.CheckApply, prodEKS)).Output.Title)
 	assert.Equal(t, "No changes, nothing to apply", f.check(head, report.StackCheckName(report.CheckApply, prodApps)).Output.Title)
-	sticky := f.sticky(10)
-	assert.Contains(t, sticky.Body, "### Stackorder: applied")
-	assert.Contains(t, sticky.Body, "| 0 | `stacks/prod/vpc` | production | 1 | 0 | 0 | 0 | applied |")
-	assert.Contains(t, sticky.Body, "| 1 | `stacks/prod/eks` | production | 0 | 1 | 0 | 0 | applied |")
-	assert.Contains(t, sticky.Body, "| 1 | `stacks/staging/apps` | staging | 0 | 0 | 0 | 0 | no-op |")
+	applyComment := f.runComment(10, a.runID)
+	assert.Contains(t, applyComment.Body, "### Stackorder apply: applied")
+	assert.Contains(t, applyComment.Body, "| 0 | `stacks/prod/vpc` | production | 1 | 0 | 0 | 0 | applied |")
+	assert.Contains(t, applyComment.Body, "| 1 | `stacks/prod/eks` | production | 0 | 1 | 0 | 0 | applied |")
+	assert.Contains(t, applyComment.Body, "| 1 | `stacks/staging/apps` | staging | 0 | 0 | 0 | 0 | no-op |")
 	assert.Len(t, f.locks(), 5, "before_merge keeps the locks until the pull request merges")
 
 	merged := f.co.merge(head, "Merge pull request #10 from acme/feature/vpc-subnet")
@@ -191,7 +191,7 @@ func TestApplyFailureBlocksDependents(t *testing.T) {
 	failure := replies[0].Body
 	assert.Contains(t, failure, "**Apply failed** in wave 0 of `"+head[:7]+"`: `stacks/prod/vpc` (failed). Blocked dependents: `stacks/prod/eks`. Later waves were not dispatched.")
 	assert.Contains(t, failure, "The orchestration locks stay held")
-	assert.Contains(t, f.sticky(11).Body, "### Stackorder: failed")
+	assert.Contains(t, f.runComment(11, a.runID).Body, "### Stackorder apply: failed")
 
 	cmd := f.comment(11, applier, "stackorder unlock stacks/prod/vpc stacks/prod/eks")
 	replies = f.botComments(11, cmd.ID)
