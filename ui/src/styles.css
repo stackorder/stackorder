@@ -719,6 +719,10 @@ label {
   gap: 0.5rem;
 }
 
+.controls__run {
+  max-width: 100%;
+}
+
 .controls__run select {
   max-width: min(100%, 36rem);
 }
