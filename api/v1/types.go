@@ -484,8 +484,14 @@ type Run struct {
 	Waves       int        `json:"waves"`
 	CurrentWave int        `json:"current_wave"`
 	Stacks      []RunStack `json:"stacks,omitempty"`
-	Warnings    []string   `json:"warnings,omitempty"`
-	HTMLURL     string     `json:"html_url,omitempty"`
+	// StackCount, StackKeys and Summary sum up the stacks of a run in run
+	// lists, which omit Stacks: how many the run covers, the first of their
+	// keys in wave order, and their summed plan summaries once one has any.
+	StackCount int          `json:"stack_count,omitempty"`
+	StackKeys  []string     `json:"stack_keys,omitempty"`
+	Summary    *PlanSummary `json:"summary,omitempty"`
+	Warnings   []string     `json:"warnings,omitempty"`
+	HTMLURL    string       `json:"html_url,omitempty"`
 }
 
 // RunStack is one stack's row inside a run.

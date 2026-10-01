@@ -329,6 +329,8 @@ func TestRepoRuns(t *testing.T) {
 	assert.Equal(t, testBaseURL+"/runs/"+w.planRun.ID.String(), page.Items[1].HTMLURL)
 	assert.Equal(t, "octocat", page.Items[1].RequestedBy)
 	assert.Equal(t, 3, page.Items[1].Waves)
+	assert.Equal(t, 3, page.Items[1].StackCount, "list items sum up their stacks")
+	assert.Equal(t, []string{"stacks/prod/vpc", "stacks/prod/eks", "stacks/prod/apps:blue"}, page.Items[1].StackKeys)
 
 	byPR := decodeBody[v1.Page[v1.Run]](t, w.ok("/v1/repos/acme/infra/runs?pr=7", true))
 	require.Len(t, byPR.Items, 1)

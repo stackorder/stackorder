@@ -80,8 +80,8 @@ func (s *Store) Overview(ctx context.Context, accounts ...string) (v1.Overview, 
 	if err != nil {
 		return v1.Overview{}, wrap(op, err)
 	}
-	for _, r := range runs {
-		out.RecentRuns = append(out.RecentRuns, r.ToV1())
+	if out.RecentRuns, err = s.RunsToV1(ctx, runs); err != nil {
+		return v1.Overview{}, wrap(op, err)
 	}
 	return out, nil
 }

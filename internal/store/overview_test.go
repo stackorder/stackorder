@@ -130,3 +130,50 @@ func TestOverviewAndRepoSummaries(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, none, "an empty account name must not widen the scope to every repository")
 }
+
+func TestRunsToV1SumsUpStacks(t *testing.T) {
+	f := newFixture(t)
+	keys := []string{"stacks/a", "stacks/b", "stacks/c", "stacks/d", "stacks/e", "stacks/f", "stacks/g"}
+	ids := f.stacks(keys...)
+
+	planned := f.run(store.CreateRunParams{SHA: "s1", PRNumber: 1, Status: v1.RunPlanned})
+	var rows []store.RunStack
+	for i, k := range keys {
+		rows = append(rows, store.RunStack{StackID: ids[k], Wave: len(keys) - 1 - i, Status: v1.StackPlanned})
+	}
+	rows[0].Summary = &v1.PlanSummary{Adds: 2, Destroys: 1, Imports: 1}
+	rows[0].Adds, rows[0].Destroys = 2, 1
+	rows[1].Summary = &v1.PlanSummary{Changes: 3, Replaces: 1, OutputChanges: 2}
+	rows[1].Changes, rows[1].Replaces = 3, 1
+	require.NoError(t, f.s.UpsertRunStacks(f.ctx, planned.ID, rows))
+
+	apply := f.run(store.CreateRunParams{SHA: "s1", PRNumber: 1, Mode: v1.ModeApply, Status: v1.RunApplying})
+	require.NoError(t, f.s.UpsertRunStacks(f.ctx, apply.ID, []store.RunStack{
+		{StackID: ids["stacks/a"], Mode: v1.ModeApply, Status: v1.StackApplying},
+		{StackID: ids["stacks/b"], Mode: v1.ModeApply, Status: v1.StackSkipped, Summary: &v1.PlanSummary{Adds: 9}, Adds: 9},
+	}))
+
+	empty := f.run(store.CreateRunParams{SHA: "s2", PRNumber: 2})
+
+	got, err := f.s.RunsToV1(f.ctx, []store.Run{planned, apply, empty})
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+
+	assert.Equal(t, planned.ID.String(), got[0].ID)
+	assert.Equal(t, 7, got[0].StackCount)
+	assert.Equal(t, []string{"stacks/g", "stacks/f", "stacks/e", "stacks/d", "stacks/c"}, got[0].StackKeys,
+		"keys are listed in wave order, up to the cap")
+	assert.Equal(t, &v1.PlanSummary{Adds: 2, Changes: 3, Destroys: 1, Replaces: 1, Imports: 1, OutputChanges: 2}, got[0].Summary)
+
+	assert.Equal(t, 1, got[1].StackCount, "the stacks an apply skips are left out")
+	assert.Equal(t, []string{"stacks/a"}, got[1].StackKeys)
+	assert.Nil(t, got[1].Summary, "no summary until a stack has one")
+
+	assert.Zero(t, got[2].StackCount)
+	assert.Nil(t, got[2].StackKeys)
+	assert.Nil(t, got[2].Summary)
+
+	none, err := f.s.RunsToV1(f.ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, none)
+}

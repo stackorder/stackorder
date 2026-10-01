@@ -253,6 +253,73 @@ func (s *Store) ListRuns(ctx context.Context, f RunFilter) ([]Run, string, error
 	return out, next, nil
 }
 
+// MaxListedStackKeys caps the stack keys RunsToV1 lists per run.
+const MaxListedStackKeys = 5
+
+type runRollup struct {
+	RunID         uuid.UUID `db:"run_id"`
+	Stacks        int       `db:"stacks"`
+	Keys          []string  `db:"keys"`
+	Summarized    int       `db:"summarized"`
+	Adds          int       `db:"adds"`
+	Changes       int       `db:"changes"`
+	Destroys      int       `db:"destroys"`
+	Replaces      int       `db:"replaces"`
+	Imports       int       `db:"imports"`
+	Moves         int       `db:"moves"`
+	OutputChanges int       `db:"output_changes"`
+}
+
+// RunsToV1 converts runs for a run list, with the stack count, the first
+// stack keys and the summed plan summary of each. The stacks an apply run
+// skips are left out.
+func (s *Store) RunsToV1(ctx context.Context, runs []Run) ([]v1.Run, error) {
+	if len(runs) == 0 {
+		return []v1.Run{}, nil
+	}
+	ids := make([]uuid.UUID, len(runs))
+	for i, r := range runs {
+		ids[i] = r.ID
+	}
+	rollups, err := queryAll[runRollup](ctx, s.db, `
+		SELECT rs.run_id, count(*) AS stacks,
+		       (array_agg(s.key ORDER BY rs.wave, s.key))[1:$3] AS keys,
+		       count(rs.summary) AS summarized,
+		       COALESCE(sum(rs.adds), 0) AS adds,
+		       COALESCE(sum(rs.changes), 0) AS changes,
+		       COALESCE(sum(rs.destroys), 0) AS destroys,
+		       COALESCE(sum(rs.replaces), 0) AS replaces,
+		       COALESCE(sum((rs.summary->>'imports')::integer), 0) AS imports,
+		       COALESCE(sum((rs.summary->>'moves')::integer), 0) AS moves,
+		       COALESCE(sum((rs.summary->>'output_changes')::integer), 0) AS output_changes
+		FROM run_stacks rs JOIN stacks s ON s.id = rs.stack_id
+		WHERE rs.run_id = ANY($1::uuid[]) AND rs.status <> $2
+		GROUP BY rs.run_id`, ids, v1.StackSkipped, MaxListedStackKeys)
+	if err != nil {
+		return nil, wrap("sum up runs", err)
+	}
+	byRun := make(map[uuid.UUID]runRollup, len(rollups))
+	for _, r := range rollups {
+		byRun[r.RunID] = r
+	}
+	out := make([]v1.Run, len(runs))
+	for i, r := range runs {
+		out[i] = r.ToV1()
+		ru, ok := byRun[r.ID]
+		if !ok {
+			continue
+		}
+		out[i].StackCount, out[i].StackKeys = ru.Stacks, ru.Keys
+		if ru.Summarized > 0 {
+			out[i].Summary = &v1.PlanSummary{
+				Adds: ru.Adds, Changes: ru.Changes, Destroys: ru.Destroys, Replaces: ru.Replaces,
+				Imports: ru.Imports, Moves: ru.Moves, OutputChanges: ru.OutputChanges,
+			}
+		}
+	}
+	return out, nil
+}
+
 // UpdateRunStatus moves a run to status. started_at is stamped the first
 // time the run enters planning or applying; finished_at is stamped when it
 // enters planned or a terminal status and cleared when it starts again.
