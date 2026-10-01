@@ -7,6 +7,7 @@ All notable changes to this repository are documented here. The format follows [
 ### Added
 
 - The page `/setup/callback` has a step to give the App a logo, linking to the App's settings on GitHub and to the logo, served at `/setup/logo.png` in and out of setup mode. An App without a logo shows its owner's avatar on every comment and check, and GitHub sets the logo only in its settings page. See [Logo](docs/reference/github-app.md#logo).
+- An apply that succeeds gets a reply on the pull request, as a failed one already did, with what was applied and whether the orchestration locks were released or stay held until the merge. The sticky comment was created at plan time and sits above the `stackorder apply` command, so the timeline used to end on the command and its reactions, and editing a comment notifies nobody. See [Command ignored](docs/operations/troubleshooting.md#command-ignored).
 
 ### Fixed
 
