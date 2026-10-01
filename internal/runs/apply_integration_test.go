@@ -288,6 +288,8 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	planRun := e.planned(7, headSHA)
 	planIDs := e.planRunIDs(planRun)
+	stickyID := e.gh.Comments(repoName, 7)[0].ID
+	stickyPatches := e.patches(stickyID)
 
 	cm := e.comment(7, applier, "stackorder apply")
 	assert.Equal(t, []string{gh.ReactionEyes, gh.ReactionRocket}, e.gh.Reactions(cm.ID))
@@ -312,6 +314,15 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	stored := e.storedRun(apply.ID).CommentID
 	require.NotNil(t, stored)
 	assert.Equal(t, applyComment.ID, *stored)
+	applyLink := "[Apply comment](https://github.com/acme/infra/pull/7#issuecomment-" + strconv.FormatInt(applyComment.ID, 10) + ")"
+	sticky := e.sticky(7)
+	assert.Contains(t, sticky, "### Stackorder: planned")
+	assert.Contains(t, sticky, "**Applies**")
+	assert.Contains(t, sticky, "- [`3333333`](https://github.com/acme/infra/commit/"+headSHA+"): applying, requested by octocat. "+applyLink,
+		"the sticky links the apply comment created earlier in the same render")
+	assert.NotContains(t, sticky, "Waiting for approval")
+	assert.NotContains(t, sticky, "| applied |")
+	assert.NotContains(t, sticky, "awaiting approval")
 
 	wave0 := e.gh.Dispatches()
 	require.Len(t, wave0, 2, "one dispatch per environment")
@@ -363,6 +374,7 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	assert.Contains(t, waitingBody, "**Waiting for approval**")
 	assert.Contains(t, waitingBody, "https://github.com/acme/infra/actions/runs/")
 	assert.Contains(t, waitingBody, "awaiting approval")
+	assert.NotContains(t, e.sticky(7), "Waiting for approval", "pending approvals are shown on the apply comment only")
 	assert.Equal(t, v1.StackApplying, stackStatuses(e.run(apply.ID))[vpc])
 	e.gh.SetPendingDeployments(repoName, prod.RunID, nil)
 
@@ -401,7 +413,10 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	check := e.check(report.CheckApply)
 	assert.Equal(t, gh.ConclusionSuccess, check.Conclusion)
 	assert.Equal(t, headSHA, check.HeadSHA)
-	assert.Contains(t, e.sticky(7), "### Stackorder: applied")
+	sticky = e.sticky(7)
+	assert.Contains(t, sticky, "### Stackorder: planned", "the sticky keeps the plans once the apply ran")
+	assert.Contains(t, sticky, "): applied, requested by octocat. "+applyLink)
+	assert.Equal(t, stickyPatches+2, e.patches(stickyID), "the sticky is edited when the apply starts and when it ends")
 	require.Len(t, e.runComments(7), 1, "a duplicate last result and the completed workflow run post no second apply comment")
 	assert.Contains(t, e.runComment(7, apply.ID).Body, "### Stackorder apply: applied")
 	assert.Equal(t, map[string]int{vpc: 7, staging: 7, eks: 7, apps: 7}, e.locks(), "before_merge keeps the locks until the merge")
@@ -669,6 +684,66 @@ func TestDeletedApplyCommentIsNotPostedAgain(t *testing.T) {
 	assert.Equal(t, v1.RunApplied, e.run(apply.ID).Status)
 	assert.Empty(t, e.runComments(7))
 	assert.Contains(t, e.lastComment(7), "**Apply of `3333333` succeeded.**")
+	assert.Contains(t, e.sticky(7), "): applied, requested by octocat. [Run details](https://stackorder.test/runs/"+apply.ID+")",
+		"the sticky falls back to the run details")
+}
+
+func TestStickyListsEveryApplyOfThePullRequest(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.planned(7, headSHA)
+	e.comment(7, applier, "stackorder apply")
+	first := e.applyRun(7)
+	for _, d := range e.gh.Dispatches() {
+		e.reportAll(d, map[string]bool{vpc: false})
+	}
+	require.Equal(t, v1.RunFailed, e.run(first.ID).Status)
+
+	e.comment(7, applier, "stackorder apply")
+	second := e.applyRun(7)
+	require.NotEqual(t, first.ID, second.ID, "a failed apply can be applied again")
+	require.Len(t, e.runComments(7), 2)
+	firstComment, secondComment := e.runComment(7, first.ID), e.runComment(7, second.ID)
+	link := func(c gh.Comment) string {
+		return "[Apply comment](https://github.com/acme/infra/pull/7#issuecomment-" + strconv.FormatInt(c.ID, 10) + ")"
+	}
+	sticky := e.sticky(7)
+	newer := strings.Index(sticky, "): applying, requested by octocat. "+link(secondComment))
+	older := strings.Index(sticky, "): failed, requested by octocat. "+link(firstComment))
+	require.GreaterOrEqual(t, newer, 0, sticky)
+	require.GreaterOrEqual(t, older, 0, sticky)
+	assert.Less(t, newer, older, "the newest apply is listed first")
+
+	firstPatches := e.patches(firstComment.ID)
+	e.openPull(7, newHeadSHA)
+	require.NoError(t, e.svc.HandlePullRequest(e.ctx, e.gh.PullRequestEvent("synchronize", repoName, gh.PullRequest{
+		Number: 7, State: gh.IssueOpen, HeadSHA: newHeadSHA, BaseSHA: baseSHA, User: gh.User{Login: author}, Mergeable: ptr(true),
+	})))
+	e.planned(7, newHeadSHA)
+	sticky = e.sticky(7)
+	assert.Contains(t, sticky, "### Stackorder: planned")
+	assert.Contains(t, sticky, "**Commit:** [`4444444`]", "the sticky shows the plan of the new head")
+	assert.Contains(t, sticky, "- [`3333333`](https://github.com/acme/infra/commit/"+headSHA+"): applying, requested by octocat. "+link(secondComment))
+	assert.Contains(t, sticky, "- [`3333333`](https://github.com/acme/infra/commit/"+headSHA+"): failed, requested by octocat. "+link(firstComment))
+	assert.Equal(t, firstComment.Body, e.runComment(7, first.ID).Body, "a push leaves the comment of a finished apply alone")
+	assert.Equal(t, firstPatches, e.patches(firstComment.ID))
+}
+
+func TestApplyCommentOfASubset(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.planned(7, headSHA)
+	e.comment(7, applier, "stackorder apply "+staging)
+	apply := e.applyRun(7)
+	ds := e.gh.Dispatches()
+	require.Len(t, ds, 1)
+	e.reportAll(ds[0], nil)
+	require.Equal(t, v1.RunApplied, e.run(apply.ID).Status)
+	body := e.runComment(7, apply.ID).Body
+	assert.Contains(t, body, "### Stackorder apply: applied")
+	assert.Contains(t, body, "Applied 1 stack in 1 wave, skipped 3 not in the requested subset")
+	for _, key := range []string{vpc, eks, apps} {
+		assert.Regexp(t, "\\| `"+key+"` \\|.*\\| skipped \\|", body, key)
+	}
+	assert.Regexp(t, "\\| `"+staging+"` \\|.*\\| applied \\|", body)
 }
 
 func TestApplyOfOnlyNoopStacksPostsNoApplyComment(t *testing.T) {
@@ -806,6 +881,10 @@ func TestApplyOnMerge(t *testing.T) {
 	applyBody := e.runComment(7, apply.ID.String()).Body
 	assert.Contains(t, applyBody, "Started on merge by octocat.")
 	assert.Contains(t, applyBody, "`5555555`")
+	sticky := e.sticky(7)
+	assert.Contains(t, sticky, "### Stackorder: planned")
+	assert.Contains(t, sticky, "[`3333333`](https://github.com/acme/infra/commit/"+headSHA+")", "the sticky keeps the plan of the head commit")
+	assert.Contains(t, sticky, "- [`5555555`](https://github.com/acme/infra/commit/"+mergeSHA+"): applied, started on merge by octocat. ")
 }
 
 func TestClosedUnmergedKeepsLocks(t *testing.T) {

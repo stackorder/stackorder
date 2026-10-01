@@ -145,23 +145,22 @@ func (s *Service) renderRollup(ctx context.Context, w *checkWriter, run store.Ru
 }
 
 func (s *Service) renderSticky(ctx context.Context, w *checkWriter, repo store.Repo, pr int, opts report.Options) error {
-	latest, ok, err := latestPRRun(ctx, w.tx, repo.ID, pr)
+	plan, ok, err := latestPlanRun(ctx, w.tx, repo.ID, pr)
 	if err != nil || !ok {
 		return err
 	}
-	var view v1.Run
-	if latest.Mode == v1.ModePlan {
-		pv, err := planViewAt(ctx, w.tx, repo.ID, pr, latest.SHA)
-		if err != nil {
-			return err
-		}
-		view = pv.v1()
-	} else {
-		if view, err = runView(ctx, w.tx, latest.ID); err != nil {
-			return err
-		}
+	pv, err := planViewAt(ctx, w.tx, repo.ID, pr, plan.SHA)
+	if err != nil {
+		return err
 	}
-	body := report.StickyComment(view, opts)
+	applies, _, err := w.tx.ListRuns(ctx, store.RunFilter{RepoID: repo.ID, PRNumber: pr, Mode: v1.ModeApply, Limit: 50})
+	if err != nil {
+		return storeErr(err, "apply runs of pull request %d", pr)
+	}
+	for _, a := range applies {
+		opts.Applies = append(opts.Applies, report.ApplyRef{Run: a.ToV1(), CommentURL: commentURL(repo, pr, a.CommentID)})
+	}
+	body := report.StickyComment(pv.v1(), opts)
 	if _, err := w.c.UpsertStickyComment(ctx, repo.FullName, pr, report.Marker, body); err != nil {
 		w.errs = append(w.errs, fmt.Errorf("runs: sticky comment on %s#%d: %w", repo.FullName, pr, err))
 	}
@@ -227,13 +226,20 @@ func runView(ctx context.Context, db *store.Store, id uuid.UUID) (v1.Run, error)
 
 func repoWebURL(repo store.Repo) string { return "https://github.com/" + repo.FullName }
 
-func latestPRRun(ctx context.Context, db *store.Store, repoID int64, pr int) (store.Run, bool, error) {
-	runs, _, err := db.ListRuns(ctx, store.RunFilter{RepoID: repoID, PRNumber: pr, Limit: 50})
+func commentURL(repo store.Repo, pr int, id *int64) string {
+	if id == nil || *id <= 0 {
+		return ""
+	}
+	return repoWebURL(repo) + "/pull/" + strconv.Itoa(pr) + "#issuecomment-" + strconv.FormatInt(*id, 10)
+}
+
+func latestPlanRun(ctx context.Context, db *store.Store, repoID int64, pr int) (store.Run, bool, error) {
+	runs, _, err := db.ListRuns(ctx, store.RunFilter{RepoID: repoID, PRNumber: pr, Mode: v1.ModePlan, Limit: 50})
 	if err != nil {
-		return store.Run{}, false, storeErr(err, "runs of pull request %d", pr)
+		return store.Run{}, false, storeErr(err, "plan runs of pull request %d", pr)
 	}
 	for _, r := range runs {
-		if r.Status != v1.RunSuperseded && r.Mode != v1.ModeDrift {
+		if r.Status != v1.RunSuperseded {
 			return r, true, nil
 		}
 	}
