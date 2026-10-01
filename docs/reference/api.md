@@ -592,13 +592,16 @@ Counts over the repositories the caller sees.
       "finished_at": "2026-09-28T09:22:40Z",
       "waves": 2,
       "current_wave": 1,
+      "stack_count": 2,
+      "stack_keys": ["stacks/prod/vpc", "stacks/prod/apps"],
+      "summary": { "adds": 3, "changes": 1, "destroys": 0, "replaces": 0 },
       "html_url": "https://stackorder.example.com/runs/7c9e6679-7425-40de-944b-e07fc1f90ae7"
     }
   ]
 }
 ```
 
-`runs_by_status` and `stacks_by_status` are always present, `{}` when empty.
+`runs_by_status` and `stacks_by_status` are always present, `{}` when empty. `recent_runs` has the same [run list fields](#repo-runs) as the runs of a repository.
 
 ### `GET /v1/repos` {#repos}
 
@@ -658,6 +661,8 @@ A repository with no recorded graph, or a `ref` without one, is `404 not_found`.
 
 A page of the repository's runs, newest first, in the `Run` shape without `stacks`. `status` (a run status), `pr` (a positive number) and `mode` (`plan`, `apply` or `drift`) filter the list; an unknown value is `400 invalid`.
 
+Instead of `stacks`, each run sums up its stacks, leaving out those an apply skips: `stack_count` is how many it covers, `stack_keys` the first five of their keys in wave order, and `summary` their plan summaries added up, without addresses. `summary` is absent until a stack has a plan summary, and the three fields are absent for a run with no stacks yet.
+
 ```json
 {
   "items": [
@@ -675,6 +680,9 @@ A page of the repository's runs, newest first, in the `Run` shape without `stack
       "finished_at": "2026-09-28T09:22:40Z",
       "waves": 2,
       "current_wave": 1,
+      "stack_count": 2,
+      "stack_keys": ["stacks/prod/vpc", "stacks/prod/apps"],
+      "summary": { "adds": 3, "changes": 1, "destroys": 0, "replaces": 0 },
       "html_url": "https://stackorder.example.com/runs/7c9e6679-7425-40de-944b-e07fc1f90ae7"
     }
   ],
