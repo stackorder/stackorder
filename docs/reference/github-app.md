@@ -121,7 +121,7 @@ Require `stackorder/plan` in branch protection, and `stackorder/apply` too in `b
 
 Each pull request has one sticky comment, found by the hidden marker `<!-- stackorder:sticky -->` on its first line and by the App's own login. It shows the plans of the head commit, with a collapsible section per stack, and lists the pull request's applies under **Applies**, each linking its apply comment, or the run details when it has none.
 
-Each apply run of a pull request has its own comment, whose first line is the hidden marker `<!-- stackorder:run:<run id> -->`. It shows the waves, the pending environment approvals and a row per stack, and the server edits it as the apply runs. The server records the comment's id, so each run keeps one comment, and a deleted apply comment is not posted again.
+Each apply run of a pull request has at most one comment, whose first line is the hidden marker `<!-- stackorder:run:<run id> -->`. It shows the waves, the pending environment approvals and a row per stack, and the server edits it as the apply runs. An apply that finishes before its first update gets none, and its reply is its only comment: every stack was a no-op, GitHub refused the dispatch, or the server abandoned the apply before dispatching it. The server records the comment's id, so a run never gets a second comment, and a deleted apply comment is not posted again.
 
 ## Fork pull requests {#forks}
 
