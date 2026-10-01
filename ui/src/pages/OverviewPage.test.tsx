@@ -51,8 +51,23 @@ describe('OverviewPage', () => {
     expect(within(failed).getByText('apply · PR #42')).toBeInTheDocument();
     expect(within(failed).getByText('failed')).toHaveClass('badge--danger');
     expect(within(failed).getByText('octocat')).toBeInTheDocument();
-    expect(within(nth(rows, 3)).getByText('scheduler')).toBeInTheDocument();
+    expect(within(failed).getByTitle(/^stacks\/prod\/vpc/)).toHaveTextContent('stacks/prod/vpc, stacks/prod/eks +1 more');
+    expect(within(failed).getByText('4 to add, 1 to change, 2 to destroy')).toBeInTheDocument();
+    expect(within(failed).getByText('15m 2s')).toBeInTheDocument();
+    const drift = nth(rows, 3);
+    expect(within(drift).getByText('scheduler')).toBeInTheDocument();
+    expect(within(drift).getByText('No changes')).toBeInTheDocument();
+    expect(within(drift).getByText('+7 more', { exact: false })).toBeInTheDocument();
     expect(document.title).toBe('Overview · Stackorder');
+  });
+
+  it('leaves out the repository column when there is one repository', async () => {
+    renderWithApp(<OverviewPage />, {
+      handler: (c) => (c.path === '/v1/overview' ? json({ ...overview, repos: 1 }) : undefined),
+    });
+    const table = await screen.findByRole('table', { name: 'Recent runs' });
+    const headers = within(table).getAllByRole('columnheader').map((th) => th.textContent);
+    expect(headers).toEqual(['Run', 'What', 'Stacks', 'Changes', 'Status', 'Requested by', 'Started', 'Duration']);
   });
 
   it('shows empty breakdowns and no runs', async () => {

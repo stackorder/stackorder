@@ -87,7 +87,7 @@ export function OverviewPage() {
       </div>
       <section aria-labelledby="recent-runs">
         <h2 id="recent-runs">Recent runs</h2>
-        <RunsTable runs={o.recent_runs ?? []} caption="Recent runs" />
+        <RunsTable runs={o.recent_runs ?? []} caption="Recent runs" showRepo={o.repos > 1} />
       </section>
     </div>
   );
