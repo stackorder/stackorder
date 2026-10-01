@@ -25,7 +25,7 @@ Stackorder plans every stack a pull request affects and applies them in dependen
 
 **Try it:** the [local demo](docs/guide/local-demo.md) (no GitHub App, no AWS account) · [getting started](docs/guide/getting-started.md) (GitHub App and AWS)
 
-> **Status:** v0.2.0. The [changelog](CHANGELOG.md) lists what ships and where the code departs from the [design](https://docs.stackorder.io/design/); [How it is tested](#how-it-is-tested) says what the tests cover and what they do not.
+> **Status:** v0.3.0. The [changelog](CHANGELOG.md) lists what ships and where the code departs from the [design](https://docs.stackorder.io/design/); [How it is tested](#how-it-is-tested) says what the tests cover and what they do not.
 
 ## What it does
 
@@ -90,11 +90,11 @@ Both pages are published on the documentation site, [docs.stackorder.io](https:/
 Every `vX.Y.Z` tag publishes `stackorder_X.Y.Z_<os>_<arch>.tar.gz` (`.zip` on Windows) for `linux`, `darwin` and `windows` on `amd64` and `arm64`, and `stackorder_X.Y.Z_checksums.txt` with their SHA-256 sums, on the [releases page](https://github.com/stackorder/stackorder/releases):
 
 ```sh
-gh release download v0.2.0 --repo stackorder/stackorder \
-  --pattern 'stackorder_0.2.0_linux_amd64.tar.gz' \
-  --pattern 'stackorder_0.2.0_checksums.txt'
-sha256sum --check --ignore-missing stackorder_0.2.0_checksums.txt
-tar -xzf stackorder_0.2.0_linux_amd64.tar.gz stackorder
+gh release download v0.3.0 --repo stackorder/stackorder \
+  --pattern 'stackorder_0.3.0_linux_amd64.tar.gz' \
+  --pattern 'stackorder_0.3.0_checksums.txt'
+sha256sum --check --ignore-missing stackorder_0.3.0_checksums.txt
+tar -xzf stackorder_0.3.0_linux_amd64.tar.gz stackorder
 ./stackorder version
 ```
 
@@ -103,12 +103,12 @@ In a workflow, the `setup` action downloads the archive for the runner, verifies
 ```yaml
 - uses: stackorder/actions/setup@v1
   with:
-    version: 0.2.0
+    version: 0.3.0
 ```
 
 ### Server image
 
-`ghcr.io/stackorder/stackorder:0.2.0` (also `:0.2` and `:latest`), for `linux/amd64` and `linux/arm64`, built from the [Dockerfile](Dockerfile) on `gcr.io/distroless/static:nonroot`. It needs `DATABASE_URL` and `STACKORDER_BASE_URL`, runs its migrations at start-up, and starts in setup mode until the GitHub App variables are set. See [Deploy as a container](docs/operations/deploy-container.md) and [Server configuration](docs/reference/server-configuration.md).
+`ghcr.io/stackorder/stackorder:0.3.0` (also `:0.3` and `:latest`), for `linux/amd64` and `linux/arm64`, built from the [Dockerfile](Dockerfile) on `gcr.io/distroless/static:nonroot`. It needs `DATABASE_URL` and `STACKORDER_BASE_URL`, runs its migrations at start-up, and starts in setup mode until the GitHub App variables are set. See [Deploy as a container](docs/operations/deploy-container.md) and [Server configuration](docs/reference/server-configuration.md).
 
 ### Terraform module
 
@@ -116,11 +116,11 @@ In a workflow, the `setup` action downloads the archive for the runner, verifies
 
 ```hcl
 module "stackorder" {
-  source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.2.0"
+  source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.3.0"
 
   domain_name     = "stackorder.example.com"
   route53_zone_id = "Z0123456789ABCDEFGHIJ"
-  image_tag       = "0.2.0"
+  image_tag       = "0.3.0"
 }
 ```
 

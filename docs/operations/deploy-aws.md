@@ -8,11 +8,11 @@ The repository ships a Terraform module in `deploy/terraform` that deploys the s
 
 ```hcl
 module "stackorder" {
-  source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.2.0"
+  source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.3.0"
 
   domain_name     = "stackorder.example.com"
   route53_zone_id = "Z0123456789ABCDEFGHIJ"
-  image_tag       = "0.2.0"
+  image_tag       = "0.3.0"
 }
 ```
 

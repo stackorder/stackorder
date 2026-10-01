@@ -11,7 +11,7 @@ relative path to a tag, so Renovate or Dependabot can bump it together with
 `stackorder_version`:
 
 ```hcl
-source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.2.0"
+source = "github.com/stackorder/stackorder//deploy/terraform?ref=v0.3.0"
 ```
 
 This example needs module v0.2.0 or later: v0.1.0 keeps the secrets in
