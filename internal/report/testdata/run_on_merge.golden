@@ -1,0 +1,17 @@
+<!-- stackorder:run:5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70 -->
+### Stackorder apply: applied
+
+**Mode:** apply · **Commit:** [`5e4d3c2`](https://github.com/acme/infra/commit/5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d) · [Run details](https://stackorder.example.com/runs/5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70)
+
+Applied 5 stacks in 3 waves: 3 added, 4 changed, 3 destroyed, 1 replaced.
+
+Started on merge by octocat.
+
+| Wave | Stack | Environment | Add | Change | Destroy | Replace | Status | Job |
+| ---: | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 0 | `stacks/prod/vpc` | production | 2 | 1 | 0 | 0 | applied | [log](https://github.com/acme/infra/actions/runs/1234567/job/101) |
+| 0 | `stacks/staging/vpc` | staging | 0 | 0 | 0 | 0 | no-op | [log](https://github.com/acme/infra/actions/runs/1234567/job/102) |
+| 1 | `stacks/prod/eks` | production | 0 | 3 | 0 | 1 | applied | [log](https://github.com/acme/infra/actions/runs/1234567/job/103) |
+| 1 | `stacks/prod/secrets` | production | 1 | 0 | 1 | 0 | applied | [log](https://github.com/acme/infra/actions/runs/1234567/job/104) |
+| 2 | `stacks/prod/apps:blue` | production | 0 | 0 | 2 | 0 | applied | [log](https://github.com/acme/infra/actions/runs/1234567/job/105) |
+
