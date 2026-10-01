@@ -148,9 +148,9 @@ func UnlockedComment(released []v1.LockInfo, actor string) string {
 	return b.String()
 }
 
-// AppliedComment renders the comment posted when an apply run succeeds, so
-// the outcome lands after the command in the pull request timeline. released
-// tells whether the run's orchestration locks were released on completion.
+// AppliedComment renders the comment posted when an apply run succeeds.
+// released tells whether the run's orchestration locks were released on
+// completion.
 // It points at the run's apply comment and run details, or at the apply
 // check when the run has neither.
 func AppliedComment(a ApplyRef, released bool, o Options) string {

@@ -7,7 +7,7 @@
 
 **Applies**
 
-The plans below stay as they were planned. Each apply reports its progress and result in its own comment.
+The plans below stay as they were planned. Each apply links its own comment, or its run details when it has no comment.
 
 - [`3f9a2c1`](https://github.com/acme/infra/commit/3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c): applying, requested by alice. [Apply comment](https://github.com/acme/infra/pull/42#issuecomment-9001)
 - [`3f9a2c1`](https://github.com/acme/infra/commit/3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c): failed, requested by alice. [Run details](https://stackorder.example.com/runs/7d1f0b2e-3c4a-4e5f-8a9b-0c1d2e3f4a51)

@@ -102,7 +102,7 @@ func appliesSection(o Options) string {
 		}
 		items = append(items, item)
 	}
-	return "**Applies**\n\nThe plans below stay as they were planned. Each apply reports its progress and result in its own comment.\n\n" + bulletList(items, maxListItems) + "\n"
+	return "**Applies**\n\nThe plans below stay as they were planned. Each apply links its own comment, or its run details when it has no comment.\n\n" + bulletList(items, maxListItems) + "\n"
 }
 
 func aggregateLine(run v1.Run, stacks []v1.RunStack, p phase) string {
