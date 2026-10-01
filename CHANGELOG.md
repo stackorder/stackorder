@@ -8,6 +8,7 @@ All notable changes to this repository are documented here. The format follows [
 
 - The page `/setup/callback` has a step to give the App a logo, linking to the App's settings on GitHub and to the logo, served at `/setup/logo.png` in and out of setup mode. An App without a logo shows its owner's avatar on every comment and check, and GitHub sets the logo only in its settings page. See [Logo](docs/reference/github-app.md#logo).
 - An apply that succeeds gets a reply on the pull request, as a failed one already did, with what was applied and whether the orchestration locks were released or stay held until the merge.
+- The runs in `GET /v1/overview` and `GET /v1/repos/{owner}/{repo}/runs` carry `stack_count`, the first `stack_keys` and the summed plan `summary` of their stacks, and the web UI's run tables show them as Stacks and Changes columns next to each run's duration. The overview drops the Repository column when there is one repository, and an apply in progress shows its current wave. See [Runs of a repository](docs/reference/api.md#repo-runs).
 
 ### Changed
 
