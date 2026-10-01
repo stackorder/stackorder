@@ -118,6 +118,27 @@ func (c *Client) DeleteIssueComment(ctx context.Context, repo string, id int64) 
 	return c.call(ctx, http.MethodDelete, "/repos/{owner}/{repo}/issues/comments/{comment_id}", rp+"/issues/comments/"+i64(id), nil, nil)
 }
 
+// OwnComments returns the comments on an issue or pull request whose body
+// starts with marker, ignoring leading whitespace, and whose author is the
+// client's own account, oldest first.
+func (c *Client) OwnComments(ctx context.Context, repo string, number int, marker string) ([]Comment, error) {
+	comments, err := c.ListIssueComments(ctx, repo, number)
+	if err != nil {
+		return nil, err
+	}
+	self, err := c.login(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("gh: own comments author: %w", err)
+	}
+	var out []Comment
+	for _, cm := range comments {
+		if strings.EqualFold(cm.User.Login, self) && strings.HasPrefix(strings.TrimLeft(cm.Body, " \t\r\n"), marker) {
+			out = append(out, cm)
+		}
+	}
+	return out, nil
+}
+
 // UpsertStickyComment keeps exactly one comment on the pull request whose
 // body starts with marker and whose author is the client's own account: the
 // App's bot user for an installation client, the signed-in user for a token
@@ -130,35 +151,19 @@ func (c *Client) UpsertStickyComment(ctx context.Context, repo string, number in
 	if !strings.HasPrefix(body, marker) {
 		body = marker + "\n" + body
 	}
-	comments, err := c.ListIssueComments(ctx, repo, number)
+	own, err := c.OwnComments(ctx, repo, number, marker)
 	if err != nil {
 		return nil, err
 	}
-	self, err := c.login(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("gh: sticky comment author: %w", err)
-	}
-	var sticky *Comment
-	var duplicates []int64
-	for i := range comments {
-		cm := &comments[i]
-		if !strings.EqualFold(cm.User.Login, self) || !strings.HasPrefix(strings.TrimLeft(cm.Body, " \t\r\n"), marker) {
-			continue
-		}
-		if sticky == nil {
-			sticky = cm
-			continue
-		}
-		duplicates = append(duplicates, cm.ID)
-	}
-	if sticky == nil {
+	if len(own) == 0 {
 		return c.CreateIssueComment(ctx, repo, number, body)
 	}
-	for _, id := range duplicates {
-		if err := c.DeleteIssueComment(ctx, repo, id); err != nil && !isNotFound(err) {
+	for _, dup := range own[1:] {
+		if err := c.DeleteIssueComment(ctx, repo, dup.ID); err != nil && !isNotFound(err) {
 			return nil, err
 		}
 	}
+	sticky := &own[0]
 	if sticky.Body == body {
 		return sticky, nil
 	}

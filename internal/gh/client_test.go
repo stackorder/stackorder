@@ -54,6 +54,7 @@ func TestInvalidRepositoryNameEveryMethod(t *testing.T) {
 		"CreateComment":  func() error { _, err := c.CreateIssueComment(ctx, bad, 1, "x"); return err },
 		"UpdateComment":  func() error { _, err := c.UpdateIssueComment(ctx, bad, 1, "x"); return err },
 		"DeleteComment":  func() error { return c.DeleteIssueComment(ctx, bad, 1) },
+		"OwnComments":    func() error { _, err := c.OwnComments(ctx, bad, 1, "<!-- m -->"); return err },
 		"Sticky":         func() error { _, err := c.UpsertStickyComment(ctx, bad, 1, "<!-- m -->", "x"); return err },
 		"Reaction":       func() error { return c.CreateReaction(ctx, bad, 1, gh.ReactionEyes) },
 		"CreateIssue":    func() error { _, err := c.CreateIssue(ctx, bad, gh.IssueParams{}); return err },
@@ -412,6 +413,32 @@ func TestComments(t *testing.T) {
 	require.ErrorIs(t, c.CreateReaction(ctx, repo, cm.ID, gh.ReactionEyes), gh.ErrNotFound)
 }
 
+func TestOwnComments(t *testing.T) {
+	fake, c := setup(t)
+	ctx := context.Background()
+	const marker = "<!-- stackorder:run:acme -->"
+
+	none, err := c.OwnComments(ctx, repo, 6, marker)
+	require.NoError(t, err)
+	assert.Empty(t, none)
+
+	fake.AddComment(repo, 6, "alice", marker+"\nquoting the bot")
+	first, err := c.CreateIssueComment(ctx, repo, 6, marker+"\nfirst")
+	require.NoError(t, err)
+	_, err = c.CreateIssueComment(ctx, repo, 6, "The apply lives in the comment marked "+marker)
+	require.NoError(t, err)
+	second, err := c.CreateIssueComment(ctx, repo, 6, "\n"+marker+"\nsecond")
+	require.NoError(t, err)
+
+	own, err := c.OwnComments(ctx, repo, 6, marker)
+	require.NoError(t, err)
+	require.Len(t, own, 2)
+	assert.Equal(t, first.ID, own[0].ID)
+	assert.Equal(t, second.ID, own[1].ID)
+	assert.Equal(t, marker+"\nfirst", own[0].Body)
+	assert.Len(t, fake.Comments(repo, 6), 4, "finding comments changes none")
+}
+
 func TestUpsertStickyComment(t *testing.T) {
 	fake, c := setup(t)
 	ctx := context.Background()
@@ -538,7 +565,7 @@ func TestUpsertStickyCommentFailsWithoutAppIdentity(t *testing.T) {
 	fake.FailNext("GET /app", http.StatusNotFound, 1)
 	_, err := c.UpsertStickyComment(context.Background(), repo, 1, "<!-- m -->", "x")
 	require.ErrorIs(t, err, gh.ErrNotFound)
-	assert.Contains(t, err.Error(), "sticky comment author")
+	assert.Contains(t, err.Error(), "own comments author")
 	assert.Empty(t, fake.Comments(repo, 1))
 
 	fake.SetApp(gh.AppInfo{ID: 1})
