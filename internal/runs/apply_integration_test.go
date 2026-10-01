@@ -741,6 +741,29 @@ func TestStickyListsEveryApplyOfThePullRequest(t *testing.T) {
 	assert.Equal(t, firstPatches, e.patches(firstComment.ID))
 }
 
+func TestStickyFollowsAnApplyOnceItsPlansAreSuperseded(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	plan := e.planned(7, headSHA)
+	e.comment(7, applier, "stackorder apply "+staging)
+	apply := e.applyRun(7)
+	ds := e.gh.Dispatches()
+	require.Len(t, ds, 1)
+	require.Contains(t, e.sticky(7), "): applying, requested by octocat. ")
+
+	e.openPull(7, newHeadSHA)
+	require.NoError(t, e.svc.HandlePullRequest(e.ctx, e.gh.PullRequestEvent("synchronize", repoName, gh.PullRequest{
+		Number: 7, State: gh.IssueOpen, HeadSHA: newHeadSHA, BaseSHA: baseSHA, User: gh.User{Login: author}, Mergeable: ptr(true),
+	})))
+	require.Equal(t, v1.RunSuperseded, e.run(plan).Status)
+	e.reportAll(ds[0], nil)
+	require.Equal(t, v1.RunApplied, e.run(apply.ID).Status)
+
+	sticky := e.sticky(7)
+	assert.Contains(t, sticky, "### Stackorder: superseded", "the sticky shows the superseded plan until the new head registers one")
+	assert.Contains(t, sticky, "Superseded: `3333333` is no longer the head of this pull request")
+	assert.Contains(t, sticky, "- [`3333333`](https://github.com/acme/infra/commit/"+headSHA+"): applied, requested by octocat. ")
+}
+
 func TestApplyCommentOfASubset(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.planned(7, headSHA)
