@@ -46,11 +46,6 @@ func TestCommentsGolden(t *testing.T) {
 		"lock_warning_none":  LockWarningComment(nil, testOpts),
 		"unlocked":           UnlockedComment(locks, "alice"),
 		"unlocked_none":      UnlockedComment(nil, "alice"),
-		"ack_plan":           CommandAck(command.Command{Verb: command.Plan}, true),
-		"ack_apply":          CommandAck(command.Command{Verb: command.Apply, Stacks: []string{"stacks/prod/vpc", "stacks/prod/eks"}}, true),
-		"ack_unlock":         CommandAck(command.Command{Verb: command.Unlock, Stacks: []string{"stacks/prod/vpc"}}, true),
-		"ack_not_dispatched": CommandAck(command.Command{Verb: command.Apply}, false),
-		"ack_help":           CommandAck(command.Command{Verb: command.Help}, true),
 	}
 	for name, got := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -61,7 +56,7 @@ func TestCommentsGolden(t *testing.T) {
 
 func TestRenderedCommentsNeverParseAsCommands(t *testing.T) {
 	cases := stickyCases()
-	bodies := make([]string, 0, len(cases)+6+2*len(command.Verbs()))
+	bodies := make([]string, 0, len(cases)+6)
 	for _, tc := range cases {
 		bodies = append(bodies, StickyComment(tc.run, tc.opts))
 	}
@@ -73,9 +68,6 @@ func TestRenderedCommentsNeverParseAsCommands(t *testing.T) {
 		UnconfirmedNote(""),
 		AppliedComment(applyRun(v1.RunApplied, plannedStacks()...), false, testOpts),
 	)
-	for _, v := range command.Verbs() {
-		bodies = append(bodies, CommandAck(command.Command{Verb: v, Stacks: []string{"stacks/a"}}, true), CommandAck(command.Command{Verb: v}, false))
-	}
 	for i, body := range bodies {
 		_, ok := command.Parse(body)
 		assert.False(t, ok, "body %d parses as a command:\n%s", i, body)
@@ -123,8 +115,4 @@ func TestGateFailureLimits(t *testing.T) {
 	assert.Contains(t, out, "and 10 more)")
 	assert.Contains(t, out, ": reason with a newline")
 	assert.Contains(t, out, "- **Layer 1, authorization** (")
-}
-
-func TestCommandAckUnknownVerb(t *testing.T) {
-	assert.Equal(t, "Received `stackorder destroy`.\n", CommandAck(command.Command{Verb: "destroy"}, true))
 }

@@ -182,32 +182,3 @@ func mention(login string) string {
 func notLoginRune(r rune) bool {
 	return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-'
 }
-
-// CommandAck renders the short reply confirming a comment command was
-// received, and whether it led to a dispatch. For help it returns the help
-// text.
-func CommandAck(cmd command.Command, dispatched bool) string {
-	if cmd.Verb == command.Help {
-		return command.HelpText()
-	}
-	scope := "every affected stack"
-	if len(cmd.Stacks) > 0 {
-		keys := make([]string, 0, len(cmd.Stacks))
-		for _, k := range cmd.Stacks {
-			keys = append(keys, code(k))
-		}
-		scope = strings.Join(keys, ", ")
-	}
-	if !dispatched {
-		return "Received " + code(cmd.String()) + ", but nothing was dispatched. The Stackorder comment on this pull request says why.\n"
-	}
-	switch cmd.Verb {
-	case command.Plan:
-		return "Dispatched " + code(cmd.String()) + ": planning " + scope + ". The checks and the Stackorder comment update as each plan finishes.\n"
-	case command.Apply:
-		return "Dispatched " + code(cmd.String()) + ": applying " + scope + " wave by wave. Pending environment approvals are linked from the Stackorder comment.\n"
-	case command.Unlock:
-		return "Accepted " + code(cmd.String()) + ": releasing the orchestration locks on " + scope + ".\n"
-	}
-	return "Received " + code(cmd.String()) + ".\n"
-}
