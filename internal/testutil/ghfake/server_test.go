@@ -393,6 +393,19 @@ func TestCommentAuthorAssociation(t *testing.T) {
 	assert.Equal(t, "NONE", fake.AddComment(repo, 1, "member", "x").AuthorAssociation)
 }
 
+func TestDeleteComment(t *testing.T) {
+	fake := ghfake.New(t)
+	fake.AddInstallation(1, "acme", repo)
+	gone := fake.AddComment(repo, 1, "alice", "delete me")
+	kept := fake.AddComment(repo, 1, "alice", "keep me")
+
+	fake.DeleteComment(repo, gone.ID)
+	fake.DeleteComment("acme/missing", gone.ID)
+	assert.Equal(t, []gh.Comment{kept}, fake.Comments(repo, 1))
+	tok := "Bearer " + fake.InstallationToken(1)
+	assert.Equal(t, 404, call(t, fake, "PATCH", fmt.Sprintf("/repos/acme/infra/issues/comments/%d", gone.ID), tok, `{"body":"edited"}`).status)
+}
+
 func TestIssueValidation(t *testing.T) {
 	fake := ghfake.New(t)
 	fake.AddInstallation(1, "acme", repo)
