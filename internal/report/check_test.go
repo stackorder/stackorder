@@ -3,6 +3,7 @@ package report
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -66,8 +67,10 @@ func TestStackCheckGolden(t *testing.T) {
 
 func TestRollupCheckGolden(t *testing.T) {
 	cases := stickyCases()
-	for _, name := range []string{"planning", "planned", "plan_failed", "failed", "applying", "applied", "unconfirmed", "superseded", "locks_warned", "no_stacks"} {
-		tc := cases["sticky_"+name]
+	maps.Copy(cases, runCommentCases())
+	for _, key := range []string{"sticky_planning", "sticky_planned", "sticky_plan_failed", "run_failed", "run_applying", "run_applied", "sticky_unconfirmed", "sticky_superseded", "sticky_locks_warned", "sticky_no_stacks"} {
+		tc := cases[key]
+		_, name, _ := strings.Cut(key, "_")
 		t.Run(name, func(t *testing.T) {
 			golden(t, "check_rollup_"+name, checkDump(RollupCheck(tc.run, tc.opts)))
 		})
@@ -307,7 +310,7 @@ func TestApplyBetweenWaves(t *testing.T) {
 	next := stack("stacks/prod/eks", "production", 1, 2, withSummary(0, 1, 0, 0))
 	run := applyRun(v1.RunApplying, done, next)
 
-	assert.Contains(t, StickyComment(run, Options{}), "\nApplying wave 0 of 3: 1 of 2 stacks done.\n")
+	assert.Contains(t, RunComment(run, Options{}), "\nApplying wave 0 of 3: 1 of 2 stacks done.\n")
 	assert.NotEqual(t, ConclusionSuccess, RollupCheck(run, Options{}).Conclusion)
 	assert.Equal(t, StatusQueued, StackCheck(run, next, Options{}).Status)
 
@@ -317,7 +320,7 @@ func TestApplyBetweenWaves(t *testing.T) {
 	check := StackCheck(run, next, Options{})
 	assert.Equal(t, ConclusionCancelled, check.Conclusion)
 	assert.Contains(t, check.Summary, "The run ended before this stack's wave was dispatched, so nothing was applied for it.")
-	assert.NotContains(t, StickyComment(run, Options{}), "still running")
+	assert.NotContains(t, RunComment(run, Options{}), "still running")
 }
 
 func TestStackCheckFindsLockByKeyOrID(t *testing.T) {

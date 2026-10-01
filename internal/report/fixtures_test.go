@@ -167,22 +167,6 @@ func stickyCases() map[string]struct {
 	planFailed[2].Status, planFailed[2].Summary, planFailed[2].ExitCode = v1.StackFailed, nil, intp(1)
 	planFailed[2].PlanText = "Error: Reference to undeclared resource\n\n  on main.tf line 12, in resource \"aws_eks_cluster\" \"main\":\n  12:   role_arn = aws_iam_role.cluster.arn\n\nA managed resource \"aws_iam_role\" \"cluster\" has not been declared in the root module.\n"
 
-	failed := plannedStacks()
-	failed[0].Status, failed[0].ExitCode = v1.StackFailed, intp(1)
-	failed[0].PlanText = "Error: creating EC2 VPC: VpcLimitExceeded: The maximum number of VPCs has been reached.\n\n  with aws_vpc.main,\n  on main.tf line 1, in resource \"aws_vpc\" \"main\":\n   1: resource \"aws_vpc\" \"main\" {\n"
-	failed[1].Status = v1.StackNoop
-	for _, i := range []int{2, 3, 4} {
-		failed[i].Status = v1.StackBlocked
-		failed[i].BlockedBy = []string{"stacks/prod/vpc"}
-	}
-	failedRun := applyRun(v1.RunFailed, failed...)
-
-	applied := plannedStacks()
-	for i := range applied {
-		applied[i].Status = v1.StackApplied
-	}
-	applied[1].Status = v1.StackNoop
-
 	unconfirmed := plannedStacks()[:3]
 	for i := range unconfirmed {
 		unconfirmed[i].Status = v1.StackUnconfirmed
@@ -194,27 +178,10 @@ func stickyCases() map[string]struct {
 	superseded := plannedStacks()
 	superseded[4].Status = v1.StackPlanning
 
-	applying := plannedStacks()
-	applying[0].Status, applying[1].Status = v1.StackApplied, v1.StackNoop
-	applying[2].Status, applying[3].Status = v1.StackApplying, v1.StackApplying
-	applying[4].Status = v1.StackPending
-	applyingRun := applyRun(v1.RunApplying, applying...)
-	applyingRun.CurrentWave = 1
-	applyingOpts := testOpts
-	applyingOpts.PendingApprovals = []Approval{
-		{Environment: "production", URL: "https://github.com/acme/infra/actions/runs/7654321"},
-	}
-
 	lockedRun := baseRun(v1.RunPlanned, plannedStacks()...)
-	lockedRun.Warnings = []string{
-		"stacks/legacy/dns: terraform_remote_state reads bucket acme-tfstate key legacy/dns.tfstate, which matches no stack",
-		"module source git::https://github.com/acme/modules//vpc?ref=main pins a branch, not a tag; cc @acme/platform",
-	}
+	lockedRun.Warnings = fixtureWarnings()
 	lockedOpts := testOpts
-	lockedOpts.Locks = []v1.LockInfo{
-		{StackKey: "stacks/prod/eks", RunID: "9d8c7b6a-0000-4000-8000-000000000017", PRNumber: 17, TakenAt: t0.Add(-26 * time.Hour), Reason: "apply in progress"},
-		{StackKey: "stacks/prod/vpc", RunID: runID, PRNumber: 42, TakenAt: t0},
-	}
+	lockedOpts.Locks = fixtureLocks()
 
 	quiet := []v1.RunStack{
 		stack("stacks/prod/vpc", "production", 0, 201, withSummary(0, 0, 0, 0), withText("No changes. Your infrastructure matches the configuration.\n")),
@@ -236,11 +203,80 @@ func stickyCases() map[string]struct {
 		"sticky_planned":        {baseRun(v1.RunPlanned, plannedStacks()...), testOpts},
 		"sticky_no_stacks":      {baseRun(v1.RunPlanned), Options{}},
 		"sticky_plan_failed":    {baseRun(v1.RunFailed, planFailed...), testOpts},
-		"sticky_failed":         {failedRun, testOpts},
-		"sticky_applying":       {applyingRun, applyingOpts},
-		"sticky_applied":        {applyRun(v1.RunApplied, applied...), testOpts},
 		"sticky_unconfirmed":    {unconfirmedRun, testOpts},
 		"sticky_superseded":     {baseRun(v1.RunSuperseded, superseded...), testOpts},
 		"sticky_locks_warned":   {lockedRun, lockedOpts},
+	}
+}
+
+func fixtureWarnings() []string {
+	return []string{
+		"stacks/legacy/dns: terraform_remote_state reads bucket acme-tfstate key legacy/dns.tfstate, which matches no stack",
+		"module source git::https://github.com/acme/modules//vpc?ref=main pins a branch, not a tag; cc @acme/platform",
+	}
+}
+
+func fixtureLocks() []v1.LockInfo {
+	return []v1.LockInfo{
+		{StackKey: "stacks/prod/eks", RunID: "9d8c7b6a-0000-4000-8000-000000000017", PRNumber: 17, TakenAt: t0.Add(-26 * time.Hour), Reason: "apply in progress"},
+		{StackKey: "stacks/prod/vpc", RunID: runID, PRNumber: 42, TakenAt: t0},
+	}
+}
+
+func runCommentCases() map[string]struct {
+	run  v1.Run
+	opts Options
+} {
+	failed := plannedStacks()
+	failed[0].Status, failed[0].ExitCode = v1.StackFailed, intp(1)
+	failed[0].PlanText = "Error: creating EC2 VPC: VpcLimitExceeded: The maximum number of VPCs has been reached.\n\n  with aws_vpc.main,\n  on main.tf line 1, in resource \"aws_vpc\" \"main\":\n   1: resource \"aws_vpc\" \"main\" {\n"
+	failed[1].Status = v1.StackNoop
+	for _, i := range []int{2, 3, 4} {
+		failed[i].Status = v1.StackBlocked
+		failed[i].BlockedBy = []string{"stacks/prod/vpc"}
+	}
+	failedRun := applyRun(v1.RunFailed, failed...)
+
+	applied := plannedStacks()
+	for i := range applied {
+		applied[i].Status = v1.StackApplied
+	}
+	applied[1].Status = v1.StackNoop
+
+	subset := append([]v1.RunStack(nil), applied...)
+	subset[3].Status, subset[3].JobURL = v1.StackSkipped, ""
+	subset[4].Status, subset[4].JobURL = v1.StackSkipped, ""
+
+	applying := plannedStacks()
+	applying[0].Status, applying[1].Status = v1.StackApplied, v1.StackNoop
+	applying[2].Status, applying[3].Status = v1.StackApplying, v1.StackApplying
+	applying[4].Status = v1.StackPending
+	applyingRun := applyRun(v1.RunApplying, applying...)
+	applyingRun.CurrentWave = 1
+	applyingOpts := testOpts
+	applyingOpts.PendingApprovals = []Approval{
+		{Environment: "production", URL: "https://github.com/acme/infra/actions/runs/7654321"},
+	}
+
+	onMerge := applyRun(v1.RunApplied, applied...)
+	onMerge.Trigger, onMerge.RequestedBy = v1.TriggerPullRequest, "octocat"
+	onMerge.SHA = "5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d"
+
+	warnedRun := applyingRun
+	warnedRun.Warnings = fixtureWarnings()
+	warnedOpts := testOpts
+	warnedOpts.Locks = fixtureLocks()
+
+	return map[string]struct {
+		run  v1.Run
+		opts Options
+	}{
+		"run_pending":  {applyRun(v1.RunPending, plannedStacks()...), testOpts},
+		"run_applying": {applyingRun, applyingOpts},
+		"run_applied":  {applyRun(v1.RunApplied, applied...), testOpts},
+		"run_failed":   {failedRun, testOpts},
+		"run_subset":   {applyRun(v1.RunApplied, subset...), testOpts},
+		"run_on_merge": {onMerge, testOpts},
+		"run_warned":   {warnedRun, warnedOpts},
 	}
 }

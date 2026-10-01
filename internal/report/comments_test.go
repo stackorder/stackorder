@@ -56,9 +56,13 @@ func TestCommentsGolden(t *testing.T) {
 
 func TestRenderedCommentsNeverParseAsCommands(t *testing.T) {
 	cases := stickyCases()
-	bodies := make([]string, 0, len(cases)+6)
+	runCases := runCommentCases()
+	bodies := make([]string, 0, len(cases)+len(runCases)+6)
 	for _, tc := range cases {
 		bodies = append(bodies, StickyComment(tc.run, tc.opts))
+	}
+	for _, tc := range runCases {
+		bodies = append(bodies, RunComment(tc.run, tc.opts))
 	}
 	locks := []v1.LockInfo{{StackKey: "stacks/a", RunID: runID, PRNumber: 1}}
 	bodies = append(bodies,

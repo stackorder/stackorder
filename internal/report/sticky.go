@@ -46,9 +46,12 @@ func StickyComment(run v1.Run, o Options) string {
 }
 
 func stickyHead(run v1.Run, stacks []v1.RunStack, o Options) string {
+	return Marker + "\n" + runHead(Escape(o.name()), run, stacks, o)
+}
+
+func runHead(title string, run v1.Run, stacks []v1.RunStack, o Options) string {
 	var b strings.Builder
-	b.WriteString(Marker + "\n")
-	b.WriteString("### " + Escape(o.name()) + ": " + runStatusWord(run.Status) + "\n\n")
+	b.WriteString("### " + title + ": " + runStatusWord(run.Status) + "\n\n")
 	b.WriteString(runMetaLine(run, o) + "\n\n")
 	p := phaseOf(run)
 	t := tallyOf(stacks, p)

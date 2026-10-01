@@ -1,0 +1,17 @@
+<!-- stackorder:run:5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70 -->
+### Stackorder apply: applied
+
+**Mode:** apply · **Commit:** [`3f9a2c1`](https://github.com/acme/infra/commit/3f9a2c1d7e8b4a6f0c5d2e1b9a8c7d6e5f4a3b2c) · [Run details](https://stackorder.example.com/runs/5b0e6c1e-8a51-4c1a-9a3e-2f3c4d5e6f70)
+
+Applied 3 stacks in 3 waves, skipped 2 not in the requested subset: 2 added, 4 changed, 0 destroyed, 1 replaced.
+
+Requested by alice.
+
+| Wave | Stack | Environment | Add | Change | Destroy | Replace | Status | Job |
+| ---: | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 0 | `stacks/prod/vpc` | production | 2 | 1 | 0 | 0 | applied | [log](https://github.com/acme/infra/actions/runs/1234567/job/101) |
+| 0 | `stacks/staging/vpc` | staging | 0 | 0 | 0 | 0 | no-op | [log](https://github.com/acme/infra/actions/runs/1234567/job/102) |
+| 1 | `stacks/prod/eks` | production | 0 | 3 | 0 | 1 | applied | [log](https://github.com/acme/infra/actions/runs/1234567/job/103) |
+| 1 | `stacks/prod/secrets` | production | 1 | 0 | 1 | 0 | skipped |  |
+| 2 | `stacks/prod/apps:blue` | production | 0 | 0 | 2 | 0 | skipped |  |
+
