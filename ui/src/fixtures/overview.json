@@ -33,6 +33,10 @@
       "started_at": "2026-09-28T09:10:25Z",
       "waves": 1,
       "current_wave": 0,
+      "stack_count": 1,
+      "stack_keys": [
+        "stacks/edge/cdn"
+      ],
       "html_url": "https://github.com/acme/network-infra/pull/7"
     },
     {
@@ -50,6 +54,18 @@
       "finished_at": "2026-09-28T09:05:02Z",
       "waves": 3,
       "current_wave": 1,
+      "stack_count": 3,
+      "stack_keys": [
+        "stacks/prod/vpc",
+        "stacks/prod/eks",
+        "stacks/prod/apps"
+      ],
+      "summary": {
+        "adds": 4,
+        "changes": 1,
+        "destroys": 2,
+        "replaces": 0
+      },
       "html_url": "https://github.com/acme/infra/pull/42"
     },
     {
@@ -67,6 +83,18 @@
       "finished_at": "2026-09-28T08:40:55Z",
       "waves": 3,
       "current_wave": 2,
+      "stack_count": 3,
+      "stack_keys": [
+        "stacks/prod/vpc",
+        "stacks/prod/eks",
+        "stacks/prod/apps"
+      ],
+      "summary": {
+        "adds": 4,
+        "changes": 1,
+        "destroys": 2,
+        "replaces": 0
+      },
       "html_url": "https://github.com/acme/infra/pull/42"
     },
     {
@@ -80,7 +108,21 @@
       "started_at": "2026-09-28T06:00:05Z",
       "finished_at": "2026-09-28T06:07:31Z",
       "waves": 1,
-      "current_wave": 0
+      "current_wave": 0,
+      "stack_count": 9,
+      "stack_keys": [
+        "stacks/dev/vpc",
+        "stacks/prod/apps",
+        "stacks/prod/eks",
+        "stacks/prod/vpc",
+        "stacks/staging/apps"
+      ],
+      "summary": {
+        "adds": 0,
+        "changes": 0,
+        "destroys": 0,
+        "replaces": 0
+      }
     },
     {
       "id": "9e1a3c5e-7b9d-4f1a-a3c5-e7b9d1f3a588",
@@ -97,6 +139,17 @@
       "finished_at": "2026-09-21T14:19:44Z",
       "waves": 2,
       "current_wave": 1,
+      "stack_count": 2,
+      "stack_keys": [
+        "stacks/prod/vpc",
+        "stacks/prod/eks"
+      ],
+      "summary": {
+        "adds": 0,
+        "changes": 3,
+        "destroys": 0,
+        "replaces": 1
+      },
       "html_url": "https://github.com/acme/infra/pull/38"
     }
   ]

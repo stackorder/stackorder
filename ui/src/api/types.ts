@@ -328,6 +328,9 @@ export interface Run {
   waves: number;
   current_wave: number;
   stacks?: RunStack[];
+  stack_count?: number;
+  stack_keys?: string[];
+  summary?: PlanSummary;
   warnings?: string[];
   html_url?: string;
 }
