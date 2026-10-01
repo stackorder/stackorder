@@ -81,10 +81,13 @@ type Run struct {
 	WorkflowRunAttempt int          `db:"workflow_run_attempt"`
 	// CheckRuns maps the names of the GitHub check runs created for the
 	// run to their ids.
-	CheckRuns  map[string]int64 `db:"check_runs"`
-	CreatedAt  time.Time        `db:"created_at"`
-	StartedAt  *time.Time       `db:"started_at"`
-	FinishedAt *time.Time       `db:"finished_at"`
+	CheckRuns map[string]int64 `db:"check_runs"`
+	// CommentID is the id of the pull request comment that tracks an apply
+	// run: nil until looked up, 0 when the run has none and gets none.
+	CommentID  *int64     `db:"comment_id"`
+	CreatedAt  time.Time  `db:"created_at"`
+	StartedAt  *time.Time `db:"started_at"`
+	FinishedAt *time.Time `db:"finished_at"`
 }
 
 // ToV1 converts the row without its stacks; see RunDetail for the full
@@ -141,7 +144,8 @@ type RunFilter struct {
 
 const runCols = `r.id, r.repo_id, p.full_name AS repo, r.sha, r.base_sha, r.pr_number, r.trigger,
 	r.mode, r.status, r.requested_by, r.graph_id, r.waves, r.current_wave, r.warnings,
-	r.workflow_run_id, r.workflow_run_attempt, r.check_runs, r.created_at, r.started_at, r.finished_at`
+	r.workflow_run_id, r.workflow_run_attempt, r.check_runs, r.created_at, r.started_at, r.finished_at,
+	r.comment_id`
 
 const runSelect = `SELECT ` + runCols + ` FROM runs r JOIN repos p ON p.id = r.repo_id`
 
@@ -347,6 +351,16 @@ func (s *Store) SetRunCheckRun(ctx context.Context, id uuid.UUID, name string, c
 	return s.execOne(ctx, op, `
 		UPDATE runs SET check_runs = check_runs || jsonb_build_object($2::text, $3::bigint) WHERE id = $1`,
 		id, name, checkRunID)
+}
+
+// SetRunComment records the id of the pull request comment that tracks
+// the run; 0 records that the run has no such comment and gets none.
+func (s *Store) SetRunComment(ctx context.Context, id uuid.UUID, commentID int64) error {
+	const op = "set run comment"
+	if commentID < 0 {
+		return invalid(op, "a non-negative comment id is required")
+	}
+	return s.execOne(ctx, op, `UPDATE runs SET comment_id = $2 WHERE id = $1`, id, commentID)
 }
 
 // FindRunByWorkflowRun returns the newest run of the repository that

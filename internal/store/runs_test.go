@@ -203,6 +203,32 @@ func TestRunGraphWaveAndWorkflow(t *testing.T) {
 	require.ErrorIs(t, f.s.SetRunGraph(f.ctx, r.ID, uuid.New(), 1, nil), store.ErrNotFound)
 }
 
+func TestSetRunComment(t *testing.T) {
+	f := newFixture(t)
+	r := f.run(store.CreateRunParams{PRNumber: 7, Mode: v1.ModeApply, Trigger: v1.TriggerComment})
+	assert.Nil(t, r.CommentID, "a new run has not looked up its comment")
+
+	require.NoError(t, f.s.SetRunComment(f.ctx, r.ID, 123))
+	got, err := f.s.GetRun(f.ctx, r.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.CommentID)
+	assert.Equal(t, int64(123), *got.CommentID)
+	listed, _, err := f.s.ListRuns(f.ctx, store.RunFilter{RepoID: f.repo.ID, PRNumber: 7})
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	require.NotNil(t, listed[0].CommentID)
+	assert.Equal(t, int64(123), *listed[0].CommentID)
+
+	require.NoError(t, f.s.SetRunComment(f.ctx, r.ID, 0))
+	got, err = f.s.GetRun(f.ctx, r.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.CommentID)
+	assert.Equal(t, int64(0), *got.CommentID, "0 records that the run gets no comment")
+
+	require.ErrorIs(t, f.s.SetRunComment(f.ctx, r.ID, -1), store.ErrInvalid)
+	require.ErrorIs(t, f.s.SetRunComment(f.ctx, uuid.New(), 1), store.ErrNotFound)
+}
+
 func TestSupersedeRuns(t *testing.T) {
 	f := newFixture(t)
 	oldPlanning := f.run(store.CreateRunParams{SHA: "old", PRNumber: 5, Status: v1.RunPlanning})
