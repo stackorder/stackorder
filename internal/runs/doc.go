@@ -23,8 +23,9 @@
 // is dispatched one wave at a time: wave n+1 when every stack of wave n is
 // terminal and none failed. A failed stack blocks its transitive
 // dependents; the run then fails, and its locks stay held unless it was an
-// on_merge or manual run. Drift runs check one stack on the default branch
-// head.
+// on_merge or manual run. An apply run of a pull request gets one comment,
+// posted when its first wave is dispatched and edited as it runs. Drift
+// runs check one stack on the default branch head.
 //
 // # Consistency across workers and servers
 //
@@ -45,12 +46,14 @@
 //     hour, the apply of a merge, the execution of a comment) run in a
 //     transaction holding an advisory lock on their identity; so does the
 //     start of an apply, which a pull request runs one at a time.
-//   - GitHub check runs and the sticky comment are rewritten from the
-//     current database state while holding an advisory lock per pull
-//     request (per run outside pull requests), in a transaction that also
-//     records the ids of created check runs. The last writer therefore
-//     always renders the newest state, and a check run is never created
-//     twice.
+//   - GitHub check runs, the sticky comment and the comment of an apply
+//     run are rewritten from the current database state while holding an
+//     advisory lock per pull request (per run outside pull requests), in a
+//     transaction that also records the ids of created check runs and of
+//     the apply run's comment. The last writer therefore always renders the
+//     newest state, and a check run or an apply's comment is never created
+//     twice; an apply's comment lost between its creation and the commit is
+//     found again by its marker.
 //
 // Re-delivered events and duplicated result posts find their work done and
 // return nil. Timestamps stored by Postgres are compared with

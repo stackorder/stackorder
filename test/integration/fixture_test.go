@@ -267,7 +267,8 @@ func (f *fixture) comment(pr int, login, body string) gh.Comment {
 func (f *fixture) botComments(pr int, after int64) []gh.Comment {
 	var out []gh.Comment
 	for _, c := range f.e.GH.Comments(f.name, pr) {
-		if c.ID > after && strings.HasSuffix(c.User.Login, "[bot]") && !strings.HasPrefix(c.Body, report.Marker) {
+		if c.ID > after && strings.HasSuffix(c.User.Login, "[bot]") && !strings.HasPrefix(c.Body, report.Marker) &&
+			!strings.HasPrefix(c.Body, "<!-- stackorder:run:") {
 			out = append(out, c)
 		}
 	}
@@ -283,6 +284,18 @@ func (f *fixture) sticky(pr int) gh.Comment {
 		}
 	}
 	require.Len(f.t, found, 1, "one sticky comment on #%d", pr)
+	return found[0]
+}
+
+func (f *fixture) runComment(pr int, runID string) gh.Comment {
+	f.t.Helper()
+	var found []gh.Comment
+	for _, c := range f.e.GH.Comments(f.name, pr) {
+		if strings.HasPrefix(c.Body, report.RunMarker(runID)+"\n") {
+			found = append(found, c)
+		}
+	}
+	require.Len(f.t, found, 1, "one comment of run %s on #%d", runID, pr)
 	return found[0]
 }
 

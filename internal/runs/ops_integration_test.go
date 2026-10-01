@@ -469,6 +469,8 @@ func TestReconcileDispatchesAnApplyLeftWithoutDispatch(t *testing.T) {
 	}
 	assert.Equal(t, v1.RunApplied, e.run(applyID).Status, "the recovered apply runs every wave")
 	assert.Len(t, e.locks(), 4, "a before_merge apply keeps its locks until the merge")
+	assert.Len(t, e.runComments(7), 1, "the apply comment is posted when the apply is finally dispatched")
+	assert.Contains(t, e.runComment(7, applyID).Body, "### Stackorder apply: applied")
 }
 
 func TestReconcileAbandonsAnApplyWhosePlansMovedOn(t *testing.T) {
@@ -495,6 +497,7 @@ func TestReconcileAbandonsAnApplyWhosePlansMovedOn(t *testing.T) {
 		assert.Contains(t, body, "**The apply of `3333333` did not start.**")
 		assert.Contains(t, body, "moved on to 4444444")
 		assert.Contains(t, body, "Its 4 orchestration lock(s) were released.")
+		assert.Empty(t, e.runComments(7), "an abandoned apply gets no apply comment")
 		n := len(e.comments(7))
 		require.NoError(t, e.svc.Reconcile(e.ctx))
 		assert.Len(t, e.comments(7), n, "an abandoned apply is answered once")
@@ -512,6 +515,7 @@ func TestReconcileAbandonsAnApplyWhosePlansMovedOn(t *testing.T) {
 		assert.Len(t, e.gh.Dispatches(), planDispatches, "nothing of the apply is dispatched")
 		assert.Contains(t, e.lastComment(7), "the plans of `"+vpc+"` changed since the apply was requested")
 		assert.Empty(t, e.locks())
+		assert.Empty(t, e.runComments(7))
 	})
 }
 
@@ -619,6 +623,10 @@ func TestDispatchFailure(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "the failure is explained on the pull request")
+	assert.Empty(t, e.runComments(7), "a run refused before its first render gets no apply comment")
+	stored := e.storedRun(apply.ID).CommentID
+	require.NotNil(t, stored)
+	assert.Zero(t, *stored)
 }
 
 func TestTransientDispatchFailureRecordsEveryGroupOfTheWave(t *testing.T) {

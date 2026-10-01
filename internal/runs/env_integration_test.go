@@ -20,6 +20,7 @@ import (
 	"github.com/stackorder/stackorder/internal/config"
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/principal"
+	"github.com/stackorder/stackorder/internal/report"
 	"github.com/stackorder/stackorder/internal/runs"
 	"github.com/stackorder/stackorder/internal/store"
 	"github.com/stackorder/stackorder/internal/testutil/ghfake"
@@ -497,6 +498,35 @@ func (e *env) sticky(pr int) string {
 	}
 	e.t.Fatalf("no sticky comment on #%d", pr)
 	return ""
+}
+
+func (e *env) runComments(pr int) []gh.Comment {
+	var out []gh.Comment
+	for _, c := range e.gh.Comments(repoName, pr) {
+		if strings.HasPrefix(c.Body, "<!-- stackorder:run:") {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (e *env) runComment(pr int, runID string) gh.Comment {
+	e.t.Helper()
+	var found []gh.Comment
+	for _, c := range e.gh.Comments(repoName, pr) {
+		if strings.HasPrefix(c.Body, report.RunMarker(runID)+"\n") {
+			found = append(found, c)
+		}
+	}
+	require.Len(e.t, found, 1, "one comment of run %s on #%d", runID, pr)
+	return found[0]
+}
+
+func (e *env) storedRun(id string) store.Run {
+	e.t.Helper()
+	r, err := e.st.GetRun(e.ctx, uuid.MustParse(id))
+	require.NoError(e.t, err)
+	return r
 }
 
 func (e *env) comment(pr int, login, body string) gh.Comment {

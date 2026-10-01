@@ -300,6 +300,18 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	assert.Equal(t, headSHA, apply.SHA)
 	assert.Equal(t, 3, apply.Waves)
 	assert.Equal(t, map[string]int{vpc: 7, staging: 7, eks: 7, apps: 7}, e.locks())
+	thread := e.gh.Comments(repoName, 7)
+	require.Len(t, thread, 3, "the sticky, the command and the apply comment")
+	assert.True(t, strings.HasPrefix(thread[0].Body, report.Marker))
+	assert.Equal(t, cm.ID, thread[1].ID)
+	applyComment := e.runComment(7, apply.ID)
+	assert.Equal(t, applyComment.ID, thread[2].ID, "the apply comment directly follows the command")
+	assert.True(t, strings.HasPrefix(applyComment.Body, report.RunMarker(apply.ID)+"\n### Stackorder apply: applying"), applyComment.Body)
+	assert.Contains(t, applyComment.Body, "Requested by octocat. This comment is updated as the apply runs.")
+	assert.NotContains(t, applyComment.Body, "<details>")
+	stored := e.storedRun(apply.ID).CommentID
+	require.NotNil(t, stored)
+	assert.Equal(t, applyComment.ID, *stored)
 
 	wave0 := e.gh.Dispatches()
 	require.Len(t, wave0, 2, "one dispatch per environment")
@@ -330,6 +342,7 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	assert.Equal(t, []string{gh.ReactionEyes}, e.gh.Reactions(again.ID), "a refused apply gets no rocket")
 	assert.Len(t, e.gh.Dispatches(), 2, "a second apply while one runs dispatches nothing")
 	assert.Equal(t, apply.ID, e.applyRun(7).ID)
+	assert.Len(t, e.runComments(7), 1, "a refused apply gets no apply comment")
 
 	prod := wave0[byEnv["production"]]
 	bound, err := e.svc.GetRunForPrincipal(e.ctx, e.dispatchJob(prod.RunID, "production"), apply.ID)
@@ -346,10 +359,10 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	waiting := gh.WorkflowJob{RunID: prod.RunID, Name: "run / apply (" + vpc + ", " + vpc + ", production, 0)", Status: gh.RunStatusWaiting,
 		HTMLURL: "https://github.com/acme/infra/actions/runs/9/job/1"}
 	require.NoError(t, e.svc.HandleWorkflowJob(e.ctx, e.gh.WorkflowJobEvent("waiting", repoName, waiting)))
-	sticky := e.sticky(7)
-	assert.Contains(t, sticky, "**Waiting for approval**")
-	assert.Contains(t, sticky, "https://github.com/acme/infra/actions/runs/")
-	assert.Contains(t, sticky, "awaiting approval")
+	waitingBody := e.runComment(7, apply.ID).Body
+	assert.Contains(t, waitingBody, "**Waiting for approval**")
+	assert.Contains(t, waitingBody, "https://github.com/acme/infra/actions/runs/")
+	assert.Contains(t, waitingBody, "awaiting approval")
 	assert.Equal(t, v1.StackApplying, stackStatuses(e.run(apply.ID))[vpc])
 	e.gh.SetPendingDeployments(repoName, prod.RunID, nil)
 
@@ -389,6 +402,8 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	assert.Equal(t, gh.ConclusionSuccess, check.Conclusion)
 	assert.Equal(t, headSHA, check.HeadSHA)
 	assert.Contains(t, e.sticky(7), "### Stackorder: applied")
+	require.Len(t, e.runComments(7), 1, "a duplicate last result and the completed workflow run post no second apply comment")
+	assert.Contains(t, e.runComment(7, apply.ID).Body, "### Stackorder apply: applied")
 	assert.Equal(t, map[string]int{vpc: 7, staging: 7, eks: 7, apps: 7}, e.locks(), "before_merge keeps the locks until the merge")
 	body := e.lastComment(7)
 	assert.True(t, strings.HasPrefix(body, "**Apply of `3333333` succeeded.** Applied 4 stacks in 3 waves: "), body)
@@ -485,6 +500,7 @@ func TestConcurrentWorkersOnOneRun(t *testing.T) {
 	assert.Equal(t, 1, r.CurrentWave)
 	assert.Equal(t, v1.RunApplying, r.Status)
 	assert.Len(t, e.checksNamed(report.CheckApply), 1)
+	assert.Len(t, e.runComments(7), 1, "concurrent renders post the apply comment once")
 }
 
 func TestApplyFailureBlocksDependents(t *testing.T) {
@@ -518,6 +534,9 @@ func TestApplyFailureBlocksDependents(t *testing.T) {
 	assert.Contains(t, body, "`stacks/prod/eks` (failed)")
 	assert.Contains(t, body, "Blocked dependents: `stacks/prod/apps`, `stacks/prod/jobs`")
 	assert.Contains(t, body, "stay held")
+	applyBody := e.runComment(7, apply.ID).Body
+	assert.Contains(t, applyBody, "### Stackorder apply: failed")
+	assert.Contains(t, applyBody, "| blocked |")
 	assert.Equal(t, gh.ConclusionFailure, e.check(report.CheckApply).Conclusion)
 	blocked := e.check(report.StackCheckName(report.CheckApply, apps))
 	assert.Equal(t, gh.ConclusionFailure, blocked.Conclusion)
@@ -526,6 +545,153 @@ func TestApplyFailureBlocksDependents(t *testing.T) {
 	_, err := e.svc.RecordResult(e.ctx, e.dispatchJob(wave1[0].RunID, "production"), apply.ID, eks, applyResult(false))
 	require.NoError(t, err, "a duplicate failure is accepted")
 	assert.Len(t, e.gh.Dispatches(), 3)
+}
+
+func TestApplyCommentIsCreatedOnce(t *testing.T) {
+	const commentsRoute = "POST /repos/{owner}/{repo}/issues/{issue_number}/comments"
+	t.Run("failed, lost, duplicated and concurrent", func(t *testing.T) {
+		e := newEnv(t, baseConfig())
+		e.planned(7, headSHA)
+		posts := func() int {
+			n := 0
+			for _, r := range e.gh.Requests() {
+				if r.Pattern == commentsRoute {
+					n++
+				}
+			}
+			return n
+		}
+		forget := func(id string) {
+			_, err := e.st.Pool().Exec(e.ctx, `UPDATE runs SET comment_id = NULL WHERE id = $1`, id)
+			require.NoError(t, err)
+		}
+
+		e.gh.FailNext(commentsRoute, http.StatusUnprocessableEntity, 1)
+		e.comment(7, applier, "stackorder apply")
+		apply := e.applyRun(7)
+		assert.Empty(t, e.runComments(7), "GitHub refused the apply comment")
+		assert.Nil(t, e.storedRun(apply.ID).CommentID)
+
+		var prod ghfake.Dispatch
+		for _, d := range e.gh.Dispatches() {
+			if entries(t, d)[0].Environment == "production" {
+				prod = d
+			}
+		}
+		_, err := e.svc.GetRunForPrincipal(e.ctx, e.dispatchJob(prod.RunID, "production"), apply.ID)
+		require.NoError(t, err)
+		jobs := 0
+		jobEvent := func() *gh.WorkflowJobEvent {
+			jobs++
+			return e.gh.WorkflowJobEvent("in_progress", repoName, gh.WorkflowJob{
+				RunID: prod.RunID, Name: "run / apply (" + vpc + ", " + vpc + ", production, 0)", Status: gh.RunStatusInProgress,
+				HTMLURL: "https://github.com/acme/infra/actions/runs/9/job/" + itoa(jobs),
+			})
+		}
+
+		require.NoError(t, e.svc.HandleWorkflowJob(e.ctx, jobEvent()))
+		first := e.runComment(7, apply.ID)
+		stored := e.storedRun(apply.ID).CommentID
+		require.NotNil(t, stored, "the next render posts the comment")
+		assert.Equal(t, first.ID, *stored)
+		posted := posts()
+
+		forget(apply.ID)
+		require.NoError(t, e.svc.HandleWorkflowJob(e.ctx, jobEvent()))
+		require.Len(t, e.runComments(7), 1)
+		assert.Equal(t, first.ID, *e.storedRun(apply.ID).CommentID, "a lost id is found again by the marker")
+		assert.Equal(t, posted, posts(), "nothing is posted again")
+
+		c, err := e.app.Client(e.ctx, instID)
+		require.NoError(t, err)
+		dup, err := c.CreateIssueComment(e.ctx, repoName, 7, report.RunMarker(apply.ID)+"\n### Stackorder apply: applying")
+		require.NoError(t, err)
+		forget(apply.ID)
+		require.NoError(t, e.svc.HandleWorkflowJob(e.ctx, jobEvent()))
+		marked := e.runComments(7)
+		require.Len(t, marked, 1, "the later duplicate is deleted")
+		assert.Equal(t, first.ID, marked[0].ID, "the oldest comment is kept")
+		assert.NotEqual(t, dup.ID, marked[0].ID)
+		assert.Equal(t, first.ID, *e.storedRun(apply.ID).CommentID)
+
+		forget(apply.ID)
+		e.gh.DeleteComment(repoName, first.ID)
+		ev := jobEvent()
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(func() { assert.NoError(t, e.svc.HandleWorkflowJob(e.ctx, ev)) })
+		}
+		wg.Wait()
+		marked = e.runComments(7)
+		require.Len(t, marked, 1, "concurrent renders post one comment")
+		assert.NotEqual(t, first.ID, marked[0].ID)
+		assert.Equal(t, marked[0].ID, *e.storedRun(apply.ID).CommentID)
+	})
+	t.Run("redelivered command", func(t *testing.T) {
+		e := newEnv(t, baseConfig())
+		e.planned(7, headSHA)
+		ev := e.gh.IssueCommentEvent(repoName, 7, "stackorder apply", applier)
+		require.NoError(t, e.svc.HandleIssueComment(e.ctx, ev))
+		require.NoError(t, e.svc.HandleIssueComment(e.ctx, ev))
+		applies, _, err := e.st.ListRuns(e.ctx, store.RunFilter{RepoID: repoID, PRNumber: 7, Mode: v1.ModeApply})
+		require.NoError(t, err)
+		require.Len(t, applies, 1)
+		assert.Len(t, e.runComments(7), 1)
+	})
+}
+
+func TestDeletedApplyCommentIsNotPostedAgain(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.planned(7, headSHA)
+	e.comment(7, applier, "stackorder apply")
+	apply := e.applyRun(7)
+	e.gh.DeleteComment(repoName, e.runComment(7, apply.ID).ID)
+
+	wave0 := e.gh.Dispatches()
+	require.Len(t, wave0, 2)
+	e.reportAll(wave0[0], nil)
+	assert.Empty(t, e.runComments(7), "a deleted apply comment is not posted again")
+	stored := e.storedRun(apply.ID).CommentID
+	require.NotNil(t, stored)
+	assert.Zero(t, *stored)
+
+	reported := map[int64]bool{wave0[0].RunID: true}
+	for progressed := true; progressed; {
+		progressed = false
+		for _, d := range e.gh.Dispatches() {
+			if !reported[d.RunID] {
+				reported[d.RunID] = true
+				e.reportAll(d, nil)
+				progressed = true
+			}
+		}
+	}
+	assert.Equal(t, v1.RunApplied, e.run(apply.ID).Status)
+	assert.Empty(t, e.runComments(7))
+	assert.Contains(t, e.lastComment(7), "**Apply of `3333333` succeeded.**")
+}
+
+func TestApplyOfOnlyNoopStacksPostsNoApplyComment(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.openPull(7, headSHA)
+	job, runID, resp := e.startPlan(7, headSHA)
+	for _, a := range resp.Affected {
+		adds := 1
+		if a.Key == eks {
+			adds = 0
+		}
+		_, err := e.svc.RecordResult(e.ctx, job.p, runID, a.Key, planResult(a.Key, headSHA, adds))
+		require.NoError(t, err)
+	}
+	e.comment(7, applier, "stackorder apply "+eks)
+	apply := e.applyRun(7)
+	assert.Equal(t, v1.RunApplied, apply.Status, "a run of no-op stacks finishes before its first render")
+	assert.Empty(t, e.gh.Dispatches())
+	assert.Contains(t, e.lastComment(7), "**Apply of `3333333` succeeded.**")
+	assert.Empty(t, e.runComments(7))
+	stored := e.storedRun(apply.ID).CommentID
+	require.NotNil(t, stored)
+	assert.Zero(t, *stored)
 }
 
 func TestMergeIntoAnotherBranchIsNotADefaultBranchMerge(t *testing.T) {
@@ -636,6 +802,10 @@ func TestApplyOnMerge(t *testing.T) {
 	assert.Empty(t, e.locks(), "an on_merge apply releases its locks when it completes")
 	assert.Contains(t, e.lastComment(7), "**Apply of `5555555` succeeded.**")
 	assert.Contains(t, e.lastComment(7), "The run's orchestration locks were released.")
+	require.Len(t, e.runComments(7), 1)
+	applyBody := e.runComment(7, apply.ID.String()).Body
+	assert.Contains(t, applyBody, "Started on merge by octocat.")
+	assert.Contains(t, applyBody, "`5555555`")
 }
 
 func TestClosedUnmergedKeepsLocks(t *testing.T) {
