@@ -772,6 +772,17 @@ func (s *Server) AddComment(repo string, number int, login, body string) gh.Comm
 	return s.addComment(rs, number, s.user(login), s.association(rs, login), body)
 }
 
+// DeleteComment removes a comment, as if a person deleted it on GitHub.
+func (s *Server) DeleteComment(repo string, id int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rs, ok := s.repos[strings.ToLower(repo)]
+	if !ok {
+		return
+	}
+	rs.comments = slices.DeleteFunc(rs.comments, func(c *storedComment) bool { return c.comment.ID == id })
+}
+
 func (s *Server) addComment(rs *repoState, number int, u gh.User, assoc, body string) gh.Comment {
 	id := s.id()
 	now := s.now()
