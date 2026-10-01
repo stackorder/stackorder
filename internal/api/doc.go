@@ -71,5 +71,6 @@
 // that created it until it restarts; the flag is in memory, so other
 // processes sharing the token keep accepting it until they restart. GET
 // /setup/installed stays open: it shows nothing but the installation id
-// GitHub passes to it.
+// GitHub passes to it. GET /setup/logo.png is open too: it serves the PNG
+// to upload as the App's logo, which only GitHub's settings page can set.
 package api

@@ -146,6 +146,7 @@ func (s *server) routes() http.Handler {
 	s.handle(mux, "GET /setup", 0, http.HandlerFunc(s.setup))
 	s.handle(mux, "GET /setup/callback", 0, http.HandlerFunc(s.setupCallback))
 	s.handle(mux, "GET /setup/installed", 0, http.HandlerFunc(s.setupInstalled))
+	s.handle(mux, "GET /setup/logo.png", 0, http.HandlerFunc(s.setupLogo))
 	if s.cfg.SetupMode {
 		s.handle(mux, "/", 0, http.HandlerFunc(s.setupRequired))
 		return s.observe(s.securityHeaders(mux))

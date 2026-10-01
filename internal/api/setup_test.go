@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"html"
@@ -220,6 +221,8 @@ func TestSetupCallbackPrintsTheCredentialsOnce(t *testing.T) {
 		"GITHUB_APP_PRIVATE_KEY=\n" + strings.TrimSpace(pem),
 		"Secrets Manager",
 		"https://github.com/apps/stackorder-acme/installations/new",
+		`href="https://github.com/settings/apps/stackorder-acme"`,
+		`href="/setup/logo.png"`,
 		"Next steps",
 		"audience " + testBaseURL,
 	} {
@@ -283,7 +286,7 @@ func TestSetupCallbackOnGHES(t *testing.T) {
 		c.GitHubWebURL = "https://ghe.example.com"
 		c.OIDCAudience = "https://stackorder.internal"
 	})
-	e.gh.SetManifestConversion("code-2", gh.AppCredentials{ID: 7, Slug: "so", PEM: "pem", WebhookSecret: "w", ClientID: "c", ClientSecret: "s"})
+	e.gh.SetManifestConversion("code-2", gh.AppCredentials{ID: 7, Slug: "so", Owner: gh.User{Login: "acme", Type: "Organization"}, PEM: "pem", WebhookSecret: "w", ClientID: "c", ClientSecret: "s"})
 	f := e.open(t, "/setup")
 	rec := e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-2&state="+url.QueryEscape(f.action.Query().Get("state")), nil), f.cookie))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -291,6 +294,7 @@ func TestSetupCallbackOnGHES(t *testing.T) {
 	assert.Contains(t, body, "GITHUB_API_URL="+e.gh.URL())
 	assert.Contains(t, body, "GITHUB_WEB_URL=https://ghe.example.com")
 	assert.Contains(t, body, "https://ghe.example.com/apps/so/installations/new")
+	assert.Contains(t, body, `href="https://ghe.example.com/organizations/acme/settings/apps/so"`)
 	assert.Contains(t, body, "audience https://stackorder.internal")
 }
 
@@ -308,11 +312,24 @@ func TestSetupInstalled(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `href="/auth/login"`)
 }
 
+func TestSetupLogo(t *testing.T) {
+	setup := newSetupEnv(t)
+	configured := newSetupEnv(t, func(c *Config, _ *Deps) { c.SetupMode = false })
+	for name, e := range map[string]*setupEnv{"setup mode": setup, "configured": configured} {
+		rec := e.do(newRequest(t, http.MethodGet, "/setup/logo.png", nil))
+		require.Equal(t, http.StatusOK, rec.Code, name)
+		assert.Equal(t, "image/png", rec.Header().Get("Content-Type"), name)
+		assert.Equal(t, appLogo, rec.Body.Bytes(), name)
+	}
+	assert.True(t, bytes.HasPrefix(appLogo, []byte("\x89PNG\r\n\x1a\n")))
+}
+
 func TestSetupModeRoutes(t *testing.T) {
 	e := newSetupEnv(t)
 	assert.Equal(t, http.StatusForbidden, e.do(newRequest(t, http.MethodGet, "/setup", nil)).Code)
 	assert.Equal(t, http.StatusOK, e.get(t, "/setup").Code)
 	assert.Equal(t, http.StatusOK, e.do(newRequest(t, http.MethodGet, "/setup/installed", nil)).Code, "the post-installation page needs no token")
+	assert.Equal(t, http.StatusOK, e.do(newRequest(t, http.MethodGet, "/setup/logo.png", nil)).Code, "the logo needs no token")
 	assert.Equal(t, http.StatusBadRequest, e.do(newRequest(t, http.MethodGet, "/setup/callback", nil)).Code)
 	rec := e.do(newRequest(t, http.MethodGet, "/v1/overview", nil))
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)

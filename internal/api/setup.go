@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -34,6 +35,9 @@ const (
 	setupCreated
 )
 
+//go:embed assets/app-logo.png
+var appLogo []byte
+
 var (
 	githubLogin = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`)
 	appName     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]*$`)
@@ -62,11 +66,12 @@ type setupPage struct {
 }
 
 type setupDonePage struct {
-	Name       string
-	Env        []envVar
-	PrivateKey string
-	InstallURL string
-	NextSteps  []string
+	Name        string
+	Env         []envVar
+	PrivateKey  string
+	InstallURL  string
+	SettingsURL string
+	NextSteps   []string
 }
 
 func (s *server) ghes() bool {
@@ -355,8 +360,9 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 			{"GITHUB_OAUTH_CLIENT_ID", creds.ClientID},
 			{"GITHUB_OAUTH_CLIENT_SECRET", creds.ClientSecret},
 		},
-		PrivateKey: "GITHUB_APP_PRIVATE_KEY=\n" + strings.TrimSpace(creds.PEM),
-		InstallURL: s.installURL(creds.Slug),
+		PrivateKey:  "GITHUB_APP_PRIVATE_KEY=\n" + strings.TrimSpace(creds.PEM),
+		InstallURL:  s.installURL(creds.Slug),
+		SettingsURL: s.appSettingsURL(creds),
 	}
 	if s.ghes() {
 		page.Env = append(page.Env, envVar{"GITHUB_API_URL", s.apiURL}, envVar{"GITHUB_WEB_URL", s.webURL})
@@ -375,6 +381,22 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Robots-Tag", "noindex")
 	s.renderPage(w, r, http.StatusOK, "setup_done", "App created", "", page)
+}
+
+func (s *server) appSettingsURL(creds *gh.AppCredentials) string {
+	slug := url.PathEscape(creds.Slug)
+	if strings.EqualFold(creds.Owner.Type, "Organization") && creds.Owner.Login != "" {
+		return s.webURL + "/organizations/" + url.PathEscape(creds.Owner.Login) + "/settings/apps/" + slug
+	}
+	return s.webURL + "/settings/apps/" + slug
+}
+
+func (s *server) setupLogo(w http.ResponseWriter, _ *http.Request) {
+	h := w.Header()
+	h.Set("Content-Type", "image/png")
+	h.Set("Content-Disposition", `inline; filename="stackorder-logo.png"`)
+	h.Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(appLogo)
 }
 
 func (s *server) setupInstalled(w http.ResponseWriter, r *http.Request) {

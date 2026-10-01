@@ -2,6 +2,12 @@
 
 All notable changes to this repository are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases follow [Semantic Versioning](https://semver.org/). The CLI, the server image and the Terraform module are released together from one `vX.Y.Z` tag.
 
+## [Unreleased]
+
+### Added
+
+- The page `/setup/callback` has a step to give the App a logo, linking to the App's settings on GitHub and to the logo, served at `/setup/logo.png` in and out of setup mode. An App without a logo shows its owner's avatar on every comment and check, and GitHub sets the logo only in its settings page. See [Logo](docs/reference/github-app.md#logo).
+
 ## [0.2.0] - 2026-09-30
 
 It works with [`stackorder/actions`](https://github.com/stackorder/actions) v1.0.0 or later; the `env` input and secret of the reusable workflows need v1.1.0.
