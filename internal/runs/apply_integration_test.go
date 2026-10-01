@@ -431,7 +431,7 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 			announced++
 		}
 	}
-	assert.Equal(t, 1, announced, "a duplicate last result announces the run once")
+	assert.Equal(t, 1, announced, "a duplicate last result posts no second reply")
 
 	merged := e.gh.PullRequestEvent("closed", repoName, gh.PullRequest{
 		Number: 7, State: gh.IssueClosed, Merged: true, MergeCommitSHA: mergeSHA, HeadSHA: headSHA, BaseSHA: baseSHA, User: gh.User{Login: author},
@@ -635,9 +635,13 @@ func TestApplyCommentIsCreatedOnce(t *testing.T) {
 
 		forget(apply.ID)
 		e.gh.DeleteComment(repoName, first.ID)
-		ev := jobEvent()
+		events := make([]*gh.WorkflowJobEvent, 8)
+		for i := range events {
+			events[i] = jobEvent()
+		}
+		posted = posts()
 		var wg sync.WaitGroup
-		for range 8 {
+		for _, ev := range events {
 			wg.Go(func() { assert.NoError(t, e.svc.HandleWorkflowJob(e.ctx, ev)) })
 		}
 		wg.Wait()
@@ -645,6 +649,8 @@ func TestApplyCommentIsCreatedOnce(t *testing.T) {
 		require.Len(t, marked, 1, "concurrent renders post one comment")
 		assert.NotEqual(t, first.ID, marked[0].ID)
 		assert.Equal(t, marked[0].ID, *e.storedRun(apply.ID).CommentID)
+		assert.Equal(t, posted+1, posts(), "concurrent renders post once")
+		assert.Greater(t, e.patches(marked[0].ID), 1, "the other renders edit the comment")
 	})
 	t.Run("redelivered command", func(t *testing.T) {
 		e := newEnv(t, baseConfig())
