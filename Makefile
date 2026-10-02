@@ -71,7 +71,7 @@ dev:
 	go run ./cmd/stackorder-server
 
 down:
-	docker compose down -v
+	docker compose --profile server down -v
 
 docker:
 	docker build -t ghcr.io/stackorder/stackorder:$(VERSION) .
