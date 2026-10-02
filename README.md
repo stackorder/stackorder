@@ -79,7 +79,7 @@ The runner authenticates to the server with its GitHub OIDC token, bound to the 
 ## Quick start
 
 - [Getting started](docs/guide/getting-started.md) takes one repository from nothing to a first `stackorder apply`: deploy the server, create the GitHub App from `/setup`, create the plan and apply roles, add `stackorder.yaml` and the two workflow files.
-- [Local demo](docs/guide/local-demo.md) runs everything on one machine with no GitHub App and no AWS account: Postgres and LocalStack in Docker, the server in setup mode, and the CLI planning, applying and checking drift in `example-infra`.
+- [Local demo](docs/guide/local-demo.md) runs everything on one machine with no GitHub App, no AWS account and no Go toolchain: Postgres, LocalStack and the server in setup mode in Docker, and the released CLI planning, applying and checking drift in `example-infra`.
 
 Both pages are published on the documentation site, [docs.stackorder.io](https://docs.stackorder.io), as [Getting started](https://docs.stackorder.io/guide/getting-started) and [Local demo](https://docs.stackorder.io/guide/local-demo); its sources are in [`docs/`](docs).
 
