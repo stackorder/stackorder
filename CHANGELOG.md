@@ -4,6 +4,15 @@ All notable changes to this repository are documented here. The format follows [
 
 ## [Unreleased]
 
+### Changed
+
+- The [local demo](docs/guide/local-demo.md) needs Docker, git and Terraform or OpenTofu, and no longer Go. The `server` profile of `docker-compose.yml` runs the published image, `ghcr.io/stackorder/stackorder` at the tag in `STACKORDER_VERSION` or `latest`, and the guide [installs the CLI](docs/guide/local-demo.md#cli) from the release archive after checking it against the checksums file. `--build` still builds the image from the checkout, and [From source](docs/guide/local-demo.md#from-source) keeps `make dev` and `make build-cli` for contributors.
+
+### Fixed
+
+- `make dev` waits until Postgres and LocalStack are healthy before it starts the server, which exited when its first connection reached a Postgres still starting, and `make down` also stops the server of the `server` profile.
+- The local demo shows the `infra/` instances of `example-infra` in its graph output, its table of the example and its [scenarios](docs/guide/local-demo.md#scenarios), and no longer says the example's run workflow lacks `run-name`.
+
 ## [0.3.0] - 2026-10-01
 
 ### Added
