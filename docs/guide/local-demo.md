@@ -96,7 +96,14 @@ stackorder graph
 
 ```text
 level=WARN msg="stacks/legacy/dns: inferred reads_state edge to stacks/prod/vpc suppressed by ignore_inferred"
-6 stacks, 3 modules, 7 edges
+9 stacks, 3 modules, 8 edges
+
+infra/kyc:production
+
+infra/kyc:staging
+
+infra/registry:shared
+  depends_on   infra/kyc:production
 
 stacks/legacy/dns
 
@@ -126,7 +133,7 @@ stackorder/example-infra//modules/vpc (local module)
 warning: stacks/legacy/dns: inferred reads_state edge to stacks/prod/vpc suppressed by ignore_inferred
 ```
 
-Module keys start with `owner/repo`, taken from the `origin` remote. `stacks/prod/apps` has no `.stackorder.yaml`: its edge exists only because its `terraform_remote_state` block reads `prod/vpc.tfstate` in `stackorder-example-state`, the backend of `stacks/prod/vpc`. `stacks/legacy/dns` reads the same state but suppresses the edge with `ignore_inferred`, which the scan logs as a warning on standard error and `graph` repeats after the graph.
+Module keys start with `owner/repo`, taken from the `origin` remote. `stacks/prod/apps` has no `.stackorder.yaml`: its edge exists only because its `terraform_remote_state` block reads `prod/vpc.tfstate` in `stackorder-example-state`, the backend of `stacks/prod/vpc`. `stacks/legacy/dns` reads the same state but suppresses the edge with `ignore_inferred`, which the scan logs as a warning on standard error and `graph` repeats after the graph. The `infra/` stacks are [instances](/configuration/instances): `infra/kyc` once per var file, `infra/registry` once as `shared`.
 
 ```sh
 stackorder graph --format dot | dot -Tsvg > graph.svg
@@ -244,17 +251,20 @@ docker compose down -v
 
 | Path | What it shows |
 | --- | --- |
-| `stackorder.yaml` | `tool: terraform`, environments `stacks/prod/` → `production` and `stacks/staging/` → `staging`, `before_merge` with one approval, `propagate.cross_repo: plan`, a weekday drift schedule with issues |
+| `stackorder.yaml` | `tool: terraform`, stacks discovered under `stacks/**` and `infra/**` with an instance per `workspaces/*.tfvars.json`, `env` setting `TF_VAR_environment` and `TF_VAR_role`, environments `stacks/prod/` → `production` and `stacks/staging/` → `staging`, `before_merge` with one approval, `propagate.cross_repo: plan`, a weekday drift schedule with issues |
 | `modules/vpc`, `modules/eks`, `modules/common` | Local modules; `modules/eks` calls `../common`, so a change to `common` reaches `stacks/prod/eks` through two `uses_module` edges |
 | `stacks/prod/vpc`, `stacks/staging/vpc` | Use `modules/vpc` |
 | `stacks/prod/eks` | Uses `modules/eks` and `depends_on: [stacks/prod/vpc]` |
 | `stacks/prod/apps` | Reads `prod/vpc.tfstate`, an inferred `reads_state` edge |
 | `stacks/staging/apps` | `depends_on: [stacks/staging/vpc]` and `plan_output: summary` |
 | `stacks/legacy/dns` | Reads the same state, with `ignore_inferred`; matches no environment prefix, so it applies under `default` |
+| `infra/kyc` | Two [instances](/configuration/instances) from its var files, `infra/kyc:production` and `infra/kyc:staging`, each under the GitHub environment of its name |
+| `infra/registry` | One declared instance, `infra/registry:shared`, with `depends_on: ["infra/kyc:production"]` |
+| `infra/state.s3.tfbackend` | The bucket, region and locking of the `infra/` backends, passed to `init` with each instance's state key |
 | `.stackorder/hooks/post-plan.sh` | Prints the resource count from `STACKORDER_PLAN_JSON` |
 | `.github/workflows/stackorder-plan.yml`, `stackorder-run.yml` | The two wrappers, reading the repository variables below |
 
-Every stack has an S3 backend in `stackorder-example-state`, region `us-east-1`, with `use_lockfile = true`; the state key is the stack path without `stacks/`, such as `prod/vpc.tfstate`.
+Every stack has an S3 backend in `stackorder-example-state`, region `us-east-1`, with `use_lockfile = true`; the state key of a `stacks/` stack is its path without `stacks/`, such as `prod/vpc.tfstate`, and that of an `infra/` instance is its directory without `infra/` and its instance, such as `kyc/production.tfstate`.
 
 ### Scenarios {#scenarios}
 
@@ -263,6 +273,8 @@ Every stack has an S3 backend in `stackorder-example-state`, region `us-east-1`,
 | `modules/vpc` | `stacks/prod/vpc`, `stacks/staging/vpc` (`module`) | `stacks/prod/apps` (`reads_state`), `stacks/prod/eks` (`dependent`), `stacks/staging/apps` (`dependent`) |
 | `stacks/prod/eks` only | `stacks/prod/eks` (`changed`) | |
 | `modules/eks` or `modules/common` | `stacks/prod/eks` (`module`) | |
+| `infra/kyc` or one of its var files | `infra/kyc:production`, `infra/kyc:staging` (`changed`) | `infra/registry:shared` (`dependent`) |
+| `infra/state.s3.tfbackend` | `infra/kyc:production`, `infra/kyc:staging` (`watch_path`) | `infra/registry:shared` (`watch_path`, `dependent`) |
 | Any Markdown file, a `README` | nothing | |
 
 `stacks/legacy/dns` is never affected by `modules/vpc`, because its edge is suppressed. An apply of the first scenario is four dispatches: wave 0 for `production` and for `staging`, then wave 1 for each.
@@ -275,12 +287,8 @@ To run the example against a real server, its workflows read these Actions varia
 | --- | --- | --- |
 | `STACKORDER_SERVER_URL` | plan, run | The server's base URL |
 | `STACKORDER_PLAN_ROLE_ARN` | plan, run | The read-only plan role, trusted for `pull_request` tokens and for `environment:default` |
-| `STACKORDER_APPLY_ROLE_ARN_PROD` | run | Apply role for `stacks/prod/`, trusted for `environment:production` |
-| `STACKORDER_APPLY_ROLE_ARN_STAGING` | run | Apply role for `stacks/staging/`, trusted for `environment:staging` |
-| `STACKORDER_APPLY_ROLE_ARN_DEFAULT` | run | Apply role for `stacks/legacy/`, trusted for `environment:default` |
+| `STACKORDER_APPLY_ROLE_ARN_PROD` | run | Apply role for `stacks/prod/` and the `:production` instances, trusted for `environment:production` |
+| `STACKORDER_APPLY_ROLE_ARN_STAGING` | run | Apply role for `stacks/staging/` and the `:staging` instances, trusted for `environment:staging` |
+| `STACKORDER_APPLY_ROLE_ARN_DEFAULT` | run | Apply role for `stacks/legacy/` and the `:shared` instances, trusted for `environment:default` and `environment:shared` |
 
-The last role shares its subject with the plan and drift jobs; see the warning in [Security hardening](/operations/security-hardening#trust-policies) before copying that layout. The repository also needs the environments `production` and `staging`, branch protection requiring `stackorder/plan` and `stackorder/apply`, and the teams its `CODEOWNERS` names.
-
-::: warning Add `run-name` first
-The example's `stackorder-run.yml` does not set `run-name`. Add the `run-name` line from [Workflows](/configuration/workflows#run) before pointing it at a real server; without it the server binds a dispatch only when a job first calls it, which is too late for an apply waiting on reviewers or for a deployment protection rule.
-:::
+The last role shares its subject with the plan and drift jobs; see the warning in [Security hardening](/operations/security-hardening#trust-policies) before copying that layout. The repository also needs the environments `production`, `staging` and `shared`, branch protection requiring `stackorder/plan` and `stackorder/apply`, and the teams its `CODEOWNERS` names.
