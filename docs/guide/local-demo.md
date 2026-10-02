@@ -10,7 +10,7 @@ What it shows: the server starting, migrating and answering in setup mode; the d
 
 ## Before you start {#prerequisites}
 
-- Docker with Compose.
+- Docker with Compose 2.1.1 or later, the first release with `up --wait`.
 - Terraform or OpenTofu 1.10 or later, since the example stacks use S3-native locking (`use_lockfile = true`). The example's `stackorder.yaml` says `tool: terraform`; with only OpenTofu installed, `export STACKORDER_TOOL=tofu` and use `tofu` where the page says `terraform`.
 - git, and optionally `jq` (for the example hook) and Graphviz (for `dot`).
 
