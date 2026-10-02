@@ -25,6 +25,11 @@ const pins = {
   ],
   'docs/operations/deploy-aws.md': [moduleRef, imageTag],
   'docs/index.md': [/Current release: v([0-9]+(?:\.[0-9]+)*)/g],
+  'docs/guide/local-demo.md': [
+    /releases\/download\/v(\S+)/g,
+    /stackorder_([0-9][^_]*)_/g,
+    /"version":"([0-9][^"]*)"/g,
+  ],
 }
 
 function latestRelease() {

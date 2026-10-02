@@ -137,6 +137,8 @@ Terraform module. Work through the list in order for every release.
      `stackorder_version`.
    - `docs/operations/deploy-aws.md`: `ref=vX.Y.Z` and `image_tag`.
    - `docs/index.md`: the current release.
+   - `docs/guide/local-demo.md`: the CLI download and the `version` in the
+     sample `/healthz` output.
 
    `make docs` fails when one of them does not match the new heading. When
    the release needs a newer `stackorder/actions`, the changelog names
