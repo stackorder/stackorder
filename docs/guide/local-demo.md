@@ -1,36 +1,32 @@
 ---
-description: 'Run Stackorder on one machine with Postgres and LocalStack in Docker and see the dependency graph, affected stacks, waves, plans, applies and drift checks.'
+description: 'Run the Stackorder server and CLI on one machine with Docker and Terraform and see the dependency graph, affected stacks, waves, plans, applies and drift.'
 ---
 
 # Local demo
 
-This page runs Stackorder on one machine, with no GitHub App and no AWS account: Postgres and LocalStack in Docker, the server in setup mode, and the CLI against the [`stackorder/example-infra`](https://github.com/stackorder/example-infra) repository with its state in a LocalStack S3 bucket. The commands are the ones the repository's `make dev` target and the example repository's end-to-end setup use.
+This page runs Stackorder on one machine, with no GitHub App and no AWS account: Postgres, LocalStack and the server in Docker, the server in setup mode, and the CLI against the [`stackorder/example-infra`](https://github.com/stackorder/example-infra) repository with its state in a LocalStack S3 bucket. The server runs from its published image and the CLI from its release archive, so nothing is built; [From source](#from-source) runs both from a checkout instead. The LocalStack settings are the ones the example repository's end-to-end setup uses.
 
 What it shows: the server starting, migrating and answering in setup mode; the dependency graph of a real monorepo; the affected set and waves of a change; real Terraform plans, applies and drift checks against S3 state, with hooks. What it cannot show: pull request checks, comment commands and dispatched applies, which need a GitHub App and a server GitHub can reach. [Getting started](./getting-started) covers those.
 
 ## Before you start {#prerequisites}
 
 - Docker with Compose.
-- Go, for building the CLI and running the server. The version is the one in `go.mod`; with `GOTOOLCHAIN=auto` Go downloads it.
 - Terraform or OpenTofu 1.10 or later, since the example stacks use S3-native locking (`use_lockfile = true`). The example's `stackorder.yaml` says `tool: terraform`; with only OpenTofu installed, `export STACKORDER_TOOL=tofu` and use `tofu` where the page says `terraform`.
 - git, and optionally `jq` (for the example hook) and Graphviz (for `dot`).
 
-Ports 5432, 4566 and 8080 must be free.
+Ports 5432, 4566 and 8080 must be free. Running [from source](#from-source) also needs Go.
 
-## 1. Start Postgres and LocalStack {#services}
+## 1. Start Postgres, LocalStack and the server {#services}
 
 From a checkout of `stackorder/stackorder`:
 
 ```sh
 git clone https://github.com/stackorder/stackorder.git
 cd stackorder
-export GOTOOLCHAIN=auto
-
-docker compose up -d postgres localstack
-docker compose ps
+docker compose --profile server up -d --wait
 ```
 
-`docker-compose.yml` starts `postgres:17-alpine` with the user, password and database `stackorder` on port 5432, and `localstack/localstack:4.0` with `SERVICES=s3,sts` on port 4566. Wait until both are `healthy`.
+`docker-compose.yml` starts `postgres:17-alpine` with the user, password and database `stackorder` on port 5432, `localstack/localstack:4.0` with `SERVICES=s3,sts` on port 4566 and, with the `server` profile, the server image `ghcr.io/stackorder/stackorder:latest` on port 8080 once Postgres is healthy. `--wait` returns when all three are `healthy`. `STACKORDER_VERSION` selects another tag of the image.
 
 Create the state bucket the example stacks use:
 
@@ -38,30 +34,26 @@ Create the state bucket the example stacks use:
 docker compose exec localstack awslocal s3 mb s3://stackorder-example-state
 ```
 
-## 2. Run the server in setup mode {#server}
+## 2. Check the server in setup mode {#server}
 
-In a second terminal, from the same directory:
+Without the GitHub App variables the server starts in [setup mode](/reference/server-configuration#setup-mode): it runs the migrations, warns that `STACKORDER_SESSION_KEY` is not set, logs `stackorder server started` with `setup_mode=true`, then logs a `setup_url` line with a one-time [setup token](/reference/server-configuration#setup-token):
 
 ```sh
-DATABASE_URL='postgres://stackorder:stackorder@localhost:5432/stackorder?sslmode=disable' \
-STACKORDER_BASE_URL=http://localhost:8080 \
-go run ./cmd/stackorder-server
+docker compose logs server | grep setup_url
 ```
 
-This is what `make dev` runs, after `docker compose up -d postgres localstack`. Without the GitHub App variables the server starts in [setup mode](/reference/server-configuration#setup-mode): it runs the migrations, warns that `STACKORDER_SESSION_KEY` is not set, logs `stackorder server started` with `"setup_mode":true`, then logs a `setup_url` line with a one-time [setup token](/reference/server-configuration#setup-token). Add `STACKORDER_LOG_FORMAT=text` for readable logs. If you run the server in Docker instead, with `docker compose --profile server up -d`, `docker compose logs server | grep setup_url` shows the same line.
-
-Back in the first terminal:
+Then query its endpoints and run the image's own health check:
 
 ```sh
 curl -s http://localhost:8080/healthz
 curl -s http://localhost:8080/readyz
 curl -s http://localhost:8080/v1/me
-go run ./cmd/stackorder-server healthcheck
+docker compose exec server /stackorder-server healthcheck
 ```
 
 ```text
-{"status":"ok","version":"dev","setup_mode":true}
-{"status":"ok","version":"dev","setup_mode":true}
+{"status":"ok","version":"0.3.0","setup_mode":true}
+{"status":"ok","version":"0.3.0","setup_mode":true}
 {"code":"unavailable","message":"setup is required: the GitHub App is not configured yet; open http://localhost:8080/setup with the setup token from the server log"}
 stackorder-server healthcheck: GET http://127.0.0.1:8080/healthz: 200 OK
 ```
@@ -74,15 +66,24 @@ curl -sL -b '' 'http://localhost:8080/setup?token=<token from the log>'
 
 If you open it in a browser, do not confirm the App on GitHub: GitHub could not deliver webhooks to `localhost`.
 
-## 3. Build the CLI {#cli}
+## 3. Install the CLI {#cli}
+
+Download the release archive for your system and the checksums file into `bin/`, check the archive and extract the binary:
 
 ```sh
-make build-cli
+os=$(uname -s | tr '[:upper:]' '[:lower:]')
+arch=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+url=https://github.com/stackorder/stackorder/releases/download/v0.3.0
+mkdir -p bin && cd bin
+curl -fsSLO "$url/stackorder_0.3.0_${os}_${arch}.tar.gz" -O "$url/stackorder_0.3.0_checksums.txt"
+grep "_${os}_${arch}.tar.gz" stackorder_0.3.0_checksums.txt | $(command -v sha256sum || echo shasum -a 256) -c -
+tar -xzf "stackorder_0.3.0_${os}_${arch}.tar.gz" stackorder
+cd ..
 export PATH="$PWD/bin:$PATH"
 stackorder version
 ```
 
-`make build-cli` writes `bin/stackorder`. The CLI needs no server for anything below: without `STACKORDER_SERVER_URL` it runs in local mode.
+The check prints the archive name followed by `OK`. It uses `shasum -a 256` where there is no `sha256sum`, as on older macOS releases. [Installing](/reference/cli#installing) lists the archives for every platform. The CLI needs no server for anything below: without `STACKORDER_SERVER_URL` it runs in local mode.
 
 ## 4. Scan the example repository {#graph}
 
@@ -237,13 +238,26 @@ The first stack matches its state (`no drift`, exit 0). The second has never bee
 
 ## 9. Clean up {#clean-up}
 
-Stop the server with Ctrl-C, then, from the `stackorder` checkout:
+From the `stackorder` checkout:
 
 ```sh
-docker compose down -v
+docker compose --profile server down -v
 ```
 
 `make down` does the same. In `example-infra`, `git clean -fdX` removes the `.stackorder/plans` and `.terraform` directories the demo created.
+
+## From source {#from-source}
+
+Contributors run the server and the CLI from the checkout instead. This needs Go, the version in `go.mod`, which Go downloads with `GOTOOLCHAIN=auto`:
+
+```sh
+export GOTOOLCHAIN=auto
+make dev
+```
+
+`make dev` takes the place of the `docker compose` command of step 1: it starts Postgres and LocalStack, waits until they are healthy and runs the server with `go run ./cmd/stackorder-server` in the foreground, logging JSON to the terminal, `setup_url` line included, until Ctrl-C. Run the rest from a second terminal. In step 2, `go run ./cmd/stackorder-server healthcheck` replaces the `docker compose exec` line, and `/healthz` reports `"version":"dev"`. In step 3, `make build-cli` writes `bin/stackorder` instead of the download.
+
+To build the image from the checkout and run it under Compose, add `--build` to the command of step 1. The image built replaces the published one under the same tag until `docker compose pull server`.
 
 ## The example repository {#example-infra}
 
