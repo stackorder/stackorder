@@ -65,7 +65,7 @@ docs-dev:
 	cd docs && npm ci && npm run dev
 
 dev:
-	docker compose up -d postgres localstack
+	docker compose up -d --wait postgres localstack
 	DATABASE_URL=postgres://stackorder:stackorder@localhost:5432/stackorder?sslmode=disable \
 	STACKORDER_BASE_URL=http://localhost:8080 \
 	go run ./cmd/stackorder-server
