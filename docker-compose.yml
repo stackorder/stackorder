@@ -27,6 +27,7 @@ services:
       retries: 20
 
   server:
+    image: ghcr.io/stackorder/stackorder:${STACKORDER_VERSION:-latest}
     build: .
     depends_on:
       postgres:
