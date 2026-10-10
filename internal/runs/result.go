@@ -109,20 +109,7 @@ func (s *Service) authorizeResult(ctx context.Context, p principal.Principal, ru
 		if err != nil {
 			return 0, err
 		}
-		wr, _ := c.RunIDInt()
-		switch c.EventName {
-		case eventPullRequest:
-			if err := checkRepoClaims(c, repo); err != nil {
-				return 0, err
-			}
-			if run.Mode != v1.ModePlan {
-				return 0, principal.Wrap(principal.ErrForbidden, "a pull_request job may only report plans")
-			}
-			return wr, checkPullClaims(c, run)
-		case eventWorkflowDispatch:
-			return wr, s.bindJob(ctx, run, repo, c, row)
-		}
-		return 0, principal.Wrap(principal.ErrForbidden, "claim event_name %q cannot report results", c.EventName)
+		return s.authorizeJob(ctx, c, run, repo, row)
 	case principal.APIKey:
 		if run.Trigger != v1.TriggerManual {
 			return 0, principal.Wrap(principal.ErrForbidden, "an API key may only report results of manual runs")
