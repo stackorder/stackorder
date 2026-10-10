@@ -28,6 +28,14 @@ type Stack struct {
 	FirstSeenAt time.Time       `db:"first_seen_at"`
 	LastSeenAt  time.Time       `db:"last_seen_at"`
 	RemovedAt   *time.Time      `db:"removed_at"`
+	// StateObject is where an apply or drift job of the newest run that
+	// reported one found the stack's state; nil until then. Saving a graph
+	// never changes it, unlike Backend.
+	StateObject *v1.StateObject `db:"state_object"`
+	// StateObjectRunID is the run of that job, nil once the run is deleted.
+	StateObjectRunID *uuid.UUID `db:"state_object_run_id"`
+	// StateObjectAt is when StateObject was recorded.
+	StateObjectAt *time.Time `db:"state_object_at"`
 }
 
 // KeyInstance returns the instance a stack key names: the suffix after the
@@ -80,7 +88,8 @@ func (s Stack) Detail() v1.StackDetail {
 
 const stackSelect = `
 	SELECT s.id, s.repo_id, r.full_name AS repo, s.key, s.path, s.workspace, s.backend,
-	       s.environment, s.tool, s.config, s.first_seen_at, s.last_seen_at, s.removed_at
+	       s.environment, s.tool, s.config, s.first_seen_at, s.last_seen_at, s.removed_at,
+	       s.state_object, s.state_object_run_id, s.state_object_at
 	FROM stacks s JOIN repos r ON r.id = s.repo_id`
 
 // GetStack returns one stack by id.
@@ -116,4 +125,56 @@ func (s *Store) MarkStacksRemoved(ctx context.Context, repoID int64, keepKeys []
 		return 0, wrap("mark stacks removed", err)
 	}
 	return int(tag.RowsAffected()), nil
+}
+
+// SetStackStateObject records the state object an apply or drift job of run
+// reported for the stack. The run must be an apply or drift run of the
+// stack's repository. A report from a run created before the run already
+// recorded is ignored, so a late drift job cannot undo the location a newer
+// apply recorded; the same run may report again. It returns ErrInvalid when
+// obj has no bucket or key or the run may not report for the stack, and
+// ErrNotFound when the stack or the run does not exist.
+func (s *Store) SetStackStateObject(ctx context.Context, stackID uuid.UUID, obj v1.StateObject, runID uuid.UUID) error {
+	const op = "set stack state object"
+	if obj.Bucket == "" || obj.Key == "" {
+		return invalid(op, "state object with a bucket and key is required")
+	}
+	var allowed bool
+	err := s.db.QueryRow(ctx, `
+		WITH report AS (
+			SELECT s.id AS stack_id, r.id AS run_id, r.created_at,
+			       s.repo_id = r.repo_id AND r.mode IN ('apply', 'drift') AS allowed
+			FROM stacks s CROSS JOIN runs r
+			WHERE s.id = $1 AND r.id = $3
+		), recorded AS (
+			UPDATE stacks s SET state_object = $2, state_object_run_id = p.run_id, state_object_at = now()
+			FROM report p
+			WHERE s.id = p.stack_id AND p.allowed
+			  AND (s.state_object_run_id IS NULL
+			       OR p.created_at >= (SELECT created_at FROM runs WHERE id = s.state_object_run_id))
+		)
+		SELECT allowed FROM report`, stackID, obj, runID).Scan(&allowed)
+	if err != nil {
+		return wrap(op, err)
+	}
+	if !allowed {
+		return invalid(op, "run is not an apply or drift run of the stack's repository")
+	}
+	return nil
+}
+
+// DefaultGraphHasStack reports whether the repository has a default-branch
+// graph and whether that graph holds the local, non-external stack key. It
+// returns ErrNotFound when the repository does not exist.
+func (s *Store) DefaultGraphHasStack(ctx context.Context, repoID int64, key string) (known, has bool, err error) {
+	err = s.db.QueryRow(ctx, `
+		SELECT r.default_graph_id IS NOT NULL, EXISTS (
+			SELECT 1 FROM graph_stacks gs JOIN stacks s ON s.id = gs.stack_id
+			WHERE gs.graph_id = r.default_graph_id AND s.repo_id = r.id AND s.key = $2
+			  AND NOT COALESCE((gs.node->>'external')::boolean, false))
+		FROM repos r WHERE r.id = $1`, repoID, key).Scan(&known, &has)
+	if err != nil {
+		return false, false, wrap("default graph has stack", err)
+	}
+	return known, has, nil
 }
