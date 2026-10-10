@@ -735,11 +735,13 @@ comment. Each dispatch row binds at most one Actions `workflow_run_id`: a
 dispatch of that (run, wave, mode); otherwise the stacks named by the run's
 jobs choose the dispatch, or the environment of a `deployment_protection_rule`
 does, and Reconcile never binds by position. The first OIDC call of a job
-also binds; a call that names no stack, where the environment has several
-dispatches in the wave, binds by the stacks the workflow run's jobs name. A workflow run whose dispatch is already bound binds nothing and
-its jobs are refused, which makes a duplicated dispatch (a retried POST
-after a processed 5xx) harmless. Cross-repo plan runs use trigger `push` and
-are deduplicated per upstream run and repository.
+also binds; a call that names no stack, or a stack no dispatch carries,
+where the environment has several dispatches in the wave, binds by the
+stacks the workflow run's jobs name. A workflow run whose dispatch is
+already bound binds nothing and its jobs are refused, which makes a
+duplicated dispatch (a retried POST after a processed 5xx) harmless.
+Cross-repo plan runs use trigger `push` and are deduplicated per upstream
+run and repository.
 
 ## OIDC binding
 
@@ -768,10 +770,13 @@ per run kind:
   fetched from GitHub, never against an event's SHA, and default-branch
   pushes load `stackorder.yaml` at the branch head.
 - Dispatched runs: `event_name` is `workflow_dispatch`, `ref` is
-  `refs/heads/<default branch>`, `run_id` matches the dispatch bound to the
-  run (binding it on first contact), `run_attempt` is recorded, and for
-  `apply` the `environment` claim equals the stack's environment; for `plan`
-  and `drift` dispatches it equals `default`.
+  `refs/heads/<default branch>`, `run_id` is the workflow run of the
+  dispatch that carries the stack (binding it on first contact; in an
+  apply, a stack no dispatch carries takes a dispatch of its wave and a
+  `skipped` stack takes none, so a job never acts for a stack of another
+  wave or one the apply skips), `run_attempt` is recorded, and for `apply`
+  the `environment` claim equals the stack's environment; for `plan` and
+  `drift` dispatches it equals `default`.
 
 `actor` is recorded as `requested_by`. `pull_request_target` plans are not
 supported; fork pull requests get a neutral check from the server.

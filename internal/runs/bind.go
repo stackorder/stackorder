@@ -72,9 +72,13 @@ func jobEnvironment(run store.Run, row *store.RunStack) string {
 // default branch and the environment the stack is dispatched in, and name a
 // workflow run that has not completed. Once a dispatch carries row, that
 // workflow run must be, or on first use becomes, the workflow run of that
-// dispatch. Before then the binding is looser: a workflow run already bound
-// to any dispatch of the run's mode in that environment is accepted, whatever
-// its wave. A token of any other event is refused.
+// dispatch. Before then, in an apply run, it must be, or on first use
+// becomes, the workflow run of a dispatch of row's wave in that environment,
+// chosen by the stacks its jobs name when the wave has several there, and a
+// stack the run skips binds to no dispatch, so a job never acts for a stack
+// of another wave or a skipped one; a plan or drift run has a single
+// dispatch, which serves every stack of the run. A token of any other event
+// is refused.
 func (s *Service) authorizeJob(ctx context.Context, c *oidc.Claims, run store.Run, repo store.Repo, row *store.RunStack) (int64, error) {
 	wr, _ := c.RunIDInt()
 	switch c.EventName {
@@ -140,26 +144,21 @@ func (s *Service) bindDispatch(ctx context.Context, run store.Run, repo store.Re
 				if d.CompletedAt != nil {
 					return principal.Wrap(principal.ErrForbidden, "workflow run %d already completed", wr)
 				}
-				if row != nil && row.DispatchID != nil && *row.DispatchID != d.ID {
-					return principal.Wrap(principal.ErrForbidden,
-						"claim run_id %d is the workflow run of another dispatch than the one that carries %s", wr, row.Key)
+				if row != nil && !carriedBy(*row, d) {
+					return notCarried(run, *row, d, wr)
 				}
 				return nil
 			case d.Mode != run.Mode || !strings.EqualFold(d.Environment, env):
 				continue
-			case row != nil && row.DispatchID != nil:
-				if *row.DispatchID == d.ID {
-					candidates = append(candidates, d)
-				}
 			case row != nil:
-				if d.Wave == row.Wave || run.Mode != v1.ModeApply {
+				if carriedBy(*row, d) {
 					candidates = append(candidates, d)
 				}
 			case d.Wave == run.CurrentWave || run.Mode != v1.ModeApply:
 				candidates = append(candidates, d)
 			}
 		}
-		if row == nil && len(candidates) > 1 {
+		if len(candidates) > 1 {
 			picked, ok, err := s.dispatchByJobs(ctx, repo, run.ID, wr, candidates)
 			if err != nil {
 				return err
@@ -189,4 +188,17 @@ func (s *Service) bindDispatch(ctx context.Context, run store.Run, repo store.Re
 		}
 	}
 	return principal.Wrap(principal.ErrForbidden, "claim run_id %d could not be bound to run %s", wr, run.ID)
+}
+
+func notCarried(run store.Run, rs store.RunStack, d store.Dispatch, wr int64) error {
+	switch {
+	case rs.DispatchID != nil:
+		return principal.Wrap(principal.ErrForbidden,
+			"claim run_id %d is the workflow run of another dispatch than the one that carries %s", wr, rs.Key)
+	case rs.Status == v1.StackSkipped:
+		return principal.Wrap(principal.ErrForbidden,
+			"claim run_id %d cannot act for %s, which run %s skips", wr, rs.Key, run.ID)
+	}
+	return principal.Wrap(principal.ErrForbidden,
+		"claim run_id %d is the workflow run of the wave %d dispatch; %s is in wave %d", wr, d.Wave, rs.Key, rs.Wave)
 }
