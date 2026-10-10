@@ -542,14 +542,23 @@ works.
 `v1.StackResult.State` is a `v1.StateObject` (`bucket`, `key` with the
 workspace prefix, `region` unless the backend takes it from the
 environment): the S3 object that held the stack's state after init and
-workspace selection, omitted when unknown. `v1.StackOutputs` carries the
-root-module outputs of a stack: `repo`, `stack`, the state's `serial`,
-`lineage` and `terraform_version`, `outputs` mapping each name to a
-`v1.StackOutput` (`value` and `type`, the cty type as state writes it, both
-raw JSON, and `sensitive`), an empty object rather than null when there are
-none, and `withheld`, the names of the sensitive outputs the producer
-withholds, omitted when empty. `api/v1/testdata/stack_outputs.json` and
-`stack_outputs_empty.json` pin its wire format.
+workspace selection, omitted when unknown. `runs.RecordResult` records it
+as the stack's `stacks.state_object` from an accepted apply or drift
+result, manual runs included and whatever the outcome, since a job that
+reports one got past init; never from a plan result or a graph upload. A
+refused or repeated result records nothing, and neither does a result of
+a run older than the run that recorded the current object. An object
+without a bucket or key, or a store error, is logged without failing the
+result.
+
+`v1.StackOutputs` carries the root-module outputs of a stack: `repo`,
+`stack`, the state's `serial`, `lineage` and `terraform_version`,
+`outputs` mapping each name to a `v1.StackOutput` (`value` and `type`, the
+cty type as state writes it, both raw JSON, and `sensitive`), an empty
+object rather than null when there are none, and `withheld`, the names of
+the sensitive outputs the producer withholds, omitted when empty.
+`api/v1/testdata/stack_outputs.json` and `stack_outputs_empty.json` pin
+its wire format.
 
 Authentication: `Authorization: Bearer <GitHub OIDC token>` for runners,
 `Authorization: Bearer sk_<key>` for automation, cookie `stackorder_session`
