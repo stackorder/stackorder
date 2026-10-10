@@ -11,19 +11,22 @@ import (
 )
 
 type fakeTFConfig struct {
-	Log         string          `json:"log"`
-	Tofu        bool            `json:"tofu"`
-	Version     string          `json:"version"`
-	InitExit    int             `json:"init_exit"`
-	Backend     json.RawMessage `json:"backend,omitempty"`
-	PlanExit    int             `json:"plan_exit"`
-	PlanOutput  string          `json:"plan_output"`
-	ShowJSON    string          `json:"show_json"`
-	ShowText    string          `json:"show_text"`
-	ShowExit    int             `json:"show_exit"`
-	ApplyExit   int             `json:"apply_exit"`
-	ApplyOutput string          `json:"apply_output"`
-	FailOutput  string          `json:"fail_output"`
+	Log           string          `json:"log"`
+	Tofu          bool            `json:"tofu"`
+	Version       string          `json:"version"`
+	InitExit      int             `json:"init_exit"`
+	Backend       json.RawMessage `json:"backend,omitempty"`
+	BackendType   string          `json:"backend_type,omitempty"`
+	BackendBlock  []string        `json:"backend_block,omitempty"`
+	WorkspaceExit int             `json:"workspace_exit"`
+	PlanExit      int             `json:"plan_exit"`
+	PlanOutput    string          `json:"plan_output"`
+	ShowJSON      string          `json:"show_json"`
+	ShowText      string          `json:"show_text"`
+	ShowExit      int             `json:"show_exit"`
+	ApplyExit     int             `json:"apply_exit"`
+	ApplyOutput   string          `json:"apply_output"`
+	FailOutput    string          `json:"fail_output"`
 }
 
 func main() {
@@ -85,11 +88,18 @@ func run(cfgPath string, args []string) int {
 		if cfg.InitExit != 0 {
 			return fail(cfg.InitExit)
 		}
-		if len(cfg.Backend) > 0 {
+		switch {
+		case cfg.BackendType != "":
+			_ = os.MkdirAll(dataDir, 0o750)
+			_ = os.WriteFile(filepath.Join(dataDir, "terraform.tfstate"), initBackend(cfg, args), 0o600)
+		case len(cfg.Backend) > 0:
 			_ = os.MkdirAll(dataDir, 0o750)
 			_ = os.WriteFile(filepath.Join(dataDir, "terraform.tfstate"), cfg.Backend, 0o600)
 		}
 	case "workspace":
+		if cfg.WorkspaceExit != 0 {
+			return fail(cfg.WorkspaceExit)
+		}
 		_ = os.MkdirAll(dataDir, 0o750)
 		_ = os.WriteFile(filepath.Join(dataDir, "environment"), []byte(args[len(args)-1]), 0o600)
 		fmt.Printf("Switched to workspace %q.\n", args[len(args)-1])
@@ -138,4 +148,28 @@ func run(cfgPath string, args []string) int {
 		fmt.Println("{}")
 	}
 	return 0
+}
+
+func initBackend(cfg fakeTFConfig, args []string) []byte {
+	lines := slices.Clone(cfg.BackendBlock)
+	for _, a := range args {
+		v, ok := strings.CutPrefix(a, "-backend-config=")
+		switch {
+		case !ok:
+		case strings.Contains(v, "="):
+			lines = append(lines, v)
+		default:
+			data, _ := os.ReadFile(v)
+			lines = append(lines, strings.Split(string(data), "\n")...)
+		}
+	}
+	settings := map[string]string{}
+	for _, line := range lines {
+		k, v, ok := strings.Cut(line, "=")
+		if k = strings.TrimSpace(k); ok && k != "" {
+			settings[k] = strings.Trim(strings.TrimSpace(v), `"`)
+		}
+	}
+	out, _ := json.Marshal(map[string]any{"version": 3, "backend": map[string]any{"type": cfg.BackendType, "config": settings}})
+	return out
 }

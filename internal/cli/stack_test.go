@@ -7,6 +7,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	v1 "github.com/stackorder/stackorder/api/v1"
 )
 
 func TestLoadStackInstances(t *testing.T) {
@@ -228,6 +230,138 @@ func TestToolEnvironmentInLocalMode(t *testing.T) {
 				if diff := cmp.Diff(tt.want, jobEnv(c.env)); diff != "" {
 					t.Errorf("%s %s environment (-want +got):\n%s", tt.command, c.args[0], diff)
 				}
+			}
+		})
+	}
+}
+
+func TestResultsReportTheStateObject(t *testing.T) {
+	tests := []struct {
+		name          string
+		command       string
+		key           string
+		backend       string
+		block         []string
+		rootConfig    string
+		stackConfig   string
+		files         map[string]string
+		env           map[string]string
+		selected      string
+		workspaceExit int
+		want          *v1.StateObject
+	}{
+		{
+			name: "default workspace", command: "plan", key: "stacks/app",
+			block: []string{"bucket=acme-state", "key=stacks/app.tfstate", "region=eu-west-1"},
+			want:  &v1.StateObject{Bucket: "acme-state", Key: "stacks/app.tfstate", Region: "eu-west-1"},
+		},
+		{
+			name: "named workspace under the default prefix", command: "drift", key: "stacks/app:blue",
+			block: []string{"bucket=acme-state", "key=stacks/app.tfstate"},
+			want:  &v1.StateObject{Bucket: "acme-state", Key: "env:/blue/stacks/app.tfstate"},
+		},
+		{
+			name: "named workspace under a custom prefix", command: "plan", key: "stacks/app", stackConfig: "workspace: green\n",
+			block: []string{"bucket=acme-state", "key=stacks/app.tfstate", "region=eu-west-1", "workspace_key_prefix=workspaces"},
+			want:  &v1.StateObject{Bucket: "acme-state", Key: "workspaces/green/stacks/app.tfstate", Region: "eu-west-1"},
+		},
+		{
+			name: "partial backend completed by a backend_config file", command: "plan", key: "stacks/app:prod",
+			rootConfig:  "version: 1\nbackend_config:\n  - infra/state.s3.tfbackend\n",
+			stackConfig: "instances: [prod, dev]\n",
+			files:       map[string]string{"infra/state.s3.tfbackend": "bucket = \"acme-state\"\nregion = \"us-east-1\"\n"},
+			block:       []string{"key=stacks/app.tfstate"},
+			want:        &v1.StateObject{Bucket: "acme-state", Key: "stacks/app.tfstate", Region: "us-east-1"},
+		},
+		{
+			name: "key override from the environment", command: "apply", key: "stacks/app",
+			rootConfig: "version: 1\nbackend_config: ['key={{ .Path }}.tfstate']\n",
+			block:      []string{"bucket=acme-state", "region=eu-west-1"},
+			env:        map[string]string{EnvBackendConfig: "key=override/app.tfstate"},
+			want:       &v1.StateObject{Bucket: "acme-state", Key: "override/app.tfstate", Region: "eu-west-1"},
+		},
+		{
+			name: "TF_WORKSPACE in the stack env", command: "drift", key: "stacks/app", stackConfig: "env:\n  TF_WORKSPACE: blue\n",
+			block: []string{"bucket=acme-state", "key=stacks/app.tfstate"},
+			want:  &v1.StateObject{Bucket: "acme-state", Key: "env:/blue/stacks/app.tfstate"},
+		},
+		{
+			name: "TF_WORKSPACE in the job environment", command: "apply", key: "stacks/app",
+			block: []string{"bucket=acme-state", "key=stacks/app.tfstate", "workspace_key_prefix=workspaces"},
+			env:   map[string]string{envWorkspace: "blue"},
+			want:  &v1.StateObject{Bucket: "acme-state", Key: "workspaces/blue/stacks/app.tfstate"},
+		},
+		{
+			name: "workspace left selected in the data directory", command: "drift", key: "stacks/app", selected: "blue\n",
+			block: []string{"bucket=acme-state", "key=stacks/app.tfstate"},
+			want:  &v1.StateObject{Bucket: "acme-state", Key: "env:/blue/stacks/app.tfstate"},
+		},
+		{
+			name: "workspace selection fails", command: "plan", key: "stacks/app:blue", workspaceExit: 1,
+			block: []string{"bucket=acme-state", "key=stacks/app.tfstate"},
+		},
+		{
+			name: "s3 backend without a bucket", command: "plan", key: "stacks/app",
+			block: []string{"key=stacks/app.tfstate", "region=eu-west-1"},
+		},
+		{
+			name: "s3 backend without a key", command: "drift", key: "stacks/app",
+			block: []string{"bucket=acme-state", "region=eu-west-1"},
+		},
+		{
+			name: "local backend", command: "plan", key: "stacks/app", backend: "local",
+			block: []string{"path=terraform.tfstate"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, fs := newHarness(t), newFakeServer(t)
+			if tt.rootConfig != "" {
+				writeFile(t, filepath.Join(h.root, "stackorder.yaml"), tt.rootConfig)
+			}
+			if tt.stackConfig != "" {
+				writeFile(t, filepath.Join(h.root, "stacks", "app", ".stackorder.yaml"), tt.stackConfig)
+			}
+			for name, content := range tt.files {
+				writeFile(t, filepath.Join(h.root, filepath.FromSlash(name)), content)
+			}
+			if tt.selected != "" {
+				writeFile(t, filepath.Join(h.root, "stacks", "app", ".terraform", workspaceFile), tt.selected)
+			}
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			h.tf.BackendType, h.tf.BackendBlock = "s3", tt.block
+			if tt.backend != "" {
+				h.tf.BackendType = tt.backend
+			}
+			h.tf.WorkspaceExit = tt.workspaceExit
+			switch tt.command {
+			case "apply":
+				h.sha = initGit(t, h.root)
+				h.ci(fs, "workflow_dispatch", dispatchPayload("run-1", h.sha))
+				fs.setRun(applyRun(h.sha, v1.RunApplying, plannedRow()))
+				h.savedPlan(h.sha)
+			case "drift":
+				h.ci(fs, "workflow_dispatch", dispatchPayload("run-1", headSHA))
+			default:
+				h.ci(fs, "pull_request", prPayload())
+			}
+
+			r := h.run(tt.command, "--stack", tt.key, "--run-id", "run-1")
+			posted := fs.lastResult().Result
+			if tt.workspaceExit != 0 {
+				require.Equal(t, ExitFailure, r.code, r.stderr)
+				assert.Equal(t, v1.ResultFailure, posted.Status)
+				assert.Contains(t, posted.ErrorText, "workspace select exited with code 1")
+			} else {
+				require.Contains(t, []int{0, ExitChanges}, r.code, r.stderr)
+			}
+			assert.Equal(t, v1.RunMode(tt.command), posted.Mode)
+			require.NotNil(t, posted.Backend)
+			assert.Equal(t, h.tf.BackendType, posted.Backend.Type)
+			if diff := cmp.Diff(tt.want, posted.State); diff != "" {
+				t.Errorf("state object (-want +got):\n%s", diff)
 			}
 		})
 	}
