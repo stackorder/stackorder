@@ -35,6 +35,17 @@ func readsState(from, to, bucket, key string) v1.Edge {
 	}
 }
 
+func readsOutputs(from, to string) v1.Edge {
+	return v1.Edge{
+		From: v1.StackRef(from), To: v1.StackRef(to), Type: v1.EdgeReadsState, Inferred: true,
+		Meta: map[string]string{"source": "stackorder_outputs"},
+	}
+}
+
+func outputsBlock(kind, name, stack string) string {
+	return kind + " \"stackorder_outputs\" \"" + name + "\" {\n  stack = " + stack + "\n}\n"
+}
+
 func s3Block(bucket, key string) string {
 	return "terraform {\n  backend \"s3\" {\n    bucket = \"" + bucket + "\"\n    key    = \"" + key + "\"\n  }\n}\n"
 }
@@ -522,6 +533,232 @@ module "b_long" {
 			}
 			if diff := cmp.Diff(&want, got, ignoreTreeHash); diff != "" {
 				t.Errorf("Scan mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestInferOutputsEdges(t *testing.T) {
+	external := func(repo, key string) v1.Stack {
+		p, instance := v1.SplitStackKey(key)
+		return v1.Stack{Key: v1.QualifiedStackKey(repo, key), Path: p, Instance: instance, Repo: repo, External: true}
+	}
+	tests := []struct {
+		name     string
+		files    map[string]string
+		edges    []v1.Edge
+		external []v1.Stack
+		warnings []string
+	}{
+		{
+			name: "a stack of this repository",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") +
+					outputsBlock("data", "vpc", `"stacks/vpc"`) +
+					outputsBlock("ephemeral", "vpc", `"stacks/vpc"`) +
+					outputsBlock("data", "qualified", `"ACME/Infra//stacks/db"`),
+				"stacks/vpc/main.tf": s3Block("b", "vpc.tfstate"),
+				"stacks/db/main.tf":  s3Block("b", "db.tfstate"),
+			},
+			edges: []v1.Edge{readsOutputs("stacks/app", "stacks/db"), readsOutputs("stacks/app", "stacks/vpc")},
+		},
+		{
+			name: "an instance key",
+			files: map[string]string{
+				"stacks/app/main.tf":          s3Block("b", "app.tfstate") + outputsBlock("ephemeral", "vpc", `"stacks/vpc:blue"`),
+				"stacks/vpc/main.tf":          s3Block("b", "vpc.tfstate"),
+				"stacks/vpc/.stackorder.yaml": "instances: [blue, green]\nworkspace: \"{{ .Instance }}\"\n",
+			},
+			edges: []v1.Edge{readsOutputs("stacks/app", "stacks/vpc:blue")},
+		},
+		{
+			name: "a key must name a stack exactly",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") +
+					outputsBlock("data", "bare", `"stacks/vpc"`) +
+					outputsBlock("data", "dotted", `"./stacks/vpc:blue"`) +
+					outputsBlock("data", "missing", `"stacks/nope"`) +
+					outputsBlock("data", "rootless", `"//stacks/vpc:blue"`),
+				"stacks/vpc/main.tf":          s3Block("b", "vpc.tfstate"),
+				"stacks/vpc/.stackorder.yaml": "instances: [blue]\nworkspace: \"{{ .Instance }}\"\n",
+			},
+			warnings: []string{
+				`stacks/app/main.tf:11: data.stackorder_outputs.dotted: stack "./stacks/vpc:blue" is not a stack of this repository`,
+				`stacks/app/main.tf:14: data.stackorder_outputs.missing: stack "stacks/nope" is not a stack of this repository`,
+				`stacks/app/main.tf:17: data.stackorder_outputs.rootless: stack "//stacks/vpc:blue" is not a valid stack key`,
+				`stacks/app/main.tf:8: data.stackorder_outputs.bare: stack "stacks/vpc" is not a stack of this repository`,
+			},
+		},
+		{
+			name: "another repository becomes an external stack",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") +
+					outputsBlock("data", "tgw", `"acme/network//stacks/prod/tgw"`) +
+					outputsBlock("ephemeral", "dns", `"acme/network//stacks/prod/dns:blue"`) +
+					outputsBlock("data", "unclean", `"acme/network//./stacks/prod/tgw/"`) +
+					outputsBlock("data", "owner", `"acme/network/extra//stacks/prod/tgw"`) +
+					outputsBlock("data", "spaced", `"acme/network //stacks/prod/tgw"`),
+			},
+			edges: []v1.Edge{
+				readsOutputs("stacks/app", "acme/network//stacks/prod/dns:blue"),
+				readsOutputs("stacks/app", "acme/network//stacks/prod/tgw"),
+			},
+			external: []v1.Stack{
+				external("acme/network", "stacks/prod/dns:blue"),
+				external("acme/network", "stacks/prod/tgw"),
+			},
+			warnings: []string{
+				`stacks/app/main.tf:14: data.stackorder_outputs.unclean: stack "acme/network//./stacks/prod/tgw/" is not a valid stack key`,
+				`stacks/app/main.tf:17: data.stackorder_outputs.owner: stack "acme/network/extra//stacks/prod/tgw" is not a valid stack key`,
+				`stacks/app/main.tf:20: data.stackorder_outputs.spaced: stack "acme/network //stacks/prod/tgw" is not a valid stack key`,
+			},
+		},
+		{
+			name: "an explicit depends_on replaces the inferred edge",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") +
+					outputsBlock("data", "vpc", `"stacks/vpc"`) +
+					outputsBlock("data", "tgw", `"acme/network//stacks/prod/tgw"`),
+				"stacks/app/.stackorder.yaml": "depends_on: [stacks/vpc, ACME/Network//stacks/prod/tgw]\n",
+				"stacks/vpc/main.tf":          s3Block("b", "vpc.tfstate"),
+			},
+			edges: []v1.Edge{
+				dependsOn("stacks/app", "ACME/Network//stacks/prod/tgw"),
+				dependsOn("stacks/app", "stacks/vpc"),
+			},
+			external: []v1.Stack{external("ACME/Network", "stacks/prod/tgw")},
+		},
+		{
+			name: "ignore_inferred suppresses the edge with a warning",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") +
+					outputsBlock("data", "vpc", `"stacks/vpc:blue"`) +
+					outputsBlock("data", "tgw", `"acme/network//stacks/prod/tgw"`) +
+					outputsBlock("data", "dns", `"acme/network//stacks/prod/dns"`),
+				"stacks/app/.stackorder.yaml": "ignore_inferred: [stacks/vpc, ./stacks/prod/dns, Acme/Network//stacks/prod/tgw]\n",
+				"stacks/vpc/main.tf":          s3Block("b", "vpc.tfstate"),
+				"stacks/vpc/.stackorder.yaml": "instances: [blue]\nworkspace: \"{{ .Instance }}\"\n",
+			},
+			edges:    []v1.Edge{readsOutputs("stacks/app", "acme/network//stacks/prod/dns")},
+			external: []v1.Stack{external("acme/network", "stacks/prod/dns")},
+			warnings: []string{
+				"stacks/app: inferred reads_state edge to acme/network//stacks/prod/tgw suppressed by ignore_inferred",
+				"stacks/app: inferred reads_state edge to stacks/vpc:blue suppressed by ignore_inferred",
+			},
+		},
+		{
+			name: "ignore_inferred qualified with this repository suppresses both kinds of edge",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") +
+					remoteStateBlock("vpc", "b", "vpc.tfstate") +
+					outputsBlock("data", "vpc", `"stacks/vpc"`) +
+					outputsBlock("data", "db", `"stacks/db"`),
+				"stacks/net/main.tf":          s3Block("b", "net.tfstate") + outputsBlock("ephemeral", "vpc", `"stacks/vpc"`),
+				"stacks/app/.stackorder.yaml": "ignore_inferred: [ACME/Infra//stacks/vpc]\n",
+				"stacks/net/.stackorder.yaml": "ignore_inferred: [acme/infra//stacks/vpc]\n",
+				"stacks/vpc/main.tf":          s3Block("b", "vpc.tfstate"),
+				"stacks/db/main.tf":           s3Block("b", "db.tfstate"),
+			},
+			edges: []v1.Edge{readsOutputs("stacks/app", "stacks/db")},
+			warnings: []string{
+				"stacks/app: inferred reads_state edge to stacks/vpc suppressed by ignore_inferred",
+				"stacks/net: inferred reads_state edge to stacks/vpc suppressed by ignore_inferred",
+			},
+		},
+		{
+			name: "ignore_inferred naming a local stack as a path keeps that reading",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") +
+					remoteStateBlock("vpc", "b", "vpc.tfstate") +
+					outputsBlock("data", "vpc", `"stacks/prod/vpc"`),
+				"stacks/net/main.tf":          s3Block("b", "net.tfstate") + outputsBlock("data", "vpc", `"stacks/prod/vpc"`),
+				"stacks/app/.stackorder.yaml": "ignore_inferred: [stacks/prod//vpc]\n",
+				"stacks/net/.stackorder.yaml": "ignore_inferred: [stacks/prod//vpc]\n",
+				"stacks/prod/vpc/main.tf":     s3Block("b", "vpc.tfstate"),
+			},
+			warnings: []string{
+				"stacks/app: inferred reads_state edge to stacks/prod/vpc suppressed by ignore_inferred",
+				"stacks/net: inferred reads_state edge to stacks/prod/vpc suppressed by ignore_inferred",
+			},
+		},
+		{
+			name: "a cross-repository ignore_inferred entry no block reads is a warning",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") +
+					outputsBlock("data", "tgw", `"acme/network//stacks/prod/tgw"`) +
+					outputsBlock("data", "dns", `"acme/network//stacks/prod/dns"`),
+				"stacks/app/.stackorder.yaml": "depends_on: [acme/network//stacks/prod/dns]\n" +
+					"ignore_inferred: [acme/network//stacks/prod/tgw, acme/network//stacks/prod/dns, acme/network//stacks/prod/nope, stacks/gone//vpc]\n",
+			},
+			edges:    []v1.Edge{dependsOn("stacks/app", "acme/network//stacks/prod/dns")},
+			external: []v1.Stack{external("acme/network", "stacks/prod/dns")},
+			warnings: []string{
+				"stacks/app: ignore_inferred acme/network//stacks/prod/nope: no stackorder_outputs block reads that stack",
+				"stacks/app: ignore_inferred stacks/gone//vpc: no stackorder_outputs block reads that stack",
+				"stacks/app: inferred reads_state edge to acme/network//stacks/prod/tgw suppressed by ignore_inferred",
+			},
+		},
+		{
+			name: "a stack reading its own outputs",
+			files: map[string]string{
+				"stacks/app/main.tf":          s3Block("b", "app.tfstate") + outputsBlock("data", "blue", `"stacks/app:blue"`),
+				"stacks/app/.stackorder.yaml": "instances: [blue, green]\nworkspace: \"{{ .Instance }}\"\n",
+				"stacks/one/main.tf":          s3Block("b", "one.tfstate") + outputsBlock("data", "self", `"acme/infra//stacks/one"`),
+			},
+			edges: []v1.Edge{readsOutputs("stacks/app:green", "stacks/app:blue")},
+			warnings: []string{
+				`stacks/app/main.tf:8: data.stackorder_outputs.blue: stack "stacks/app:blue" names the stack itself; ignored`,
+				`stacks/one/main.tf:8: data.stackorder_outputs.self: stack "acme/infra//stacks/one" names the stack itself; ignored`,
+			},
+		},
+		{
+			name: "a non-literal stack asks for depends_on",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") +
+					outputsBlock("data", "vpc", "var.vpc") +
+					outputsBlock("ephemeral", "db", `"stacks/${var.env}/db"`),
+				"stacks/vpc/main.tf": s3Block("b", "vpc.tfstate"),
+			},
+			warnings: []string{
+				"stacks/app/main.tf:11: ephemeral.stackorder_outputs.db: cannot infer reads_state edge: stack is not a literal value; add depends_on",
+				"stacks/app/main.tf:8: data.stackorder_outputs.vpc: cannot infer reads_state edge: stack is not a literal value; add depends_on",
+			},
+		},
+		{
+			name: "a remote state edge to the same stack keeps its state object",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") +
+					outputsBlock("data", "vpc", `"stacks/vpc"`) +
+					remoteStateBlock("vpc", "b", "vpc.tfstate"),
+				"stacks/vpc/main.tf": s3Block("b", "vpc.tfstate"),
+			},
+			edges: []v1.Edge{readsState("stacks/app", "stacks/vpc", "b", "vpc.tfstate")},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			for rel, content := range tt.files {
+				writeFile(t, root, rel, content)
+			}
+			g, err := Scan(context.Background(), root, Options{Repo: fixtureRepo, SHA: "sha"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var external []v1.Stack
+			for _, st := range g.Stacks {
+				if st.External {
+					external = append(external, st)
+				}
+			}
+			if diff := cmp.Diff(tt.edges, g.Edges, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("edges mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.external, external, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("external stacks mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.warnings, g.Warnings, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

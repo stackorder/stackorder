@@ -21,12 +21,14 @@ import (
 const (
 	backendS3       = "s3"
 	remoteStateType = "terraform_remote_state"
+	outputsType     = "stackorder_outputs"
 )
 
 var (
 	fileSchema = &hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{
 		{Type: "terraform"},
 		{Type: "data", LabelNames: []string{"type", "name"}},
+		{Type: "ephemeral", LabelNames: []string{"type", "name"}},
 	}}
 	terraformSchema = &hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{
 		{Type: "backend", LabelNames: []string{"type"}},
@@ -39,6 +41,7 @@ var (
 	remoteStateSchema = &hcl.BodySchema{Attributes: []hcl.AttributeSchema{
 		{Name: "backend"}, {Name: "config"}, {Name: "workspace"},
 	}}
+	outputsSchema = &hcl.BodySchema{Attributes: []hcl.AttributeSchema{{Name: "stack"}}}
 )
 
 type dirConfig struct {
@@ -46,6 +49,19 @@ type dirConfig struct {
 	backendLoc   string
 	backend      *v1.Backend
 	remoteStates []remoteState
+	outputReads  []outputRead
+}
+
+type outputRead struct {
+	name    string
+	kind    string
+	loc     string
+	stack   string
+	literal bool
+}
+
+func (o outputRead) address() string {
+	return o.kind + "." + outputsType + "." + o.name
 }
 
 type remoteState struct {
@@ -80,13 +96,21 @@ func (r *hclReader) readDir(dir string, names []string) dirConfig {
 		}
 		content, _, diags := body.PartialContent(fileSchema)
 		r.diagnostics(diags)
+		override := i >= len(primaries)
 		for _, block := range content.Blocks {
 			switch block.Type {
 			case "terraform":
-				r.readTerraformBlock(block, i >= len(primaries), &out)
+				r.readTerraformBlock(block, override, &out)
 			case "data":
-				if block.Labels[0] == remoteStateType {
+				switch block.Labels[0] {
+				case remoteStateType:
 					out.remoteStates = append(out.remoteStates, r.readRemoteState(block))
+				case outputsType:
+					r.readOutputRead(block, override, &out)
+				}
+			case "ephemeral":
+				if block.Labels[0] == outputsType {
+					r.readOutputRead(block, override, &out)
 				}
 			}
 		}
@@ -282,6 +306,26 @@ func (r *hclReader) readRemoteState(block *hcl.Block) remoteState {
 		return fail(cfg.Range, "config.key is not set")
 	}
 	return rs
+}
+
+func (r *hclReader) readOutputRead(block *hcl.Block, override bool, out *dirConfig) {
+	content, _, diags := block.Body.PartialContent(outputsSchema)
+	r.diagnostics(diags)
+	attr, ok := content.Attributes["stack"]
+	if !ok {
+		return
+	}
+	read := outputRead{name: block.Labels[1], kind: block.Type, loc: location(attr.Range)}
+	read.stack, read.literal = literalString(attr.Expr)
+	if override {
+		for i, o := range out.outputReads {
+			if o.kind == read.kind && o.name == read.name {
+				out.outputReads[i] = read
+				return
+			}
+		}
+	}
+	out.outputReads = append(out.outputReads, read)
 }
 
 func keyName(expr hcl.Expression) (string, bool) {

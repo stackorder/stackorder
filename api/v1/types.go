@@ -36,8 +36,8 @@ const (
 	// blocks. It propagates change but does not order applies.
 	EdgeUsesModule EdgeType = "uses_module"
 	// EdgeReadsState is a stack to stack edge inferred from
-	// terraform_remote_state data sources. It orders applies softly and
-	// propagates change.
+	// terraform_remote_state data sources and stackorder_outputs blocks. It
+	// orders applies softly and propagates change.
 	EdgeReadsState EdgeType = "reads_state"
 )
 
@@ -207,8 +207,9 @@ type Stack struct {
 	PlanOutput  string   `json:"plan_output,omitempty"`
 	// Config is the raw per-stack .stackorder.yaml, when present.
 	Config *StackConfig `json:"config,omitempty"`
-	// External marks a stack referenced by a cross-repo depends_on edge that
-	// is not part of this graph's repository.
+	// External marks a stack referenced by a cross-repo depends_on edge, or
+	// by a reads_state edge inferred from a stackorder_outputs block, that is
+	// not part of this graph's repository.
 	External bool `json:"external,omitempty"`
 	// WatchPaths lists repository relative files the stack reads at init
 	// or plan that its own directory does not own, sorted and unique.
@@ -245,8 +246,9 @@ type Edge struct {
 	To       NodeRef  `json:"to"`
 	Type     EdgeType `json:"type"`
 	Inferred bool     `json:"inferred,omitempty"`
-	// Meta carries the module ref for uses_module edges and the matched
-	// bucket and key for reads_state edges.
+	// Meta carries the module ref for uses_module edges. A reads_state edge
+	// carries the matched bucket and key when inferred from a
+	// terraform_remote_state data source, else source "stackorder_outputs".
 	Meta map[string]string `json:"meta,omitempty"`
 }
 

@@ -227,6 +227,106 @@ data "terraform_remote_state" "no_key" {
 			}},
 		},
 		{
+			name: "outputs data sources and ephemeral resources",
+			files: map[string]string{"outputs.tf": `data "stackorder_outputs" "vpc" {
+  stack = "stacks/prod/vpc"
+}
+
+ephemeral "stackorder_outputs" "db" {
+  stack = "stacks/prod/db:blue"
+}
+
+data "stackorder_outputs" "tgw" {
+  stack = "acme/network//stacks/prod/tgw"
+}
+
+ephemeral "aws_secretsmanager_secret_version" "token" {
+  secret_id = "token"
+}
+`},
+			want: dirConfig{outputReads: []outputRead{
+				{name: "vpc", kind: "data", loc: "stack/outputs.tf:2", stack: "stacks/prod/vpc", literal: true},
+				{name: "db", kind: "ephemeral", loc: "stack/outputs.tf:6", stack: "stacks/prod/db:blue", literal: true},
+				{name: "tgw", kind: "data", loc: "stack/outputs.tf:10", stack: "acme/network//stacks/prod/tgw", literal: true},
+			}},
+		},
+		{
+			name: "outputs in json",
+			files: map[string]string{"outputs.tf.json": `{
+  "data": {
+    "stackorder_outputs": {
+      "vpc": {"stack": "stacks/prod/vpc"}
+    }
+  },
+  "ephemeral": {
+    "stackorder_outputs": {
+      "db": {"stack": "${var.db}"}
+    }
+  }
+}
+`},
+			want: dirConfig{outputReads: []outputRead{
+				{name: "vpc", kind: "data", loc: "stack/outputs.tf.json:4", stack: "stacks/prod/vpc", literal: true},
+				{name: "db", kind: "ephemeral", loc: "stack/outputs.tf.json:9"},
+			}},
+		},
+		{
+			name: "outputs with a non-literal or missing stack",
+			files: map[string]string{"outputs.tf": `data "stackorder_outputs" "var" {
+  stack = var.stack
+}
+data "stackorder_outputs" "template" {
+  stack = "stacks/${var.env}/vpc"
+}
+ephemeral "stackorder_outputs" "call" {
+  stack = lower("STACKS/VPC")
+}
+ephemeral "stackorder_outputs" "local" {
+  stack = local.vpc
+}
+data "stackorder_outputs" "unset" {
+}
+`},
+			want: dirConfig{outputReads: []outputRead{
+				{name: "var", kind: "data", loc: "stack/outputs.tf:2"},
+				{name: "template", kind: "data", loc: "stack/outputs.tf:5"},
+				{name: "call", kind: "ephemeral", loc: "stack/outputs.tf:8"},
+				{name: "local", kind: "ephemeral", loc: "stack/outputs.tf:11"},
+			}},
+		},
+		{
+			name: "override file replaces the stack of an outputs block",
+			files: map[string]string{
+				"main.tf": `data "stackorder_outputs" "vpc" {
+  stack = "stacks/a"
+}
+ephemeral "stackorder_outputs" "vpc" {
+  stack = "stacks/a"
+}
+data "stackorder_outputs" "db" {
+  stack = "stacks/db"
+}
+`,
+				"main_override.tf": `data "stackorder_outputs" "vpc" {
+  stack = "stacks/b"
+}
+data "stackorder_outputs" "db" {
+  depends_on = []
+}
+data "stackorder_outputs" "new" {
+  stack = "stacks/c"
+}
+`,
+			},
+			names: []string{"main.tf", "main_override.tf"},
+			want: dirConfig{outputReads: []outputRead{
+				{name: "vpc", kind: "data", loc: "stack/main_override.tf:2", stack: "stacks/b", literal: true},
+				{name: "vpc", kind: "ephemeral", loc: "stack/main.tf:5", stack: "stacks/a", literal: true},
+				{name: "db", kind: "data", loc: "stack/main.tf:8", stack: "stacks/db", literal: true},
+				{name: "new", kind: "data", loc: "stack/main_override.tf:8", stack: "stacks/c", literal: true},
+			}},
+		},
+		{
 			name:     "syntax errors become warnings",
 			files:    map[string]string{"broken.tf": "terraform {\n  backend \"s3\" {\n"},
 			want:     dirConfig{backendType: "s3", backendLoc: "stack/broken.tf:2", backend: &v1.Backend{Type: "s3"}},
@@ -243,8 +343,8 @@ data "terraform_remote_state" "no_key" {
 		},
 		{
 			name:     "blocks with the wrong labels become warnings",
-			files:    map[string]string{"main.tf": "terraform {\n  backend {}\n}\ndata \"terraform_remote_state\" {}\n"},
-			warnings: []string{"stack/main.tf:4: Missing name for data", "stack/main.tf:2: Missing type for backend"},
+			files:    map[string]string{"main.tf": "terraform {\n  backend {}\n}\ndata \"terraform_remote_state\" {}\nephemeral \"stackorder_outputs\" {}\n"},
+			warnings: []string{"stack/main.tf:4: Missing name for data", "stack/main.tf:5: Missing name for ephemeral", "stack/main.tf:2: Missing type for backend"},
 		},
 		{
 			name:     "unreadable files become warnings",
@@ -277,7 +377,7 @@ data "terraform_remote_state" "no_key" {
 				warnings = append(warnings, fmt.Sprintf(format, args...))
 			}}
 			got := r.readDir("stack", names)
-			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(dirConfig{}, remoteState{})); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(dirConfig{}, remoteState{}, outputRead{})); diff != "" {
 				t.Errorf("readDir mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tt.warnings, warnings); diff != "" {

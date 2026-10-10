@@ -23,7 +23,7 @@ api/v1/                    wire types shared by CLI, server, UI and tooling (JSO
 cmd/stackorder/            CLI main; binds internal/scan and internal/graph into internal/cli
 cmd/stackorder-server/     server main; wiring only, plus the `healthcheck` subcommand
 internal/config/           stackorder.yaml and .stackorder.yaml: defaults, validation, per-stack merge
-internal/scan/             HCL scanning: discover stacks, parse backends, module sources, remote state; git diff
+internal/scan/             HCL scanning: discover stacks, parse backends, module sources, remote state, stackorder_outputs reads; git diff
 internal/graph/            pure resolution algorithm: affected set, propagation, waves, cycles, DOT output
 internal/report/           pure rendering of check-run output, the sticky PR comment, refusals, drift issues
 internal/command/          parsing of `stackorder …` PR comment commands
@@ -114,7 +114,8 @@ dependencies.
   itself, a Terraform workspace. A stack that sets `workspace: blue` and
   declares no instances is one instance named `blue`, keyed `path:blue`,
   whose Terraform workspace is `blue`.
-- Qualified stack key: `owner/repo//key`. A cross-repo `depends_on` target
+- Qualified stack key: `owner/repo//key`. A cross-repo `depends_on` target,
+  or the `stack` of a `stackorder_outputs` block in another repository,
   becomes a `v1.Stack` with `External: true`, `Repo` set, `Path` and
   `Instance` split out, and `Key` set to the qualified key, so it can never
   collide with a local stack; the edge's `To.Key` is that qualified key.
@@ -125,10 +126,14 @@ dependencies.
   that module versions attach to; `v1.ModuleDetail.Key` and
   `v1.ModuleConsume.ModuleKey` are the family key without `@ref`, while
   graph nodes and `v1.ModuleConsumer.Ref` carry the pinned ref.
-- Inferred `reads_state` edges have `Inferred: true` and `Meta` `bucket` and
-  `key` (the full S3 object key, workspace prefix included). A stack's
-  `ignore_inferred` suppresses the edge in the scanner with a warning; an
-  explicit `depends_on` to the same target replaces it.
+- Inferred `reads_state` edges have `Inferred: true`. Those inferred from a
+  `terraform_remote_state` data source carry `Meta` `bucket` and `key` (the
+  full S3 object key, workspace prefix included); those inferred from a
+  `stackorder_outputs` data source or ephemeral resource carry `Meta`
+  `source: stackorder_outputs` and may point at an external stack. When
+  both blocks infer the same edge, the remote state `Meta` is kept. A
+  stack's `ignore_inferred` suppresses the edge in the scanner with a
+  warning; an explicit `depends_on` to the same target replaces it.
 - Resolution rules the graph package fixes: a changed path belongs to the
   deepest enclosing stack directory only, and affects every workspace of that
   directory; paths under `.terraform` are ignored; git and registry modules
@@ -373,7 +378,27 @@ JSON always uses the map form (`v1.StackConfig.Instances`, custom
   written with a warning, as any unknown target is today, and an
   `ignore_inferred` entry that resolves to nothing suppresses nothing. A
   cross-repository entry is kept as written; it names its instance itself,
-  with a template if it wants the same one.
+  with a template if it wants the same one. A cross-repository
+  `ignore_inferred` entry, and a cross-repository `depends_on` that replaces
+  an inferred edge, match the edge's target with `owner/repo` compared
+  case-insensitively. An `ignore_inferred` entry qualified with this
+  repository resolves as its unqualified key, and one that, cleaned as a
+  path, names a stack of this repository (`stacks/prod//vpc`) keeps that
+  reading. A cross-repository `ignore_inferred` entry that no
+  `stackorder_outputs` block of the stack reads is a warning.
+- A `data` or `ephemeral` `stackorder_outputs` block, in `.tf` or `.tf.json`,
+  infers a `reads_state` edge from each instance of its stack when its
+  `stack` attribute is a literal string; override files replace a block's
+  `stack`. A `path` or `path:instance`, or the same qualified with this
+  repository, must equal a stack key exactly; an `owner/repo//key` of
+  another repository, in canonical form with an `owner/repo` of GitHub's
+  name characters, becomes an external stack. A non-literal `stack` warns
+  to add `depends_on`; a key that names no stack, a malformed key (an empty
+  repository part included) and a stack reading its own outputs are
+  warnings without an edge. Only blocks in the stack's own directory are
+  read, as for `terraform_remote_state`: module bodies are not followed, so
+  a block inside a module the stack calls infers nothing and warns nothing,
+  and the stack needs `depends_on`.
 - A listed var file that does not exist is a scan warning; the CLI errors
   at plan.
 - Affected reasons, in order: `changed`, `watch_path`
