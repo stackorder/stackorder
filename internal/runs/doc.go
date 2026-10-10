@@ -3,8 +3,8 @@
 // gate, takes and releases orchestration locks, dispatches
 // stackorder-run.yml wave by wave, supersedes stale plans, executes pull
 // request comment commands, schedules drift checks, reconciles lost
-// workflow_run webhooks, re-learns the App's installations and plans
-// cross-repository dependents.
+// workflow_run webhooks, re-learns the App's installations, plans
+// cross-repository dependents and serves stack outputs to their readers.
 //
 // # Runs
 //
@@ -26,6 +26,20 @@
 // on_merge or manual run. An apply run of a pull request gets one comment,
 // posted when its first wave is dispatched and edited as it runs. Drift
 // runs check one stack on the default branch head.
+//
+// # Shared outputs
+//
+// With a StateReader (WithStateReader), StackOutputs serves the root module
+// outputs of a stack to the stacks its default branch lists under
+// outputs.readers. The policy resolves as plan_output does, from the stored
+// default-branch stackorder.yaml and the stack's .stackorder.yaml read at
+// the commit that configuration was read at, never from a graph or a pull
+// request; the state object is the one an apply or drift job last reported
+// for the stack, never its backend. A runner job reads as a stack of its
+// run whose job has not reported yet, bound as for its results. Across
+// repositories, which must share an installation, every refusal answers as
+// if the stack did not exist. Values are never stored, cached or logged;
+// the audit rows of reads and refusals hold counts and names only.
 //
 // # Consistency across workers and servers
 //

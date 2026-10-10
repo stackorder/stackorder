@@ -49,15 +49,38 @@ func (p Principal) Actor() string {
 }
 
 // Sentinel errors returned by services and mapped by the API layer.
+// ErrUnprocessable refuses a request the server understood but cannot carry
+// out on what it read, such as an encrypted state; ErrUnavailable reports a
+// dependency that failed for now, such as S3, so a retry may succeed.
 var (
-	ErrNotFound   = errors.New("not found")
-	ErrForbidden  = errors.New("forbidden")
-	ErrConflict   = errors.New("conflict")
-	ErrInvalid    = errors.New("invalid")
-	ErrLocked     = errors.New("locked")
-	ErrRefused    = errors.New("refused")
-	ErrSuperseded = errors.New("superseded")
+	ErrNotFound      = errors.New("not found")
+	ErrForbidden     = errors.New("forbidden")
+	ErrConflict      = errors.New("conflict")
+	ErrInvalid       = errors.New("invalid")
+	ErrLocked        = errors.New("locked")
+	ErrRefused       = errors.New("refused")
+	ErrSuperseded    = errors.New("superseded")
+	ErrUnprocessable = errors.New("unprocessable")
+	ErrUnavailable   = errors.New("unavailable")
 )
+
+// CodedError is a refusal that names its own v1.Error code. Kind is the
+// sentinel the API layer maps to an HTTP status, such as ErrForbidden, and
+// errors.Is matches it; Code is the v1.Error code, such as
+// v1.ErrCodeOutputsNotShared, and Message and Details are the message and
+// details of the v1.Error.
+type CodedError struct {
+	Kind    error
+	Code    string
+	Message string
+	Details map[string]any
+}
+
+// Error implements error.
+func (e *CodedError) Error() string { return e.Message }
+
+// Unwrap returns Kind, so that errors.Is(err, e.Kind) is true.
+func (e *CodedError) Unwrap() error { return e.Kind }
 
 // LockedError reports the orchestration locks that prevented an action.
 type LockedError struct {

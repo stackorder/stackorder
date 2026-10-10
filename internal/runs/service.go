@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/stackorder/stackorder/internal/config"
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/principal"
+	"github.com/stackorder/stackorder/internal/stateread"
 	"github.com/stackorder/stackorder/internal/store"
 )
 
@@ -138,6 +140,13 @@ type ArtifactStore interface {
 	Put(ctx context.Context, key string, contentType string, body []byte) (url string, err error)
 }
 
+// StateReader reads the root module outputs of a state object, for serving
+// a stack's outputs to the stacks that may read them. *stateread.Reader
+// satisfies it.
+type StateReader interface {
+	Read(ctx context.Context, loc stateread.Location) (*stateread.State, error)
+}
+
 // Option changes an optional part of a Service.
 type Option func(*Service)
 
@@ -148,6 +157,18 @@ func WithEnqueue(fn EnqueueFunc) Option { return func(s *Service) { s.enqueue = 
 // WithArtifactStore makes RecordResult keep full plan text in a, storing
 // only its beginning and a link in Postgres.
 func WithArtifactStore(a ArtifactStore) Option { return func(s *Service) { s.artifacts = a } }
+
+// WithStateReader makes StackOutputs serve stack outputs read through r. A
+// nil r, a nil *stateread.Reader included, turns the feature off, like
+// leaving the option out.
+func WithStateReader(r StateReader) Option {
+	return func(s *Service) {
+		if v := reflect.ValueOf(r); v.Kind() == reflect.Pointer && v.IsNil() {
+			r = nil
+		}
+		s.state = r
+	}
+}
 
 // Service is the run state machine of the server. It is safe for
 // concurrent use; see the package documentation for how concurrent
@@ -160,6 +181,7 @@ type Service struct {
 	m         Metrics
 	enqueue   EnqueueFunc
 	artifacts ArtifactStore
+	state     StateReader
 	cache     *ttlCache
 }
 

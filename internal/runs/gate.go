@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/config"
@@ -14,6 +16,13 @@ import (
 	"github.com/stackorder/stackorder/internal/gh/codeowners"
 	"github.com/stackorder/stackorder/internal/report"
 	"github.com/stackorder/stackorder/internal/store"
+)
+
+const (
+	stackFileAtCommitTTL = 24 * time.Hour
+	stackFileAtBranchTTL = time.Minute
+	stackFileFound       = "+"
+	stackFileMissing     = "-"
 )
 
 type gateLayers uint8
@@ -174,19 +183,58 @@ func (s *Service) defaultStackConfigs(ctx context.Context, repo store.Repo, keys
 }
 
 func (s *Service) readStackConfig(ctx context.Context, c *gh.Client, repo store.Repo, dir string) (*v1.StackConfig, error) {
-	path := strings.Trim(dir, "/") + "/" + config.StackFile
-	data, err := c.GetContents(ctx, repo.FullName, path, repo.DefaultBranch)
-	if errors.Is(err, gh.ErrNotFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("runs: %s of %s on %s: %w", path, repo.FullName, repo.DefaultBranch, err)
+	return s.readStackConfigAt(ctx, c, repo, dir, repo.DefaultBranch)
+}
+
+func (s *Service) readStackConfigAt(ctx context.Context, c *gh.Client, repo store.Repo, dir, ref string) (*v1.StackConfig, error) {
+	data, found, err := stackFileAt(ctx, c, repo, dir, ref)
+	if err != nil || !found {
+		return nil, err
 	}
 	sc, err := config.ParseStack(data)
 	if err != nil {
-		return nil, fmt.Errorf("runs: %s of %s on %s: %w", path, repo.FullName, repo.DefaultBranch, err)
+		return nil, fmt.Errorf("runs: %s of %s on %s: %w", stackFilePath(dir), repo.FullName, ref, err)
 	}
 	return sc, nil
+}
+
+func stackFilePath(dir string) string { return strings.Trim(dir, "/") + "/" + config.StackFile }
+
+func stackFileAt(ctx context.Context, c *gh.Client, repo store.Repo, dir, ref string) ([]byte, bool, error) {
+	path := stackFilePath(dir)
+	data, err := c.GetContents(ctx, repo.FullName, path, ref)
+	switch {
+	case errors.Is(err, gh.ErrNotFound):
+		return nil, false, nil
+	case err != nil:
+		return nil, false, fmt.Errorf("runs: %s of %s on %s: %w", path, repo.FullName, ref, err)
+	}
+	return data, true, nil
+}
+
+func (s *Service) defaultStackFile(ctx context.Context, c *gh.Client, repo store.Repo, dir string) ([]byte, bool, error) {
+	ref, ttl := repo.ConfigSHA, stackFileAtCommitTTL
+	if ref == "" {
+		ref, ttl = repo.DefaultBranch, stackFileAtBranchTTL
+	}
+	key := "stackfile:" + strconv.FormatInt(repo.ID, 10) + ":" + ref + ":" + dir
+	if v, ok := s.cache.get(key, ttl, s.now()); ok {
+		data, found := strings.CutPrefix(v, stackFileFound)
+		if !found {
+			return nil, false, nil
+		}
+		return []byte(data), true, nil
+	}
+	data, found, err := stackFileAt(ctx, c, repo, dir, ref)
+	if err != nil {
+		return nil, false, err
+	}
+	v := stackFileMissing
+	if found {
+		v = stackFileFound + string(data)
+	}
+	s.cache.put(key, v, s.now())
+	return data, found, nil
 }
 
 func keyDir(key, path string) (string, string) {

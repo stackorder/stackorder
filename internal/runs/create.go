@@ -180,7 +180,7 @@ func (s *Service) registerDispatchedJob(ctx context.Context, c *oidc.Claims, req
 	if req.Repo != "" && !strings.EqualFold(req.Repo, repo.FullName) {
 		return nil, principal.Wrap(principal.ErrForbidden, "run %s belongs to %s, not %s", run.ID, repo.FullName, req.Repo)
 	}
-	if err := s.bindJob(ctx, run, repo, c, nil); err != nil {
+	if err := s.bindJob(ctx, run, repo, c, nil, false); err != nil {
 		return nil, err
 	}
 	return s.createResponse(ctx, run.ID, true)
@@ -212,7 +212,7 @@ func (s *Service) GetRunForPrincipal(ctx context.Context, p principal.Principal,
 				return nil, finishedPlanError(run)
 			}
 		case eventWorkflowDispatch:
-			if err := s.bindJob(ctx, run, repo, c, nil); err != nil {
+			if err := s.bindJob(ctx, run, repo, c, nil, false); err != nil {
 				return nil, err
 			}
 		default:

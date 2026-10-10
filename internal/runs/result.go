@@ -115,7 +115,7 @@ func (s *Service) authorizeResult(ctx context.Context, p principal.Principal, ru
 		if err != nil {
 			return 0, err
 		}
-		return s.authorizeJob(ctx, c, run, repo, row)
+		return s.authorizeJob(ctx, c, run, repo, row, false)
 	case principal.APIKey:
 		if run.Trigger != v1.TriggerManual {
 			return 0, principal.Wrap(principal.ErrForbidden, "an API key may only report results of manual runs")
