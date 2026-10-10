@@ -64,6 +64,31 @@ fail() {
   printf '\nError: %s\n' "$FAKE_FAIL_OUTPUT" >&2
   exit "$1"
 }
+init_backend() {
+  {
+    printf '%s\n' "$FAKE_BACKEND_BLOCK"
+    for a in "$@"; do
+      case "$a" in
+        -backend-config=*=*) printf '%s\n' "${a#-backend-config=}" ;;
+        -backend-config=*) cat "${a#-backend-config=}" && echo ;;
+      esac
+    done
+  } | awk -v type="$FAKE_BACKEND_TYPE" '
+    index($0, "=") {
+      k = substr($0, 1, index($0, "=") - 1)
+      v = substr($0, index($0, "=") + 1)
+      gsub(/^[ \t]+|[ \t]+$/, "", k)
+      gsub(/^[ \t"]+|[ \t"]+$/, "", v)
+      if (k == "") next
+      if (!(k in val)) order[++n] = k
+      val[k] = v
+    }
+    END {
+      printf "{\"version\":3,\"backend\":{\"type\":\"%s\",\"config\":{", type
+      for (i = 1; i <= n; i++) printf "%s\"%s\":\"%s\"", (i > 1 ? "," : ""), order[i], val[order[i]]
+      printf "}}}"
+    }'
+}
 last=
 for a in "$@"; do last=$a; done
 case "$1" in
@@ -78,10 +103,13 @@ case "$1" in
   init)
     echo "Terraform has been successfully initialized!"
     if [ "$FAKE_INIT_EXIT" -ne 0 ]; then fail "$FAKE_INIT_EXIT"; fi
-    if [ -n "$FAKE_BACKEND" ]; then
+    if [ -n "$FAKE_BACKEND_TYPE" ]; then
+      mkdir -p "${TF_DATA_DIR:-.terraform}" && init_backend "$@" > "${TF_DATA_DIR:-.terraform}/terraform.tfstate"
+    elif [ -n "$FAKE_BACKEND" ]; then
       mkdir -p "${TF_DATA_DIR:-.terraform}" && printf '%s' "$FAKE_BACKEND" > "${TF_DATA_DIR:-.terraform}/terraform.tfstate"
     fi ;;
   workspace)
+    if [ "$FAKE_WORKSPACE_EXIT" -ne 0 ]; then fail "$FAKE_WORKSPACE_EXIT"; fi
     mkdir -p "${TF_DATA_DIR:-.terraform}" && printf '%s' "$last" > "${TF_DATA_DIR:-.terraform}/environment"
     printf 'Switched to workspace "%s".\n' "$last" ;;
   plan)
@@ -142,6 +170,9 @@ func (c fakeTFConfig) shellEnv() string {
 		{"FAKE_VERSION", c.Version},
 		{"FAKE_INIT_EXIT", strconv.Itoa(c.InitExit)},
 		{"FAKE_BACKEND", string(c.Backend)},
+		{"FAKE_BACKEND_TYPE", c.BackendType},
+		{"FAKE_BACKEND_BLOCK", strings.Join(c.BackendBlock, "\n")},
+		{"FAKE_WORKSPACE_EXIT", strconv.Itoa(c.WorkspaceExit)},
 		{"FAKE_PLAN_EXIT", strconv.Itoa(c.PlanExit)},
 		{"FAKE_PLAN_OUTPUT", c.PlanOutput},
 		{"FAKE_SHOW_JSON", c.ShowJSON},
@@ -157,19 +188,22 @@ func (c fakeTFConfig) shellEnv() string {
 }
 
 type fakeTFConfig struct {
-	Log         string          `json:"log"`
-	Tofu        bool            `json:"tofu"`
-	Version     string          `json:"version"`
-	InitExit    int             `json:"init_exit"`
-	Backend     json.RawMessage `json:"backend,omitempty"`
-	PlanExit    int             `json:"plan_exit"`
-	PlanOutput  string          `json:"plan_output"`
-	ShowJSON    string          `json:"show_json"`
-	ShowText    string          `json:"show_text"`
-	ShowExit    int             `json:"show_exit"`
-	ApplyExit   int             `json:"apply_exit"`
-	ApplyOutput string          `json:"apply_output"`
-	FailOutput  string          `json:"fail_output"`
+	Log           string          `json:"log"`
+	Tofu          bool            `json:"tofu"`
+	Version       string          `json:"version"`
+	InitExit      int             `json:"init_exit"`
+	Backend       json.RawMessage `json:"backend,omitempty"`
+	BackendType   string          `json:"backend_type,omitempty"`
+	BackendBlock  []string        `json:"backend_block,omitempty"`
+	WorkspaceExit int             `json:"workspace_exit"`
+	PlanExit      int             `json:"plan_exit"`
+	PlanOutput    string          `json:"plan_output"`
+	ShowJSON      string          `json:"show_json"`
+	ShowText      string          `json:"show_text"`
+	ShowExit      int             `json:"show_exit"`
+	ApplyExit     int             `json:"apply_exit"`
+	ApplyOutput   string          `json:"apply_output"`
+	FailOutput    string          `json:"fail_output"`
 }
 
 type harness struct {

@@ -27,6 +27,8 @@ const (
 	maxErrorText   = 64 * 1024
 	errorTailLines = 40
 	envDataDir     = "TF_DATA_DIR"
+	envWorkspace   = "TF_WORKSPACE"
+	workspaceFile  = "environment"
 	reportTimeout  = 30 * time.Second
 )
 
@@ -146,6 +148,17 @@ func readBackend(dataDir string) *v1.Backend {
 	}
 }
 
+func stateObject(be *v1.Backend, workspace string) *v1.StateObject {
+	if be == nil || be.Type != "s3" || be.Bucket == "" || be.Key == "" {
+		return nil
+	}
+	return &v1.StateObject{
+		Bucket: be.Bucket,
+		Key:    config.StateObjectKey(be.WorkspaceKeyPrefix, workspace, be.Key),
+		Region: be.Region,
+	}
+}
+
 func versionMatches(want, got string) bool {
 	want = strings.TrimPrefix(strings.TrimSpace(want), "v")
 	if !plainVersion.MatchString(want) {
@@ -192,6 +205,7 @@ type session struct {
 	bin         string
 	toolVersion string
 	backend     *v1.Backend
+	state       *v1.StateObject
 }
 
 func (a *app) newSession(ctx context.Context, key, runID string, mode v1.RunMode) (*session, error) {
@@ -284,11 +298,15 @@ func (s *session) stackEnv() map[string]string {
 	return env
 }
 
-func (s *session) dataDir() string {
-	dir, ok := s.stackEnv()[envDataDir]
-	if !ok {
-		dir = os.Getenv(envDataDir)
+func (s *session) toolEnv(name string) string {
+	if v, ok := s.stackEnv()[name]; ok {
+		return v
 	}
+	return os.Getenv(name)
+}
+
+func (s *session) dataDir() string {
+	dir := s.toolEnv(envDataDir)
 	switch {
 	case dir == "":
 		return filepath.Join(s.st.dir, ".terraform")
@@ -296,6 +314,14 @@ func (s *session) dataDir() string {
 		return filepath.Join(s.st.dir, dir)
 	}
 	return dir
+}
+
+func (s *session) toolWorkspace(dataDir string) string {
+	if ws := s.toolEnv(envWorkspace); ws != "" {
+		return ws
+	}
+	data, _ := os.ReadFile(filepath.Join(dataDir, workspaceFile))
+	return strings.TrimSpace(string(data))
 }
 
 func (s *session) varFiles() ([]string, error) {
@@ -352,7 +378,7 @@ func (s *session) init(ctx context.Context, r *tf.Runner) error {
 	dataDir := s.dataDir()
 	opts := tf.InitOptions{Reconfigure: len(s.st.eff.BackendConfig) > 0}
 	if opts.Reconfigure {
-		if err := os.Remove(filepath.Join(dataDir, "environment")); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := os.Remove(filepath.Join(dataDir, workspaceFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("resetting the selected workspace: %w", err)
 		}
 	}
@@ -361,8 +387,11 @@ func (s *session) init(ctx context.Context, r *tf.Runner) error {
 	}
 	s.backend = readBackend(dataDir)
 	if s.st.workspace != "" {
-		return r.SelectWorkspace(ctx)
+		if err := r.SelectWorkspace(ctx); err != nil {
+			return err
+		}
 	}
+	s.state = stateObject(s.backend, s.toolWorkspace(dataDir))
 	return nil
 }
 
@@ -448,6 +477,7 @@ func (s *session) finalize(res *v1.StackResult) {
 	res.Tool = s.tool
 	res.ToolVersion = s.toolVersion
 	res.Backend = s.backend
+	res.State = s.state
 	res.DurationMS = time.Since(s.start).Milliseconds()
 }
 

@@ -421,6 +421,17 @@ JSON always uses the map form (`v1.StackConfig.Instances`, custom
   instances can share one checkout; in that case it also resets the
   selected workspace to the instance's own (or `default`), since the
   checkout's `.terraform` may have been left on another instance's.
+- Results of every mode carry `StackResult.Backend`, read after `init` from
+  `terraform.tfstate` in the tool's data directory, so `-backend-config`
+  files and `STACKORDER_BACKEND_CONFIG` are already merged in, and, for an
+  `s3` backend with a bucket and a key, `StackResult.State`, whose key is
+  `config.StateObjectKey` of the backend's `workspace_key_prefix`, the
+  workspace the tool uses and the backend key. That workspace is found as
+  the tool finds it: a non-empty `TF_WORKSPACE` in the tool's environment
+  (`EnvFor(mode)` over the process environment), else the `environment`
+  file in the data directory, which workspace selection writes and an
+  earlier run may have left, else `default`. `State` is left out when
+  workspace selection fails.
 - `plan`, the re-plan inside `apply` and `drift` pass one `-var-file` per
   `Effective.VarFiles`; each must exist, and the error names it.
   `apply <planfile>` passes none. Plan-time values of non-ephemeral variables are
