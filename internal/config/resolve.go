@@ -47,6 +47,15 @@ type Effective struct {
 	// drift map already holds the plan value of a variable with no drift
 	// value.
 	Env map[v1.RunMode]map[string]string
+	// OutputReaders lists the rendered outputs.readers of the most specific
+	// level that sets them, instance over stack over root; nil when none
+	// does. Neither nil nor an empty list lets any stack read the outputs
+	// (ReaderAllowed).
+	OutputReaders []string
+	// OutputSensitive says whether sensitive outputs are served: always
+	// OutputsShare or OutputsWithhold, and withhold unless the most specific
+	// level that sets sensitive says share.
+	OutputSensitive v1.OutputsSensitive
 }
 
 // EnvFor returns a copy of the environment variables Resolve computed for a
@@ -229,14 +238,16 @@ func Resolve(root *v1.RepoConfig, stackPath string, stack *v1.StackConfig, insta
 //
 // Lists concatenate root, stack, instance (backend_config, var_files) or
 // stack, instance (depends_on, ignore_inferred); env merges per variable,
-// instance over stack over root; workspace, plan_output, tool and
-// tool_version take the most specific value set, and apply.allowed_teams
-// the most specific non-empty list. The environment is the first of the
+// instance over stack over root; workspace, plan_output, tool,
+// tool_version and outputs.sensitive (withhold unless it is share) take
+// the most specific value set, apply.allowed_teams the most specific
+// non-empty list, and outputs.readers the list of the most specific level
+// that sets one, even an empty one. The environment is the first of the
 // instance override, the stack's environment and the environments match
 // that renders non-empty, else the instance name, else
-// v1.DefaultEnvironment. A workspace of "default" means none; the workspace
-// is never derived from the instance. Rendering errors name the file and key
-// that hold the template and are all reported together.
+// v1.DefaultEnvironment. A workspace of "default" means none; the
+// workspace is never derived from the instance. Rendering errors name the
+// file and key that hold the template and are all reported together.
 func ResolveMatched(root *v1.RepoConfig, stackPath string, stack *v1.StackConfig, instance string, matchedVarFiles []string) (Effective, error) {
 	if root == nil {
 		root = Default()
@@ -331,6 +342,19 @@ func ResolveMatched(root *v1.RepoConfig, stackPath string, stack *v1.StackConfig
 
 	e.Env = r.env(root.Env, stack.Env, ov.Env, inst)
 
+	switch {
+	case ov.Outputs != nil && ov.Outputs.Readers != nil:
+		e.OutputReaders = r.readers(r.stackFile, inst+"outputs.readers", ov.Outputs.Readers)
+	case stack.Outputs != nil && stack.Outputs.Readers != nil:
+		e.OutputReaders = r.readers(r.stackFile, "outputs.readers", stack.Outputs.Readers)
+	case root.Outputs != nil && root.Outputs.Readers != nil:
+		e.OutputReaders = r.readers(RootFile, "outputs.readers", root.Outputs.Readers)
+	}
+	e.OutputSensitive = v1.OutputsWithhold
+	if firstSet(outputsSensitive(ov.Outputs), outputsSensitive(stack.Outputs), outputsSensitive(root.Outputs)) == v1.OutputsShare {
+		e.OutputSensitive = v1.OutputsShare
+	}
+
 	if err := errors.Join(r.errs...); err != nil {
 		return Effective{}, err
 	}
@@ -348,6 +372,13 @@ func instanceVarFiles(matched []string, instance string) []string {
 		}
 	}
 	return out
+}
+
+func outputsSensitive(o *v1.OutputsConfig) v1.OutputsSensitive {
+	if o == nil {
+		return ""
+	}
+	return o.Sensitive
 }
 
 func firstSet[T ~string](values ...T) T {
@@ -394,6 +425,21 @@ func (r *renderer) dependencies(key string, values, out []string) []string {
 			r.fail(r.stackFile, k, err)
 		}
 		out = append(out, d)
+	}
+	return out
+}
+
+func (r *renderer) readers(file, key string, values []string) []string {
+	out := make([]string, 0, len(values))
+	for i, v := range values {
+		reader, err := Render(v, r.data)
+		if err == nil && isTemplate(v) {
+			_, _, err = parseReader(reader)
+		}
+		if err != nil {
+			r.fail(file, fmt.Sprintf("%s[%d]", key, i), err)
+		}
+		out = append(out, reader)
 	}
 	return out
 }

@@ -107,6 +107,31 @@ func validateIgnoreInferred(add addFunc, key string, keys []string) {
 	}
 }
 
+func validateOutputs(add addFunc, prefix string, o *v1.OutputsConfig) {
+	if o == nil {
+		return
+	}
+	validateReaders(add, prefix+"readers", o.Readers)
+	switch o.Sensitive {
+	case "", v1.OutputsShare, v1.OutputsWithhold:
+	default:
+		add("%ssensitive: %q is not one of share, withhold", prefix, o.Sensitive)
+	}
+}
+
+func validateReaders(add addFunc, key string, readers []string) {
+	for i, r := range readers {
+		k := fmt.Sprintf("%s[%d]", key, i)
+		if isTemplate(r) {
+			validateTemplateField(add, k, r)
+			continue
+		}
+		if _, _, err := parseReader(r); err != nil {
+			add("%s: %v", k, err)
+		}
+	}
+}
+
 func validateTeams(add addFunc, key string, teams []string) {
 	for i, t := range teams {
 		if t == "" {
@@ -179,6 +204,7 @@ func validateInstance(add addFunc, prefix string, ic v1.InstanceConfig) {
 	}
 	validateDependsOn(add, prefix+"depends_on", ic.DependsOn)
 	validateIgnoreInferred(add, prefix+"ignore_inferred", ic.IgnoreInferred)
+	validateOutputs(add, prefix+"outputs.", ic.Outputs)
 }
 
 type modeValue struct {

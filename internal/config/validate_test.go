@@ -287,3 +287,147 @@ func TestValidateEnvName(t *testing.T) {
 		})
 	}
 }
+
+func TestParseRefusesNullOutputs(t *testing.T) {
+	tests := []struct {
+		name  string
+		parse func() error
+		want  string
+	}{
+		{name: "root", parse: func() error { _, err := Parse([]byte("version: 1\noutputs:\n")); return err }, want: "stackorder.yaml: outputs: no value; write { readers: [] }"},
+		{name: "stack", parse: func() error { _, err := ParseStack([]byte("outputs: ~\n")); return err }, want: ".stackorder.yaml: outputs: no value; write { readers: [] }"},
+		{
+			name:  "instance",
+			parse: func() error { _, err := ParseStack([]byte("instances:\n  blue:\n    outputs:\n")); return err },
+			want:  ".stackorder.yaml: instances.blue.outputs: no value; write { readers: [] }",
+		},
+		{name: "root without readers", parse: func() error { _, err := Parse([]byte("version: 1\noutputs: {}\n")); return err }},
+		{name: "stack without outputs", parse: func() error { _, err := ParseStack([]byte("instances: [blue]\n")); return err }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.parse()
+			if tt.want == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorContains(t, err, tt.want)
+		})
+	}
+}
+
+func TestValidateOutputsReaders(t *testing.T) {
+	levels := []struct {
+		name, prefix string
+		parse        func(outputs string) error
+	}{
+		{name: "root", prefix: "outputs.", parse: func(outputs string) error {
+			_, err := Parse([]byte("version: 1\noutputs: " + outputs + "\n"))
+			return err
+		}},
+		{name: "stack", prefix: "outputs.", parse: func(outputs string) error {
+			_, err := ParseStack([]byte("outputs: " + outputs + "\n"))
+			return err
+		}},
+		{name: "instance", prefix: "instances.blue.outputs.", parse: func(outputs string) error {
+			_, err := ParseStack([]byte("instances:\n  blue:\n    outputs: " + outputs + "\n"))
+			return err
+		}},
+	}
+	tests := []struct {
+		name    string
+		outputs string
+		want    []string
+	}{
+		{name: "same repository patterns", outputs: `{readers: [stacks/prod/eks, "stacks/prod/*", "stacks/**", "stacks/prod/apps:*", "**", "stacks/{eks,dns}"]}`},
+		{name: "another repository", outputs: `{readers: ["acme/platform//clusters/**", "Acme/Platform//stacks/prod/eks:blue"]}`},
+		{name: "templated entries", outputs: `{readers: ["stacks/prod/eks:{{ .Instance }}", "{{ dir .Path }}/**"]}`},
+		{name: "no reader, sensitive shared", outputs: `{readers: [], sensitive: share}`},
+		{name: "sensitive withheld", outputs: `{sensitive: withhold}`},
+		{name: "bad glob", outputs: `{readers: ["stacks/prod/[eks"]}`, want: []string{`readers[0]: "stacks/prod/[eks": "stacks/prod/[eks" is not a valid glob`}},
+		{
+			name:    "wildcard in the repository",
+			outputs: `{readers: ["acme/*//stacks/**", "acme/{a,b}//stacks/**"]}`,
+			want: []string{
+				`readers[0]: "acme/*//stacks/**": repository "acme/*" must be literal`,
+				`readers[1]: "acme/{a,b}//stacks/**": repository "acme/{a,b}" must be literal`,
+			},
+		},
+		{
+			name:    "repository that is not owner/repo",
+			outputs: `{readers: ["infra//stacks/**", "//stacks/**", "acme/infra/x//stacks/**"]}`,
+			want: []string{
+				`readers[0]: "infra//stacks/**": repository must be owner/repo`,
+				`readers[1]: "//stacks/**": repository must be owner/repo`,
+				`readers[2]: "acme/infra/x//stacks/**": repository must be owner/repo`,
+			},
+		},
+		{name: "empty entry", outputs: `{readers: ["", " "]}`, want: []string{"readers[0]: empty entry", "readers[1]: empty entry"}},
+		{name: "empty pattern", outputs: `{readers: ["acme/infra//"]}`, want: []string{`readers[0]: "acme/infra//": empty stack key pattern`}},
+		{name: "absolute pattern", outputs: `{readers: ["/stacks/**"]}`, want: []string{`readers[0]: "/stacks/**": stack key pattern must be repository relative`}},
+		{
+			name:    "pattern outside the repository",
+			outputs: `{readers: ["..", "../stacks/**", "stacks/../../eks", ".", "acme/platform//../clusters/**"]}`,
+			want: []string{
+				`readers[0]: "..": stack key pattern must be repository relative`,
+				`readers[1]: "../stacks/**": stack key pattern must be repository relative`,
+				`readers[2]: "stacks/../../eks": stack key pattern must be repository relative`,
+				`readers[3]: ".": stack key pattern must be repository relative`,
+				`readers[4]: "acme/platform//../clusters/**": stack key pattern must be repository relative`,
+			},
+		},
+		{
+			name:    "pattern spelled unlike a stack key",
+			outputs: `{readers: ["./stacks/prod/eks", "stacks/prod/eks/", "acme/platform//clusters//eu", "stacks/./prod/eks", "stacks/../eks", "acme/platform//./clusters/**"]}`,
+			want: []string{
+				`readers[0]: "./stacks/prod/eks": never matches a stack key; write "stacks/prod/eks"`,
+				`readers[1]: "stacks/prod/eks/": never matches a stack key; write "stacks/prod/eks"`,
+				`readers[2]: "acme/platform//clusters//eu": never matches a stack key; write "acme/platform//clusters/eu"`,
+				`readers[3]: "stacks/./prod/eks": never matches a stack key; write "stacks/prod/eks"`,
+				`readers[4]: "stacks/../eks": never matches a stack key; write "eks"`,
+				`readers[5]: "acme/platform//./clusters/**": never matches a stack key; write "acme/platform//clusters/**"`,
+			},
+		},
+		{
+			name:    "default or empty instance",
+			outputs: `{readers: ["stacks/prod/eks:default", "stacks/prod/*:DEFAULT", "stacks/prod/eks:", "stacks/prod/eks/:blue"]}`,
+			want: []string{
+				`readers[0]: "stacks/prod/eks:default": never matches a stack key; write "stacks/prod/eks"`,
+				`readers[1]: "stacks/prod/*:DEFAULT": never matches a stack key; write "stacks/prod/*"`,
+				`readers[2]: "stacks/prod/eks:": never matches a stack key; write "stacks/prod/eks"`,
+				`readers[3]: "stacks/prod/eks/:blue": never matches a stack key; write "stacks/prod/eks:blue"`,
+			},
+		},
+		{
+			name:    "surrounding space",
+			outputs: `{readers: [" stacks/prod/eks", "stacks/prod/eks ", "acme/platform //clusters/**"]}`,
+			want: []string{
+				`readers[0]: " stacks/prod/eks": never matches a stack key; write "stacks/prod/eks"`,
+				`readers[1]: "stacks/prod/eks ": never matches a stack key; write "stacks/prod/eks"`,
+				`readers[2]: "acme/platform //clusters/**": repository must be owner/repo`,
+			},
+		},
+		{name: "broken template", outputs: `{readers: ["stacks/{{ .Nope }}"]}`, want: []string{`readers[0]: template "stacks/{{ .Nope }}"`}},
+		{name: "unknown sensitive", outputs: `{sensitive: maybe}`, want: []string{`sensitive: "maybe" is not one of share, withhold`}},
+		{
+			name:    "every error with its key",
+			outputs: `{readers: ["stacks/**", "stacks/[", ""], sensitive: all}`,
+			want:    []string{"readers[1]:", "readers[2]: empty entry", `sensitive: "all"`},
+		},
+	}
+	for _, level := range levels {
+		for _, tt := range tests {
+			t.Run(level.name+"/"+tt.name, func(t *testing.T) {
+				err := level.parse(tt.outputs)
+				if len(tt.want) == 0 {
+					require.NoError(t, err)
+					return
+				}
+				require.Error(t, err)
+				for _, want := range tt.want {
+					assert.ErrorContains(t, err, level.prefix+want)
+				}
+			})
+		}
+	}
+}

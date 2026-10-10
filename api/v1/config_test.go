@@ -128,6 +128,14 @@ func TestYAMLNullsAreRefused(t *testing.T) {
 		{name: "empty list item", yaml: "instances:\n  - a\n  -\n", want: "instances[1]: empty instance name"},
 		{name: "null env value", yaml: "env:\n  X: ~\n", want: "env.X: no value"},
 		{name: "missing env value", yaml: "env:\n  X:\n", want: "env.X: no value"},
+		{name: "null outputs readers", yaml: "outputs:\n  readers: ~\n", want: "outputs.readers: no value; write []"},
+		{name: "missing outputs readers", yaml: "outputs:\n  readers:\n  sensitive: share\n", want: "outputs.readers: no value"},
+		{name: "missing instance outputs readers", yaml: "instances:\n  blue:\n    outputs: { readers: }\n", want: "outputs.readers: no value"},
+		{name: "null reader", yaml: "outputs:\n  readers: [stacks/a, ~]\n", want: "outputs.readers[1]: no value"},
+		{name: "only a null reader", yaml: "outputs:\n  readers: [~]\n", want: "outputs.readers[0]: no value"},
+		{name: "empty reader item", yaml: "outputs:\n  readers:\n    -\n", want: "outputs.readers[0]: no value"},
+		{name: "missing instance outputs", yaml: "instances:\n  blue:\n    outputs:\n", want: "instances.blue.outputs: no value; write { readers: [] }"},
+		{name: "null instance outputs", yaml: "instances:\n  blue: { outputs: ~ }\n  green: {}\n", want: "instances.blue.outputs: no value"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -143,6 +151,10 @@ func TestInstancesStrictYAML(t *testing.T) {
 	assert.ErrorContains(t, err, "field stage not found")
 	err = strictYAML("env:\n  X: { plan: a, deploy: b }\n", &s)
 	assert.ErrorContains(t, err, "field deploy not found")
+	err = strictYAML("outputs: { reader: [stacks/a] }\n", &s)
+	assert.ErrorContains(t, err, "field reader not found")
+	err = strictYAML("instances:\n  blue: { outputs: { readers: [], share: true } }\n", &s)
+	assert.ErrorContains(t, err, "field share not found")
 }
 
 func TestInstancesNames(t *testing.T) {
@@ -209,6 +221,91 @@ func TestEnvValueErrors(t *testing.T) {
 	assert.Error(t, json.Unmarshal([]byte(`["a"]`), &v))
 	var env v1.EnvConfig
 	assert.ErrorContains(t, strictYAML("X: [a]\n", &env), "env value must be a string or a map")
+}
+
+func TestOutputsConfigRoundTrip(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		json string
+		want v1.OutputsConfig
+	}{
+		{name: "nothing set", yaml: "{}\n", json: `{"readers":null}`},
+		{
+			name: "readers unset",
+			yaml: "sensitive: share\n",
+			json: `{"readers":null,"sensitive":"share"}`,
+			want: v1.OutputsConfig{Sensitive: v1.OutputsShare},
+		},
+		{
+			name: "no reader",
+			yaml: "readers: []\n",
+			json: `{"readers":[]}`,
+			want: v1.OutputsConfig{Readers: []string{}},
+		},
+		{
+			name: "readers",
+			yaml: "readers:\n  - stacks/prod/eks\n  - \"stacks/prod/apps:*\"\n  - acme/platform//clusters/**\nsensitive: withhold\n",
+			json: `{"readers":["stacks/prod/eks","stacks/prod/apps:*","acme/platform//clusters/**"],"sensitive":"withhold"}`,
+			want: v1.OutputsConfig{
+				Readers:   []string{"stacks/prod/eks", "stacks/prod/apps:*", "acme/platform//clusters/**"},
+				Sensitive: v1.OutputsWithhold,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var fromYAML v1.OutputsConfig
+			require.NoError(t, strictYAML(tt.yaml, &fromYAML))
+			if diff := cmp.Diff(tt.want, fromYAML); diff != "" {
+				t.Errorf("YAML mismatch (-want +got):\n%s", diff)
+			}
+
+			encoded, err := json.Marshal(fromYAML)
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.json, string(encoded))
+			var fromJSON v1.OutputsConfig
+			require.NoError(t, json.Unmarshal(encoded, &fromJSON))
+			if diff := cmp.Diff(tt.want, fromJSON); diff != "" {
+				t.Errorf("JSON round trip mismatch (-want +got):\n%s", diff)
+			}
+
+			out, err := yaml.Marshal(fromYAML)
+			require.NoError(t, err)
+			var yamlTrip v1.OutputsConfig
+			require.NoError(t, strictYAML(string(out), &yamlTrip))
+			if diff := cmp.Diff(tt.want, yamlTrip); diff != "" {
+				t.Errorf("YAML round trip mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestOutputsConfigAtEveryLevel(t *testing.T) {
+	var root v1.RepoConfig
+	require.NoError(t, strictYAML("outputs: { readers: [\"**\"] }\n", &root))
+	var stack v1.StackConfig
+	require.NoError(t, strictYAML("outputs: { sensitive: share }\ninstances:\n  blue: { outputs: { readers: [] } }\n  green: {}\n", &stack))
+
+	encoded, err := json.Marshal(stack)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"outputs":{"readers":null,"sensitive":"share"},"instances":{"blue":{"outputs":{"readers":[]}},"green":{}}}`, string(encoded))
+	var decoded v1.StackConfig
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+	want := v1.StackConfig{
+		Outputs:   &v1.OutputsConfig{Sensitive: v1.OutputsShare},
+		Instances: v1.Instances{"blue": {Outputs: &v1.OutputsConfig{Readers: []string{}}}, "green": {}},
+	}
+	if diff := cmp.Diff(want, decoded); diff != "" {
+		t.Errorf("stack mismatch (-want +got):\n%s", diff)
+	}
+
+	encoded, err = json.Marshal(root)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"outputs":{"readers":["**"]}`)
+	encoded, err = json.Marshal(v1.StackConfig{})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{}`, string(encoded), "an unset outputs is left out")
 }
 
 func TestRepoConfigJSONOmitsUnsetInstanceKeys(t *testing.T) {

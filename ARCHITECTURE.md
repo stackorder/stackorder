@@ -230,8 +230,9 @@ environments:
 JSON always uses the map form (`v1.StackConfig.Instances`, custom
 (un)marshalling). An override (`v1.InstanceConfig`) may set `environment`,
 `workspace`, `backend_config`, `var_files`, `env`, `plan_output`,
-`apply.allowed_teams`, `depends_on` and `ignore_inferred`. `workspace` on
-a stack with instances is a template such as `"{{ .Instance }}"`.
+`apply.allowed_teams`, `depends_on`, `ignore_inferred` and `outputs`.
+`workspace` on a stack with instances is a template such as
+`"{{ .Instance }}"`.
 
 - The instance set of a directory (`config.InstanceNames(root, path,
   stack, matchedVarFiles) ([]string, error)`, with `matchedVarFiles` from
@@ -262,6 +263,37 @@ a stack with instances is a template such as `"{{ .Instance }}"`.
   `workspace`, `plan_output`, `tool` and `tool_version` take the most
   specific value set; `apply.allowed_teams` takes the most specific
   non-empty list.
+- `outputs` (`v1.OutputsConfig`) names the stacks that may read the root
+  module outputs of a stack, in `stackorder.yaml`, in `.stackorder.yaml`
+  and on an instance: `readers` lists them and `sensitive` (`share` or
+  `withhold`, default `withhold`) says whether sensitive outputs are
+  served. A reader is a `doublestar` pattern over the stack keys of the
+  same repository (`stacks/prod/eks`, `stacks/prod/apps:*`, `**`), or
+  `owner/repo//pattern` for stacks of another repository of the same
+  installation, where `owner/repo` is literal; `*` does not cross `/`,
+  `**` crosses `/` only as a whole path segment (`stacks/**/*:blue`
+  matches every `blue` instance under `stacks`, `stacks/**:blue` only
+  those one level down), `:` is an ordinary character, and repositories
+  compare without regard to case. A pattern must be spelled as a stack
+  key is: no surrounding space, no `./`, `//`, `..` or trailing `/`, and
+  no `:default` or empty instance, else validation names the spelling to
+  write; an entry with a template is checked once rendered. `readers`
+  comes from the most specific level that sets it, instance over stack
+  over root, and replaces the others, unlike `apply.allowed_teams`:
+  `readers: []` on a stack or an instance withdraws a root grant, and
+  unset at every level means the outputs are not shared. `sensitive`
+  takes the most specific value set, and anything but `share` resolves
+  to `withhold`. A null `outputs`, a null `readers` or a null reader is
+  an error, so none of them can pass for unset or for no reader, and
+  `v1.OutputsConfig.Readers` has no `omitempty`, so nil (`null`) and `[]`
+  stay apart in JSON and in `repos.config`. `Effective.OutputReaders`
+  (rendered; nil when unset) and `Effective.OutputSensitive` (`share` or
+  `withhold`) carry the result, and `config.ReaderAllowed(readers,
+  producerRepo, readerRepo, readerKey)` is the one matcher: a
+  same-repository entry matches only readers of the producer's
+  repository, and an invalid entry never matches. The warning of a pull
+  request whose `stackorder.yaml` differs names `outputs` by sub-key, as
+  it does `apply`, also when the block is added or removed whole.
 - Templates are Go `text/template` with `missingkey=error`, data `.Path`,
   `.Name` (the last path segment), `.Instance` and `.Key`, and functions
   `trimPrefix prefix s`, `trimSuffix suffix s`, `base`, `dir`, `replace old
@@ -271,8 +303,9 @@ a stack with instances is a template such as `"{{ .Instance }}"`.
   or function whose output exceeds `config.MaxRenderedLength` (4096
   bytes) fails, so a configuration value cannot stall the server. They
   apply to `environments` values, `environment`, `workspace`,
-  `backend_config`, `var_files`, `env` values, `depends_on` and
-  `ignore_inferred`. A string without `{{` is used as is.
+  `backend_config`, `var_files`, `env` values, `depends_on`,
+  `ignore_inferred` and `outputs.readers`. A string without `{{` is used
+  as is.
   A rendering error is a validation error of the file that holds the
   template. `config.Render` is the one implementation.
 - `environments` keys are `prefix`, `prefix:instance` or `:instance`. A
@@ -308,8 +341,8 @@ a stack with instances is a template such as `"{{ .Instance }}"`.
   `STACKORDER_`, `GITHUB_`, `ACTIONS_` or `RUNNER_`, nor be `PATH` or
   `HOME`, compared without regard to case; `default` is refused as an
   instance name in any letter case, since GitHub environment names ignore
-  case. A null list item under `instances` or a null `env` value is an
-  error.
+  case. A null list item under `instances`, a null `env` value, a null
+  `outputs` and a null `outputs.readers` or item of it are errors.
 - Validation is strict (`KnownFields`): an unknown key is an error.
 
 ### Scan and graph
