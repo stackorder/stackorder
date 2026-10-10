@@ -432,6 +432,7 @@ variable "extra_environment" {
       for k in keys(var.extra_environment) : can(regex("^[A-Za-z_][A-Za-z0-9_]*$", k)) && !contains([
         "STACKORDER_BASE_URL", "STACKORDER_LISTEN", "GITHUB_API_URL", "STACKORDER_OIDC_AUDIENCE",
         "STACKORDER_REQUIRED_WORKFLOW_REF", "STACKORDER_ARTIFACT_BUCKET", "STACKORDER_LOG_LEVEL",
+        "STACKORDER_STATE_BUCKETS", "STACKORDER_STATE_ROLE_ARN",
         "DATABASE_URL", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_WEBHOOK_SECRET",
         "GITHUB_OAUTH_CLIENT_ID", "GITHUB_OAUTH_CLIENT_SECRET", "STACKORDER_SESSION_KEY", "STACKORDER_METRICS_TOKEN",
       ], k)
@@ -718,7 +719,7 @@ variable "oidc_audience" {
 }
 
 variable "artifact_bucket_enabled" {
-  description = "Create an S3 bucket for full plan text (STACKORDER_ARTIFACT_BUCKET) and grant the task role access to it. This is the only AWS permission the task role ever gets."
+  description = "Create an S3 bucket for full plan text (STACKORDER_ARTIFACT_BUCKET) and grant the task role access to it. It is the only bucket the task role can write to."
   type        = bool
   default     = false
 }
@@ -774,5 +775,69 @@ variable "alarm_thresholds" {
       var.alarm_thresholds.db_acu_utilization_percent > 0 && var.alarm_thresholds.db_acu_utilization_percent <= 100
     )
     error_message = "alarm_thresholds need target_5xx_count >= 1, cpu_percent and db_acu_utilization_percent in (0, 100], and db_free_storage_bytes > 0."
+  }
+}
+
+variable "shared_outputs_state" {
+  description = "S3 buckets holding the state objects whose root outputs the server may serve to the readers a stack lists, each with an optional key prefix and the KMS key of its objects (STACKORDER_STATE_BUCKETS). Unless shared_outputs_role_arn is set, the task role gets read-only access to the objects under each prefix and kms:Decrypt through S3 with each kms_key_arn. Empty turns shared outputs off."
+  type        = list(object({ bucket = string, prefix = optional(string, ""), kms_key_arn = optional(string) }))
+  default     = []
+  nullable    = false
+
+  validation {
+    condition = alltrue([
+      for s in var.shared_outputs_state :
+      can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", s.bucket)) && !can(regex("\\.\\.", s.bucket)) && !can(regex("^[0-9]+(\\.[0-9]+){3}$", s.bucket))
+    ])
+    error_message = "Each shared_outputs_state bucket must be an S3 bucket name: 3 to 63 lowercase letters, digits, dots and hyphens, starting and ending with a letter or digit, without two dots in a row and not shaped like an IP address."
+  }
+
+  validation {
+    condition = alltrue([
+      for s in var.shared_outputs_state :
+      !can(regex("^(xn--|sthree-|amzn-s3-demo-)", s.bucket)) && !can(regex("(-s3alias|--ol-s3|\\.mrap|--x-s3|--table-s3)$", s.bucket))
+    ])
+    error_message = "shared_outputs_state buckets must not start with xn--, sthree- or amzn-s3-demo-, or end with -s3alias, --ol-s3, .mrap, --x-s3 or --table-s3, which S3 reserves for other kinds of buckets and access points and the server refuses."
+  }
+
+  validation {
+    condition     = alltrue([for s in var.shared_outputs_state : !startswith(s.prefix, "/")])
+    error_message = "shared_outputs_state prefixes are key prefixes and must not start with a slash."
+  }
+
+  validation {
+    condition     = alltrue([for s in var.shared_outputs_state : trimspace(s.prefix) == s.prefix])
+    error_message = "shared_outputs_state prefixes must not start or end with white space, which the server may trim from STACKORDER_STATE_BUCKETS while the task role policy keeps it."
+  }
+
+  validation {
+    condition     = alltrue([for s in var.shared_outputs_state : !can(regex("[,*?$]", s.prefix))])
+    error_message = "shared_outputs_state prefixes must not contain a comma, which separates the entries of STACKORDER_STATE_BUCKETS, or *, ? or $, which IAM policies would read as wildcards or variables."
+  }
+
+  validation {
+    condition     = alltrue([for s in var.shared_outputs_state : s.kms_key_arn == null || can(regex("^arn:[a-z-]+:kms:[a-z0-9-]+:[0-9]{12}:key/(mrk-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$", s.kms_key_arn))])
+    error_message = "Each shared_outputs_state kms_key_arn must be the ARN of one KMS key, by key id rather than alias or wildcard."
+  }
+}
+
+variable "shared_outputs_role_arn" {
+  description = "IAM role the server assumes to read the state objects of shared_outputs_state (STACKORDER_STATE_ROLE_ARN), such as a role in the account of the state buckets. The task role then gets only sts:AssumeRole on it, and the role's own policies must grant the reads and kms:Decrypt, so shared_outputs_state takes no kms_key_arn. Null reads with the task role. Requires shared_outputs_state."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.shared_outputs_role_arn == null || can(regex("^arn:[a-z-]+:iam::[0-9]{12}:role/([A-Za-z0-9+=,.@_-]+/)*[A-Za-z0-9+=,.@_-]+$", var.shared_outputs_role_arn))
+    error_message = "shared_outputs_role_arn must be the ARN of one IAM role, without wildcards."
+  }
+
+  validation {
+    condition     = var.shared_outputs_role_arn == null || length(var.shared_outputs_state) > 0
+    error_message = "shared_outputs_role_arn needs shared_outputs_state, the buckets and prefixes the server may read through the role."
+  }
+
+  validation {
+    condition     = var.shared_outputs_role_arn == null || alltrue([for s in var.shared_outputs_state : s.kms_key_arn == null])
+    error_message = "With shared_outputs_role_arn, leave kms_key_arn out of shared_outputs_state and grant kms:Decrypt in the role's own policies: the task role does not read the state itself."
   }
 }

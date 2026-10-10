@@ -181,6 +181,150 @@ run "execution_role_scope" {
   }
 }
 
+run "shared_outputs" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [
+      {
+        bucket      = "acme-tfstate"
+        prefix      = "stacks/prod/"
+        kms_key_arn = "arn:aws:kms:eu-west-1:123456789012:key/11111111-1111-1111-1111-111111111111"
+      },
+      {
+        bucket      = "acme-tfstate"
+        prefix      = "stacks/shared/"
+        kms_key_arn = "arn:aws:kms:eu-west-1:123456789012:key/11111111-1111-1111-1111-111111111111"
+      },
+      {
+        bucket      = "acme-tfstate-us"
+        kms_key_arn = "arn:aws:kms:us-east-1:210987654321:key/mrk-22222222222222222222222222222222"
+      },
+    ]
+  }
+
+  assert {
+    condition = {
+      for e in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].environment : e.name => e.value
+      if startswith(e.name, "STACKORDER_STATE_")
+      } == {
+      STACKORDER_STATE_BUCKETS = "acme-tfstate/stacks/prod/,acme-tfstate/stacks/shared/,acme-tfstate-us"
+    }
+    error_message = "STACKORDER_STATE_BUCKETS must list every entry as bucket/prefix, or bucket alone without a prefix, and STACKORDER_STATE_ROLE_ARN must stay unset without a role."
+  }
+
+  assert {
+    condition = jsondecode(aws_iam_role_policy.task_shared_outputs[0].policy).Statement == [
+      {
+        Sid      = "ReadStateObjects"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = ["arn:aws:s3:::acme-tfstate/stacks/prod/*", "arn:aws:s3:::acme-tfstate/stacks/shared/*", "arn:aws:s3:::acme-tfstate-us/*"]
+      },
+      {
+        Sid       = "ListStateBucket0"
+        Effect    = "Allow"
+        Action    = ["s3:ListBucket"]
+        Resource  = ["arn:aws:s3:::acme-tfstate"]
+        Condition = { StringLike = { "s3:prefix" = ["stacks/prod/*", "stacks/shared/*"] } }
+      },
+      {
+        Sid       = "ListStateBucket1"
+        Effect    = "Allow"
+        Action    = ["s3:ListBucket"]
+        Resource  = ["arn:aws:s3:::acme-tfstate-us"]
+        Condition = { StringLike = { "s3:prefix" = ["*"] } }
+      },
+      {
+        Sid    = "DecryptStateObjects"
+        Effect = "Allow"
+        Action = ["kms:Decrypt"]
+        Resource = [
+          "arn:aws:kms:eu-west-1:123456789012:key/11111111-1111-1111-1111-111111111111",
+          "arn:aws:kms:us-east-1:210987654321:key/mrk-22222222222222222222222222222222",
+        ]
+        Condition = { StringEquals = { "kms:ViaService" = ["s3.eu-west-1.amazonaws.com", "s3.us-east-1.amazonaws.com"] } }
+      },
+    ]
+    error_message = "The task role must get s3:GetObject under each prefix, s3:ListBucket limited to the prefixes of each bucket, and kms:Decrypt on each key through S3 in the key's region."
+  }
+
+  assert {
+    condition = !anytrue([
+      for s in jsondecode(aws_iam_role_policy.task_shared_outputs[0].policy).Statement :
+      anytrue([for a in s.Action : contains(["s3:PutObject", "s3:DeleteObject", "s3:*", "kms:Encrypt", "kms:GenerateDataKey"], a)])
+    ])
+    error_message = "Shared outputs must never grant write access to the state."
+  }
+}
+
+run "shared_outputs_whole_bucket" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate" }]
+  }
+
+  assert {
+    condition = {
+      for e in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].environment : e.name => e.value
+      if startswith(e.name, "STACKORDER_STATE_")
+      } == {
+      STACKORDER_STATE_BUCKETS = "acme-tfstate"
+    }
+    error_message = "An entry without a prefix must reach STACKORDER_STATE_BUCKETS as the bucket name alone."
+  }
+
+  assert {
+    condition = jsondecode(aws_iam_role_policy.task_shared_outputs[0].policy).Statement == [
+      {
+        Sid      = "ReadStateObjects"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = ["arn:aws:s3:::acme-tfstate/*"]
+      },
+      {
+        Sid       = "ListStateBucket0"
+        Effect    = "Allow"
+        Action    = ["s3:ListBucket"]
+        Resource  = ["arn:aws:s3:::acme-tfstate"]
+        Condition = { StringLike = { "s3:prefix" = ["*"] } }
+      },
+    ]
+    error_message = "Without a KMS key there must be no kms:Decrypt statement."
+  }
+}
+
+run "shared_outputs_through_role" {
+  command = plan
+
+  variables {
+    shared_outputs_state    = [{ bucket = "acme-tfstate", prefix = "stacks/prod/" }]
+    shared_outputs_role_arn = "arn:aws:iam::210987654321:role/stackorder/state-reader"
+  }
+
+  assert {
+    condition = {
+      for e in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].environment : e.name => e.value
+      if startswith(e.name, "STACKORDER_STATE_")
+      } == {
+      STACKORDER_STATE_BUCKETS  = "acme-tfstate/stacks/prod/"
+      STACKORDER_STATE_ROLE_ARN = "arn:aws:iam::210987654321:role/stackorder/state-reader"
+    }
+    error_message = "The role must reach the server as STACKORDER_STATE_ROLE_ARN beside the buckets."
+  }
+
+  assert {
+    condition = jsondecode(aws_iam_role_policy.task_shared_outputs[0].policy).Statement == [{
+      Sid      = "AssumeStateRole"
+      Effect   = "Allow"
+      Action   = ["sts:AssumeRole"]
+      Resource = ["arn:aws:iam::210987654321:role/stackorder/state-reader"]
+    }]
+    error_message = "Through a role the task role may only assume that role; the role grants the reads."
+  }
+}
+
 run "health_check_command" {
   command = plan
 
