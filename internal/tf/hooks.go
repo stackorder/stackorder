@@ -36,8 +36,15 @@ const (
 	// HookEnvInstance names the variable holding the stack's instance name,
 	// empty for a stack without one.
 	HookEnvInstance = "STACKORDER_INSTANCE"
-	// HookEnvRunID names the variable holding the server run id.
+	// HookEnvRunID names the variable holding the server run id, empty when
+	// there is none.
 	HookEnvRunID = "STACKORDER_RUN_ID"
+	// HookEnvServerURL names the variable holding the server base URL as
+	// given to --server, empty in local mode.
+	HookEnvServerURL = "STACKORDER_SERVER_URL"
+	// HookEnvRepository names the variable holding the repository as
+	// owner/repo, empty when the CLI cannot tell it.
+	HookEnvRepository = "STACKORDER_REPOSITORY"
 	// HookEnvPlanJSON names the variable holding the path of the plan JSON.
 	HookEnvPlanJSON = "STACKORDER_PLAN_JSON"
 	// HookEnvPlanFile names the variable holding the path of the binary plan.

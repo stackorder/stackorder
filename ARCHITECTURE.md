@@ -169,8 +169,9 @@ dependencies.
 - Hooks `.stackorder/hooks/{pre-plan,post-plan,pre-apply,post-apply}.sh` are
   run by the CLI itself, in CI and locally, with `STACKORDER_STACK`,
   `STACKORDER_STACK_PATH`, `STACKORDER_INSTANCE`, `STACKORDER_RUN_ID`,
-  `STACKORDER_PLAN_JSON` and `STACKORDER_PLAN_FILE` (both file paths) set,
-  plus the stack's configured `env` variables for the mode (see
+  `STACKORDER_SERVER_URL`, `STACKORDER_REPOSITORY`, `STACKORDER_PLAN_JSON`
+  and `STACKORDER_PLAN_FILE` (both file paths) set, plus the stack's
+  configured `env` variables for the mode (see
   [Stack instances](#stack-instances)). The design assigns hooks to the
   reusable workflow; the CLI owns them so local and CI behaviour match.
 - Release assets on `stackorder/stackorder` tags `vX.Y.Z`:
@@ -426,9 +427,13 @@ JSON always uses the map form (`v1.StackConfig.Instances`, custom
   frozen in the plan file; only `ephemeral` variables take the `apply`
   value of `env` on an apply from a saved plan.
 - The tool process and the hooks get `EnvFor(mode)` after the automation
-  variables, and `STACKORDER_STACK` (the key), `STACKORDER_STACK_PATH` and
-  `STACKORDER_INSTANCE`. Values of configured variables whose names match
-  the secret pattern of `envSecrets` join the redaction set.
+  variables, and `STACKORDER_STACK` (the key), `STACKORDER_STACK_PATH`,
+  `STACKORDER_INSTANCE`, `STACKORDER_RUN_ID` (the run id the CLI uses),
+  `STACKORDER_SERVER_URL` (the `--server` value) and
+  `STACKORDER_REPOSITORY` (`owner/repo`), each set even when empty, so an
+  inherited value never disagrees with the CLI. Values of configured
+  variables whose names match the secret pattern of `envSecrets` join the
+  redaction set.
 
 ### Server
 
@@ -864,10 +869,11 @@ graph, falling back to its latest graph.
 
 | Variable | Purpose |
 | --- | --- |
-| `STACKORDER_SERVER_URL` | Server base URL; unset means local mode |
+| `STACKORDER_SERVER_URL` | Server base URL; unset means local mode. The CLI sets it for the tool and the hooks to the `--server` value, empty in local mode |
 | `STACKORDER_API_KEY` | Automation key for local `apply`, `unlock` and result posting outside Actions |
 | `STACKORDER_OIDC_AUDIENCE` | Audience requested for the runner token; defaults to the server URL exactly as given |
-| `STACKORDER_RUN_ID` | Run id from the resolve step or the dispatch input |
+| `STACKORDER_RUN_ID` | Run id from the resolve step or the dispatch input. The CLI sets it for the tool and the hooks to the run id it uses, empty when there is none |
+| `STACKORDER_REPOSITORY` | Not read. The CLI sets it for the tool and the hooks to `owner/repo`, from `GITHUB_REPOSITORY`, the event payload or the `origin` remote; empty when none tells it |
 | `STACKORDER_TOOL`, `STACKORDER_TOOL_VERSION` | Override the configured tool |
 | `STACKORDER_TERRAFORM_BIN`, `STACKORDER_TOFU_BIN` | Binary name on `PATH` or path, overriding detection |
 | `STACKORDER_BACKEND_CONFIG` | Extra `-backend-config` values, comma separated, for `init`, after the stack's `backend_config` |
