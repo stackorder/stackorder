@@ -211,11 +211,13 @@ type envSetup struct {
 	queue     bool
 	artifacts bool
 	logger    *slog.Logger
+	state     runs.StateReader
 }
 
-func withQueue() envOption                { return func(s *envSetup) { s.queue = true } }
-func withArtifacts() envOption            { return func(s *envSetup) { s.artifacts = true } }
-func withLogger(l *slog.Logger) envOption { return func(s *envSetup) { s.logger = l } }
+func withQueue() envOption                         { return func(s *envSetup) { s.queue = true } }
+func withArtifacts() envOption                     { return func(s *envSetup) { s.artifacts = true } }
+func withLogger(l *slog.Logger) envOption          { return func(s *envSetup) { s.logger = l } }
+func withStateReader(r runs.StateReader) envOption { return func(s *envSetup) { s.state = r } }
 
 func baseConfig() *v1.RepoConfig {
 	return &v1.RepoConfig{
@@ -259,6 +261,9 @@ func newEnv(t *testing.T, cfg *v1.RepoConfig, opts ...envOption) *env {
 	if setup.artifacts {
 		e.artifacts = &memArtifacts{items: map[string][]byte{}}
 		svcOpts = append(svcOpts, runs.WithArtifactStore(e.artifacts))
+	}
+	if setup.state != nil {
+		svcOpts = append(svcOpts, runs.WithStateReader(setup.state))
 	}
 	e.svc = runs.New(e.st, e.app, runs.Config{BaseURL: "https://stackorder.test", Clock: e.clock.Now}, setup.logger, e.m, svcOpts...)
 	return e

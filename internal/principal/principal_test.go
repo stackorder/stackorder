@@ -2,6 +2,7 @@ package principal
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -56,5 +57,28 @@ func TestTypedErrorsMatchSentinels(t *testing.T) {
 	wrapped := Wrap(ErrNotFound, "run %s", "abc")
 	if !errors.Is(wrapped, ErrNotFound) || wrapped.Error() != "not found: run abc" {
 		t.Fatal(wrapped)
+	}
+}
+
+func TestCodedErrorMatchesItsKind(t *testing.T) {
+	cases := []struct {
+		kind  error
+		other error
+	}{
+		{ErrNotFound, ErrForbidden},
+		{ErrForbidden, ErrNotFound},
+		{ErrConflict, ErrForbidden},
+		{ErrUnprocessable, ErrInvalid},
+		{ErrUnavailable, ErrConflict},
+	}
+	for _, c := range cases {
+		err := fmt.Errorf("read outputs: %w", &CodedError{Kind: c.kind, Code: v1.ErrCodeOutputsNotShared, Message: "stacks/prod/vpc does not share its outputs"})
+		if !errors.Is(err, c.kind) || errors.Is(err, c.other) {
+			t.Errorf("a CodedError of kind %v should match it and not %v", c.kind, c.other)
+		}
+		var coded *CodedError
+		if !errors.As(err, &coded) || coded.Code != v1.ErrCodeOutputsNotShared || coded.Error() != "stacks/prod/vpc does not share its outputs" {
+			t.Errorf("a wrapped CodedError should keep its code and message: %v", err)
+		}
 	}
 }

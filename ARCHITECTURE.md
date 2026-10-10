@@ -35,7 +35,7 @@ internal/gh/               GitHub App client: JWT, installation tokens, checks, 
 internal/gh/codeowners/    CODEOWNERS parsing with GitHub's matching semantics
 internal/oidc/             verification of GitHub Actions OIDC tokens and claim binding
 internal/principal/        caller identity and the error vocabulary shared by runs and api
-internal/runs/             run state machine, apply gate, locks, wave dispatch, superseding, drift, reconciliation
+internal/runs/             run state machine, apply gate, locks, wave dispatch, superseding, drift, reconciliation, shared outputs
 internal/webhook/          HMAC verification, delivery dedup, event persistence
 internal/worker/           queue: claim events and jobs with SKIP LOCKED, retries, idempotent handlers
 internal/sched/            cron scheduler for drift and housekeeping; leader by advisory lock
@@ -63,7 +63,8 @@ docker-compose.yml         local Postgres and LocalStack for development and tes
 Dependency direction: `api/v1` <- `config` <- `scan`, `graph`, `command`,
 `report`, `tf` <- `client`, `cli` (runner side); `api/v1` <- `store`, `gh`,
 `oidc` <- `principal` <- `runs` <- `webhook`, `worker`, `sched`, `api` <-
-`server` <- `cmd`. `runs` talks to GitHub through its `GitHub` interface
+`server` <- `cmd`; `runs` also imports `stateread` for its `Location` and
+`State` types. `runs` talks to GitHub through its `GitHub` interface
 (`Client`, `ListInstallations`, `InstallationRepos`), satisfied by `*gh.App`. Nothing under `internal/` imports `internal/cli` or
 `internal/server` except `cmd` and tests. `internal/graph`, `internal/report`
 and `internal/command` import nothing but `api/v1`, `internal/config` and
@@ -752,6 +753,65 @@ duplicated dispatch (a retried POST after a processed 5xx) harmless.
 Cross-repo plan runs use trigger `push` and are deduplicated per upstream
 run and repository.
 
+## Shared outputs
+
+`runs.Service.StackOutputs(principal, repo, key, run, reader)` serves the
+root-module outputs of a stack as `v1.StackOutputs`. It refuses everything
+with `outputs_disabled` (`principal.ErrNotFound`) unless the service has a
+`runs.StateReader` (`runs.WithStateReader`). In order:
+
+1. Binding. A runner token names its run and the reader, a stack of that
+   run. The token carries the run's repository; the run is not superseded
+   (`superseded`), not terminal, and for a `pull_request` token not
+   `planned` either (`conflict`); the reader's row in the run has not
+   reported (`pending`, `planning` or `unknown` in a plan or drift run;
+   `pending`, `planned`, `applying` or `unknown` in an apply run) and, for
+   a `workflow_dispatch` token, was dispatched; then the job binds to that
+   row as for its results (`authorizeJob`), except that a read binds a
+   workflow run to the reader's dispatch on first contact only when the
+   workflow run's jobs name a stack of that dispatch. An API key is an
+   admin: a run id and a reader, when given, are only checked for form.
+   Other principals are refused.
+2. Producer. The repository, matched without case, exists, is not
+   suspended and, for a runner token, belongs to the reader's
+   installation; the key is local, a stack of the default-branch graph
+   when one is known, and has a stack row.
+3. Policy. `outputs.readers` and `outputs.sensitive` resolve through
+   `config.Resolve` from `repos.config` and the `.stackorder.yaml` of the
+   key's directory, read through the Contents API with the producer's
+   installation at `repos.config_sha` (cached 24 h per repository, commit
+   and directory), or at the default branch, cached 60 s, when no commit is
+   recorded. Directory and instance come from the key, never from
+   `stacks.path`, `stacks.config`, a graph or `GraphUploadRequest.config`,
+   which pull requests write. A configuration that does not parse or render
+   shares nothing. `config.ReaderAllowed` must accept the reader; API keys
+   skip it.
+4. Location. The stack's `stacks.state_object`, else
+   `state_location_unknown` (`principal.ErrConflict`); `stacks.backend` is
+   never read.
+5. Read. `StateReader.Read`; its sentinels map to
+   `state_bucket_not_allowed` and `state_access_denied`
+   (`principal.ErrForbidden`), `state_not_found` (`principal.ErrNotFound`),
+   and `state_encrypted`, `state_unsupported`, `state_too_large` and
+   `state_unreadable` (`principal.ErrUnprocessable`); any other error is
+   `principal.ErrUnavailable`, with a generic message, and is logged.
+6. Response. Sensitive outputs are left out and named, sorted, in
+   `withheld` unless `outputs.sensitive` is `share`; `outputs` is never nil.
+
+Refusals carry their code in a `principal.CodedError`, whose `Kind` is the
+sentinel the API maps to a status. A reader of the producer's repository that
+the policy does not list gets `outputs_not_shared` (`principal.ErrForbidden`),
+naming the files to edit, as does any reader of that repository when the
+policy does not resolve; across repositories every refusal of steps 2 and 3
+is `not_found` with one message for every cause. Reads are audited as
+`outputs_read` with the number of outputs served, sensitive outputs served
+and outputs withheld, and refusals of steps 1 to 4 as `outputs_refused`
+with the code as `reason`; `details.repo` is the producer when the caller
+may see it, else the caller's repository, so the producer's organisation
+sees reads of its stacks. Names the caller sent (repository, stack, reader,
+run id) are cut to 256 bytes in the audit row and its target. Nothing read
+from a state object is stored, cached or logged.
+
 ## OIDC binding
 
 GitHub's `sha` claim is the commit that triggered the workflow: the merge
@@ -786,6 +846,19 @@ per run kind:
   wave or one the apply skips), `run_attempt` is recorded, and for `apply`
   the `environment` claim equals the stack's environment; for `plan` and
   `drift` dispatches it equals `default`.
+- Stack outputs reads bind the token to the reader's row of the named run
+  the same way (see Shared outputs). A `pull_request` token reaches any
+  unreported stack of its pull request's unfinished plan run, so the
+  reader is proven only to be a stack of that run; a `workflow_dispatch`
+  token reaches only a dispatched, unreported stack of the dispatch its
+  workflow run is bound to, which is exact when `apply.max_parallel` is 1.
+  A read never makes that binding on the reader's word alone: a workflow
+  run no dispatch holds yet is bound by a read only when its jobs name a
+  stack of the reader's dispatch, so a job whose `workflow_run` webhook was
+  lost or late cannot read as a stack of another chunk and take that
+  chunk's dispatch. A noop or blocked stack of the same wave and
+  environment, which the binding alone accepts for any chunk, is refused
+  by its status, and an undispatched one because no dispatch carries it.
 
 `actor` is recorded as `requested_by`. `pull_request_target` plans are not
 supported; fork pull requests get a neutral check from the server.

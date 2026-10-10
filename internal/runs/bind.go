@@ -77,9 +77,12 @@ func jobEnvironment(run store.Run, row *store.RunStack) string {
 // chosen by the stacks its jobs name when the wave has several there, and a
 // stack the run skips binds to no dispatch, so a job never acts for a stack
 // of another wave or a skipped one; a plan or drift run has a single
-// dispatch, which serves every stack of the run. A token of any other event
-// is refused.
-func (s *Service) authorizeJob(ctx context.Context, c *oidc.Claims, run store.Run, repo store.Repo, row *store.RunStack) (int64, error) {
+// dispatch, which serves every stack of the run. With confirm, as for a job
+// that only reads, a workflow run becomes the workflow run of a dispatch
+// only when its jobs name a stack that dispatch carries, so a job's first
+// call cannot claim another chunk's dispatch by naming one of its stacks. A
+// token of any other event is refused.
+func (s *Service) authorizeJob(ctx context.Context, c *oidc.Claims, run store.Run, repo store.Repo, row *store.RunStack, confirm bool) (int64, error) {
 	wr, _ := c.RunIDInt()
 	switch c.EventName {
 	case eventPullRequest:
@@ -91,12 +94,12 @@ func (s *Service) authorizeJob(ctx context.Context, c *oidc.Claims, run store.Ru
 		}
 		return wr, checkPullClaims(c, run)
 	case eventWorkflowDispatch:
-		return wr, s.bindJob(ctx, run, repo, c, row)
+		return wr, s.bindJob(ctx, run, repo, c, row, confirm)
 	}
 	return 0, principal.Wrap(principal.ErrForbidden, "claim event_name is %q, want %q or %q", c.EventName, eventPullRequest, eventWorkflowDispatch)
 }
 
-func (s *Service) bindJob(ctx context.Context, run store.Run, repo store.Repo, c *oidc.Claims, row *store.RunStack) error {
+func (s *Service) bindJob(ctx context.Context, run store.Run, repo store.Repo, c *oidc.Claims, row *store.RunStack, confirm bool) error {
 	if err := checkRepoClaims(c, repo); err != nil {
 		return err
 	}
@@ -115,7 +118,7 @@ func (s *Service) bindJob(ctx context.Context, run store.Run, repo store.Repo, c
 		}
 		env = want
 	}
-	if err := s.bindDispatch(ctx, run, repo, row, env, wr); err != nil {
+	if err := s.bindDispatch(ctx, run, repo, row, env, wr, confirm); err != nil {
 		return err
 	}
 	attempt, _ := strconv.Atoi(c.RunAttempt)
@@ -127,7 +130,7 @@ func (s *Service) bindJob(ctx context.Context, run store.Run, repo store.Repo, c
 	return nil
 }
 
-func (s *Service) bindDispatch(ctx context.Context, run store.Run, repo store.Repo, row *store.RunStack, env string, wr int64) error {
+func (s *Service) bindDispatch(ctx context.Context, run store.Run, repo store.Repo, row *store.RunStack, env string, wr int64, confirm bool) error {
 	for range 2 {
 		dispatches, err := s.st.ListDispatches(ctx, run.ID)
 		if err != nil {
@@ -158,7 +161,8 @@ func (s *Service) bindDispatch(ctx context.Context, run store.Run, repo store.Re
 				candidates = append(candidates, d)
 			}
 		}
-		if len(candidates) > 1 {
+		named := len(candidates) > 1
+		if named {
 			picked, ok, err := s.dispatchByJobs(ctx, repo, run.ID, wr, candidates)
 			if err != nil {
 				return err
@@ -178,6 +182,16 @@ func (s *Service) bindDispatch(ctx context.Context, run store.Run, repo store.Re
 		if len(unbound) == 0 {
 			return principal.Wrap(principal.ErrForbidden,
 				"claim run_id %d matches no workflow run dispatched for run %s in environment %s", wr, run.ID, env)
+		}
+		if confirm && !named {
+			_, ok, err := s.dispatchByJobs(ctx, repo, run.ID, wr, unbound[:1])
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return principal.Wrap(principal.ErrForbidden,
+					"the jobs of workflow run %d name no stack of the dispatch of run %s it would be bound to", wr, run.ID)
+			}
 		}
 		err = s.st.SetDispatchWorkflowRun(ctx, unbound[0].ID, wr)
 		switch {
