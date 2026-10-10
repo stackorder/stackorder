@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -224,6 +225,63 @@ func TestHookEnvironment(t *testing.T) {
 				}
 			}
 			assert.NotEmpty(t, recs[len(recs)-1]["STACKORDER_PLAN_FILE"])
+		})
+	}
+}
+
+func TestHooksSeeTheServerRunAndRepository(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		hooks   []string
+		server  bool
+	}{
+		{name: "plan", command: "plan", hooks: []string{"pre-plan", "post-plan"}, server: true},
+		{name: "apply", command: "apply", hooks: []string{"pre-apply", "post-apply"}, server: true},
+		{name: "local plan", command: "plan", hooks: []string{"pre-plan", "post-plan"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var h *harness
+			var fs *fakeServer
+			switch {
+			case tt.command == "apply":
+				h, fs = newApplyHarness(t)
+				h.savedPlan(h.sha)
+			case tt.server:
+				h, fs = newHarness(t), newFakeServer(t)
+				h.ci(fs, "pull_request", prPayload())
+			default:
+				h = newHarness(t)
+			}
+			args := []string{tt.command, "--stack", "stacks/app"}
+			want := map[string]string{"STACKORDER_SERVER_URL": "", "STACKORDER_RUN_ID": "", "STACKORDER_REPOSITORY": ""}
+			if fs != nil {
+				t.Setenv(EnvServerURL, "https://inherited.acme.example")
+				args = append([]string{"--server", fs.url()}, append(args, "--run-id", "run-1")...)
+				want = map[string]string{"STACKORDER_SERVER_URL": fs.url(), "STACKORDER_RUN_ID": "run-1", "STACKORDER_REPOSITORY": "acme/infra"}
+			}
+			log := filepath.Join(t.TempDir(), "hooks.log")
+			t.Setenv("HOOK_LOG", log)
+			for _, n := range tt.hooks {
+				hook := writeFile(t, filepath.Join(h.root, ".stackorder", "hooks", n+".sh"), envHook)
+				require.NoError(t, os.Chmod(hook, 0o755)) //nolint:gosec
+			}
+
+			r := h.run(args...)
+			require.Equal(t, 0, r.code, r.stderr)
+			tool := jobEnv(h.tfCall("init").env)
+			if diff := cmp.Diff(want, tool); diff != "" {
+				t.Errorf("tool environment (-want +got):\n%s", diff)
+			}
+			recs := hookRecords(t, log)
+			require.Len(t, recs, len(tt.hooks))
+			for i, rec := range recs {
+				assert.Equal(t, tt.hooks[i], rec["hook"])
+				if diff := cmp.Diff(tool, jobEnv(rec)); diff != "" {
+					t.Errorf("%s hook environment against the tool's (-tool +hook):\n%s", rec["hook"], diff)
+				}
+			}
 		})
 	}
 }

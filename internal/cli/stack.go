@@ -278,6 +278,9 @@ func (s *session) stackEnv() map[string]string {
 	env[tf.HookEnvStack] = s.key
 	env[tf.HookEnvStackPath] = s.st.path
 	env[tf.HookEnvInstance] = s.st.eff.Instance
+	env[tf.HookEnvRunID] = s.runID
+	env[tf.HookEnvServerURL] = s.a.server
+	env[tf.HookEnvRepository] = s.gh.Repository
 	return env
 }
 
@@ -365,7 +368,6 @@ func (s *session) init(ctx context.Context, r *tf.Runner) error {
 
 func (s *session) runHook(ctx context.Context, name, planFile, planJSON string) error {
 	env := s.stackEnv()
-	env[tf.HookEnvRunID] = s.runID
 	env[tf.HookEnvPlanFile] = planFile
 	env[tf.HookEnvPlanJSON] = planJSON
 	ran, err := tf.RunHook(ctx, s.root, name, env, s.out, s.errOut)
