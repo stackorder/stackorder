@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"slices"
@@ -209,10 +210,12 @@ type envOption func(*envSetup)
 type envSetup struct {
 	queue     bool
 	artifacts bool
+	logger    *slog.Logger
 }
 
-func withQueue() envOption     { return func(s *envSetup) { s.queue = true } }
-func withArtifacts() envOption { return func(s *envSetup) { s.artifacts = true } }
+func withQueue() envOption                { return func(s *envSetup) { s.queue = true } }
+func withArtifacts() envOption            { return func(s *envSetup) { s.artifacts = true } }
+func withLogger(l *slog.Logger) envOption { return func(s *envSetup) { s.logger = l } }
 
 func baseConfig() *v1.RepoConfig {
 	return &v1.RepoConfig{
@@ -257,7 +260,7 @@ func newEnv(t *testing.T, cfg *v1.RepoConfig, opts ...envOption) *env {
 		e.artifacts = &memArtifacts{items: map[string][]byte{}}
 		svcOpts = append(svcOpts, runs.WithArtifactStore(e.artifacts))
 	}
-	e.svc = runs.New(e.st, e.app, runs.Config{BaseURL: "https://stackorder.test", Clock: e.clock.Now}, nil, e.m, svcOpts...)
+	e.svc = runs.New(e.st, e.app, runs.Config{BaseURL: "https://stackorder.test", Clock: e.clock.Now}, setup.logger, e.m, svcOpts...)
 	return e
 }
 

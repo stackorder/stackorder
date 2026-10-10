@@ -18,10 +18,15 @@ import (
 	"github.com/stackorder/stackorder/internal/store"
 )
 
+const stateObjectTimeout = 10 * time.Second
+
 // RecordResult records the outcome of one stack's plan, apply or drift
 // check, updates its check run, blocks the dependents of a failed apply,
 // and moves the run on: the next wave, the end of the run, drift issues.
-// Posting the same result twice changes nothing.
+// The state object an accepted apply or drift result names, whatever its
+// outcome, becomes the stack's recorded state location unless a newer run
+// already recorded one; a plan result's is ignored. Posting the same
+// result twice changes nothing.
 func (s *Service) RecordResult(ctx context.Context, p principal.Principal, runID, stackKey string, res v1.StackResult) (*v1.RunStack, error) {
 	run, repo, err := s.loadRun(ctx, runID)
 	if err != nil {
@@ -78,6 +83,7 @@ func (s *Service) RecordResult(ctx context.Context, p principal.Principal, runID
 	if err != nil {
 		return nil, storeErr(err, "record result of %s", stackKey)
 	}
+	s.recordStateObject(ctx, run, stack, res.State)
 	s.m.StackFinished(run.Mode, updated.Status, stackDuration(updated, res))
 	changed := []uuid.UUID{stack.ID}
 	if run.Mode == v1.ModeApply && updated.Status != v1.StackApplied {
@@ -117,6 +123,21 @@ func (s *Service) authorizeResult(ctx context.Context, p principal.Principal, ru
 		return 0, nil
 	}
 	return 0, principal.Wrap(principal.ErrForbidden, "%s principals cannot report results", p.Kind)
+}
+
+func (s *Service) recordStateObject(ctx context.Context, run store.Run, stack store.Stack, obj *v1.StateObject) {
+	if obj == nil || (run.Mode != v1.ModeApply && run.Mode != v1.ModeDrift) {
+		return
+	}
+	if obj.Bucket == "" || obj.Key == "" {
+		s.log.WarnContext(ctx, "ignore a state object without a bucket or key", "run_id", run.ID, "stack", stack.Key)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stateObjectTimeout)
+	defer cancel()
+	if err := s.st.SetStackStateObject(ctx, stack.ID, *obj, run.ID); err != nil {
+		s.log.WarnContext(ctx, "record state object", "run_id", run.ID, "stack", stack.Key, "error", err)
+	}
 }
 
 func resultStatus(mode v1.RunMode, res v1.StackResult) v1.StackStatus {
