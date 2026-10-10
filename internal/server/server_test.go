@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +25,7 @@ import (
 
 	"github.com/stackorder/stackorder/internal/metrics"
 	"github.com/stackorder/stackorder/internal/runs"
+	"github.com/stackorder/stackorder/internal/stateread"
 	"github.com/stackorder/stackorder/internal/store"
 	"github.com/stackorder/stackorder/internal/worker"
 )
@@ -282,4 +286,121 @@ func TestTracesAreExportedOverOTLPHTTP(t *testing.T) {
 	assert.Positive(t, bodies)
 	assert.Equal(t, "http://collector:4318/v1/traces", tracesURL("http://collector:4318/"))
 	assert.True(t, strings.HasSuffix(tracesURL("https://otlp.example.com/otlp"), "/otlp/v1/traces"))
+}
+
+var signingKey = regexp.MustCompile(`Credential=([^/]+)/`)
+
+const assumeRoleResponse = `<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><AssumeRoleResult>` +
+	`<Credentials><AccessKeyId>%s</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>token</SessionToken><Expiration>2099-01-01T00:00:00Z</Expiration></Credentials>` +
+	`<AssumedRoleUser><Arn>arn:aws:sts::123456789012:assumed-role/stackorder-state-reader/stackorder-stateread</Arn><AssumedRoleId>AROAACME:stackorder-stateread</AssumedRoleId></AssumedRoleUser>` +
+	`</AssumeRoleResult><ResponseMetadata><RequestId>acme</RequestId></ResponseMetadata></AssumeRoleResponse>`
+
+func fakeAWS(t *testing.T, serve func(w http.ResponseWriter, r *http.Request) string) (string, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := ""
+		if m := signingKey.FindStringSubmatch(r.Header.Get("Authorization")); m != nil {
+			key = m[1]
+		}
+		call := serve(w, r)
+		mu.Lock()
+		calls = append(calls, call+" "+key)
+		mu.Unlock()
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), calls...)
+	}
+}
+
+func TestStateReaderReadsAtTheS3EndpointAsTheRole(t *testing.T) {
+	const (
+		baseKey = "AKIDACMEBASE"
+		roleKey = "ASIAACMEROLE"
+		role    = "arn:aws:iam::123456789012:role/stackorder-state-reader"
+		get     = "GET /acme-state/stacks/prod/vpc/terraform.tfstate "
+	)
+	state := `{"version":4,"terraform_version":"1.14.4","serial":1,"lineage":"acme","outputs":{"vpc_id":{"value":"vpc-0acme","type":"string"}},"resources":[]}`
+	tests := []struct {
+		name   string
+		role   string
+		region string
+		s3     []string
+		sts    []string
+		err    string
+	}{
+		{
+			name:   "the server's own credentials",
+			region: "us-east-1",
+			s3:     []string{get + baseKey},
+		},
+		{
+			name:   "a role assumed at the STS endpoint, not the S3 one",
+			role:   role,
+			region: "us-east-1",
+			s3:     []string{get + roleKey},
+			sts:    []string{"POST AssumeRole " + role + " " + baseKey},
+		},
+		{
+			name:   "an AWS configuration the reader refuses",
+			region: "Acme East",
+			err:    "server: state reader: stateread: invalid region",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s3URL, s3Calls := fakeAWS(t, func(w http.ResponseWriter, r *http.Request) string {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, state)
+				return r.Method + " " + r.URL.Path
+			})
+			stsURL, stsCalls := fakeAWS(t, func(w http.ResponseWriter, r *http.Request) string {
+				_ = r.ParseForm()
+				w.Header().Set("Content-Type", "text/xml")
+				_, _ = fmt.Fprintf(w, assumeRoleResponse, roleKey)
+				return r.Method + " " + r.PostForm.Get("Action") + " " + r.PostForm.Get("RoleArn")
+			})
+			missing := filepath.Join(t.TempDir(), "missing")
+			for k, v := range map[string]string{
+				"AWS_CONFIG_FILE":                     missing,
+				"AWS_SHARED_CREDENTIALS_FILE":         missing,
+				"AWS_PROFILE":                         "",
+				"AWS_IGNORE_CONFIGURED_ENDPOINT_URLS": "",
+				"AWS_ACCESS_KEY_ID":                   baseKey,
+				"AWS_SECRET_ACCESS_KEY":               "secret",
+				"AWS_SESSION_TOKEN":                   "",
+				"AWS_REGION":                          tt.region,
+				"AWS_ENDPOINT_URL":                    "",
+				"AWS_ENDPOINT_URL_S3":                 "",
+				"AWS_ENDPOINT_URL_STS":                stsURL,
+			} {
+				t.Setenv(k, v)
+			}
+			s := &Server{
+				cfg: Config{
+					StateGrants:      []stateread.Grant{{Bucket: "acme-state", Prefix: "stacks/prod/"}},
+					StateRoleARN:     tt.role,
+					ArtifactEndpoint: s3URL,
+				},
+				log: slog.New(slog.DiscardHandler),
+			}
+
+			reader, err := s.stateReader(t.Context())
+			if tt.err != "" {
+				require.ErrorContains(t, err, tt.err)
+				assert.NotContains(t, err.Error(), EnvStateBuckets, "the grants are valid; the AWS configuration is not")
+				return
+			}
+			require.NoError(t, err)
+			st, err := reader.Read(t.Context(), stateread.Location{Bucket: "acme-state", Key: "stacks/prod/vpc/terraform.tfstate"})
+			require.NoError(t, err)
+			assert.Contains(t, st.Outputs, "vpc_id")
+			assert.Equal(t, tt.s3, s3Calls(), "S3 is read path-style at AWS_ENDPOINT_URL_S3")
+			assert.Equal(t, tt.sts, stsCalls(), "STS keeps its own endpoint resolution")
+		})
+	}
 }

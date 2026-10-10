@@ -19,6 +19,7 @@ import (
 
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/oidc"
+	"github.com/stackorder/stackorder/internal/stateread"
 )
 
 // Defaults LoadConfig and New apply to unset values.
@@ -54,6 +55,8 @@ const MinSetupTokenLength = 32
 
 var setupTokenChars = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
 
+var iamRoleARN = regexp.MustCompile(`^arn:[a-z-]+:iam::[0-9]{12}:role/([A-Za-z0-9+=,.@_-]+/)*[A-Za-z0-9+=,.@_-]+$`)
+
 // Environment variables LoadConfig reads.
 const (
 	EnvBaseURL             = "STACKORDER_BASE_URL"
@@ -73,6 +76,8 @@ const (
 	EnvArtifactBucket      = "STACKORDER_ARTIFACT_BUCKET"
 	EnvArtifactPrefix      = "STACKORDER_ARTIFACT_PREFIX"
 	EnvArtifactEndpoint    = "AWS_ENDPOINT_URL_S3"
+	EnvStateBuckets        = "STACKORDER_STATE_BUCKETS"
+	EnvStateRoleARN        = "STACKORDER_STATE_ROLE_ARN"
 	EnvSessionKey          = "STACKORDER_SESSION_KEY"
 	EnvMetricsToken        = "STACKORDER_METRICS_TOKEN"
 	EnvPlanTextRetention   = "STACKORDER_PLAN_TEXT_RETENTION"
@@ -131,10 +136,23 @@ type Config struct {
 	// of S3.
 	ArtifactBucket string
 	ArtifactPrefix string
-	// ArtifactEndpoint is AWS_ENDPOINT_URL_S3. When set with a bucket, the
-	// artifact store uses it with path-style addressing, which LocalStack
-	// and other S3-compatible services need.
+	// ArtifactEndpoint is AWS_ENDPOINT_URL_S3, read only with an artifact
+	// bucket or state buckets. When set, the artifact store and the state
+	// reader send their S3 requests to it with path-style addressing, which
+	// LocalStack and other S3-compatible services need. The state reader's
+	// STS requests keep the SDK's endpoint resolution, AWS_ENDPOINT_URL_STS
+	// included.
 	ArtifactEndpoint string
+
+	// StateGrants is STACKORDER_STATE_BUCKETS as stateread.ParseGrants
+	// reads it: the buckets, each with an optional key prefix, whose state
+	// objects the server may read to serve stack outputs. Empty turns
+	// shared outputs off.
+	StateGrants []stateread.Grant
+	// StateRoleARN is STACKORDER_STATE_ROLE_ARN, an IAM role the state
+	// reader assumes to read state objects; it requires state buckets.
+	// Empty reads them with the server's own credentials.
+	StateRoleARN string
 
 	// SessionKey is STACKORDER_SESSION_KEY decoded from hex,
 	// SessionKeySize bytes that sign cookies.
@@ -208,6 +226,8 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		RequiredWorkflowRef: e.workflowRef(EnvRequiredWorkflowRef),
 		ArtifactBucket:      e.bucket(EnvArtifactBucket),
 		ArtifactPrefix:      e.str(EnvArtifactPrefix),
+		StateGrants:         e.stateGrants(EnvStateBuckets),
+		StateRoleARN:        e.roleARN(EnvStateRoleARN),
 		MetricsToken:        e.str(EnvMetricsToken),
 		PlanTextRetention:   e.duration(EnvPlanTextRetention, DefaultPlanTextRetention),
 		EventRetention:      e.duration(EnvEventRetention, DefaultEventRetention),
@@ -227,10 +247,15 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	}
 	e.app(&cfg)
 	e.oauth(&cfg)
-	if cfg.ArtifactBucket != "" {
-		cfg.ArtifactEndpoint = e.absoluteURL(EnvArtifactEndpoint, "")
-	} else if cfg.ArtifactPrefix != "" {
+	if cfg.ArtifactBucket == "" && cfg.ArtifactPrefix != "" {
 		e.fail(EnvArtifactPrefix, "is set without %s", EnvArtifactBucket)
+	}
+	stateBuckets := e.str(EnvStateBuckets) != ""
+	if !stateBuckets && e.str(EnvStateRoleARN) != "" {
+		e.fail(EnvStateRoleARN, "is set without %s", EnvStateBuckets)
+	}
+	if cfg.ArtifactBucket != "" || stateBuckets {
+		cfg.ArtifactEndpoint = e.absoluteURL(EnvArtifactEndpoint, "")
 	}
 	cfg.SessionKey = e.hexKey(EnvSessionKey, SessionKeySize)
 	if cfg.SessionKey == nil && e.str(EnvSessionKey) == "" {
@@ -449,6 +474,24 @@ func (e *env) bucket(name string) string {
 	v := e.str(name)
 	if strings.Contains(v, "/") || strings.ContainsAny(v, " \t") || strings.HasPrefix(strings.ToLower(v), "s3:") {
 		e.fail(name, "must be a bucket name, not a URL or path, got %q", v)
+		return ""
+	}
+	return v
+}
+
+func (e *env) stateGrants(name string) []stateread.Grant {
+	grants, err := stateread.ParseGrants(e.str(name))
+	if err != nil {
+		e.fail(name, "must be comma-separated bucket or bucket/prefix entries: %v", err)
+		return nil
+	}
+	return grants
+}
+
+func (e *env) roleARN(name string) string {
+	v := e.str(name)
+	if v != "" && !iamRoleARN.MatchString(v) {
+		e.fail(name, "must be the ARN of one IAM role, such as arn:aws:iam::123456789012:role/stackorder-state-reader, got %q", v)
 		return ""
 	}
 	return v

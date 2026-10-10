@@ -18,6 +18,7 @@ import (
 
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/oidc"
+	"github.com/stackorder/stackorder/internal/stateread"
 )
 
 const (
@@ -93,6 +94,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 	assert.Empty(t, cfg.ArtifactBucket)
 	assert.Empty(t, cfg.ArtifactPrefix)
 	assert.Empty(t, cfg.ArtifactEndpoint)
+	assert.Empty(t, cfg.StateGrants, "shared outputs are off by default")
+	assert.Empty(t, cfg.StateRoleARN)
 	assert.Len(t, cfg.SessionKey, SessionKeySize)
 	assert.True(t, cfg.SessionKeyGenerated)
 	assert.Empty(t, cfg.MetricsToken)
@@ -129,6 +132,8 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 		EnvArtifactBucket:      "acme-stackorder-artifacts",
 		EnvArtifactPrefix:      "plans/",
 		EnvArtifactEndpoint:    "http://localstack:4566",
+		EnvStateBuckets:        "acme-state/stacks/prod/",
+		EnvStateRoleARN:        "arn:aws:iam::123456789012:role/stackorder-state-reader",
 		EnvSessionKey:          " " + sessionKey + "\n",
 		EnvMetricsToken:        "metrics-token",
 		EnvPlanTextRetention:   "240h",
@@ -164,6 +169,8 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 	assert.Equal(t, "acme-stackorder-artifacts", cfg.ArtifactBucket)
 	assert.Equal(t, "plans/", cfg.ArtifactPrefix)
 	assert.Equal(t, "http://localstack:4566", cfg.ArtifactEndpoint)
+	assert.Equal(t, []stateread.Grant{{Bucket: "acme-state", Prefix: "stacks/prod/"}}, cfg.StateGrants)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/stackorder-state-reader", cfg.StateRoleARN)
 	assert.Equal(t, wantKey, cfg.SessionKey, "surrounding white space is trimmed")
 	assert.False(t, cfg.SessionKeyGenerated)
 	assert.Equal(t, "metrics-token", cfg.MetricsToken)
@@ -280,6 +287,112 @@ func TestLoadConfigInvalid(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.want)
 			assert.Equal(t, Config{}, cfg, "no partial configuration is returned")
+		})
+	}
+}
+
+func TestLoadConfigStateBuckets(t *testing.T) {
+	const (
+		role     = "arn:aws:iam::123456789012:role/stackorder-state-reader"
+		endpoint = "http://localstack:4566"
+	)
+	tests := []struct {
+		name     string
+		env      map[string]string
+		grants   []stateread.Grant
+		role     string
+		endpoint string
+		err      string
+	}{
+		{
+			name: "unset",
+			env:  minimalEnv(),
+		},
+		{
+			name:   "one bucket",
+			env:    with(minimalEnv(), EnvStateBuckets, "acme-state"),
+			grants: []stateread.Grant{{Bucket: "acme-state"}},
+		},
+		{
+			name: "several entries with prefixes, spaces trimmed",
+			env:  with(minimalEnv(), EnvStateBuckets, " acme-state/stacks/prod/ ,acme-shared , acme-legacy/env/eu-west-1/\n"),
+			grants: []stateread.Grant{
+				{Bucket: "acme-state", Prefix: "stacks/prod/"},
+				{Bucket: "acme-shared"},
+				{Bucket: "acme-legacy", Prefix: "env/eu-west-1/"},
+			},
+		},
+		{
+			name:   "a role",
+			env:    with(minimalEnv(), EnvStateBuckets, "acme-state", EnvStateRoleARN, " "+role+"\n"),
+			grants: []stateread.Grant{{Bucket: "acme-state"}},
+			role:   role,
+		},
+		{
+			name:   "a role on a path in another partition",
+			env:    with(minimalEnv(), EnvStateBuckets, "acme-state", EnvStateRoleARN, "arn:aws-us-gov:iam::123456789012:role/stackorder/state-reader"),
+			grants: []stateread.Grant{{Bucket: "acme-state"}},
+			role:   "arn:aws-us-gov:iam::123456789012:role/stackorder/state-reader",
+		},
+		{
+			name:     "the endpoint applies with state buckets alone",
+			env:      with(minimalEnv(), EnvStateBuckets, "acme-state", EnvArtifactEndpoint, endpoint+"/"),
+			grants:   []stateread.Grant{{Bucket: "acme-state"}},
+			endpoint: endpoint,
+		},
+		{
+			name: "the endpoint is ignored without any bucket",
+			env:  with(minimalEnv(), EnvArtifactEndpoint, "localstack:4566"),
+		},
+		{
+			name: "a URL instead of a bucket",
+			env:  with(minimalEnv(), EnvStateBuckets, "s3://acme-state"),
+			err:  EnvStateBuckets + " must be comma-separated bucket or bucket/prefix entries",
+		},
+		{
+			name: "an invalid bucket name",
+			env:  with(minimalEnv(), EnvStateBuckets, "acme-state,Acme_Shared/stacks"),
+			err:  EnvStateBuckets + " must be comma-separated bucket or bucket/prefix entries",
+		},
+		{
+			name: "an empty entry",
+			env:  with(minimalEnv(), EnvStateBuckets, "acme-state,,acme-shared"),
+			err:  EnvStateBuckets + " must be comma-separated bucket or bucket/prefix entries",
+		},
+		{
+			name: "a role without buckets",
+			env:  with(minimalEnv(), EnvStateRoleARN, role),
+			err:  EnvStateRoleARN + " is set without " + EnvStateBuckets,
+		},
+		{
+			name: "a role name instead of an ARN",
+			env:  with(minimalEnv(), EnvStateBuckets, "acme-state", EnvStateRoleARN, "stackorder-state-reader"),
+			err:  EnvStateRoleARN + " must be the ARN of one IAM role",
+		},
+		{
+			name: "a wildcard role",
+			env:  with(minimalEnv(), EnvStateBuckets, "acme-state", EnvStateRoleARN, "arn:aws:iam::123456789012:role/*"),
+			err:  EnvStateRoleARN + " must be the ARN of one IAM role",
+		},
+		{
+			name: "a relative endpoint with state buckets",
+			env:  with(minimalEnv(), EnvStateBuckets, "acme-state", EnvArtifactEndpoint, "localstack:4566"),
+			err:  EnvArtifactEndpoint + " must be an absolute",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := LoadConfig(envOf(tt.env))
+			if tt.err != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.err)
+				assert.Equal(t, Config{}, cfg)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.grants, cfg.StateGrants)
+			assert.Equal(t, tt.role, cfg.StateRoleARN)
+			assert.Equal(t, tt.endpoint, cfg.ArtifactEndpoint)
 		})
 	}
 }
