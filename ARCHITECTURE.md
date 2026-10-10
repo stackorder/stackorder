@@ -44,6 +44,7 @@ internal/api/              HTTP handlers, auth middleware, sessions and OAuth, A
 internal/ui/               embed.FS serving of the built UI with SPA fallback
 internal/server/           composition of all of the above into one http.Server; used by cmd and by tests
 internal/artifacts/        optional S3 store for full plan text (STACKORDER_ARTIFACT_BUCKET)
+internal/stateread/        reads only the root outputs of a state object in an allowed S3 bucket; stores and logs nothing
 internal/testutil/pgtest/  Postgres for tests: TEST_DATABASE_URL or testcontainers, one database per test
 internal/testutil/ghfake/  in-memory fake of the GitHub API with inspection and payload builders
 internal/testutil/oidcfake/ fake OIDC issuer and runner token endpoint
@@ -88,7 +89,8 @@ These are fixed. Do not introduce an alternative for the same job.
 | CLI | `github.com/spf13/cobra` |
 | Metrics | `github.com/prometheus/client_golang` |
 | Tracing | `go.opentelemetry.io/otel` with the OTLP HTTP exporter, enabled only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set |
-| S3 (optional artifact bucket only) | `github.com/aws/aws-sdk-go-v2` `service/s3` and `config` |
+| S3 (optional artifact bucket and state reads for shared outputs) | `github.com/aws/aws-sdk-go-v2` `service/s3` and `config` |
+| Assumed role for state reads | `github.com/aws/aws-sdk-go-v2` `service/sts` and `credentials/stscreds` |
 | Logging | `log/slog`. Server: JSON handler unless `STACKORDER_LOG_FORMAT=text`. CLI: text handler unless `STACKORDER_LOG_FORMAT=json` |
 | IDs | `github.com/google/uuid` |
 | Tests | standard `testing`, `github.com/stretchr/testify/require` and `assert`, `github.com/google/go-cmp/cmp` for diffs |
