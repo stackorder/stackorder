@@ -28,13 +28,13 @@ Set exactly one of `route53_zone_id`, to have the module issue a DNS-validated c
 | ECS cluster and Fargate service, 1 or 2 tasks | Runs `ghcr.io/stackorder/stackorder` as user `65532`, read-only root file system, with the deployment circuit breaker; the container health check runs `stackorder-server healthcheck` |
 | RDS PostgreSQL 17 (`db.t4g.micro`, gp3, encrypted), or Aurora Serverless v2 | The database, with `rds.force_ssl = 1`, 7 days of point-in-time recovery, deletion protection and a final snapshot |
 | Three Secrets Manager secrets | `DATABASE_URL`; a JSON secret with the App credentials, `STACKORDER_SESSION_KEY` and `STACKORDER_METRICS_TOKEN`, injected through ECS `secrets`; and a copy of the metrics token for scrapers |
-| Execution role and task role | The task role has no permissions unless the artifact bucket or ECS Exec is enabled |
+| Execution role and task role | The task role has no permissions unless the artifact bucket, [shared outputs](#shared-outputs) or ECS Exec is enabled |
 | Security groups | Load balancer: 80 and 443 from `ingress_cidrs`, 8080 to the tasks, and 443 out to `alb_https_egress_cidrs`, or anywhere with single sign-on. Tasks: 8080 from the load balancer, 443 out, Postgres to the database. Database: Postgres from the tasks |
 | CloudWatch log group | The server's logs, 30 days by default |
 | Artifact bucket, with `artifact_bucket_enabled` | Full plan text, expiring after `artifact_retention_days` |
 | CloudWatch alarms, with `alarms_enabled` | Target 5xx, unhealthy targets, CPU, and database free storage or ACU utilization |
 
-The server needs nothing else. It holds no AWS credentials for your infrastructure.
+The server needs nothing else. It holds no AWS credentials for your infrastructure; with [shared outputs](#shared-outputs) on, it can read the state objects you list, or, with `shared_outputs_role_arn`, whatever that role allows, so give the role only those reads.
 
 Security groups filter by address, not by host name, so the tasks' egress is HTTPS to anywhere, through NAT: the tasks pull the image from ghcr.io and reach the GitHub API, GitHub's OIDC keys, Secrets Manager and CloudWatch Logs over their public endpoints. For stricter egress, put a proxy or firewall on the NAT path.
 
@@ -145,11 +145,18 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 
 | Input | Type | Default | Description |
 | --- | --- | --- | --- |
-| `artifact_bucket_enabled` | `bool` | `false` | Create an S3 bucket for full plan text (STACKORDER_ARTIFACT_BUCKET) and grant the task role access to it. This is the only AWS permission the task role ever gets. |
+| `artifact_bucket_enabled` | `bool` | `false` | Create an S3 bucket for full plan text (STACKORDER_ARTIFACT_BUCKET) and grant the task role access to it. It is the only bucket the task role can write to. |
 | `artifact_retention_days` | `number` | `90` | Days after which objects in the artifact bucket expire. |
 | `alarms_enabled` | `bool` | `false` | Create CloudWatch alarms for target 5xx responses, unhealthy targets and service CPU, plus database free storage (RDS) or ACU utilization (Aurora, whose storage grows on its own). |
 | `alarm_sns_topic_arn` | `string` | `null` | SNS topic notified when an alarm changes state. Required when alarms_enabled is true. |
 | `alarm_thresholds` | `object` | `{}` | Alarm thresholds: target 5xx responses per 5 minutes, average service CPU percent, RDS free storage in bytes, and Aurora ACU utilization percent. |
+
+### Shared outputs {#shared-outputs-inputs}
+
+| Input | Type | Default | Description |
+| --- | --- | --- | --- |
+| `shared_outputs_state` | `list(object({ bucket = string, prefix = optional(string, ""), kms_key_arn = optional(string) }))` | `[]` | S3 buckets holding the state objects whose root outputs the server may serve to the readers a stack lists, each with an optional key prefix and the KMS key of its objects (STACKORDER_STATE_BUCKETS). Unless shared_outputs_role_arn is set, the task role gets read-only access to the objects under each prefix and kms:Decrypt through S3 with each kms_key_arn. Empty turns shared outputs off. |
+| `shared_outputs_role_arn` | `string` | `null` | IAM role the server assumes to read the state objects of shared_outputs_state (STACKORDER_STATE_ROLE_ARN), such as a role in the account of the state buckets. The task role then gets only sts:AssumeRole on it, and the role's own policies must grant the reads and kms:Decrypt, so shared_outputs_state takes no kms_key_arn. Null reads with the task role. Requires shared_outputs_state. |
 
 ### What the module passes to the server {#server-environment}
 
@@ -161,6 +168,8 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 | `STACKORDER_OIDC_AUDIENCE` | `oidc_audience`, or the base URL |
 | `STACKORDER_REQUIRED_WORKFLOW_REF` | `required_workflow_ref`, when set |
 | `STACKORDER_ARTIFACT_BUCKET` | The artifact bucket, when `artifact_bucket_enabled` |
+| `STACKORDER_STATE_BUCKETS` | `shared_outputs_state`, as comma-separated `bucket/prefix` entries, or `bucket` alone without a prefix, when it is not empty |
+| `STACKORDER_STATE_ROLE_ARN` | `shared_outputs_role_arn`, when set |
 | `STACKORDER_LOG_LEVEL` | `log_level` |
 | `DATABASE_URL` | The database secret: `postgres://stackorder:<password>@<endpoint>:5432/stackorder?sslmode=require` |
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | The App secret, when set |
@@ -215,6 +224,24 @@ Machines cannot sign in interactively, so the module adds listener rules that fo
 The server still authenticates every request these rules let through. The UI's own `/v1` calls carry a session cookie rather than a bearer token, so they stay behind the load balancer, and scripts that call other `/v1` endpoints with an API key need a rule of their own. The module keeps priorities 1 to 99; attach your own rules to the `https_listener_arn` output at 100 or above.
 
 The load balancer calls the identity provider itself, so it needs HTTPS egress. Identity providers publish no fixed address ranges, so with authentication set and `alb_https_egress_cidrs` empty the module allows 443 to `0.0.0.0/0`; set `alb_https_egress_cidrs` to narrow it. The AWS provider has no write-only argument for the OIDC client secret, so the listener stores `client_secret` in Terraform state. With Google Workspace, create a "Web application" OAuth client with the redirect URI `https://<domain_name>/oauth2/idpresponse` and set the consent screen's user type to Internal, which is what limits sign-in to your Workspace. `deploy/terraform/README.md` has a complete example.
+
+## Shared outputs {#shared-outputs}
+
+Shared outputs let a stack read another stack's root outputs through the server, so its own role needs no access to the other stack's state. The server then reads the producer's state object with its own credentials, which the module grants only when `shared_outputs_state` lists where that state lives:
+
+```hcl
+shared_outputs_state = [
+  {
+    bucket      = "acme-tfstate"
+    prefix      = "stacks/prod/"
+    kms_key_arn = "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000"
+  },
+]
+```
+
+The list reaches the server as `STACKORDER_STATE_BUCKETS`, which both turns the feature on and bounds it: the server refuses any state object outside it. The task role gets `s3:GetObject` on the objects under each prefix, `s3:ListBucket` limited to the same prefixes, and `kms:Decrypt` on each `kms_key_arn` through S3 only. Nothing grants write or delete access. Without `s3:ListBucket`, S3 answers a request for a missing object with access denied rather than not found; the prefix-limited grant is there so that a missing state object can show as missing, but treat an access-denied read as either a missing object or a missing grant. The server reads whole state objects, secrets included, even though it returns only outputs, so list the narrowest prefixes that hold the state of the stacks that share outputs rather than whole buckets, and turn on CloudTrail data events for those buckets to audit the reads.
+
+To keep these reads apart from the task role, or to read buckets in another account, create a dedicated role that has only those read permissions and trusts the task role, `arn:aws:iam::<account>:role/<name>-task`, then set `shared_outputs_role_arn`. The task role then gets only `sts:AssumeRole` on that role, and the server reads through it, so the role's own policies grant `kms:Decrypt` and the entries of `shared_outputs_state` take no `kms_key_arn`. A bucket or KMS key in another account than the reading role must also allow that role in its bucket or key policy.
 
 ## First deployment {#first-deploy}
 

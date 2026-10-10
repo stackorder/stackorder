@@ -1,4 +1,10 @@
 locals {
+  shared_outputs_direct = length(var.shared_outputs_state) > 0 && var.shared_outputs_role_arn == null
+  shared_outputs_list_prefixes = {
+    for s in var.shared_outputs_state : s.bucket => "${s.prefix}*"...
+  }
+  shared_outputs_kms_key_arns = distinct([for s in var.shared_outputs_state : s.kms_key_arn if s.kms_key_arn != null])
+
   ecs_tasks_assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -53,7 +59,7 @@ resource "aws_iam_role_policy" "execution" {
 
 resource "aws_iam_role" "task" {
   name               = "${var.name}-task"
-  description        = "Stackorder server: no AWS permissions unless the artifact bucket or ECS Exec is enabled"
+  description        = "Stackorder server: no AWS permissions unless the artifact bucket, shared outputs or ECS Exec is enabled"
   assume_role_policy = local.ecs_tasks_assume_role_policy
 
   tags = var.tags
@@ -80,6 +86,48 @@ resource "aws_iam_role_policy" "task_artifacts" {
         Resource = ["${aws_s3_bucket.artifacts[0].arn}/*"]
       },
     ]
+  })
+}
+
+resource "aws_iam_role_policy" "task_shared_outputs" {
+  count = length(var.shared_outputs_state) > 0 ? 1 : 0
+
+  name = "shared-outputs"
+  role = aws_iam_role.task.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = concat(
+      local.shared_outputs_direct ? [{
+        Sid      = "ReadStateObjects"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = distinct([for s in var.shared_outputs_state : "arn:${local.partition}:s3:::${s.bucket}/${s.prefix}*"])
+      }] : [],
+      local.shared_outputs_direct ? [
+        for i, bucket in keys(local.shared_outputs_list_prefixes) : {
+          Sid       = "ListStateBucket${i}"
+          Effect    = "Allow"
+          Action    = ["s3:ListBucket"]
+          Resource  = ["arn:${local.partition}:s3:::${bucket}"]
+          Condition = { StringLike = { "s3:prefix" = distinct(local.shared_outputs_list_prefixes[bucket]) } }
+        }
+      ] : [],
+      local.shared_outputs_direct && length(local.shared_outputs_kms_key_arns) > 0 ? [{
+        Sid      = "DecryptStateObjects"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = local.shared_outputs_kms_key_arns
+        Condition = {
+          StringEquals = { "kms:ViaService" = distinct([for arn in local.shared_outputs_kms_key_arns : "s3.${split(":", arn)[3]}.${local.dns_suffix}"]) }
+        }
+      }] : [],
+      var.shared_outputs_role_arn == null ? [] : [{
+        Sid      = "AssumeStateRole"
+        Effect   = "Allow"
+        Action   = ["sts:AssumeRole"]
+        Resource = [var.shared_outputs_role_arn]
+      }],
+    )
   })
 }
 

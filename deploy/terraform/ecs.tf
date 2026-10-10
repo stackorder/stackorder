@@ -43,6 +43,10 @@ locals {
     },
     var.required_workflow_ref == null ? {} : { STACKORDER_REQUIRED_WORKFLOW_REF = var.required_workflow_ref },
     var.artifact_bucket_enabled ? { STACKORDER_ARTIFACT_BUCKET = aws_s3_bucket.artifacts[0].bucket } : {},
+    length(var.shared_outputs_state) == 0 ? {} : {
+      STACKORDER_STATE_BUCKETS = join(",", distinct([for s in var.shared_outputs_state : s.prefix == "" ? s.bucket : "${s.bucket}/${s.prefix}"]))
+    },
+    var.shared_outputs_role_arn == null ? {} : { STACKORDER_STATE_ROLE_ARN = var.shared_outputs_role_arn },
     var.extra_environment,
   )
 

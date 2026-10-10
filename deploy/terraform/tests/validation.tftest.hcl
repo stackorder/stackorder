@@ -181,6 +181,30 @@ run "extra_environment_metrics_token" {
   expect_failures = [var.extra_environment]
 }
 
+run "extra_environment_state_buckets" {
+  command = plan
+
+  variables {
+    extra_environment = {
+      STACKORDER_STATE_BUCKETS = "acme-tfstate"
+    }
+  }
+
+  expect_failures = [var.extra_environment]
+}
+
+run "extra_environment_state_role_arn" {
+  command = plan
+
+  variables {
+    extra_environment = {
+      STACKORDER_STATE_ROLE_ARN = "arn:aws:iam::210987654321:role/stackorder-state-reader"
+    }
+  }
+
+  expect_failures = [var.extra_environment]
+}
+
 run "metrics_token_too_short" {
   command = plan
 
@@ -373,4 +397,232 @@ run "image_with_tag" {
   }
 
   expect_failures = [var.image]
+}
+
+run "shared_outputs_bucket_uppercase" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "Acme-TFState" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_bucket_with_prefix" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate/stacks" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_bucket_ip_address" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "192.168.5.4" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_bucket_reserved_prefix" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "xn--acme-tfstate" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_bucket_access_point_alias" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate-s3alias" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_bucket_directory" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate--use1-az4--x-s3" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_bucket_reserved_sthree" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "sthree-acme-tfstate" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_bucket_reserved_demo" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "amzn-s3-demo-acme-tfstate" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_bucket_object_lambda_alias" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate--ol-s3" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_bucket_multi_region_access_point" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate.mrap" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_bucket_table" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate--table-s3" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_prefix_leading_slash" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate", prefix = "/stacks/prod/" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_prefix_trailing_space" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate", prefix = "stacks/prod " }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_prefix_leading_space" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate", prefix = " stacks/prod/" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_prefix_wildcard" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate", prefix = "stacks/*/vpc" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_prefix_comma" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate", prefix = "stacks/prod,acme-other" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_kms_key_alias" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate", kms_key_arn = "arn:aws:kms:eu-west-1:123456789012:alias/tfstate" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_kms_key_wildcard" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [{ bucket = "acme-tfstate", kms_key_arn = "arn:aws:kms:eu-west-1:123456789012:key/*" }]
+  }
+
+  expect_failures = [var.shared_outputs_state]
+}
+
+run "shared_outputs_role_without_state" {
+  command = plan
+
+  variables {
+    shared_outputs_role_arn = "arn:aws:iam::210987654321:role/stackorder-state-reader"
+  }
+
+  expect_failures = [var.shared_outputs_role_arn]
+}
+
+run "shared_outputs_role_not_a_role" {
+  command = plan
+
+  variables {
+    shared_outputs_state    = [{ bucket = "acme-tfstate" }]
+    shared_outputs_role_arn = "arn:aws:iam::210987654321:user/stackorder"
+  }
+
+  expect_failures = [var.shared_outputs_role_arn]
+}
+
+run "shared_outputs_role_wildcard" {
+  command = plan
+
+  variables {
+    shared_outputs_state    = [{ bucket = "acme-tfstate" }]
+    shared_outputs_role_arn = "arn:aws:iam::123456789012:role/*"
+  }
+
+  expect_failures = [var.shared_outputs_role_arn]
+}
+
+run "shared_outputs_role_with_kms_key" {
+  command = plan
+
+  variables {
+    shared_outputs_state = [
+      {
+        bucket      = "acme-tfstate"
+        kms_key_arn = "arn:aws:kms:eu-west-1:210987654321:key/11111111-1111-1111-1111-111111111111"
+      },
+    ]
+    shared_outputs_role_arn = "arn:aws:iam::210987654321:role/stackorder-state-reader"
+  }
+
+  expect_failures = [var.shared_outputs_role_arn]
 }

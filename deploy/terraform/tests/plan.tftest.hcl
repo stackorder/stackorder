@@ -151,7 +151,7 @@ run "defaults" {
   }
 
   assert {
-    condition     = length(aws_iam_role_policy.task_artifacts) == 0 && length(aws_iam_role_policy.task_execute_command) == 0
+    condition     = length(aws_iam_role_policy.task_artifacts) == 0 && length(aws_iam_role_policy.task_shared_outputs) == 0 && length(aws_iam_role_policy.task_execute_command) == 0
     error_message = "The task role must have no policies by default."
   }
 
