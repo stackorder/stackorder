@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -27,6 +28,8 @@ import (
 var ErrNotDirectory = errors.New("not a directory")
 
 var skippedDirs = map[string]bool{".git": true, ".terraform": true, "node_modules": true}
+
+var repoName = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
 
 // Options configures one Scan.
 type Options struct {
@@ -53,6 +56,7 @@ type stackInfo struct {
 	dependsOn    []string
 	ignored      []string
 	remoteStates []remoteState
+	outputReads  []outputRead
 	inputs       []string
 }
 
@@ -98,8 +102,24 @@ type scanner struct {
 // from a stack, following local sources transitively; local modules are keyed
 // "owner/repo//path". A cross-repository depends_on target becomes an
 // External stack keyed by its qualified "owner/repo//key", the same key its
-// edges point at. Inferred reads_state edges carry the matched bucket and the
-// full state object key, workspace prefix included, in Meta.
+// edges point at.
+//
+// Inferred reads_state edges come from two kinds of block. A
+// terraform_remote_state data source whose s3 config names the state object
+// of a stack yields an edge carrying the matched bucket and the full state
+// object key, workspace prefix included, in Meta. A stackorder_outputs data
+// source or ephemeral resource whose stack attribute is a literal yields an
+// edge with Meta source "stackorder_outputs": a path or path:instance must
+// equal a stack key of this repository, and an "owner/repo//key" of another
+// repository becomes an External stack as a depends_on target does. A
+// non-literal stack, a key that is malformed or names no stack, and a stack
+// reading its own outputs are warnings. Both kinds of block are read only in
+// the stack's own directory, never in the modules it calls, so a stack that
+// reads another through a module needs depends_on. An explicit depends_on on
+// the same stack replaces an inferred edge, and an ignore_inferred entry,
+// qualified with "owner/repo//" for another repository, suppresses it with a
+// warning; a cross-repository entry that no stackorder_outputs block of the
+// stack reads is a warning too.
 //
 // Each instance's Backend is the literal backend "s3" block overlaid, in
 // order, with its rendered backend_config entries: a file, repository
@@ -188,6 +208,7 @@ func Scan(ctx context.Context, root string, opts Options) (*v1.Graph, error) {
 	}
 	explicit := s.addDependsOn()
 	s.inferRemoteState(explicit)
+	s.inferOutputs(explicit)
 
 	g := s.graph()
 	g.TreeHash = s.treeHash()
@@ -451,15 +472,12 @@ func (s *scanner) addStack(dir string, dc dirConfig) error {
 		if ok {
 			st.Config = stackCfg
 		}
-		ignored := make([]string, 0, len(eff.IgnoreInferred))
-		for _, k := range eff.IgnoreInferred {
-			ignored = append(ignored, config.NormalizePath(k))
-		}
 		s.stacks[st.Key] = &stackInfo{
 			stack:        st,
 			dependsOn:    eff.DependsOn,
-			ignored:      ignored,
+			ignored:      eff.IgnoreInferred,
 			remoteStates: dc.remoteStates,
+			outputReads:  dc.outputReads,
 			inputs:       s.inputFiles(eff, backendFiles),
 		}
 		s.log.Debug("stack discovered", "key", st.Key, "backend", dc.backendType)
@@ -659,6 +677,7 @@ func (s *scanner) addDependsOn() map[string]map[string]bool {
 			}
 			qualified := v1.QualifiedStackKey(repo, target)
 			p, instance := v1.SplitStackKey(target)
+			explicit[key][foldedKey(qualified)] = true
 			s.external[qualified] = v1.Stack{Key: qualified, Path: p, Instance: instance, Repo: repo, External: true}
 			s.addEdge(v1.Edge{From: v1.StackRef(key), To: v1.StackRef(qualified), Type: v1.EdgeDependsOn})
 		}
@@ -685,6 +704,34 @@ func (s *scanner) dependencyTarget(dirs map[string][]string, instance, target st
 	return target
 }
 
+func (s *scanner) ignoredTarget(dirs map[string][]string, instance, entry string) string {
+	local := s.dependencyTarget(dirs, instance, config.NormalizePath(entry))
+	repo, key := v1.SplitQualifiedStackKey(entry)
+	switch {
+	case s.stacks[local] != nil, strings.Count(repo, "/") != 1:
+		return local
+	case strings.EqualFold(repo, s.opts.Repo):
+		return s.dependencyTarget(dirs, instance, config.NormalizePath(key))
+	}
+	return foldedKey(v1.QualifiedStackKey(repo, config.NormalizePath(key)))
+}
+
+func foldedKey(key string) string {
+	repo, k := v1.SplitQualifiedStackKey(key)
+	if repo == "" {
+		return key
+	}
+	return v1.QualifiedStackKey(strings.ToLower(repo), k)
+}
+
+func (s *scanner) ignoredTargets(dirs map[string][]string, info *stackInfo) []string {
+	ignored := make([]string, 0, len(info.ignored))
+	for _, entry := range info.ignored {
+		ignored = append(ignored, s.ignoredTarget(dirs, info.stack.Instance, entry))
+	}
+	return ignored
+}
+
 type stateLocation struct{ bucket, key string }
 
 func (s *scanner) inferRemoteState(explicit map[string]map[string]bool) {
@@ -705,10 +752,7 @@ func (s *scanner) inferRemoteState(explicit map[string]map[string]bool) {
 	dirs := s.stackKeysByDir()
 	for _, key := range s.sortedStackKeys() {
 		info := s.stacks[key]
-		ignored := make([]string, 0, len(info.ignored))
-		for _, entry := range info.ignored {
-			ignored = append(ignored, s.dependencyTarget(dirs, info.stack.Instance, entry))
-		}
+		ignored := s.ignoredTargets(dirs, info)
 		for _, rs := range info.remoteStates {
 			if rs.problem != "" {
 				s.warn("%s: data.%s.%s: cannot infer reads_state edge: %s", rs.loc, remoteStateType, rs.name, rs.problem)
@@ -735,6 +779,72 @@ func (s *scanner) inferRemoteState(explicit map[string]map[string]bool) {
 			}
 		}
 	}
+}
+
+func (s *scanner) inferOutputs(explicit map[string]map[string]bool) {
+	dirs := s.stackKeysByDir()
+	for _, key := range s.sortedStackKeys() {
+		info := s.stacks[key]
+		ignored := s.ignoredTargets(dirs, info)
+		readTargets := map[string]bool{}
+		for _, read := range info.outputReads {
+			target, external, ok := s.outputsTarget(key, read)
+			if !ok {
+				continue
+			}
+			folded := foldedKey(target)
+			readTargets[folded] = true
+			switch {
+			case explicit[key][folded]:
+			case slices.Contains(ignored, folded):
+				s.warn("%s: inferred reads_state edge to %s suppressed by ignore_inferred", key, target)
+			default:
+				if external != nil {
+					s.external[target] = *external
+				}
+				s.addEdge(v1.Edge{
+					From:     v1.StackRef(key),
+					To:       v1.StackRef(target),
+					Type:     v1.EdgeReadsState,
+					Inferred: true,
+					Meta:     map[string]string{"source": outputsType},
+				})
+			}
+		}
+		for i, target := range ignored {
+			if repo, _ := v1.SplitQualifiedStackKey(target); repo != "" && !readTargets[target] {
+				s.warn("%s: ignore_inferred %s: no stackorder_outputs block reads that stack", key, info.ignored[i])
+			}
+		}
+	}
+}
+
+func (s *scanner) outputsTarget(key string, read outputRead) (string, *v1.Stack, bool) {
+	if !read.literal {
+		s.warn("%s: %s: cannot infer reads_state edge: stack is not a literal value; add depends_on", read.loc, read.address())
+		return "", nil, false
+	}
+	repo, target := v1.SplitQualifiedStackKey(read.stack)
+	local := repo == "" || strings.EqualFold(repo, s.opts.Repo)
+	switch {
+	case strings.HasPrefix(read.stack, "//"), !local && !canonicalQualifiedKey(read.stack):
+		s.warn("%s: %s: stack %q is not a valid stack key", read.loc, read.address(), read.stack)
+	case !local:
+		p, instance := v1.SplitStackKey(target)
+		return read.stack, &v1.Stack{Key: read.stack, Path: p, Instance: instance, Repo: repo, External: true}, true
+	case s.stacks[target] == nil:
+		s.warn("%s: %s: stack %q is not a stack of this repository", read.loc, read.address(), read.stack)
+	case target == key:
+		s.warn("%s: %s: stack %q names the stack itself; ignored", read.loc, read.address(), read.stack)
+	default:
+		return target, nil, true
+	}
+	return "", nil, false
+}
+
+func canonicalQualifiedKey(key string) bool {
+	repo, k, err := config.ParseDependency(key)
+	return err == nil && repoName.MatchString(repo) && v1.QualifiedStackKey(repo, k) == key
 }
 
 func (s *scanner) graph() *v1.Graph {

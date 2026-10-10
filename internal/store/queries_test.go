@@ -118,6 +118,47 @@ func TestExternalDependents(t *testing.T) {
 	}}, got, "the default graph is read in preference to the latest")
 }
 
+func TestExternalDependentsIncludeOutputsReads(t *testing.T) {
+	f := newFixture(t)
+	network := f.addRepo(1, 300, "acme", "acme/network")
+	f.saveGraph(network.ID, &v1.Graph{Repo: network.FullName, SHA: "n1", Stacks: []v1.Stack{
+		{Key: "stacks/prod/dns", Path: "stacks/prod/dns"},
+		{Key: "stacks/prod/tgw", Path: "stacks/prod/tgw"},
+	}})
+
+	readsOutputs := func(from, to string) v1.Edge {
+		return v1.Edge{
+			From: v1.StackRef(from), To: v1.StackRef(to), Type: v1.EdgeReadsState, Inferred: true,
+			Meta: map[string]string{"source": "stackorder_outputs"},
+		}
+	}
+	g := &v1.Graph{
+		Repo: f.repo.FullName, SHA: "i1",
+		Stacks: []v1.Stack{
+			{Key: "ACME/Network//stacks/prod/dns", Path: "stacks/prod/dns", Repo: "ACME/Network", External: true},
+			{Key: "acme/network//stacks/prod/tgw", Path: "stacks/prod/tgw", Repo: "acme/network", External: true},
+			{Key: "stacks/prod/eks", Path: "stacks/prod/eks"},
+			{Key: "stacks/prod/vpc", Path: "stacks/prod/vpc"},
+		},
+		Edges: []v1.Edge{
+			readsOutputs("stacks/prod/eks", "acme/network//stacks/prod/tgw"),
+			readsOutputs("stacks/prod/vpc", "ACME/Network//stacks/prod/dns"),
+		},
+	}
+	f.saveGraph(f.repo.ID, g)
+
+	stored, _, err := f.s.GetGraph(f.ctx, f.repo.ID, "i1")
+	require.NoError(t, err)
+	assert.Equal(t, g.Edges, stored.Edges, "inferred edges keep their meta source")
+
+	got, err := f.s.ExternalDependents(f.ctx, network.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []store.ExternalDependent{
+		{RepoID: f.repo.ID, Repo: "acme/infra", FromKey: "stacks/prod/eks", ToKey: "stacks/prod/tgw", Type: v1.EdgeReadsState},
+		{RepoID: f.repo.ID, Repo: "acme/infra", FromKey: "stacks/prod/vpc", ToKey: "stacks/prod/dns", Type: v1.EdgeReadsState},
+	}, got)
+}
+
 func TestAdvanceRunWaveAndWarnings(t *testing.T) {
 	f := newFixture(t)
 	r := f.run(store.CreateRunParams{Mode: v1.ModeApply})
