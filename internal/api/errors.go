@@ -16,16 +16,17 @@ import (
 )
 
 const (
-	codeUnauthorized = "unauthorized"
-	codeForbidden    = "forbidden"
-	codeNotFound     = "not_found"
-	codeInvalid      = "invalid"
-	codeConflict     = "conflict"
-	codeRefused      = "refused"
-	codeLocked       = "locked"
-	codeSuperseded   = "superseded"
-	codeInternal     = "internal"
-	codeUnavailable  = "unavailable"
+	codeUnauthorized  = "unauthorized"
+	codeForbidden     = "forbidden"
+	codeNotFound      = "not_found"
+	codeInvalid       = "invalid"
+	codeConflict      = "conflict"
+	codeRefused       = "refused"
+	codeLocked        = "locked"
+	codeSuperseded    = "superseded"
+	codeInternal      = "internal"
+	codeUnavailable   = "unavailable"
+	codeUnprocessable = "unprocessable"
 )
 
 type apiError struct {
@@ -85,8 +86,32 @@ func lockConflicts(in []v1.LockInfo) []v1.LockInfo {
 	return in
 }
 
+func codedError(e *principal.CodedError) (*apiError, bool) {
+	status, unexpected := http.StatusInternalServerError, false
+	switch {
+	case errors.Is(e.Kind, principal.ErrNotFound):
+		status = http.StatusNotFound
+	case errors.Is(e.Kind, principal.ErrForbidden):
+		status = http.StatusForbidden
+	case errors.Is(e.Kind, principal.ErrConflict):
+		status = http.StatusConflict
+	case errors.Is(e.Kind, principal.ErrUnprocessable):
+		status = http.StatusUnprocessableEntity
+	case errors.Is(e.Kind, principal.ErrUnavailable):
+		status = http.StatusServiceUnavailable
+	default:
+		unexpected = true
+	}
+	out := newError(status, e.Code, e.Message)
+	if len(e.Details) > 0 {
+		out.body.Details = e.Details
+	}
+	return out, unexpected
+}
+
 func toAPIError(err error) (*apiError, bool) {
 	var (
+		coded   *principal.CodedError
 		ae      *apiError
 		locked  *principal.LockedError
 		refused *principal.RefusedError
@@ -96,6 +121,8 @@ func toAPIError(err error) (*apiError, bool) {
 		connErr *pgconn.ConnectError
 	)
 	switch {
+	case errors.As(err, &coded):
+		return codedError(coded)
 	case errors.As(err, &ae):
 		return ae, false
 	case errors.As(err, &locked):
@@ -124,6 +151,10 @@ func toAPIError(err error) (*apiError, bool) {
 		return forbidden(err.Error()), false
 	case errors.Is(err, principal.ErrNotFound):
 		return notFound(err.Error()), false
+	case errors.Is(err, principal.ErrUnprocessable):
+		return newError(http.StatusUnprocessableEntity, codeUnprocessable, err.Error()), false
+	case errors.Is(err, principal.ErrUnavailable):
+		return unavailable(err.Error()), false
 	case errors.Is(err, oidc.ErrJWKSUnavailable):
 		return unavailable("the runner token issuer's keys are unavailable"), false
 	case errors.As(err, &binding):

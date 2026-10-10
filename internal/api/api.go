@@ -170,6 +170,7 @@ func (s *server) routes() http.Handler {
 	s.handle(mux, "GET /v1/repos/{owner}/{repo}/graph", 0, s.with(humanAuth, s.repoGraph))
 	s.handle(mux, "GET /v1/repos/{owner}/{repo}/runs", 0, s.with(humanAuth, s.repoRuns))
 	s.handle(mux, "GET /v1/repos/{owner}/{repo}/stacks", 0, s.with(humanAuth, s.repoStacks))
+	s.handle(mux, "GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs", 0, s.with(runnerAuth, s.stackOutputs))
 	s.handle(mux, "GET /v1/stacks/{id}", 0, s.with(humanAuth, s.stack))
 	s.handle(mux, "GET /v1/stacks/{id}/runs", 0, s.with(humanAuth, s.stackRuns))
 	s.handle(mux, "GET /v1/modules", 0, s.with(humanAuth, s.modules))

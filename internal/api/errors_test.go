@@ -74,6 +74,22 @@ func TestToAPIError(t *testing.T) {
 		{name: "store not found", err: fmt.Errorf("store: get run: %w", store.ErrNotFound), status: 404, code: "not_found", message: "not found"},
 		{name: "store invalid", err: fmt.Errorf("store: list runs: malformed cursor: %w", store.ErrInvalid), status: 400, code: "invalid", message: "invalid request"},
 		{name: "store conflict", err: fmt.Errorf("store: x: %w", store.ErrConflict), status: 409, code: "conflict", message: "the request conflicts with the current state"},
+		{name: "unprocessable sentinel", err: principal.Wrap(principal.ErrUnprocessable, "state is encrypted"), status: 422, code: "unprocessable", message: "unprocessable: state is encrypted"},
+		{name: "unavailable sentinel", err: principal.Wrap(principal.ErrUnavailable, "S3 timed out"), status: 503, code: "unavailable", message: "unavailable: S3 timed out"},
+		{
+			name: "coded", err: fmt.Errorf("outputs: %w", &principal.CodedError{Kind: principal.ErrForbidden, Code: v1.ErrCodeOutputsNotShared,
+				Message: "stacks/prod/vpc does not share its outputs with stacks/prod/eks", Details: map[string]any{"reader": "stacks/prod/eks"}}),
+			status: 403, code: "outputs_not_shared", message: "stacks/prod/vpc does not share its outputs with stacks/prod/eks",
+			details: map[string]any{"reader": "stacks/prod/eks"},
+		},
+		{
+			name: "coded wins over its kind's generic code", err: &principal.CodedError{Kind: principal.ErrNotFound, Code: v1.ErrCodeOutputsDisabled, Message: "outputs are off"},
+			status: 404, code: "outputs_disabled", message: "outputs are off",
+		},
+		{
+			name: "coded of an unknown kind", err: &principal.CodedError{Kind: principal.ErrLocked, Code: "odd", Message: "odd refusal"},
+			status: 500, code: "odd", message: "odd refusal", unexpected: true,
+		},
 		{name: "api error", err: fmt.Errorf("wrapped: %w", forbidden("nope")), status: 403, code: "forbidden", message: "nope"},
 		{name: "github rate limited", err: fmt.Errorf("perm: %w", gh.ErrRateLimited), status: 503, code: "unavailable", message: "GitHub is unavailable", unexpected: true},
 		{name: "github 502", err: &gh.APIError{Status: 502, Method: "GET", Route: "/x"}, status: 503, code: "unavailable", message: "GitHub is unavailable", unexpected: true},

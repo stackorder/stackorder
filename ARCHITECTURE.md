@@ -533,6 +533,7 @@ decoded key.
 | `POST /v1/runs/{id}/stacks/{key}/result` | `v1.StackResult` | `v1.RunStack` |
 | `POST /v1/runs/{id}/stacks/{key}/checks/{name}` | `v1.CheckVerdict` | `v1.Check` |
 | `GET /v1/runs/{id}` | | `v1.Run` |
+| `GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs?run=&reader=` | | `v1.StackOutputs` of stack `{key}` of `{owner}/{repo}`, the producer, read as `reader`, a stack of run `run` (see Shared outputs); runner token or API key, which may omit `run` and `reader`, never a session; `Cache-Control: no-store` |
 | `POST /v1/unlock` | `v1.UnlockRequest` with `repo` and `stack_key` | `v1.UnlockResponse` |
 
 A manual run (`POST /v1/runs` with an API key, `trigger: manual`, `mode:
@@ -568,12 +569,18 @@ the CLI requests a fresh token for every call. Errors are `v1.Error` with
 codes `unauthorized` (401), `forbidden` (403), `not_found` (404), `invalid`
 (400), `conflict` (409), `refused` (409, apply gate; `details.failures`),
 `locked` (423, `details.conflicts`), `superseded` (409),
-`internal` (500), `unavailable` (503, JWKS or database unreachable).
-Refusals specific to reading a stack's outputs use the `v1.ErrCode*` codes
-`outputs_disabled`, `outputs_not_shared`, `state_location_unknown`,
-`state_bucket_not_allowed`, `state_not_found`, `state_access_denied`,
-`state_encrypted`, `state_unsupported`, `state_too_large` or
-`state_unreadable`, besides the generic codes above. The CLI exits 3 on
+`unprocessable` (422), `internal` (500), `unavailable` (503, JWKS,
+database or a state object unreachable). Reading a stack's outputs
+refuses with the generic codes above and the `v1.ErrCode*` codes
+`outputs_disabled` (404), `outputs_not_shared` (403),
+`state_location_unknown` (409), `state_bucket_not_allowed` (403),
+`state_not_found` (404), `state_access_denied` (403), and
+`state_encrypted`, `state_unsupported`, `state_too_large` and
+`state_unreadable` (422); a state read that fails for now, such as an S3
+throttle or 5xx, is 503 `unavailable`. A `principal.CodedError` answers
+with its own code, message and details and the status of its `Kind`:
+`ErrNotFound` 404, `ErrForbidden` 403, `ErrConflict` 409,
+`ErrUnprocessable` 422, `ErrUnavailable` 503, any other 500. The CLI exits 3 on
 `forbidden`, `conflict`, `refused`, `locked` and `superseded`,
 and on its own fail-closed decisions (an unreachable server during apply). `invalid` carries `details.field` and `details.reason` when a
 field is at fault. A body over its route's limit (8 MB for graph uploads,
@@ -756,9 +763,11 @@ run and repository.
 ## Shared outputs
 
 `runs.Service.StackOutputs(principal, repo, key, run, reader)` serves the
-root-module outputs of a stack as `v1.StackOutputs`. It refuses everything
-with `outputs_disabled` (`principal.ErrNotFound`) unless the service has a
-`runs.StateReader` (`runs.WithStateReader`). In order:
+root-module outputs of a stack as `v1.StackOutputs`, behind
+`GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs?run=&reader=`. It
+refuses everything with `outputs_disabled` (`principal.ErrNotFound`)
+unless the service has a `runs.StateReader` (`runs.WithStateReader`). In
+order:
 
 1. Binding. A runner token names its run and the reader, a stack of that
    run. The token carries the run's repository; the run is not superseded

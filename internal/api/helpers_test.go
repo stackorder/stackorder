@@ -267,10 +267,12 @@ type runsCall struct {
 	method   string
 	p        principal.Principal
 	actor    string
+	repo     string
 	runID    string
 	stackKey string
 	stackID  string
 	name     string
+	reader   string
 	login    string
 	repoID   int64
 	body     any
@@ -283,6 +285,7 @@ type fakeRuns struct {
 
 	createResp *v1.CreateRunResponse
 	run        *v1.Run
+	outputs    *v1.StackOutputs
 	canAct     bool
 	canActErr  error
 }
@@ -381,4 +384,15 @@ func (f *fakeRuns) CanActOnRepo(_ context.Context, login string, repoID int64) (
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, runsCall{method: "CanActOnRepo", login: login, repoID: repoID})
 	return f.canAct, f.canActErr
+}
+
+func (f *fakeRuns) StackOutputs(_ context.Context, p principal.Principal, repo, key, runID, reader string) (*v1.StackOutputs, error) {
+	if err := f.record(runsCall{method: "StackOutputs", p: p, repo: repo, stackKey: key, runID: runID, reader: reader}); err != nil {
+		return nil, err
+	}
+	if f.outputs != nil {
+		out := *f.outputs
+		return &out, nil
+	}
+	return &v1.StackOutputs{Repo: repo, Stack: key, Outputs: map[string]v1.StackOutput{}}, nil
 }
