@@ -3,6 +3,7 @@ package v1
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -435,9 +436,52 @@ type StackResult struct {
 	DurationMS  int64        `json:"duration_ms,omitempty"`
 	// Backend is reported so the UI can link a stack to its state object.
 	Backend *Backend `json:"backend,omitempty"`
+	// State is the S3 object the job found the stack's state in, when it
+	// knows one.
+	State *StateObject `json:"state,omitempty"`
 	// Unconfirmed is set when the CLI could not reach the server during the
 	// run and is reporting late.
 	Unconfirmed bool `json:"unconfirmed,omitempty"`
+}
+
+// StateObject is the S3 object that holds a stack's state after init and
+// workspace selection.
+type StateObject struct {
+	Bucket string `json:"bucket"`
+	// Key is the full object key, workspace prefix included.
+	Key string `json:"key"`
+	// Region is empty when the backend takes it from the environment.
+	Region string `json:"region,omitempty"`
+}
+
+// StackOutputs is the body of GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs:
+// the root-module outputs of a stack, read from its state.
+type StackOutputs struct {
+	// Repo is "owner/repo" and Stack the key of the stack the outputs
+	// belong to.
+	Repo  string `json:"repo"`
+	Stack string `json:"stack"`
+	// Serial, Lineage and TerraformVersion are those of the state.
+	Serial           uint64 `json:"serial"`
+	Lineage          string `json:"lineage"`
+	TerraformVersion string `json:"terraform_version"`
+	// Outputs maps output names to their values. It is always a JSON object,
+	// never null, so a producer with nothing to share sets an empty map.
+	Outputs map[string]StackOutput `json:"outputs"`
+	// Withheld names the sensitive outputs the producer withholds; they are
+	// absent from Outputs.
+	Withheld []string `json:"withheld,omitempty"`
+}
+
+// StackOutput is one root-module output of a stack.
+type StackOutput struct {
+	// Value is the output value as JSON.
+	Value json.RawMessage `json:"value"`
+	// Type is the output's cty type as Terraform writes it in state, such
+	// as "string" or ["object",{"id":"string"}].
+	Type json.RawMessage `json:"type"`
+	// Sensitive mirrors the output's sensitive flag in state.
+	Sensitive bool `json:"sensitive"`
 }
 
 // CheckVerdict is the body of POST /v1/runs/{id}/stacks/{key}/checks/{name}.
@@ -662,6 +706,40 @@ type Error struct {
 
 // Error implements the error interface.
 func (e *Error) Error() string { return e.Code + ": " + e.Message }
+
+// Codes of the Error that refuses a request for a stack's outputs, beside
+// the generic codes such as not_found and forbidden.
+const (
+	// ErrCodeOutputsDisabled means the server is not configured to read
+	// state objects.
+	ErrCodeOutputsDisabled = "outputs_disabled"
+	// ErrCodeOutputsNotShared means the stack's outputs configuration on
+	// its default branch does not list the reader.
+	ErrCodeOutputsNotShared = "outputs_not_shared"
+	// ErrCodeStateLocationUnknown means the server does not know which
+	// object holds the stack's state.
+	ErrCodeStateLocationUnknown = "state_location_unknown"
+	// ErrCodeStateBucketNotAllowed means the state object lies outside the
+	// buckets and prefixes the server may read.
+	ErrCodeStateBucketNotAllowed = "state_bucket_not_allowed"
+	// ErrCodeStateNotFound means the state object does not exist.
+	ErrCodeStateNotFound = "state_not_found"
+	// ErrCodeStateAccessDenied means S3 or KMS denied the server access to
+	// the state object.
+	ErrCodeStateAccessDenied = "state_access_denied"
+	// ErrCodeStateEncrypted means the state is encrypted by OpenTofu, which
+	// the server does not decrypt.
+	ErrCodeStateEncrypted = "state_encrypted"
+	// ErrCodeStateUnsupported means the state's format version is not one
+	// the server reads.
+	ErrCodeStateUnsupported = "state_unsupported"
+	// ErrCodeStateTooLarge means the state object or its outputs exceed the
+	// server's limits.
+	ErrCodeStateTooLarge = "state_too_large"
+	// ErrCodeStateUnreadable means the server could not decode the state
+	// object.
+	ErrCodeStateUnreadable = "state_unreadable"
+)
 
 // Page wraps list responses.
 type Page[T any] struct {

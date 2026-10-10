@@ -463,6 +463,18 @@ apply` and `stacks`) makes the server take the locks before answering and
 release them when the results arrive; this is how `stackorder apply --local`
 works.
 
+`v1.StackResult.State` is a `v1.StateObject` (`bucket`, `key` with the
+workspace prefix, `region` unless the backend takes it from the
+environment): the S3 object that held the stack's state after init and
+workspace selection, omitted when unknown. `v1.StackOutputs` carries the
+root-module outputs of a stack: `repo`, `stack`, the state's `serial`,
+`lineage` and `terraform_version`, `outputs` mapping each name to a
+`v1.StackOutput` (`value` and `type`, the cty type as state writes it, both
+raw JSON, and `sensitive`), an empty object rather than null when there are
+none, and `withheld`, the names of the sensitive outputs the producer
+withholds, omitted when empty. `api/v1/testdata/stack_outputs.json` and
+`stack_outputs_empty.json` pin its wire format.
+
 Authentication: `Authorization: Bearer <GitHub OIDC token>` for runners,
 `Authorization: Bearer sk_<key>` for automation, cookie `stackorder_session`
 for humans. Every runner token is accepted once (its `jti` is recorded), so
@@ -470,8 +482,13 @@ the CLI requests a fresh token for every call. Errors are `v1.Error` with
 codes `unauthorized` (401), `forbidden` (403), `not_found` (404), `invalid`
 (400), `conflict` (409), `refused` (409, apply gate; `details.failures`),
 `locked` (423, `details.conflicts`), `superseded` (409),
-`internal` (500), `unavailable` (503, JWKS or database unreachable). The CLI
-exits 3 on `forbidden`, `conflict`, `refused`, `locked` and `superseded`,
+`internal` (500), `unavailable` (503, JWKS or database unreachable).
+Refusals specific to reading a stack's outputs use the `v1.ErrCode*` codes
+`outputs_disabled`, `outputs_not_shared`, `state_location_unknown`,
+`state_bucket_not_allowed`, `state_not_found`, `state_access_denied`,
+`state_encrypted`, `state_unsupported`, `state_too_large` or
+`state_unreadable`, besides the generic codes above. The CLI exits 3 on
+`forbidden`, `conflict`, `refused`, `locked` and `superseded`,
 and on its own fail-closed decisions (an unreachable server during apply). `invalid` carries `details.field` and `details.reason` when a
 field is at fault. A body over its route's limit (8 MB for graph uploads,
 1 MB for every other POST under `/v1` and `/auth`) is 413 with code
