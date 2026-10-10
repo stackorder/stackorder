@@ -33,6 +33,15 @@ const (
 	PlanOutputSummary PlanOutput = "summary"
 )
 
+// OutputsSensitive says whether the sensitive outputs of a stack reach the
+// readers of its outputs.
+type OutputsSensitive string
+
+const (
+	OutputsWithhold OutputsSensitive = "withhold"
+	OutputsShare    OutputsSensitive = "share"
+)
+
 // RepoConfig is the root stackorder.yaml. Field defaults are applied by
 // internal/config; the zero value is not valid on its own.
 type RepoConfig struct {
@@ -57,6 +66,9 @@ type RepoConfig struct {
 	VarFiles []string `json:"var_files,omitempty" yaml:"var_files"`
 	// Env sets environment variables for the tool and the hooks.
 	Env EnvConfig `json:"env,omitempty" yaml:"env"`
+	// Outputs shares the outputs of every stack; the readers of a stack or
+	// an instance that sets its own replace these.
+	Outputs *OutputsConfig `json:"outputs,omitempty" yaml:"outputs,omitempty"`
 }
 
 // StacksConfig controls stack discovery.
@@ -136,6 +148,10 @@ type StackConfig struct {
 	BackendConfig []string  `json:"backend_config,omitempty" yaml:"backend_config"`
 	VarFiles      []string  `json:"var_files,omitempty" yaml:"var_files"`
 	Env           EnvConfig `json:"env,omitempty" yaml:"env"`
+	// Outputs shares the outputs of every instance of the stack; its
+	// readers replace the root's, and an instance that sets readers
+	// replaces them.
+	Outputs *OutputsConfig `json:"outputs,omitempty" yaml:"outputs,omitempty"`
 }
 
 // StackApplyConfig narrows the apply policy for one stack.
@@ -154,6 +170,64 @@ type InstanceConfig struct {
 	Apply          *StackApplyConfig `json:"apply,omitempty" yaml:"apply"`
 	DependsOn      []string          `json:"depends_on,omitempty" yaml:"depends_on"`
 	IgnoreInferred []string          `json:"ignore_inferred,omitempty" yaml:"ignore_inferred"`
+	// Outputs shares the outputs of the instance; its readers replace
+	// those of the stack and the root.
+	Outputs *OutputsConfig `json:"outputs,omitempty" yaml:"outputs,omitempty"`
+}
+
+// OutputsConfig names the stacks that may read the root module outputs of a
+// stack. The most specific level that sets Readers, instance over stack over
+// root, replaces the others.
+type OutputsConfig struct {
+	// Readers lists patterns over the stack keys of this repository, or
+	// "owner/repo//pattern" for stacks of another repository of the same
+	// installation. Unset (nil) means the outputs are not shared; an empty
+	// list shares them with no stack and withdraws a broader grant. JSON
+	// encodes nil as null, apart from the empty list.
+	Readers []string `json:"readers" yaml:"readers"`
+	// Sensitive says whether sensitive outputs are served; empty means
+	// OutputsWithhold.
+	Sensitive OutputsSensitive `json:"sensitive,omitempty" yaml:"sensitive"`
+}
+
+// UnmarshalYAML decodes readers and sensitive, strictly when the decoder is
+// strict, and refuses a null readers, which would read as unset (no reader
+// is spelled []), and a null item, which yaml.v3 would drop.
+func (o *OutputsConfig) UnmarshalYAML(unmarshal func(any) error) error {
+	var raw map[string]any
+	if err := unmarshal(&raw); err == nil {
+		readers, ok := raw["readers"]
+		if ok && readers == nil {
+			return errors.New("outputs.readers: no value; write [] to share the outputs with no stack")
+		}
+		if list, ok := readers.([]any); ok {
+			for i, item := range list {
+				if item == nil {
+					return fmt.Errorf("outputs.readers[%d]: no value", i)
+				}
+			}
+		}
+	}
+	type plain OutputsConfig
+	var p plain
+	if err := unmarshal(&p); err != nil {
+		return err
+	}
+	*o = OutputsConfig(p)
+	return nil
+}
+
+// MarshalYAML leaves out unset readers, which yaml.v3 would encode as an
+// empty list.
+func (o OutputsConfig) MarshalYAML() (any, error) {
+	out := struct {
+		Readers   *[]string        `yaml:"readers,omitempty"`
+		Sensitive OutputsSensitive `yaml:"sensitive,omitempty"`
+	}{Sensitive: o.Sensitive}
+	if o.Readers != nil {
+		out.Readers = &o.Readers
+	}
+	return out, nil
 }
 
 // Instances maps instance names to their overrides. YAML and JSON accept
@@ -172,7 +246,8 @@ func (in Instances) Names() []string {
 
 // UnmarshalYAML decodes a sequence of names or a mapping of overrides. It
 // implements yaml.v3's function-based interface so that a strict decoder
-// stays strict for the overrides.
+// stays strict for the overrides. A null outputs of an override is refused,
+// since it would read as unset and keep a broader grant.
 func (in *Instances) UnmarshalYAML(unmarshal func(any) error) error {
 	var raw any
 	if err := unmarshal(&raw); err != nil {
@@ -191,6 +266,9 @@ func (in *Instances) UnmarshalYAML(unmarshal func(any) error) error {
 		}
 		return in.fromNames(names)
 	case map[string]any, map[any]any:
+		if err := refuseNullOutputs(raw); err != nil {
+			return err
+		}
 		m := map[string]InstanceConfig{}
 		if err := unmarshal(&m); err != nil {
 			return err
@@ -222,6 +300,18 @@ func (in *Instances) UnmarshalJSON(data []byte) error {
 		*in = m
 		return nil
 	}
+}
+
+func refuseNullOutputs(raw any) error {
+	overrides, _ := raw.(map[string]any)
+	for _, name := range slices.Sorted(maps.Keys(overrides)) {
+		if o, ok := overrides[name].(map[string]any); ok {
+			if outputs, set := o["outputs"]; set && outputs == nil {
+				return fmt.Errorf("instances.%s.outputs: no value; write { readers: [] } to share the outputs with no stack", name)
+			}
+		}
+	}
+	return nil
 }
 
 func (in *Instances) fromNames(names []string) error {

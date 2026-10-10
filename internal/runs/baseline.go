@@ -18,14 +18,14 @@ import (
 	"github.com/stackorder/stackorder/internal/store"
 )
 
-var structuredConfigKeys = map[string]bool{"stacks": true, "modules": true, "apply": true, "propagate": true, "drift": true}
+var structuredConfigKeys = map[string]bool{"stacks": true, "modules": true, "apply": true, "propagate": true, "drift": true, "outputs": true}
 
 func configDiff(base, pr *v1.RepoConfig) []string {
 	a, b := configFields(base), configFields(pr)
 	var out []string
 	for _, k := range unionKeys(a, b) {
-		sa, aok := a[k].(map[string]any)
-		sb, bok := b[k].(map[string]any)
+		sa, aok := structuredField(a[k])
+		sb, bok := structuredField(b[k])
 		if !structuredConfigKeys[k] || !aok || !bok {
 			if !reflect.DeepEqual(a[k], b[k]) {
 				out = append(out, k)
@@ -39,6 +39,14 @@ func configDiff(base, pr *v1.RepoConfig) []string {
 		}
 	}
 	return out
+}
+
+func structuredField(v any) (map[string]any, bool) {
+	if v == nil {
+		return nil, true
+	}
+	m, ok := v.(map[string]any)
+	return m, ok
 }
 
 func configFields(c *v1.RepoConfig) map[string]any {

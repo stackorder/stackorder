@@ -100,6 +100,11 @@ func Parse(data []byte) (*v1.RepoConfig, error) {
 		}
 		return nil, fmt.Errorf("%s: %w", RootFile, err)
 	}
+	if c.Outputs == nil {
+		if err := refuseNullOutputs(RootFile, data); err != nil {
+			return nil, err
+		}
+	}
 	ApplyDefaults(&c)
 	if err := Validate(&c); err != nil {
 		return nil, err
@@ -213,6 +218,7 @@ func Validate(c *v1.RepoConfig) error {
 		}
 	}
 	validateTeams(add, "apply.allowed_teams", c.Apply.AllowedTeams)
+	validateOutputs(add, "outputs.", c.Outputs)
 	return errors.Join(errs...)
 }
 
@@ -231,6 +237,11 @@ func ParseStack(data []byte) (*v1.StackConfig, error) {
 			return &s, nil
 		}
 		return nil, fmt.Errorf("%s: %w", StackFile, err)
+	}
+	if s.Outputs == nil {
+		if err := refuseNullOutputs(StackFile, data); err != nil {
+			return nil, err
+		}
 	}
 	if err := ValidateStack(&s); err != nil {
 		return nil, err
@@ -279,6 +290,7 @@ func ValidateStack(s *v1.StackConfig) error {
 	validateBackendConfig(add, "backend_config", s.BackendConfig)
 	validateVarFiles(add, "var_files", s.VarFiles)
 	validateEnv(add, "env", s.Env)
+	validateOutputs(add, "outputs.", s.Outputs)
 	for _, name := range s.Instances.Names() {
 		if err := ValidateInstanceName(name); err != nil {
 			add("instances: %v", err)
@@ -287,6 +299,16 @@ func ValidateStack(s *v1.StackConfig) error {
 		validateInstance(add, "instances."+name+".", s.Instances[name])
 	}
 	return errors.Join(errs...)
+}
+
+func refuseNullOutputs(file string, data []byte) error {
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err == nil {
+		if outputs, set := raw["outputs"]; set && outputs == nil {
+			return fmt.Errorf("%s: outputs: no value; write { readers: [] } to share the outputs with no stack", file)
+		}
+	}
+	return nil
 }
 
 // ParseDependency splits a depends_on entry into its repository and stack

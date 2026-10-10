@@ -130,6 +130,12 @@ export type EnvValue = string | EnvModes;
 /** Environment variable names mapped to their values. */
 export type EnvConfig = Record<string, EnvValue>;
 
+/** The stacks that may read the root module outputs of a stack; null readers means not shared. */
+export interface OutputsConfig {
+  readers: string[] | null;
+  sensitive?: string;
+}
+
 /** The overrides of one instance of a stack. */
 export interface InstanceConfig {
   environment?: string;
@@ -141,6 +147,7 @@ export interface InstanceConfig {
   apply?: StackApplyConfig;
   depends_on?: string[];
   ignore_inferred?: string[];
+  outputs?: OutputsConfig;
 }
 
 /** Instance names mapped to their overrides; JSON always uses this map form. */
@@ -160,6 +167,7 @@ export interface StackConfig {
   backend_config?: string[];
   var_files?: string[];
   env?: EnvConfig;
+  outputs?: OutputsConfig;
 }
 
 /** A node of the graph that Terraform runs in. */

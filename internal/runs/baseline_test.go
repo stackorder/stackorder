@@ -29,6 +29,18 @@ func TestConfigDiff(t *testing.T) {
 	f := false
 	pr.Propagate.Dependents = &f
 	assert.Equal(t, []string{"environments", "propagate.dependents", "stacks.discover", "stacks.ignore", "tool"}, configDiff(base, pr))
+
+	base.Outputs = &v1.OutputsConfig{Readers: []string{"stacks/**"}}
+	shared := defaulted(v1.RepoConfig{Environments: base.Environments, Outputs: &v1.OutputsConfig{Readers: []string{"**"}, Sensitive: v1.OutputsShare}})
+	assert.Equal(t, []string{"outputs.readers", "outputs.sensitive"}, configDiff(base, shared))
+	base.Outputs = &v1.OutputsConfig{}
+	shared.Outputs = &v1.OutputsConfig{Readers: []string{}}
+	assert.Equal(t, []string{"outputs.readers"}, configDiff(base, shared), "no reader differs from unset readers")
+	none := defaulted(v1.RepoConfig{Environments: base.Environments})
+	assert.Empty(t, configDiff(base, none), "outputs without readers or sensitive is no outputs")
+	added := defaulted(v1.RepoConfig{Environments: base.Environments, Outputs: &v1.OutputsConfig{Readers: []string{"**"}, Sensitive: v1.OutputsShare}})
+	assert.Equal(t, []string{"outputs.readers", "outputs.sensitive"}, configDiff(none, added), "an added block is named by sub-key")
+	assert.Equal(t, []string{"outputs.readers", "outputs.sensitive"}, configDiff(added, none), "a removed block is named by sub-key")
 }
 
 func TestDiscovers(t *testing.T) {

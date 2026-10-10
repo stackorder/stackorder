@@ -324,7 +324,7 @@ func TestResolve(t *testing.T) {
 			root: root, path: "./stacks/prod/vpc/",
 			want: Effective{
 				Key: "stacks/prod/vpc", Path: "stacks/prod/vpc", Tool: v1.ToolTofu, Environment: "production", EnvironmentConfigured: true,
-				PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"},
+				PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"},
 			},
 		},
 		{
@@ -332,7 +332,7 @@ func TestResolve(t *testing.T) {
 			root: root, path: "stacks/dev/vpc", stack: &v1.StackConfig{},
 			want: Effective{
 				Key: "stacks/dev/vpc", Path: "stacks/dev/vpc", Tool: v1.ToolTofu, Environment: v1.DefaultEnvironment,
-				PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"},
+				PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"},
 			},
 		},
 		{
@@ -345,7 +345,7 @@ func TestResolve(t *testing.T) {
 			},
 			want: Effective{
 				Key: "stacks/prod/secrets:blue", Path: "stacks/prod/secrets", Instance: "blue", Workspace: "blue",
-				Tool: v1.ToolTerraform, ToolVersion: "1.14.0", Environment: "vault", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputSummary,
+				Tool: v1.ToolTerraform, ToolVersion: "1.14.0", Environment: "vault", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputSummary, OutputSensitive: v1.OutputsWithhold,
 				AllowedTeams: []string{"platform-prod"}, DependsOn: []string{"stacks/prod/vpc"}, IgnoreInferred: []string{"stacks/legacy"},
 			},
 		},
@@ -354,7 +354,7 @@ func TestResolve(t *testing.T) {
 			root: root, path: "stacks/dev/app", instance: "blue", stack: &v1.StackConfig{Workspace: "blue"},
 			want: Effective{
 				Key: "stacks/dev/app:blue", Path: "stacks/dev/app", Instance: "blue", Workspace: "blue", Tool: v1.ToolTofu,
-				Environment: "blue", PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"},
+				Environment: "blue", PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"},
 			},
 		},
 		{
@@ -362,7 +362,7 @@ func TestResolve(t *testing.T) {
 			root: root, path: "stacks/dev/app", instance: "blue", stack: &v1.StackConfig{Workspace: "blue", Environment: "default"},
 			want: Effective{
 				Key: "stacks/dev/app:blue", Path: "stacks/dev/app", Instance: "blue", Workspace: "blue", Tool: v1.ToolTofu,
-				Environment: v1.DefaultEnvironment, EnvironmentConfigured: true, PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"},
+				Environment: v1.DefaultEnvironment, EnvironmentConfigured: true, PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"},
 			},
 		},
 		{
@@ -370,7 +370,7 @@ func TestResolve(t *testing.T) {
 			root: root, path: "stacks/prod/app", instance: "blue", stack: &v1.StackConfig{Workspace: "blue"},
 			want: Effective{
 				Key: "stacks/prod/app:blue", Path: "stacks/prod/app", Instance: "blue", Workspace: "blue", Tool: v1.ToolTofu,
-				Environment: "production", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"},
+				Environment: "production", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"},
 			},
 		},
 		{
@@ -378,7 +378,7 @@ func TestResolve(t *testing.T) {
 			root: root, path: "stacks/x", stack: &v1.StackConfig{Workspace: "default"},
 			want: Effective{
 				Key: "stacks/x", Path: "stacks/x", Tool: v1.ToolTofu, Environment: v1.DefaultEnvironment,
-				PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"},
+				PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"},
 			},
 		},
 		{
@@ -387,7 +387,7 @@ func TestResolve(t *testing.T) {
 			matched: []string{"workspaces/dev.tfvars.json", "workspaces/prod.tfvars.json"},
 			want: Effective{
 				Key: "infra/app:prod", Path: "infra/app", Instance: "prod", Workspace: "prod",
-				Tool: v1.ToolTofu, ToolVersion: "1.9.0", Environment: "prod-app", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputFull,
+				Tool: v1.ToolTofu, ToolVersion: "1.9.0", Environment: "prod-app", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold,
 				AllowedTeams:   []string{"prod-team"},
 				DependsOn:      []string{"infra/vpc:prod", "infra/dns"},
 				IgnoreInferred: []string{"infra/legacy", "infra/old"},
@@ -405,7 +405,7 @@ func TestResolve(t *testing.T) {
 			root: instancesRoot(), path: "infra/app", stack: instancesStack(), instance: "dev",
 			want: Effective{
 				Key: "infra/app:dev", Path: "infra/app", Instance: "dev", Workspace: "dev",
-				Tool: v1.ToolTofu, ToolVersion: "1.9.0", Environment: "infra-dev", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputSummary,
+				Tool: v1.ToolTofu, ToolVersion: "1.9.0", Environment: "infra-dev", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputSummary, OutputSensitive: v1.OutputsWithhold,
 				AllowedTeams:   []string{"stack-team"},
 				DependsOn:      []string{"infra/vpc:dev"},
 				IgnoreInferred: []string{"infra/legacy"},
@@ -423,7 +423,7 @@ func TestResolve(t *testing.T) {
 			root: instancesRoot(), path: "infra/app", stack: instancesStack(), instance: "canary",
 			want: Effective{
 				Key: "infra/app:canary", Path: "infra/app", Instance: "canary",
-				Tool: v1.ToolTofu, ToolVersion: "1.9.0", Environment: "canary", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputSummary,
+				Tool: v1.ToolTofu, ToolVersion: "1.9.0", Environment: "canary", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputSummary, OutputSensitive: v1.OutputsWithhold,
 				AllowedTeams:   []string{"stack-team"},
 				DependsOn:      []string{"infra/vpc:canary"},
 				IgnoreInferred: []string{"infra/legacy"},
@@ -441,7 +441,7 @@ func TestResolve(t *testing.T) {
 			root: root, path: "stacks/dev/app", instance: "eu-west-1",
 			want: Effective{
 				Key: "stacks/dev/app:eu-west-1", Path: "stacks/dev/app", Instance: "eu-west-1", Tool: v1.ToolTofu,
-				Environment: "eu-west-1", PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"},
+				Environment: "eu-west-1", PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"},
 			},
 		},
 		{
@@ -450,7 +450,7 @@ func TestResolve(t *testing.T) {
 			stack: &v1.StackConfig{Env: v1.EnvConfig{"X": {Modes: &v1.EnvModes{Plan: ptr("p"), Drift: ptr("d")}}}},
 			want: Effective{
 				Key: "stacks/dev/app", Path: "stacks/dev/app", Tool: v1.ToolTofu, Environment: v1.DefaultEnvironment,
-				PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"},
+				PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"},
 				Env: map[v1.RunMode]map[string]string{
 					v1.ModePlan: {"X": "p"}, v1.ModeApply: {}, v1.ModeDrift: {"X": "d"},
 				},
@@ -462,7 +462,7 @@ func TestResolve(t *testing.T) {
 			stack: &v1.StackConfig{Environment: "stack-env", Instances: v1.Instances{"blue": {Environment: "blue-env"}, "green": {}}},
 			want: Effective{
 				Key: "stacks/prod/app:blue", Path: "stacks/prod/app", Instance: "blue", Tool: v1.ToolTofu,
-				Environment: "blue-env", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"},
+				Environment: "blue-env", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"},
 			},
 		},
 		{
@@ -471,7 +471,7 @@ func TestResolve(t *testing.T) {
 			stack: &v1.StackConfig{Environment: "stack-env", Instances: v1.Instances{"blue": {Environment: "blue-env"}, "green": {}}},
 			want: Effective{
 				Key: "stacks/prod/app:green", Path: "stacks/prod/app", Instance: "green", Tool: v1.ToolTofu,
-				Environment: "stack-env", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"},
+				Environment: "stack-env", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"},
 			},
 		},
 		{
@@ -483,7 +483,7 @@ func TestResolve(t *testing.T) {
 			},
 			want: Effective{
 				Key: "stacks/prod/app:dev", Path: "stacks/prod/app", Instance: "dev", Tool: v1.ToolTofu,
-				Environment: "production", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"},
+				Environment: "production", EnvironmentConfigured: true, PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"},
 			},
 		},
 		{
@@ -492,7 +492,7 @@ func TestResolve(t *testing.T) {
 			stack: &v1.StackConfig{IgnoreInferred: []string{"infra/{{ .Instance }}"}, Instances: v1.Instances{"x": {IgnoreInferred: []string{"{{ .Key }}-old"}}}},
 			want: Effective{
 				Key: "stacks/dev/app:x", Path: "stacks/dev/app", Instance: "x", Tool: v1.ToolTofu, Environment: "x",
-				PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"}, IgnoreInferred: []string{"infra/x", "stacks/dev/app:x-old"},
+				PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"}, IgnoreInferred: []string{"infra/x", "stacks/dev/app:x-old"},
 			},
 		},
 		{
@@ -500,7 +500,7 @@ func TestResolve(t *testing.T) {
 			root: root, path: "stacks/dev/app", instance: "default",
 			want: Effective{
 				Key: "stacks/dev/app", Path: "stacks/dev/app", Tool: v1.ToolTofu, Environment: v1.DefaultEnvironment,
-				PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"},
+				PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"},
 			},
 		},
 		{
@@ -508,7 +508,7 @@ func TestResolve(t *testing.T) {
 			root: root, path: "stacks/dev/app", instance: "prod", matched: []string{"workspaces/prod.tfvars"},
 			want: Effective{
 				Key: "stacks/dev/app:prod", Path: "stacks/dev/app", Instance: "prod", Tool: v1.ToolTofu, Environment: "prod",
-				PlanOutput: v1.PlanOutputFull, AllowedTeams: []string{"platform-eng"},
+				PlanOutput: v1.PlanOutputFull, OutputSensitive: v1.OutputsWithhold, AllowedTeams: []string{"platform-eng"},
 			},
 		},
 	}
@@ -570,6 +570,22 @@ func TestResolveErrors(t *testing.T) {
 			want:     []string{"stacks/a/.stackorder.yaml: instances.prod.depends_on[0]:", "must be repository relative"},
 		},
 		{
+			name:     "rendered outputs.readers",
+			stack:    &v1.StackConfig{Instances: v1.Instances{"prod": {Outputs: &v1.OutputsConfig{Readers: []string{"stacks/b", "/{{ .Instance }}"}}}}},
+			instance: "prod",
+			want:     []string{`stacks/a/.stackorder.yaml: instances.prod.outputs.readers[1]: "/prod": stack key pattern must be repository relative`},
+		},
+		{
+			name:  "rendered outputs.readers spelled unlike a stack key",
+			stack: &v1.StackConfig{Outputs: &v1.OutputsConfig{Readers: []string{"{{ .Path }}/"}}},
+			want:  []string{`stacks/a/.stackorder.yaml: outputs.readers[0]: "stacks/a/": never matches a stack key; write "stacks/a"`},
+		},
+		{
+			name: "root outputs.readers template",
+			root: func(c *v1.RepoConfig) { c.Outputs = &v1.OutputsConfig{Readers: []string{"{{ .Nope }}"}} },
+			want: []string{"stackorder.yaml: outputs.readers[0]:", "Nope"},
+		},
+		{
 			name: "every error together",
 			root: func(c *v1.RepoConfig) { c.VarFiles = []string{"{{ .A }}"} },
 			stack: &v1.StackConfig{
@@ -590,6 +606,122 @@ func TestResolveErrors(t *testing.T) {
 			for _, want := range tt.want {
 				assert.ErrorContains(t, err, want)
 			}
+		})
+	}
+}
+
+func TestResolveOutputs(t *testing.T) {
+	everyStack := Default()
+	everyStack.Outputs = &v1.OutputsConfig{Readers: []string{"**"}}
+	shareAll := Default()
+	shareAll.Outputs = &v1.OutputsConfig{Readers: []string{"**"}, Sensitive: v1.OutputsShare}
+	tests := []struct {
+		name          string
+		root          *v1.RepoConfig
+		path          string
+		stack         *v1.StackConfig
+		instance      string
+		wantReaders   []string
+		wantSensitive v1.OutputsSensitive
+	}{
+		{name: "unset everywhere", root: Default(), path: "stacks/prod/vpc", wantSensitive: v1.OutputsWithhold},
+		{
+			name: "outputs without readers",
+			root: Default(), path: "stacks/prod/vpc", stack: &v1.StackConfig{Outputs: &v1.OutputsConfig{}},
+			wantSensitive: v1.OutputsWithhold,
+		},
+		{name: "the root grant applies to every stack", root: everyStack, path: "stacks/prod/vpc", wantReaders: []string{"**"}, wantSensitive: v1.OutputsWithhold},
+		{name: "the root grant applies to another stack", root: everyStack, path: "infra/dns", wantReaders: []string{"**"}, wantSensitive: v1.OutputsWithhold},
+		{
+			name: "the root grant applies to every instance",
+			root: everyStack, path: "stacks/prod/apps", stack: &v1.StackConfig{Instances: v1.Instances{"blue": {}}}, instance: "blue",
+			wantReaders: []string{"**"}, wantSensitive: v1.OutputsWithhold,
+		},
+		{
+			name: "a stack replaces the root",
+			root: everyStack, path: "stacks/prod/vpc",
+			stack:       &v1.StackConfig{Outputs: &v1.OutputsConfig{Readers: []string{"stacks/prod/eks", "acme/platform//clusters/**"}}},
+			wantReaders: []string{"stacks/prod/eks", "acme/platform//clusters/**"}, wantSensitive: v1.OutputsWithhold,
+		},
+		{
+			name: "a stack without readers keeps the root's",
+			root: everyStack, path: "stacks/prod/vpc", stack: &v1.StackConfig{Outputs: &v1.OutputsConfig{Sensitive: v1.OutputsShare}},
+			wantReaders: []string{"**"}, wantSensitive: v1.OutputsShare,
+		},
+		{
+			name: "an empty stack list withdraws the root grant",
+			root: everyStack, path: "stacks/prod/vpc", stack: &v1.StackConfig{Outputs: &v1.OutputsConfig{Readers: []string{}}},
+			wantReaders: []string{}, wantSensitive: v1.OutputsWithhold,
+		},
+		{
+			name: "an instance replaces the stack",
+			root: everyStack, path: "stacks/prod/apps", instance: "blue",
+			stack: &v1.StackConfig{
+				Outputs:   &v1.OutputsConfig{Readers: []string{"stacks/prod/*"}},
+				Instances: v1.Instances{"blue": {Outputs: &v1.OutputsConfig{Readers: []string{"stacks/prod/eks:blue"}}}},
+			},
+			wantReaders: []string{"stacks/prod/eks:blue"}, wantSensitive: v1.OutputsWithhold,
+		},
+		{
+			name: "an empty instance list withdraws the root grant",
+			root: everyStack, path: "stacks/prod/apps", instance: "blue",
+			stack:       &v1.StackConfig{Instances: v1.Instances{"blue": {Outputs: &v1.OutputsConfig{Readers: []string{}}}, "green": {}}},
+			wantReaders: []string{}, wantSensitive: v1.OutputsWithhold,
+		},
+		{
+			name: "another instance keeps the root grant",
+			root: everyStack, path: "stacks/prod/apps", instance: "green",
+			stack:       &v1.StackConfig{Instances: v1.Instances{"blue": {Outputs: &v1.OutputsConfig{Readers: []string{}}}, "green": {}}},
+			wantReaders: []string{"**"}, wantSensitive: v1.OutputsWithhold,
+		},
+		{
+			name: "templates render with the instance",
+			root: Default(), path: "stacks/prod/apps", instance: "blue",
+			stack: &v1.StackConfig{
+				Outputs:   &v1.OutputsConfig{Readers: []string{"stacks/prod/eks:{{ .Instance }}", "acme/platform//clusters/{{ .Instance }}/**"}},
+				Instances: v1.Instances{"blue": {}},
+			},
+			wantReaders: []string{"stacks/prod/eks:blue", "acme/platform//clusters/blue/**"}, wantSensitive: v1.OutputsWithhold,
+		},
+		{
+			name: "root templates render with the stack",
+			root: &v1.RepoConfig{Outputs: &v1.OutputsConfig{Readers: []string{"{{ dir .Path }}/**"}}}, path: "stacks/prod/vpc",
+			wantReaders: []string{"stacks/prod/**"}, wantSensitive: v1.OutputsWithhold,
+		},
+		{name: "the root shares sensitive outputs", root: shareAll, path: "stacks/prod/vpc", wantReaders: []string{"**"}, wantSensitive: v1.OutputsShare},
+		{
+			name: "a stack withholds what the root shares",
+			root: shareAll, path: "stacks/prod/vpc", stack: &v1.StackConfig{Outputs: &v1.OutputsConfig{Sensitive: v1.OutputsWithhold}},
+			wantReaders: []string{"**"}, wantSensitive: v1.OutputsWithhold,
+		},
+		{
+			name: "an instance shares what its stack withholds",
+			root: shareAll, path: "stacks/prod/apps", instance: "blue",
+			stack: &v1.StackConfig{
+				Outputs:   &v1.OutputsConfig{Sensitive: v1.OutputsWithhold},
+				Instances: v1.Instances{"blue": {Outputs: &v1.OutputsConfig{Sensitive: v1.OutputsShare}}},
+			},
+			wantReaders: []string{"**"}, wantSensitive: v1.OutputsShare,
+		},
+		{
+			name: "an unvalidated sensitive value withholds",
+			root: shareAll, path: "stacks/prod/vpc", stack: &v1.StackConfig{Outputs: &v1.OutputsConfig{Sensitive: "bogus"}},
+			wantReaders: []string{"**"}, wantSensitive: v1.OutputsWithhold,
+		},
+		{
+			name: "sensitive compares in its exact spelling",
+			root: Default(), path: "stacks/prod/vpc", stack: &v1.StackConfig{Outputs: &v1.OutputsConfig{Sensitive: "Share"}},
+			wantSensitive: v1.OutputsWithhold,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Resolve(tt.root, tt.path, tt.stack, tt.instance)
+			require.NoError(t, err)
+			if diff := cmp.Diff(tt.wantReaders, got.OutputReaders); diff != "" {
+				t.Errorf("OutputReaders mismatch (-want +got):\n%s", diff)
+			}
+			assert.Equal(t, tt.wantSensitive, got.OutputSensitive)
 		})
 	}
 }
