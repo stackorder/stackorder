@@ -1132,6 +1132,115 @@ func TestStacklessFirstContactBindsOnlyTheDispatchItsJobsCarry(t *testing.T) {
 		_, err = e.svc.GetRunForPrincipal(e.ctx, e.dispatchJob(dup, "production"), applyID)
 		require.ErrorIs(t, err, principal.ErrForbidden)
 	})
+
+	t.Run("a stack no dispatch carries", func(t *testing.T) {
+		e, applyID, _, p1 := setup(t)
+		e.undispatch(applyID, dns, 0)
+		job := e.dispatchJob(p1.RunID, "production")
+		_, err := e.svc.RecordResult(e.ctx, job, applyID, dns, applyResult(true))
+		require.NoError(t, err)
+		assert.Equal(t, []string{vpc}, boundTo(e, p1.RunID), "the jobs of the workflow run choose its dispatch, not the order of the chunks")
+		_, err = e.svc.RecordResult(e.ctx, job, applyID, vpc, applyResult(true))
+		require.NoError(t, err, "the job still reports the stack its dispatch carries")
+	})
+}
+
+func TestResultFromAnotherWaveIsRefused(t *testing.T) {
+	applying := func(t *testing.T, command string) (*env, string, ghfake.Dispatch) {
+		t.Helper()
+		e := newEnv(t, baseConfig())
+		e.planned(7, headSHA)
+		e.comment(7, applier, command)
+		apply := e.applyRun(7)
+		for _, d := range e.gh.Dispatches() {
+			if entries(t, d)[0].Environment == "production" {
+				return e, apply.ID, d
+			}
+		}
+		t.Fatal("wave 0 has no production dispatch")
+		return nil, "", ghfake.Dispatch{}
+	}
+
+	refused := []struct {
+		name    string
+		command string
+		key     string
+		bound   bool
+		status  v1.StackStatus
+	}{
+		{"a stack of wave 1 on the job's first contact", "stackorder apply", eks, false, v1.StackPlanned},
+		{"a stack of wave 1 once the job is bound", "stackorder apply", eks, true, v1.StackPlanned},
+		{"a stack of wave 2 once the job is bound", "stackorder apply", apps, true, v1.StackPlanned},
+		{"a stack a subset skips on the job's first contact", "stackorder apply " + vpc, eks, false, v1.StackSkipped},
+		{"a stack a subset skips once the job is bound", "stackorder apply " + vpc, apps, true, v1.StackSkipped},
+	}
+	for _, tt := range refused {
+		t.Run(tt.name, func(t *testing.T) {
+			e, applyID, prod := applying(t, tt.command)
+			require.Equal(t, tt.status, stackStatuses(e.run(applyID))[tt.key])
+			job := e.dispatchJob(prod.RunID, "production")
+			if tt.bound {
+				_, err := e.svc.GetRunForPrincipal(e.ctx, job, applyID)
+				require.NoError(t, err)
+			}
+			_, err := e.svc.RecordResult(e.ctx, job, applyID, tt.key, applyResult(true))
+			require.ErrorIs(t, err, principal.ErrForbidden, "a job of wave 0 cannot report %s", tt.key)
+			assert.Equal(t, tt.status, stackStatuses(e.run(applyID))[tt.key])
+			_, err = e.svc.RecordResult(e.ctx, job, applyID, vpc, applyResult(true))
+			require.NoError(t, err, "the job still reports the stack its dispatch carries")
+			assert.Equal(t, v1.StackApplied, stackStatuses(e.run(applyID))[vpc])
+		})
+	}
+
+	t.Run("a job of the stack's wave reports it", func(t *testing.T) {
+		e, applyID, _ := applying(t, "stackorder apply")
+		for _, d := range e.gh.Dispatches() {
+			e.reportAll(d, nil)
+		}
+		wave1 := e.dispatchesFrom(2)
+		require.Len(t, wave1, 1)
+		e.undispatch(applyID, eks, 1)
+		job := e.dispatchJob(wave1[0].RunID, "production")
+		_, err := e.svc.GetRunForPrincipal(e.ctx, job, applyID)
+		require.NoError(t, err)
+		_, err = e.svc.RecordResult(e.ctx, job, applyID, eks, applyResult(true))
+		require.NoError(t, err, "a stack no dispatch carries is reported by a job of its wave and environment")
+		assert.Equal(t, v1.StackApplied, stackStatuses(e.run(applyID))[eks])
+	})
+
+	unaffected := []struct {
+		name  string
+		start func(e *env)
+		res   v1.StackResult
+	}{
+		{"a plan dispatch", func(e *env) {
+			e.comment(7, applier, "stackorder plan "+vpc+" "+eks)
+		}, planResult(eks, headSHA, 1)},
+		{"a drift dispatch", func(e *env) {
+			st, err := e.st.GetStackByKey(e.ctx, repoID, eks)
+			require.NoError(e.t, err)
+			require.NoError(e.t, e.svc.RunDriftStack(e.ctx, repoID, st.ID.String()))
+		}, v1.StackResult{Mode: v1.ModeDrift, Status: v1.ResultSuccess, Summary: &v1.PlanSummary{}}},
+	}
+	for _, tt := range unaffected {
+		t.Run(tt.name+" reports a stack of any wave", func(t *testing.T) {
+			e := newEnv(t, baseConfig())
+			e.planned(7, headSHA)
+			tt.start(e)
+			ds := e.gh.Dispatches()
+			require.Len(t, ds, 1)
+			d := ds[0]
+			require.Equal(t, "0", d.Inputs["wave"])
+			runID := d.Inputs["run_id"]
+			e.undispatch(runID, eks, 1)
+			job := e.dispatchJob(d.RunID, v1.DefaultEnvironment)
+			_, err := e.svc.GetRunForPrincipal(e.ctx, job, runID)
+			require.NoError(t, err)
+			_, err = e.svc.RecordResult(e.ctx, job, runID, eks, tt.res)
+			require.NoError(t, err, "a run of one dispatch binds its job to every stack of the run")
+			assert.Equal(t, v1.StackPlanned, stackStatuses(e.run(runID))[eks])
+		})
+	}
 }
 
 func TestDeploymentProtectionRuleVetsOnlyTheStacksOfASubset(t *testing.T) {

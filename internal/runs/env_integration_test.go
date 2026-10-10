@@ -684,6 +684,15 @@ func (e *env) planRunIDs(runID string) map[string]int64 {
 	return out
 }
 
+func (e *env) undispatch(runID, key string, wave int) {
+	e.t.Helper()
+	st, err := e.st.GetStackByKey(e.ctx, repoID, key)
+	require.NoError(e.t, err)
+	tag, err := e.st.Pool().Exec(e.ctx, `UPDATE run_stacks SET dispatch_id = NULL, wave = $3 WHERE run_id = $1 AND stack_id = $2`, runID, st.ID, wave)
+	require.NoError(e.t, err)
+	require.EqualValues(e.t, 1, tag.RowsAffected())
+}
+
 func (e *env) via(runID string) map[string][]string {
 	e.t.Helper()
 	rows, err := e.st.GetRunStacks(e.ctx, uuid.MustParse(runID))
