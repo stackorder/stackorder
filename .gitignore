@@ -23,6 +23,7 @@
 **/.terraform/
 *.tfstate
 *.tfstate.*
+!/internal/stateread/testdata/*.tfstate
 *.tfplan
 crash.log
 override.tf
