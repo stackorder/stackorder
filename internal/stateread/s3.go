@@ -38,11 +38,12 @@ type Reader struct {
 }
 
 type options struct {
-	endpoint   string
-	region     string
-	roleARN    string
-	creds      aws.CredentialsProvider
-	httpClient *http.Client
+	s3Endpoint  string
+	stsEndpoint string
+	region      string
+	roleARN     string
+	creds       aws.CredentialsProvider
+	httpClient  *http.Client
 }
 
 // Option changes how New reaches S3.
@@ -53,7 +54,17 @@ type Option func(*options)
 // checksums only where S3 requires them. Without it the SDK's endpoint
 // resolution applies, AWS_ENDPOINT_URL_S3 included.
 func WithEndpoint(endpoint string) Option {
-	return func(o *options) { o.endpoint = strings.TrimRight(endpoint, "/") }
+	return func(o *options) {
+		o.s3Endpoint = strings.TrimRight(endpoint, "/")
+		o.stsEndpoint = o.s3Endpoint
+	}
+}
+
+// WithS3Endpoint is WithEndpoint for S3 requests only: STS requests keep
+// the SDK's endpoint resolution, AWS_ENDPOINT_URL_STS included, so an S3
+// endpoint override does not redirect the role assumption.
+func WithS3Endpoint(endpoint string) Option {
+	return func(o *options) { o.s3Endpoint = strings.TrimRight(endpoint, "/") }
 }
 
 // WithRegion sets the region used for a Location without one and for STS,
@@ -122,18 +133,18 @@ func New(ctx context.Context, grants []Grant, opts ...Option) (*Reader, error) {
 	}
 	if o.roleARN != "" {
 		client := sts.NewFromConfig(cfg, func(so *sts.Options) {
-			if o.endpoint != "" {
-				so.BaseEndpoint = aws.String(o.endpoint)
+			if o.stsEndpoint != "" {
+				so.BaseEndpoint = aws.String(o.stsEndpoint)
 			}
 		})
 		cfg.Credentials = aws.NewCredentialsCache(stscreds.NewAssumeRoleProvider(client, o.roleARN,
 			func(ao *stscreds.AssumeRoleOptions) { ao.RoleSessionName = roleSessionName }))
 	}
 	client := s3.NewFromConfig(cfg, func(so *s3.Options) {
-		if o.endpoint == "" {
+		if o.s3Endpoint == "" {
 			return
 		}
-		so.BaseEndpoint = aws.String(o.endpoint)
+		so.BaseEndpoint = aws.String(o.s3Endpoint)
 		so.UsePathStyle = true
 		so.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 		so.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired

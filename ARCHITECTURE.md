@@ -44,7 +44,7 @@ internal/api/              HTTP handlers, auth middleware, sessions and OAuth, A
 internal/ui/               embed.FS serving of the built UI with SPA fallback
 internal/server/           composition of all of the above into one http.Server; used by cmd and by tests
 internal/artifacts/        optional S3 store for full plan text (STACKORDER_ARTIFACT_BUCKET)
-internal/stateread/        reads only the root outputs of a state object in an allowed S3 bucket; stores and logs nothing
+internal/stateread/        reads only the root outputs of a state object in an allowed S3 bucket (STACKORDER_STATE_BUCKETS); stores and logs nothing
 internal/testutil/pgtest/  Postgres for tests: TEST_DATABASE_URL or testcontainers, one database per test
 internal/testutil/ghfake/  in-memory fake of the GitHub API with inspection and payload builders
 internal/testutil/oidcfake/ fake OIDC issuer and runner token endpoint
@@ -766,7 +766,8 @@ run and repository.
 root-module outputs of a stack as `v1.StackOutputs`, behind
 `GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs?run=&reader=`. It
 refuses everything with `outputs_disabled` (`principal.ErrNotFound`)
-unless the service has a `runs.StateReader` (`runs.WithStateReader`). In
+unless the service has a `runs.StateReader` (`runs.WithStateReader`),
+which the server passes only when `STACKORDER_STATE_BUCKETS` is set. In
 order:
 
 1. Binding. A runner token names its run and the reader, a stack of that
@@ -902,6 +903,8 @@ as `other`.
 | `STACKORDER_OIDC_AUDIENCE` | Default `STACKORDER_BASE_URL` |
 | `STACKORDER_REQUIRED_WORKFLOW_REF` | Optional glob pinning `job_workflow_ref`, validated at start-up |
 | `STACKORDER_ARTIFACT_BUCKET`, `STACKORDER_ARTIFACT_PREFIX` | Optional S3 bucket (and key prefix) for full plan text |
+| `STACKORDER_STATE_BUCKETS` | Comma-separated `bucket` or `bucket/prefix` entries whose state objects the server may read to serve stack outputs; unset turns shared outputs off |
+| `STACKORDER_STATE_ROLE_ARN` | Optional IAM role the server assumes to read those state objects; requires `STACKORDER_STATE_BUCKETS` |
 | `STACKORDER_SESSION_KEY` | 32 byte hex key for cookie signing; generated and logged as a warning when absent |
 | `STACKORDER_METRICS_TOKEN` | When set, `/metrics` requires this bearer token |
 | `STACKORDER_ALLOW_RESETUP` | `true` lets a server with App credentials create another App through `/setup?force=1`; default `false`, and then `/setup?force=1` and `/setup/callback` answer 404 outside setup mode |
@@ -922,9 +925,20 @@ generated token, or with a `<STACKORDER_SETUP_TOKEN>` placeholder when the
 operator passed the token. The default OIDC audience is the
 base URL with trailing slashes removed, and the `/setup` page tells operators
 to use that exact value as the Actions `server-url`. A generated session key
-is warned about, never logged. With a bucket, `AWS_ENDPOINT_URL_S3` switches
-the artifact store to path-style addressing (LocalStack); artifact URLs are
-`s3://bucket/key`. `stackorder-server healthcheck` GETs `/healthz` on the
+is warned about, never logged. With an artifact bucket or state buckets,
+`AWS_ENDPOINT_URL_S3` switches the artifact store and the state reader to
+path-style addressing at that endpoint (LocalStack); the state reader's STS
+requests for `STACKORDER_STATE_ROLE_ARN` keep the SDK's own endpoint
+resolution (`AWS_ENDPOINT_URL_STS`), so an S3 endpoint does not redirect the
+role assumption. Artifact URLs are `s3://bucket/key`. Each entry of
+`STACKORDER_STATE_BUCKETS` must be a valid S3 bucket name, optionally
+followed by `/` and a key prefix, `STACKORDER_STATE_ROLE_ARN` must be the
+ARN of one IAM role, and setting it without `STACKORDER_STATE_BUCKETS` is an
+error. With state buckets the server builds a `stateread.Reader` for the
+listed grants, assuming `STACKORDER_STATE_ROLE_ARN` when set, passes it to
+the run service and logs once at start-up, at info level, that shared
+outputs are on, with the number of grants, the entries and the role.
+`stackorder-server healthcheck` GETs `/healthz` on the
 listen port (an unspecified host maps to `127.0.0.1`) and exits 0 on 200,
 for container health checks in images without a shell; the Dockerfile
 declares it as `HEALTHCHECK`. At start-up, and daily at 04:00 UTC, the server

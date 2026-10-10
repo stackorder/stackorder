@@ -34,6 +34,7 @@ import (
 	"github.com/stackorder/stackorder/internal/oidc"
 	"github.com/stackorder/stackorder/internal/runs"
 	"github.com/stackorder/stackorder/internal/sched"
+	"github.com/stackorder/stackorder/internal/stateread"
 	"github.com/stackorder/stackorder/internal/store"
 	"github.com/stackorder/stackorder/internal/ui"
 	"github.com/stackorder/stackorder/internal/version"
@@ -248,6 +249,13 @@ func (s *Server) compose(ctx context.Context, deps *api.Deps) error {
 		runOpts = append(runOpts, runs.WithArtifactStore(a))
 		deps.Artifacts = a
 	}
+	if len(cfg.StateGrants) > 0 {
+		reader, err := s.stateReader(ctx)
+		if err != nil {
+			return err
+		}
+		runOpts = append(runOpts, runs.WithStateReader(reader))
+	}
 	s.runs = runs.New(s.st, app, runs.Config{BaseURL: cfg.BaseURL, Clock: s.now}, s.log.With("component", "runs"), s.metrics, runOpts...)
 	s.register(s.runs)
 	s.sched = sched.New(s.st, s.pool, sched.Options{
@@ -263,6 +271,31 @@ func (s *Server) compose(ctx context.Context, deps *api.Deps) error {
 	deps.Metrics = s.metrics.Handler()
 	deps.Webhook = webhook.New(cfg.WebhookSecret, s.st, s.pool.Notify, s.metrics, s.log.With("component", "webhook"))
 	return nil
+}
+
+func (s *Server) stateReader(ctx context.Context) (*stateread.Reader, error) {
+	cfg := s.cfg
+	var opts []stateread.Option
+	if cfg.ArtifactEndpoint != "" {
+		opts = append(opts, stateread.WithS3Endpoint(cfg.ArtifactEndpoint))
+	}
+	if cfg.StateRoleARN != "" {
+		opts = append(opts, stateread.WithRoleARN(cfg.StateRoleARN))
+	}
+	reader, err := stateread.New(ctx, cfg.StateGrants, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("server: state reader: %w", err)
+	}
+	buckets := make([]string, len(cfg.StateGrants))
+	for i, g := range cfg.StateGrants {
+		buckets[i] = g.Bucket
+		if g.Prefix != "" {
+			buckets[i] += "/" + g.Prefix
+		}
+	}
+	s.log.InfoContext(ctx, "shared outputs are on: the server reads the outputs of state objects in the listed buckets",
+		"grants", len(cfg.StateGrants), "state_buckets", buckets, "role_arn", cfg.StateRoleARN)
+	return reader, nil
 }
 
 func (s *Server) apiConfig() api.Config {

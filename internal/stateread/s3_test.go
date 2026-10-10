@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"regexp"
 	"sync"
 	"sync/atomic"
@@ -356,4 +357,59 @@ func TestReadWaitsForASlotWithinTheContext(t *testing.T) {
 		<-done
 	}
 	assert.False(t, errors.Is(err, stateread.ErrUnreadable))
+}
+
+const assumeRoleResponse = `<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><AssumeRoleResult>` +
+	`<Credentials><AccessKeyId>ASIAEXAMPLE</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>token</SessionToken><Expiration>2099-01-01T00:00:00Z</Expiration></Credentials>` +
+	`<AssumedRoleUser><Arn>arn:aws:sts::123456789012:assumed-role/acme-state-reader/stackorder-stateread</Arn><AssumedRoleId>AROAEXAMPLE:stackorder-stateread</AssumedRoleId></AssumedRoleUser>` +
+	`</AssumeRoleResult><ResponseMetadata><RequestId>r</RequestId></ResponseMetadata></AssumeRoleResponse>`
+
+func serveRoleAndState(state []byte) func(http.ResponseWriter, *http.Request, string) {
+	return func(w http.ResponseWriter, r *http.Request, region string) {
+		if r.Method == http.MethodPost {
+			w.Header().Set("Content-Type", "text/xml")
+			_, _ = fmt.Fprint(w, assumeRoleResponse)
+			return
+		}
+		serveState(state)(w, r, region)
+	}
+}
+
+func TestEndpointOptionsRouteTheRoleAssumption(t *testing.T) {
+	const object = "/acme-state/stacks/prod/vpc/terraform.tfstate"
+	tests := []struct {
+		name     string
+		endpoint func(string) stateread.Option
+		s3       []string
+		sts      []string
+	}{
+		{"WithEndpoint sends STS to the endpoint", stateread.WithEndpoint, []string{"/", object}, nil},
+		{"WithS3Endpoint leaves STS to the SDK", stateread.WithS3Endpoint, []string{object}, []string{"/"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := fixture(t, "terraform.tfstate")
+			s3 := newFakeS3(t, serveRoleAndState(state))
+			sts := newFakeS3(t, serveRoleAndState(state))
+			missing := filepath.Join(t.TempDir(), "missing")
+			t.Setenv("AWS_CONFIG_FILE", missing)
+			t.Setenv("AWS_SHARED_CREDENTIALS_FILE", missing)
+			t.Setenv("AWS_PROFILE", "")
+			t.Setenv("AWS_IGNORE_CONFIGURED_ENDPOINT_URLS", "")
+			t.Setenv("AWS_ENDPOINT_URL", "")
+			t.Setenv("AWS_ENDPOINT_URL_STS", sts.URL)
+			r, err := stateread.New(t.Context(), []stateread.Grant{{Bucket: "acme-state"}},
+				tt.endpoint(s3.URL+"/"), stateread.WithRegion("us-east-1"),
+				stateread.WithStaticCredentials("AKIDEXAMPLE", "secret"),
+				stateread.WithRoleARN("arn:aws:iam::123456789012:role/acme-state-reader"))
+			require.NoError(t, err)
+
+			_, err = r.Read(t.Context(), acme)
+			require.NoError(t, err)
+			_, s3Paths := s3.requests()
+			_, stsPaths := sts.requests()
+			assert.Equal(t, tt.s3, s3Paths)
+			assert.Equal(t, tt.sts, stsPaths)
+		})
+	}
 }
