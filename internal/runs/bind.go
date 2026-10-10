@@ -59,6 +59,39 @@ func jobEnvironment(run store.Run, row *store.RunStack) string {
 	return v1.DefaultEnvironment
 }
 
+// authorizeJob binds the runner job that holds the OIDC claims c to row, a
+// stack of run, and returns the workflow run id the token names. row must not
+// be nil: with a nil row an apply job's environment claim goes unchecked. It
+// does not look at the run's status, so callers refuse a superseded run, and
+// a finished plan run for a pull_request token, themselves.
+//
+// A pull_request token must carry the repository and repository_id of the
+// run's repository and the ref of its pull request, and run must be the plan
+// run of that pull request. A workflow_dispatch token must carry the
+// repository and repository_id of the run's repository, the ref of its
+// default branch and the environment the stack is dispatched in, and name a
+// workflow run that has not completed. Once a dispatch carries row, that
+// workflow run must be, or on first use becomes, the workflow run of that
+// dispatch. Before then the binding is looser: a workflow run already bound
+// to any dispatch of the run's mode in that environment is accepted, whatever
+// its wave. A token of any other event is refused.
+func (s *Service) authorizeJob(ctx context.Context, c *oidc.Claims, run store.Run, repo store.Repo, row *store.RunStack) (int64, error) {
+	wr, _ := c.RunIDInt()
+	switch c.EventName {
+	case eventPullRequest:
+		if err := checkRepoClaims(c, repo); err != nil {
+			return 0, err
+		}
+		if run.Mode != v1.ModePlan {
+			return 0, principal.Wrap(principal.ErrForbidden, "a pull_request job may only act in a plan run")
+		}
+		return wr, checkPullClaims(c, run)
+	case eventWorkflowDispatch:
+		return wr, s.bindJob(ctx, run, repo, c, row)
+	}
+	return 0, principal.Wrap(principal.ErrForbidden, "claim event_name is %q, want %q or %q", c.EventName, eventPullRequest, eventWorkflowDispatch)
+}
+
 func (s *Service) bindJob(ctx context.Context, run store.Run, repo store.Repo, c *oidc.Claims, row *store.RunStack) error {
 	if err := checkRepoClaims(c, repo); err != nil {
 		return err
