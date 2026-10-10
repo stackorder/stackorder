@@ -96,6 +96,12 @@ type RunService interface {
 	// CanActOnRepo reports whether a GitHub user has push permission on a
 	// repository.
 	CanActOnRepo(ctx context.Context, login string, repoID int64) (bool, error)
+	// StackOutputs returns the root-module outputs of stack key of repo
+	// ("owner/repo") to reader, a stack of run runID, when the producer's
+	// default-branch configuration lists it; an API key may leave run and
+	// reader empty. Refusals are *principal.CodedError values or wrap the
+	// principal sentinels.
+	StackOutputs(ctx context.Context, p principal.Principal, repo, key, runID, reader string) (*v1.StackOutputs, error)
 }
 
 // ArtifactReader reads what the run service keeps in the optional

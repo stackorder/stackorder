@@ -30,11 +30,12 @@
 //     account is one of those organisations or their own login; any other
 //     repository, and everything in it, answers 404 as if it did not exist.
 //
-// The runner endpoints POST /v1/runs, POST /v1/runs/{id}/graph and the
-// result and check uploads accept OIDC tokens and API keys. GET
-// /v1/runs/{id} accepts all three credentials, and POST /v1/unlock accepts
-// API keys and sessions. Every other /v1 endpoint accepts API keys and
-// sessions.
+// The runner endpoints POST /v1/runs, POST /v1/runs/{id}/graph, the
+// result and check uploads and GET
+// /v1/repos/{owner}/{repo}/stacks/{key}/outputs accept OIDC tokens and API
+// keys. GET /v1/runs/{id} accepts all three credentials, and POST
+// /v1/unlock accepts API keys and sessions. Every other /v1 endpoint
+// accepts API keys and sessions.
 //
 // State-changing requests made with a session cookie (unlock, re-run and
 // sign-out) must also come from the server's own origin: the Origin header
