@@ -863,7 +863,14 @@ recording the same new repository do not race the unique index.
 `store.SetDefaultGraph` records `repos.default_graph_id` (the runs service
 calls it when a PR merges) and `store.GetDefaultGraph` reads it back;
 `ModuleConsumers` and `StackModules` read each repository's default-branch
-graph, falling back to its latest graph.
+graph, falling back to its latest graph. `store.DefaultGraphHasStack` reports
+whether a repository has a default-branch graph and whether it holds a local
+stack key. `stacks.state_object` (`v1.StateObject` as jsonb, with
+`state_object_run_id` and `state_object_at`) is where an apply or drift job of
+the newest run that reported one found the stack's state; only
+`store.SetStackStateObject` writes it, for apply and drift runs of the stack's
+repository, ignoring a late report from an older run. Saving a graph, which
+rewrites the PR-writable `stacks.backend` and `stacks.config`, leaves it alone.
 
 ## CLI environment
 
