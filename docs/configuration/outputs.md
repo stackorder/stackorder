@@ -105,7 +105,8 @@ The server reads `outputs` from the producer's default branch only: the root lev
 
 - The server reads `stackorder.yaml` again on every push to the default branch. An invalid file keeps the previous configuration, and the stack files are then still read at that configuration's commit, so an invalid push changes no grant.
 - A stack's `.stackorder.yaml` that does not parse or render shares nothing.
-- Once the repository has a default-branch graph, the producer must be a stack of it: a stack that only an open pull request adds cannot be read.
+- The producer must be a stack the default branch still has at that same commit: `stackorder.yaml` still discovers its directory, the directory exists, and the key names one of the stack's instances, or none for a stack without instances. A stack that only an open pull request adds cannot be read, and neither can one whose directory the default branch has deleted, even while its last state object is still in the bucket.
+- The instances are those the stack's `.stackorder.yaml` declares at that commit, else those `stacks.instances.from_var_files` derives from the var files there, which the server lists through the Contents API. An instance whose var file the default branch has deleted cannot be read.
 - The directory and the instance come from the producer's key, and the levels merge as for any [instance](./instances#merge).
 
 ## Who may read {#who-may-read}
@@ -120,7 +121,7 @@ A consumer's job proves who it is with its GitHub Actions OIDC token, which the 
 | An API key | Nothing about a stack: API keys are administrators | Which stack, if any, the caller acts for; the key reads the outputs of any stack, whatever its `readers` |
 
 - Between repositories, `readers` is a hard boundary: the token's signed `repository` and `repository_id` claims name the reader's repository.
-- Within one repository, at pull request plan time, the boundary is the repository. A pull request chooses the stacks of its plan run: it can change any stack's directory or add a stack under any key, and a reader only has to be a stack of the run, not of the default-branch graph as a producer must. So any pull request whose jobs get an OIDC token, which a fork's do not, can read whatever is shared with any stack key of its repository, including a key it only adds in that pull request. That matches per-stack AWS roles, where any job of a pull request can assume any role whose trust policy admits `pull_request`.
+- Within one repository, at pull request plan time, the boundary is the repository. A pull request chooses the stacks of its plan run: it can change any stack's directory or add a stack under any key, and a reader only has to be a stack of the run, not of the default branch as a producer must. So any pull request whose jobs get an OIDC token, which a fork's do not, can read whatever is shared with any stack key of its repository, including a key it only adds in that pull request. That matches per-stack AWS roles, where any job of a pull request can assume any role whose trust policy admits `pull_request`.
 - Only for a dispatched job does the boundary narrow, to the stacks of its dispatch or, in an apply, of its chunk.
 - A dispatched job reads only as a stack of the dispatch that carries it, of its own wave and environment; a stack an apply skips has none. A read binds a workflow run to a dispatch on first contact only when the workflow run's jobs name a stack of that dispatch.
 - A superseded run answers `409 superseded`, and a finished run, or a pull request's plan run once it is `planned`, `409 conflict`.

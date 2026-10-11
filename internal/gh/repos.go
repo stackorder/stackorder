@@ -58,6 +58,70 @@ type Codeowners struct {
 // GetContents returns the content of a file at ref, the default branch
 // when ref is empty. A missing file is ErrNotFound; a directory is an error.
 func (c *Client) GetContents(ctx context.Context, repo, path, ref string) ([]byte, error) {
+	body, err := c.contents(ctx, repo, path, ref)
+	if err != nil {
+		return nil, err
+	}
+	if isListing(body) {
+		return nil, fmt.Errorf("gh: contents %s: is a directory", path)
+	}
+	var file struct {
+		Type     string `json:"type"`
+		Encoding string `json:"encoding"`
+		Content  string `json:"content"`
+	}
+	if err := json.Unmarshal(body, &file); err != nil {
+		return nil, fmt.Errorf("gh: contents %s: decode response: %w", path, err)
+	}
+	if file.Type != "" && file.Type != "file" {
+		return nil, fmt.Errorf("gh: contents %s: is a %s, not a file", path, file.Type)
+	}
+	if file.Encoding != "base64" {
+		return nil, fmt.Errorf("gh: contents %s: unsupported encoding %q", path, file.Encoding)
+	}
+	data, err := base64.StdEncoding.DecodeString(strings.NewReplacer("\n", "", "\r", "").Replace(file.Content))
+	if err != nil {
+		return nil, fmt.Errorf("gh: contents %s: %w", path, err)
+	}
+	return data, nil
+}
+
+// PathExists reports whether a file or directory exists at path on ref.
+func (c *Client) PathExists(ctx context.Context, repo, path, ref string) (bool, error) {
+	_, err := c.contents(ctx, repo, path, ref)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// DirEntry is an entry of a directory listing.
+type DirEntry struct {
+	// Name is the entry's base name.
+	Name string `json:"name"`
+	// Type is "file", "dir", "symlink" or "submodule".
+	Type string `json:"type"`
+}
+
+// ListDir returns the entries of the directory at path on ref, the default
+// branch when ref is empty, as the Contents API lists them: at most 1,000.
+// A path that is missing or is not a directory is ErrNotFound.
+func (c *Client) ListDir(ctx context.Context, repo, path, ref string) ([]DirEntry, error) {
+	body, err := c.contents(ctx, repo, path, ref)
+	if err != nil {
+		return nil, err
+	}
+	if !isListing(body) {
+		return nil, fmt.Errorf("gh: contents %s: not a directory: %w", path, ErrNotFound)
+	}
+	var entries []DirEntry
+	if err := json.Unmarshal(body, &entries); err != nil {
+		return nil, fmt.Errorf("gh: contents %s: decode response: %w", path, err)
+	}
+	return entries, nil
+}
+
+func (c *Client) contents(ctx context.Context, repo, path, ref string) ([]byte, error) {
 	rp, err := repoPath(repo)
 	if err != nil {
 		return nil, err
@@ -80,55 +144,12 @@ func (c *Client) GetContents(ctx context.Context, repo, path, ref string) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	if b := bytes.TrimSpace(resp.body); len(b) > 0 && b[0] == '[' {
-		return nil, fmt.Errorf("gh: contents %s: is a directory", path)
-	}
-	var file struct {
-		Type     string `json:"type"`
-		Encoding string `json:"encoding"`
-		Content  string `json:"content"`
-	}
-	if err := json.Unmarshal(resp.body, &file); err != nil {
-		return nil, fmt.Errorf("gh: contents %s: decode response: %w", path, err)
-	}
-	if file.Type != "" && file.Type != "file" {
-		return nil, fmt.Errorf("gh: contents %s: is a %s, not a file", path, file.Type)
-	}
-	if file.Encoding != "base64" {
-		return nil, fmt.Errorf("gh: contents %s: unsupported encoding %q", path, file.Encoding)
-	}
-	data, err := base64.StdEncoding.DecodeString(strings.NewReplacer("\n", "", "\r", "").Replace(file.Content))
-	if err != nil {
-		return nil, fmt.Errorf("gh: contents %s: %w", path, err)
-	}
-	return data, nil
+	return resp.body, nil
 }
 
-// PathExists reports whether a file or directory exists at path on ref.
-func (c *Client) PathExists(ctx context.Context, repo, path, ref string) (bool, error) {
-	rp, err := repoPath(repo)
-	if err != nil {
-		return false, err
-	}
-	ep, err := escapePath("path", path)
-	if err != nil {
-		return false, err
-	}
-	q := url.Values{}
-	if ref != "" {
-		q.Set("ref", ref)
-	}
-	_, err = c.t.do(ctx, request{
-		method: http.MethodGet,
-		route:  "/repos/{owner}/{repo}/contents/{path}",
-		path:   rp + "/contents/" + ep,
-		query:  q,
-		auth:   c.auth,
-	})
-	if errors.Is(err, ErrNotFound) {
-		return false, nil
-	}
-	return err == nil, err
+func isListing(body []byte) bool {
+	b := bytes.TrimSpace(body)
+	return len(b) > 0 && b[0] == '['
 }
 
 // ListTags returns the repository's tags with the commits they point at.

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path"
@@ -113,11 +114,18 @@ func VarFileInstance(file string) string {
 // stack directory dir, a path on disk, and returns the matching files
 // relative to dir, slash separated and sorted; nil when the glob is unset.
 func MatchVarFiles(root *v1.RepoConfig, dir string) ([]string, error) {
+	return MatchVarFilesFS(root, os.DirFS(dir))
+}
+
+// MatchVarFilesFS is MatchVarFiles over fsys, a stack directory: the
+// server globs a commit's tree with it. Directories fsys cannot read are
+// skipped, as on disk.
+func MatchVarFilesFS(root *v1.RepoConfig, fsys fs.FS) ([]string, error) {
 	if root == nil || root.Stacks.Instances.FromVarFiles == "" {
 		return nil, nil
 	}
 	pattern := strings.TrimPrefix(root.Stacks.Instances.FromVarFiles, "./")
-	matches, err := doublestar.Glob(os.DirFS(dir), pattern, doublestar.WithFilesOnly())
+	matches, err := doublestar.Glob(fsys, pattern, doublestar.WithFilesOnly())
 	if err != nil {
 		return nil, fmt.Errorf("%s: stacks.instances.from_var_files: %w", RootFile, err)
 	}

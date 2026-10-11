@@ -479,15 +479,19 @@ func TestContentsDirectoryAndRefs(t *testing.T) {
 	fake := ghfake.New(t)
 	fake.AddInstallation(1, "acme", repo)
 	fake.SetContents(repo, "", "stacks/a/main.tf", []byte("a"))
+	fake.SetContents(repo, "", "stacks/a/vars/blue.tfvars", []byte("a"))
 	fake.SetContents(repo, "", "stacks/b/main.tf", []byte("b"))
+	fake.SetContents(repo, "", "stacks/README.md", []byte("r"))
 	tok := "Bearer " + fake.InstallationToken(1)
 	r := call(t, fake, "GET", "/repos/acme/infra/contents/stacks", tok, "")
 	require.Equal(t, 200, r.status)
 	var entries []map[string]any
 	require.NoError(t, json.Unmarshal(r.body, &entries))
-	require.Len(t, entries, 2)
-	assert.Equal(t, "stacks/a/main.tf", entries[0]["path"])
-	assert.Equal(t, "stacks/b/main.tf", entries[1]["path"])
+	assert.Equal(t, []map[string]any{
+		{"type": "file", "name": "README.md", "path": "stacks/README.md"},
+		{"type": "dir", "name": "a", "path": "stacks/a"},
+		{"type": "dir", "name": "b", "path": "stacks/b"},
+	}, entries, "a listing holds the directory's own entries, as GitHub's does")
 	assert.Equal(t, 404, call(t, fake, "GET", "/repos/acme/infra/contents/", tok, "").status)
 	assert.Equal(t, 404, call(t, fake, "GET", "/repos/acme/infra/contents/stacks/a/main.tf?ref=unknown", tok, "").status)
 

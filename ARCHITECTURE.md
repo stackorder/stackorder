@@ -245,7 +245,8 @@ JSON always uses the map form (`v1.StackConfig.Instances`, custom
 
 - The instance set of a directory (`config.InstanceNames(root, path,
   stack, matchedVarFiles) ([]string, error)`, with `matchedVarFiles` from
-  `config.MatchVarFiles(root, dir)`) is, in order of precedence: the names
+  `config.MatchVarFiles(root, dir)` on disk, or `config.MatchVarFilesFS(root,
+  fsys)` over any `fs.FS`) is, in order of precedence: the names
   in `instances`; else one per file matched by `from_var_files`, named by
   the file's base name up to its first `.`, sorted; else `[workspace]` when
   the stack's rendered `workspace` is neither empty nor `default` (the
@@ -814,18 +815,30 @@ order:
    Other principals are refused.
 2. Producer. The repository, matched without case, exists, is not
    suspended and, for a runner token, belongs to the reader's
-   installation; the key is local, a stack of the default-branch graph
-   when one is known, and has a stack row.
-3. Policy. `outputs.readers` and `outputs.sensitive` resolve through
-   `config.Resolve` from `repos.config` and the `.stackorder.yaml` of the
-   key's directory, read through the Contents API with the producer's
-   installation at `repos.config_sha` (cached 24 h per repository, commit
-   and directory), or at the default branch, cached 60 s, when no commit is
-   recorded. Directory and instance come from the key, never from
-   `stacks.path`, `stacks.config`, a graph or `GraphUploadRequest.config`,
-   which pull requests write. A configuration that does not parse or render
-   shares nothing. `config.ReaderAllowed` must accept the reader; API keys
-   skip it.
+   installation; the key is local and has a stack row.
+3. Default branch and policy. Everything here is read through the
+   Contents API with the producer's installation at `repos.config_sha`
+   (cached 24 h per repository, commit and directory), or at the default
+   branch, cached 60 s, when no commit is recorded. The producer must be a
+   stack the default branch still has at that commit: `repos.config`
+   discovers the key's directory (`stacks.discover`, `include`, `exclude`
+   and `modules.paths`, as the scanner applies them), the directory
+   exists (its `.stackorder.yaml` shows it, else a listing of the
+   directory itself, `gh.Client.ListDir`), and the key's instance is one
+   `config.InstanceNames` gives for that `.stackorder.yaml` and, when the
+   stack declares no instances, for the `stacks.instances.from_var_files`
+   matches `config.MatchVarFilesFS` finds in the directory's listings at
+   that commit, each listing cached like the stack file. A merged pull
+   request's graph (`repos.default_graph_id`), which lags the default
+   branch and which pull requests upload, plays no part. A listing GitHub
+   fails is an error, never a refusal.
+   `outputs.readers` and `outputs.sensitive` then resolve through
+   `config.Resolve` from `repos.config` and that `.stackorder.yaml`.
+   Directory and instance come from the key, never from `stacks.path`,
+   `stacks.config`, a graph or `GraphUploadRequest.config`, which pull
+   requests write. A configuration that does not parse or render shares
+   nothing. `config.ReaderAllowed` must accept the reader; API keys skip
+   it.
 4. Location. The stack's `stacks.state_object`, else
    `state_location_unknown` (`principal.ErrConflict`), whose message says
    whether no job reported an object or the last report was cleared as not
@@ -847,16 +860,17 @@ Refusals carry their code in a `principal.CodedError`, whose `Kind` is the
 sentinel the API maps to a status. A reader of the producer's repository that
 the policy does not list gets `outputs_not_shared` (`principal.ErrForbidden`),
 naming the files to edit, as does any reader of that repository when the
-policy does not resolve; across repositories every refusal of steps 2 and 3
-is `not_found` with one message for every cause. Reads are audited as
-`outputs_read` with the number of outputs served, sensitive outputs served
-and outputs withheld, and refusals of steps 1 to 4, and of step 5 for a
-location no grant covers, as `outputs_refused` with the code as `reason`;
-`details.repo` is the producer when the caller may see it, else the
-caller's repository, so the producer's organisation sees reads of its
-stacks. Names the caller sent (repository, stack, reader,
-run id) are cut to 256 bytes in the audit row and its target. Nothing read
-from a state object is stored, cached or logged.
+policy does not resolve; a producer the default branch no longer has is
+`not_found` for every caller, inside the repository too, and across
+repositories every refusal of steps 2 and 3 is `not_found` with one message
+for every cause. Reads are audited as `outputs_read` with the number of
+outputs served, sensitive outputs served and outputs withheld, and refusals
+of steps 1 to 4, and of step 5 for a location no grant covers, as
+`outputs_refused` with the code as `reason`; `details.repo` is the producer
+when the caller may see it, else the caller's repository, so the producer's
+organisation sees reads of its stacks. Names the caller sent (repository,
+stack, reader, run id) are cut to 256 bytes in the audit row and its target.
+Nothing read from a state object is stored, cached or logged.
 
 ## OIDC binding
 
@@ -1028,16 +1042,14 @@ recording the same new repository do not race the unique index.
 `store.SetDefaultGraph` records `repos.default_graph_id` (the runs service
 calls it when a PR merges) and `store.GetDefaultGraph` reads it back;
 `ModuleConsumers` and `StackModules` read each repository's default-branch
-graph, falling back to its latest graph. `store.DefaultGraphHasStack` reports
-whether a repository has a default-branch graph and whether it holds a local
-stack key. `stacks.state_object` (`v1.StateObject` as jsonb, with
-`state_object_run_id` and `state_object_at`) is where an apply or drift job of
-the newest run that reported one found the stack's state; only
-`store.SetStackStateObject` writes it, and `store.ClearStackStateObject`
-clears it for a report the run service may not record, both for apply and
-drift runs of the stack's repository, ignoring a late report from an older
-run. Saving a graph, which rewrites the PR-writable `stacks.backend` and
-`stacks.config`, leaves it alone.
+graph, falling back to its latest graph. `stacks.state_object`
+(`v1.StateObject` as jsonb, with `state_object_run_id` and `state_object_at`)
+is where an apply or drift job of the newest run that reported one found the
+stack's state; only `store.SetStackStateObject` writes it, and
+`store.ClearStackStateObject` clears it for a report the run service may not
+record, both for apply and drift runs of the stack's repository, ignoring a
+late report from an older run. Saving a graph, which rewrites the PR-writable
+`stacks.backend` and `stacks.config`, leaves it alone.
 
 ## CLI environment
 

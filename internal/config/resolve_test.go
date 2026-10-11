@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
@@ -252,6 +253,39 @@ func TestMatchVarFiles(t *testing.T) {
 	got, err = MatchVarFiles(root, dir)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"workspaces/dev.tfvars.json", "workspaces/prod.tfvars.json"}, got)
+}
+
+func TestMatchVarFilesFS(t *testing.T) {
+	stack := fstest.MapFS{
+		"main.tf":                    {},
+		"terraform.tfvars":           {},
+		"vars/blue.tfvars":           {},
+		"vars/green.tfvars":          {},
+		"vars/notes.md":              {},
+		"vars/dir.tfvars/x":          {},
+		"envs/prod/eu/red.tfvars":    {},
+		"envs/staging/yellow.tfvars": {},
+	}
+	tests := []struct {
+		name, glob string
+		want       []string
+	}{
+		{name: "unset"},
+		{name: "files of a subdirectory", glob: "vars/*.tfvars", want: []string{"vars/blue.tfvars", "vars/green.tfvars"}},
+		{name: "a leading ./", glob: "./vars/*.tfvars", want: []string{"vars/blue.tfvars", "vars/green.tfvars"}},
+		{name: "files of the stack directory", glob: "*.tfvars", want: []string{"terraform.tfvars"}},
+		{name: "a recursive glob", glob: "envs/**/*.tfvars", want: []string{"envs/prod/eu/red.tfvars", "envs/staging/yellow.tfvars"}},
+		{name: "a missing directory", glob: "missing/*.tfvars"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := Default()
+			root.Stacks.Instances.FromVarFiles = tt.glob
+			got, err := MatchVarFilesFS(root, stack)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestInstanceOf(t *testing.T) {
