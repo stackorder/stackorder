@@ -118,10 +118,10 @@ func backendConfig(root string, configured []string) []string {
 	return out
 }
 
-func readBackend(dataDir string) *v1.Backend {
+func readBackend(dataDir string) (*v1.Backend, string) {
 	data, err := os.ReadFile(filepath.Join(dataDir, "terraform.tfstate")) //nolint:gosec
 	if err != nil {
-		return nil
+		return nil, ""
 	}
 	var state struct {
 		Backend *struct {
@@ -130,13 +130,17 @@ func readBackend(dataDir string) *v1.Backend {
 		} `json:"backend"`
 	}
 	if err := json.Unmarshal(data, &state); err != nil || state.Backend == nil || state.Backend.Type == "" {
-		return nil
+		return nil, ""
 	}
 	str := func(k string) string {
 		s, _ := state.Backend.Config[k].(string)
 		return s
 	}
 	lockfile, _ := state.Backend.Config["use_lockfile"].(bool)
+	prefix, set := state.Backend.Config["workspace_key_prefix"].(string)
+	if !set {
+		prefix = config.DefaultWorkspaceKeyPrefix
+	}
 	return &v1.Backend{
 		Type:               state.Backend.Type,
 		Bucket:             str("bucket"),
@@ -145,16 +149,16 @@ func readBackend(dataDir string) *v1.Backend {
 		DynamoDBTable:      str("dynamodb_table"),
 		UseLockfile:        lockfile,
 		WorkspaceKeyPrefix: str("workspace_key_prefix"),
-	}
+	}, prefix
 }
 
-func stateObject(be *v1.Backend, workspace string) *v1.StateObject {
+func stateObject(be *v1.Backend, prefix, workspace string) *v1.StateObject {
 	if be == nil || be.Type != "s3" || be.Bucket == "" || be.Key == "" {
 		return nil
 	}
 	return &v1.StateObject{
 		Bucket: be.Bucket,
-		Key:    config.StateObjectKey(be.WorkspaceKeyPrefix, workspace, be.Key),
+		Key:    config.ResolvedStateObjectKey(prefix, workspace, be.Key),
 		Region: be.Region,
 	}
 }
@@ -385,13 +389,14 @@ func (s *session) init(ctx context.Context, r *tf.Runner) error {
 	if err := r.Init(ctx, backendConfig(s.root, s.st.eff.BackendConfig), opts); err != nil {
 		return err
 	}
-	s.backend = readBackend(dataDir)
+	var prefix string
+	s.backend, prefix = readBackend(dataDir)
 	if s.st.workspace != "" {
 		if err := r.SelectWorkspace(ctx); err != nil {
 			return err
 		}
 	}
-	s.state = stateObject(s.backend, s.toolWorkspace(dataDir))
+	s.state = stateObject(s.backend, prefix, s.toolWorkspace(dataDir))
 	return nil
 }
 

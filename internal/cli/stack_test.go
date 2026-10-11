@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -242,6 +243,7 @@ func TestResultsReportTheStateObject(t *testing.T) {
 		key           string
 		backend       string
 		block         []string
+		tfstate       string
 		rootConfig    string
 		stackConfig   string
 		files         map[string]string
@@ -264,6 +266,36 @@ func TestResultsReportTheStateObject(t *testing.T) {
 			name: "named workspace under a custom prefix", command: "plan", key: "stacks/app", stackConfig: "workspace: green\n",
 			block: []string{"bucket=acme-state", "key=stacks/app.tfstate", "region=eu-west-1", "workspace_key_prefix=workspaces"},
 			want:  &v1.StateObject{Bucket: "acme-state", Key: "workspaces/green/stacks/app.tfstate", Region: "eu-west-1"},
+		},
+		{
+			name: "named workspace under an empty prefix", command: "drift", key: "stacks/app:blue",
+			block: []string{"bucket=acme-state", "key=stacks/app.tfstate", "workspace_key_prefix="},
+			want:  &v1.StateObject{Bucket: "acme-state", Key: "blue/stacks/app.tfstate"},
+		},
+		{
+			name: "default workspace under an empty prefix", command: "plan", key: "stacks/app",
+			block: []string{"bucket=acme-state", "key=stacks/app.tfstate", "region=eu-west-1", "workspace_key_prefix="},
+			want:  &v1.StateObject{Bucket: "acme-state", Key: "stacks/app.tfstate", Region: "eu-west-1"},
+		},
+		{
+			name: "prefix recorded as null by the tool", command: "drift", key: "stacks/app:blue",
+			tfstate: `{"version":3,"backend":{"type":"s3","config":{"bucket":"acme-state","key":"stacks/app.tfstate","region":"eu-west-1","workspace_key_prefix":null}}}`,
+			want:    &v1.StateObject{Bucket: "acme-state", Key: "env:/blue/stacks/app.tfstate", Region: "eu-west-1"},
+		},
+		{
+			name: "prefix recorded as empty by the tool", command: "drift", key: "stacks/app:blue",
+			tfstate: `{"version":3,"backend":{"type":"s3","config":{"bucket":"acme-state","key":"stacks/app.tfstate","region":"eu-west-1","workspace_key_prefix":""}}}`,
+			want:    &v1.StateObject{Bucket: "acme-state", Key: "blue/stacks/app.tfstate", Region: "eu-west-1"},
+		},
+		{
+			name: "dot segments cleaned in a named workspace", command: "plan", key: "stacks/app:blue",
+			block: []string{"bucket=acme-state", "key=./stacks/./app.tfstate", "workspace_key_prefix=states/./ws"},
+			want:  &v1.StateObject{Bucket: "acme-state", Key: "states/ws/blue/stacks/app.tfstate"},
+		},
+		{
+			name: "key kept as written in the default workspace", command: "plan", key: "stacks/app",
+			block: []string{"bucket=acme-state", "key=./stacks/app.tfstate"},
+			want:  &v1.StateObject{Bucket: "acme-state", Key: "./stacks/app.tfstate"},
 		},
 		{
 			name: "partial backend completed by a backend_config file", command: "plan", key: "stacks/app:prod",
@@ -331,9 +363,13 @@ func TestResultsReportTheStateObject(t *testing.T) {
 			for k, v := range tt.env {
 				t.Setenv(k, v)
 			}
-			h.tf.BackendType, h.tf.BackendBlock = "s3", tt.block
+			backendType := "s3"
 			if tt.backend != "" {
-				h.tf.BackendType = tt.backend
+				backendType = tt.backend
+			}
+			h.tf.BackendType, h.tf.BackendBlock = backendType, tt.block
+			if tt.tfstate != "" {
+				h.tf.BackendType, h.tf.Backend = "", json.RawMessage(tt.tfstate)
 			}
 			h.tf.WorkspaceExit = tt.workspaceExit
 			switch tt.command {
@@ -359,7 +395,7 @@ func TestResultsReportTheStateObject(t *testing.T) {
 			}
 			assert.Equal(t, v1.RunMode(tt.command), posted.Mode)
 			require.NotNil(t, posted.Backend)
-			assert.Equal(t, h.tf.BackendType, posted.Backend.Type)
+			assert.Equal(t, backendType, posted.Backend.Type)
 			if diff := cmp.Diff(tt.want, posted.State); diff != "" {
 				t.Errorf("state object (-want +got):\n%s", diff)
 			}
