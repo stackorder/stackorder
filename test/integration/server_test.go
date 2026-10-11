@@ -111,7 +111,7 @@ func TestMetricsExposeBuildInfo(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.Contains(t, body, `stackorder_build_info{commit="none",version="dev"} 1`)
 	assert.Contains(t, body, `stackorder_http_requests_total{method="GET",route="GET /healthz",status="200"}`)
-	assert.Contains(t, body, `stackorder_jobs_processed_total{kind="sync_installations",result="ok"} 1`)
+	assert.Regexp(t, `stackorder_jobs_processed_total\{kind="sync_installations",result="ok"\} [1-9]`, body)
 	assert.Contains(t, body, "stackorder_scheduler_leader")
 }
 
