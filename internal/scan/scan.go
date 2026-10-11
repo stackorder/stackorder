@@ -70,6 +70,11 @@ type caller struct {
 	dir string
 }
 
+type localCall struct {
+	name string
+	dir  string
+}
+
 type scanner struct {
 	root string
 	fsys *os.Root
@@ -90,6 +95,10 @@ type scanner struct {
 	warnings map[string]bool
 	loaded   map[string]*tfconfig.Module
 	hashes   map[string]string
+
+	localCalls  map[string][]localCall
+	moduleReads map[string][]outputRead
+	callArgs    map[string]map[string]moduleArguments
 }
 
 // Scan walks the checkout at root and builds its dependency graph.
@@ -113,13 +122,24 @@ type scanner struct {
 // equal a stack key of this repository, and an "owner/repo//key" of another
 // repository becomes an External stack as a depends_on target does. A
 // non-literal stack, a key that is malformed or names no stack, and a stack
-// reading its own outputs are warnings. Both kinds of block are read only in
-// the stack's own directory, never in the modules it calls, so a stack that
-// reads another through a module needs depends_on. An explicit depends_on on
-// the same stack replaces an inferred edge, and an ignore_inferred entry,
-// qualified with "owner/repo//" for another repository, suppresses it with a
-// warning; a cross-repository entry that no stackorder_outputs block of the
-// stack reads is a warning too.
+// reading its own outputs are warnings. terraform_remote_state data sources
+// are read only in the stack's own directory. stackorder_outputs blocks are
+// also read in every local module the stack reaches through module sources,
+// transitively, and infer the same edges from the stack. A block in a module
+// whose stack refers only to var.<name> values takes them from the literal
+// arguments of each module block that calls the module, one level up, and a
+// warning about the result points at that module block. A warning about a
+// block in a module names the module's directory, and one about a non-literal,
+// malformed or unknown stack says that only depends_on orders the stacks that
+// call the module; a module directory that is also a stack directory does not
+// repeat the warnings of that stack's own blocks. Registry and git modules are
+// not read, so a stack that reads another through one of them, or through a
+// terraform_remote_state data source in any module, needs depends_on. An
+// explicit depends_on on the same stack replaces an inferred edge, and an
+// ignore_inferred entry, qualified with "owner/repo//" for another repository,
+// suppresses it with a warning; a cross-repository entry that no
+// stackorder_outputs block of the stack or of its local modules reads is a
+// warning too.
 //
 // Each instance's Backend is the literal backend "s3" block overlaid, in
 // order, with its rendered backend_config entries: a file, repository
@@ -190,6 +210,10 @@ func Scan(ctx context.Context, root string, opts Options) (*v1.Graph, error) {
 		warnings: map[string]bool{},
 		loaded:   map[string]*tfconfig.Module{},
 		hashes:   map[string]string{},
+
+		localCalls:  map[string][]localCall{},
+		moduleReads: map[string][]outputRead{},
+		callArgs:    map[string]map[string]moduleArguments{},
 	}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
@@ -608,6 +632,9 @@ func (s *scanner) addModuleCall(c caller, call *tfconfig.ModuleCall) (caller, bo
 		}
 		m.Path, m.Key = dir, s.localModuleKey(dir)
 		next = caller{ref: v1.ModuleRef(m.Key), dir: dir}
+		if lc := (localCall{name: call.Name, dir: dir}); !slices.Contains(s.localCalls[c.dir], lc) {
+			s.localCalls[c.dir] = append(s.localCalls[c.dir], lc)
+		}
 	}
 	old, ok := s.modules[m.Key]
 	switch {
@@ -785,9 +812,10 @@ func (s *scanner) inferOutputs(explicit map[string]map[string]bool) {
 	dirs := s.stackKeysByDir()
 	for _, key := range s.sortedStackKeys() {
 		info := s.stacks[key]
+		reads := append(slices.Clone(info.outputReads), s.moduleOutputReads(key, dirs)...)
 		ignored := s.ignoredTargets(dirs, info)
 		readTargets := map[string]bool{}
-		for _, read := range info.outputReads {
+		for _, read := range reads {
 			target, external, ok := s.outputsTarget(key, read)
 			if !ok {
 				continue
@@ -819,27 +847,86 @@ func (s *scanner) inferOutputs(explicit map[string]map[string]bool) {
 	}
 }
 
+func (s *scanner) moduleOutputReads(key string, stackDirs map[string][]string) []outputRead {
+	own := s.stacks[key].stack.Path
+	queue, seen := []string{own}, map[string]bool{own: true}
+	var reads []outputRead
+	for len(queue) > 0 {
+		from := queue[0]
+		queue = queue[1:]
+		for _, call := range s.localCalls[from] {
+			if call.dir == own {
+				continue
+			}
+			for _, read := range s.outputReadsIn(call.dir) {
+				reads = append(reads, s.resolveModuleRead(read, from, call, stackDirs))
+			}
+			if !seen[call.dir] {
+				seen[call.dir] = true
+				queue = append(queue, call.dir)
+			}
+		}
+	}
+	return reads
+}
+
+func (s *scanner) outputReadsIn(dir string) []outputRead {
+	reads, ok := s.moduleReads[dir]
+	if !ok {
+		reads = s.hcl.readModuleOutputReads(dir, s.dirs[dir])
+		s.moduleReads[dir] = reads
+	}
+	return reads
+}
+
+func (s *scanner) resolveModuleRead(read outputRead, from string, call localCall, stackDirs map[string][]string) outputRead {
+	if !read.literal {
+		args, ok := s.callArgs[from]
+		if !ok {
+			args = s.hcl.readModuleArguments(from, s.dirs[from])
+			s.callArgs[from] = args
+		}
+		if resolved, ok := read.resolve(args[call.name]); ok {
+			return resolved
+		}
+	}
+	read.inStackDir = len(stackDirs[call.dir]) > 0
+	return read
+}
+
 func (s *scanner) outputsTarget(key string, read outputRead) (string, *v1.Stack, bool) {
 	if !read.literal {
-		s.warn("%s: %s: cannot infer reads_state edge: stack is not a literal value; add depends_on", read.loc, read.address())
+		s.warnOutputRead(read, "cannot infer reads_state edge: stack is not a literal value", "; add depends_on")
 		return "", nil, false
 	}
 	repo, target := v1.SplitQualifiedStackKey(read.stack)
 	local := repo == "" || strings.EqualFold(repo, s.opts.Repo)
 	switch {
 	case strings.HasPrefix(read.stack, "//"), !local && !canonicalQualifiedKey(read.stack):
-		s.warn("%s: %s: stack %q is not a valid stack key", read.loc, read.address(), read.stack)
+		s.warnOutputRead(read, fmt.Sprintf("stack %q is not a valid stack key", read.stack), "")
 	case !local:
 		p, instance := v1.SplitStackKey(target)
 		return read.stack, &v1.Stack{Key: read.stack, Path: p, Instance: instance, Repo: repo, External: true}, true
 	case s.stacks[target] == nil:
-		s.warn("%s: %s: stack %q is not a stack of this repository", read.loc, read.address(), read.stack)
+		s.warnOutputRead(read, fmt.Sprintf("stack %q is not a stack of this repository", read.stack), "")
+	case target == key && read.module != "":
+		s.warn("%s: %s: stack %q calls the module itself; ignored", read.loc, read.address(), read.stack)
 	case target == key:
 		s.warn("%s: %s: stack %q names the stack itself; ignored", read.loc, read.address(), read.stack)
 	default:
 		return target, nil, true
 	}
 	return "", nil, false
+}
+
+func (s *scanner) warnOutputRead(read outputRead, problem, advice string) {
+	if read.inStackDir {
+		return
+	}
+	if read.module != "" {
+		advice = "; only depends_on orders the stacks that call the module"
+	}
+	s.warn("%s: %s: %s%s", read.loc, read.address(), problem, advice)
 }
 
 func canonicalQualifiedKey(key string) bool {

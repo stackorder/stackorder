@@ -46,6 +46,14 @@ func outputsBlock(kind, name, stack string) string {
 	return kind + " \"stackorder_outputs\" \"" + name + "\" {\n  stack = " + stack + "\n}\n"
 }
 
+func moduleBlock(name, source string, args ...string) string {
+	b := "module \"" + name + "\" {\n  source = \"" + source + "\"\n"
+	for _, arg := range args {
+		b += "  " + arg + "\n"
+	}
+	return b + "}\n"
+}
+
 func s3Block(bucket, key string) string {
 	return "terraform {\n  backend \"s3\" {\n    bucket = \"" + bucket + "\"\n    key    = \"" + key + "\"\n  }\n}\n"
 }
@@ -722,6 +730,177 @@ func TestInferOutputsEdges(t *testing.T) {
 			warnings: []string{
 				"stacks/app/main.tf:11: ephemeral.stackorder_outputs.db: cannot infer reads_state edge: stack is not a literal value; add depends_on",
 				"stacks/app/main.tf:8: data.stackorder_outputs.vpc: cannot infer reads_state edge: stack is not a literal value; add depends_on",
+			},
+		},
+		{
+			name: "a block in a local module the stack calls",
+			files: map[string]string{
+				"stacks/app/main.tf":     s3Block("b", "app.tfstate") + moduleBlock("lookup", "../../modules/lookup"),
+				"modules/lookup/main.tf": outputsBlock("data", "vpc", `"stacks/vpc"`) + moduleBlock("dns", "../dns"),
+				"modules/dns/main.tf":    outputsBlock("ephemeral", "dns", `"acme/network//stacks/prod/dns"`),
+				"stacks/vpc/main.tf":     s3Block("b", "vpc.tfstate"),
+			},
+			edges: []v1.Edge{
+				usesModule(v1.ModuleRef(fixtureRepo+"//modules/lookup"), fixtureRepo+"//modules/dns", "", "../dns"),
+				readsOutputs("stacks/app", "acme/network//stacks/prod/dns"),
+				readsOutputs("stacks/app", "stacks/vpc"),
+				usesModule(v1.StackRef("stacks/app"), fixtureRepo+"//modules/lookup", "", "../../modules/lookup"),
+			},
+			external: []v1.Stack{external("acme/network", "stacks/prod/dns")},
+		},
+		{
+			name: "a block in a local module follows depends_on, ignore_inferred and instances",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") + moduleBlock("lookup", "../../modules/lookup"),
+				"stacks/app/.stackorder.yaml": "instances: [blue, green]\nworkspace: \"{{ .Instance }}\"\n" +
+					"depends_on: [acme/network//stacks/prod/tgw]\nignore_inferred: [stacks/vpc]\n",
+				"modules/lookup/main.tf": outputsBlock("data", "blue", `"stacks/app:blue"`) +
+					outputsBlock("data", "vpc", `"stacks/vpc"`) +
+					outputsBlock("data", "tgw", `"acme/network//stacks/prod/tgw"`),
+				"stacks/vpc/main.tf": s3Block("b", "vpc.tfstate"),
+			},
+			edges: []v1.Edge{
+				dependsOn("stacks/app:blue", "acme/network//stacks/prod/tgw"),
+				usesModule(v1.StackRef("stacks/app:blue"), fixtureRepo+"//modules/lookup", "", "../../modules/lookup"),
+				dependsOn("stacks/app:green", "acme/network//stacks/prod/tgw"),
+				readsOutputs("stacks/app:green", "stacks/app:blue"),
+				usesModule(v1.StackRef("stacks/app:green"), fixtureRepo+"//modules/lookup", "", "../../modules/lookup"),
+			},
+			external: []v1.Stack{external("acme/network", "stacks/prod/tgw")},
+			warnings: []string{
+				`modules/lookup/main.tf:2: data.stackorder_outputs.blue in module modules/lookup: stack "stacks/app:blue" calls the module itself; ignored`,
+				"stacks/app:blue: inferred reads_state edge to stacks/vpc suppressed by ignore_inferred",
+				"stacks/app:green: inferred reads_state edge to stacks/vpc suppressed by ignore_inferred",
+			},
+		},
+		{
+			name: "a block in a local module that cannot be resolved warns once",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") + moduleBlock("lookup", "../../modules/lookup"),
+				"stacks/web/main.tf": s3Block("b", "web.tfstate") + moduleBlock("lookup", "../../modules/lookup"),
+				"modules/lookup/main.tf": outputsBlock("data", "vpc", "var.stack") +
+					outputsBlock("data", "missing", `"stacks/nope"`) +
+					outputsBlock("ephemeral", "rootless", `"//stacks/vpc"`),
+			},
+			edges: []v1.Edge{
+				usesModule(v1.StackRef("stacks/app"), fixtureRepo+"//modules/lookup", "", "../../modules/lookup"),
+				usesModule(v1.StackRef("stacks/web"), fixtureRepo+"//modules/lookup", "", "../../modules/lookup"),
+			},
+			warnings: []string{
+				"modules/lookup/main.tf:2: data.stackorder_outputs.vpc in module modules/lookup: cannot infer reads_state edge: stack is not a literal value; only depends_on orders the stacks that call the module",
+				`modules/lookup/main.tf:5: data.stackorder_outputs.missing in module modules/lookup: stack "stacks/nope" is not a stack of this repository; only depends_on orders the stacks that call the module`,
+				`modules/lookup/main.tf:8: ephemeral.stackorder_outputs.rootless in module modules/lookup: stack "//stacks/vpc" is not a valid stack key; only depends_on orders the stacks that call the module`,
+			},
+		},
+		{
+			name: "a block in a local module takes variables from the literal arguments of each call",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") +
+					moduleBlock("lookup", "../../modules/lookup", `producer = "stacks/vpc"`, `name = "db"`),
+				"stacks/api/main.tf": s3Block("b", "api.tfstate") +
+					moduleBlock("lookup", "../../modules/lookup", `producer = "stacks/nope"`, `name = "api"`),
+				"stacks/web/main.tf.json": `{"terraform": {"backend": {"s3": {"bucket": "b", "key": "web.tfstate"}}},
+ "module": {"lookup": {"source": "../../modules/lookup", "producer": "acme/network//stacks/prod/dns", "name": "${var.name}"}}}`,
+				"modules/lookup/main.tf": outputsBlock("data", "producer", "var.producer") +
+					outputsBlock("data", "named", `"stacks/${var.name}"`),
+				"modules/lookup/dns.tf.json": `{"ephemeral": {"stackorder_outputs": {"producer": {"stack": "${var.producer}"}}}}`,
+				"stacks/vpc/main.tf":         s3Block("b", "vpc.tfstate"),
+				"stacks/db/main.tf":          s3Block("b", "db.tfstate"),
+			},
+			edges: []v1.Edge{
+				usesModule(v1.StackRef("stacks/api"), fixtureRepo+"//modules/lookup", "", "../../modules/lookup"),
+				readsOutputs("stacks/app", "stacks/db"),
+				readsOutputs("stacks/app", "stacks/vpc"),
+				usesModule(v1.StackRef("stacks/app"), fixtureRepo+"//modules/lookup", "", "../../modules/lookup"),
+				readsOutputs("stacks/web", "acme/network//stacks/prod/dns"),
+				usesModule(v1.StackRef("stacks/web"), fixtureRepo+"//modules/lookup", "", "../../modules/lookup"),
+			},
+			external: []v1.Stack{external("acme/network", "stacks/prod/dns")},
+			warnings: []string{
+				"modules/lookup/main.tf:5: data.stackorder_outputs.named in module modules/lookup: cannot infer reads_state edge: stack is not a literal value; only depends_on orders the stacks that call the module",
+				`stacks/api/main.tf:7: data.stackorder_outputs.named in module modules/lookup: stack "stacks/api" calls the module itself; ignored`,
+				`stacks/api/main.tf:7: data.stackorder_outputs.producer in module modules/lookup: stack "stacks/nope" is not a stack of this repository; only depends_on orders the stacks that call the module`,
+				`stacks/api/main.tf:7: ephemeral.stackorder_outputs.producer in module modules/lookup: stack "stacks/nope" is not a stack of this repository; only depends_on orders the stacks that call the module`,
+			},
+		},
+		{
+			name: "a block in a local module satisfies a cross-repository ignore_inferred entry",
+			files: map[string]string{
+				"stacks/app/main.tf":          s3Block("b", "app.tfstate") + moduleBlock("lookup", "../../modules/lookup"),
+				"stacks/app/.stackorder.yaml": "ignore_inferred: [acme/network//stacks/prod/dns]\n",
+				"modules/lookup/main.tf":      outputsBlock("data", "dns", `"acme/network//stacks/prod/dns"`),
+			},
+			edges: []v1.Edge{
+				usesModule(v1.StackRef("stacks/app"), fixtureRepo+"//modules/lookup", "", "../../modules/lookup"),
+			},
+			warnings: []string{
+				"stacks/app: inferred reads_state edge to acme/network//stacks/prod/dns suppressed by ignore_inferred",
+			},
+		},
+		{
+			name: "registry and git modules are not read",
+			files: map[string]string{
+				"main.tf": outputsBlock("data", "vpc", `"stacks/vpc"`) + outputsBlock("data", "env", "var.stack"),
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") +
+					"module \"registry\" {\n  source  = \"acme/lookup/aws\"\n  version = \"1.0.0\"\n}\n" +
+					moduleBlock("git", "git::https://github.com/acme/lookup.git?ref=v1"),
+				"stacks/vpc/main.tf": s3Block("b", "vpc.tfstate"),
+			},
+			edges: []v1.Edge{
+				usesModule(v1.StackRef("stacks/app"), "acme/lookup@v1", "v1", "git::https://github.com/acme/lookup.git?ref=v1"),
+				usesModule(v1.StackRef("stacks/app"), "registry:acme/lookup/aws@1.0.0", "1.0.0", "acme/lookup/aws"),
+			},
+		},
+		{
+			name: "a module that calls back into the stack's own directory is not read for that stack",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") + moduleBlock("lookup", "../../modules/lookup") +
+					outputsBlock("data", "env", "var.stack") + outputsBlock("data", "self", `"stacks/app"`),
+				"modules/lookup/main.tf": moduleBlock("app", "../../stacks/app"),
+			},
+			edges: []v1.Edge{
+				usesModule(v1.ModuleRef(fixtureRepo+"//modules/lookup"), fixtureRepo+"//stacks/app", "", "../../stacks/app"),
+				usesModule(v1.ModuleRef(fixtureRepo+"//stacks/app"), fixtureRepo+"//modules/lookup", "", "../../modules/lookup"),
+				usesModule(v1.StackRef("stacks/app"), fixtureRepo+"//modules/lookup", "", "../../modules/lookup"),
+			},
+			warnings: []string{
+				"stacks/app/main.tf:11: data.stackorder_outputs.env: cannot infer reads_state edge: stack is not a literal value; add depends_on",
+				`stacks/app/main.tf:14: data.stackorder_outputs.self: stack "stacks/app" names the stack itself; ignored`,
+			},
+		},
+		{
+			name: "a stack directory called as a module warns about its own blocks once",
+			files: map[string]string{
+				"stacks/app/main.tf": s3Block("b", "app.tfstate") + moduleBlock("b", "../b"),
+				"stacks/web/main.tf": s3Block("b", "web.tfstate") + moduleBlock("b", "../b", `stack = "stacks/nope"`),
+				"stacks/b/main.tf": s3Block("b", "b.tfstate") +
+					outputsBlock("data", "env", "var.stack") + outputsBlock("data", "vpc", `"stacks/vpc"`),
+				"stacks/vpc/main.tf": s3Block("b", "vpc.tfstate"),
+			},
+			edges: []v1.Edge{
+				readsOutputs("stacks/app", "stacks/vpc"),
+				usesModule(v1.StackRef("stacks/app"), fixtureRepo+"//stacks/b", "", "../b"),
+				readsOutputs("stacks/b", "stacks/vpc"),
+				readsOutputs("stacks/web", "stacks/vpc"),
+				usesModule(v1.StackRef("stacks/web"), fixtureRepo+"//stacks/b", "", "../b"),
+			},
+			warnings: []string{
+				"stacks/b/main.tf:8: data.stackorder_outputs.env: cannot infer reads_state edge: stack is not a literal value; add depends_on",
+				`stacks/web/main.tf:7: data.stackorder_outputs.env in module stacks/b: stack "stacks/nope" is not a stack of this repository; only depends_on orders the stacks that call the module`,
+			},
+		},
+		{
+			name: "a module no stack calls infers nothing",
+			files: map[string]string{
+				"stacks/app/main.tf":      s3Block("b", "app.tfstate") + moduleBlock("other", "../../modules/other"),
+				"stacks/vpc/main.tf":      s3Block("b", "vpc.tfstate"),
+				"modules/other/main.tf":   "variable \"name\" {}\n",
+				"modules/wrapper/main.tf": moduleBlock("lookup", "../lookup"),
+				"modules/lookup/main.tf":  outputsBlock("data", "vpc", `"stacks/vpc"`) + outputsBlock("data", "env", "var.stack"),
+			},
+			edges: []v1.Edge{
+				usesModule(v1.ModuleRef(fixtureRepo+"//modules/wrapper"), fixtureRepo+"//modules/lookup", "", "../lookup"),
+				usesModule(v1.StackRef("stacks/app"), fixtureRepo+"//modules/other", "", "../../modules/other"),
 			},
 		},
 		{

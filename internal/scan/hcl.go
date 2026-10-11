@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/config"
@@ -42,6 +44,7 @@ var (
 		{Name: "backend"}, {Name: "config"}, {Name: "workspace"},
 	}}
 	outputsSchema = &hcl.BodySchema{Attributes: []hcl.AttributeSchema{{Name: "stack"}}}
+	moduleSchema  = &hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{{Type: "module", LabelNames: []string{"name"}}}}
 )
 
 type dirConfig struct {
@@ -53,15 +56,67 @@ type dirConfig struct {
 }
 
 type outputRead struct {
-	name    string
-	kind    string
-	loc     string
-	stack   string
-	literal bool
+	name       string
+	kind       string
+	loc        string
+	stack      string
+	literal    bool
+	expr       hcl.Expression
+	module     string
+	inStackDir bool
 }
 
 func (o outputRead) address() string {
-	return o.kind + "." + outputsType + "." + o.name
+	a := o.kind + "." + outputsType + "." + o.name
+	if o.module != "" {
+		a += " in module " + o.module
+	}
+	return a
+}
+
+func (o outputRead) resolve(call moduleArguments) (outputRead, bool) {
+	if o.literal || o.expr == nil {
+		return o, false
+	}
+	vars := map[string]cty.Value{}
+	for _, t := range o.expr.Variables() {
+		name, ok := variableName(t)
+		if !ok {
+			return o, false
+		}
+		arg, ok := call.args[name]
+		if !ok || !isLiteral(arg.Expr) {
+			return o, false
+		}
+		v, diags := arg.Expr.Value(nil)
+		if diags.HasErrors() {
+			return o, false
+		}
+		vars[name] = v
+	}
+	if len(vars) == 0 {
+		return o, false
+	}
+	ctx := &hcl.EvalContext{Variables: map[string]cty.Value{"var": cty.ObjectVal(vars)}}
+	var stack string
+	if gohcl.DecodeExpression(o.expr, ctx, &stack).HasErrors() {
+		return o, false
+	}
+	o.stack, o.literal, o.loc = stack, true, call.loc
+	return o, true
+}
+
+func variableName(t hcl.Traversal) (string, bool) {
+	if len(t) < 2 || t.RootName() != "var" {
+		return "", false
+	}
+	attr, ok := t[1].(hcl.TraverseAttr)
+	return attr.Name, ok
+}
+
+type moduleArguments struct {
+	loc  string
+	args hcl.Attributes
 }
 
 type remoteState struct {
@@ -87,35 +142,63 @@ type hclReader struct {
 
 func (r *hclReader) readDir(dir string, names []string) dirConfig {
 	var out dirConfig
+	r.eachBlock(dir, names, fileSchema, func(block *hcl.Block, override bool) {
+		switch {
+		case block.Type == "terraform":
+			r.readTerraformBlock(block, override, &out)
+		case block.Type == "data" && block.Labels[0] == remoteStateType:
+			out.remoteStates = append(out.remoteStates, r.readRemoteState(block))
+		case isOutputsBlock(block):
+			r.readOutputRead(block, override, &out)
+		}
+	})
+	return out
+}
+
+func (r *hclReader) readModuleOutputReads(dir string, names []string) []outputRead {
+	var out dirConfig
+	r.eachBlock(dir, names, fileSchema, func(block *hcl.Block, override bool) {
+		if isOutputsBlock(block) {
+			r.readOutputRead(block, override, &out)
+		}
+	})
+	for i := range out.outputReads {
+		out.outputReads[i].module = displayDir(dir)
+	}
+	return out.outputReads
+}
+
+func (r *hclReader) readModuleArguments(dir string, names []string) map[string]moduleArguments {
+	out := map[string]moduleArguments{}
+	r.eachBlock(dir, names, moduleSchema, func(block *hcl.Block, override bool) {
+		attrs, _ := block.Body.JustAttributes()
+		call, ok := out[block.Labels[0]]
+		if !ok || !override {
+			call = moduleArguments{loc: location(block.DefRange), args: hcl.Attributes{}}
+		}
+		maps.Copy(call.args, attrs)
+		out[block.Labels[0]] = call
+	})
+	return out
+}
+
+func (r *hclReader) eachBlock(dir string, names []string, schema *hcl.BodySchema, fn func(block *hcl.Block, override bool)) {
 	primaries, overrides := splitOverrides(names)
 	for i, name := range append(primaries, overrides...) {
-		rel := path.Join(dir, name)
-		body, ok := r.parseFile(rel)
+		body, ok := r.parseFile(path.Join(dir, name))
 		if !ok {
 			continue
 		}
-		content, _, diags := body.PartialContent(fileSchema)
+		content, _, diags := body.PartialContent(schema)
 		r.diagnostics(diags)
-		override := i >= len(primaries)
 		for _, block := range content.Blocks {
-			switch block.Type {
-			case "terraform":
-				r.readTerraformBlock(block, override, &out)
-			case "data":
-				switch block.Labels[0] {
-				case remoteStateType:
-					out.remoteStates = append(out.remoteStates, r.readRemoteState(block))
-				case outputsType:
-					r.readOutputRead(block, override, &out)
-				}
-			case "ephemeral":
-				if block.Labels[0] == outputsType {
-					r.readOutputRead(block, override, &out)
-				}
-			}
+			fn(block, i >= len(primaries))
 		}
 	}
-	return out
+}
+
+func isOutputsBlock(block *hcl.Block) bool {
+	return (block.Type == "data" || block.Type == "ephemeral") && block.Labels[0] == outputsType
 }
 
 func splitOverrides(names []string) (primaries, overrides []string) {
@@ -315,7 +398,7 @@ func (r *hclReader) readOutputRead(block *hcl.Block, override bool, out *dirConf
 	if !ok {
 		return
 	}
-	read := outputRead{name: block.Labels[1], kind: block.Type, loc: location(attr.Range)}
+	read := outputRead{name: block.Labels[1], kind: block.Type, loc: location(attr.Range), expr: attr.Expr}
 	read.stack, read.literal = literalString(attr.Expr)
 	if override {
 		for i, o := range out.outputReads {
