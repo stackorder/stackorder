@@ -52,6 +52,7 @@
 // resolves to the loopback address, so that the backend and the
 // terraform_remote_state reads both use it, and through
 // STACKORDER_BACKEND_CONFIG for the settings only the backend accepts.
-// The server lists the state bucket in STACKORDER_STATE_BUCKETS and reads
-// it through LocalStack's own endpoint with path-style requests.
+// The server grants the state bucket to the example repository in
+// STACKORDER_STATE_BUCKETS and reads it through LocalStack's own endpoint
+// with path-style requests.
 package e2e

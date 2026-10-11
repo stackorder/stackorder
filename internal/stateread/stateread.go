@@ -1,8 +1,13 @@
 // Package stateread reads the root module outputs of a Terraform or OpenTofu
 // state object in S3 so that the server can share them with the stacks a
-// producer lists as readers. It decodes only the outputs block, stops
-// reading as soon as it has it, and never stores, caches or logs a state
-// object or any value in it. Errors name byte offsets, never state content.
+// producer lists as readers. Each grant ties a bucket, or a key prefix in
+// it, to the one repository whose state it holds, or to every repository
+// with "*", and every read is made for the producer's repository, so the
+// location that a repository's apply and drift jobs report can make the
+// server read only what the operator granted that repository. It decodes
+// only the outputs block, stops reading as soon as it has it, and never
+// stores, caches or logs a state object or any value in it. Errors name
+// byte offsets, never state content.
 package stateread
 
 import (
@@ -50,7 +55,7 @@ var (
 	ErrTooLarge = errors.New("stateread: state too large")
 
 	// ErrNotAllowed is returned, before any request to S3, for a location
-	// that no grant allows.
+	// that no grant allows the producer's repository.
 	ErrNotAllowed = errors.New("stateread: state location not allowed")
 
 	// ErrUnreadable is returned for an unusable location and for permanent

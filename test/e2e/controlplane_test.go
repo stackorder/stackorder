@@ -87,7 +87,7 @@ func startControlPlane(t *testing.T, ls *localStack, prepare func(*ghfake.Server
 		server.EnvSessionKey:        strings.Repeat("e2", server.SessionKeySize),
 		server.EnvArtifactBucket:    artifactBucket,
 		server.EnvArtifactEndpoint:  ls.endpoint,
-		server.EnvStateBuckets:      stateBucket,
+		server.EnvStateBuckets:      repoName + "=" + stateBucket,
 		server.EnvWorkers:           "4",
 		server.EnvLogLevel:          "info",
 		server.EnvLogFormat:         server.LogFormatText,

@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -286,16 +287,26 @@ func (s *Server) stateReader(ctx context.Context) (*stateread.Reader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("server: state reader: %w", err)
 	}
-	buckets := make([]string, len(cfg.StateGrants))
+	grants := make([]string, len(cfg.StateGrants))
 	for i, g := range cfg.StateGrants {
-		buckets[i] = g.Bucket
-		if g.Prefix != "" {
-			buckets[i] += "/" + g.Prefix
+		grants[i] = g.String()
+	}
+	s.log.InfoContext(ctx, "shared outputs are on: the server reads the outputs of state objects in the buckets granted to each repository",
+		"grants", len(cfg.StateGrants), "state_buckets", grants, "role_arn", cfg.StateRoleARN)
+	s.warnOverlappingGrants(ctx)
+	return reader, nil
+}
+
+func (s *Server) warnOverlappingGrants(ctx context.Context) {
+	grants := s.cfg.StateGrants
+	for i, a := range grants {
+		for _, b := range grants[i+1:] {
+			if !strings.EqualFold(a.Repository, b.Repository) && a.Overlaps(b) {
+				s.log.WarnContext(ctx, "state grants of different repositories overlap: either repository's stacks can be pointed at the objects both cover",
+					"grant", a.String(), "overlaps", b.String())
+			}
 		}
 	}
-	s.log.InfoContext(ctx, "shared outputs are on: the server reads the outputs of state objects in the listed buckets",
-		"grants", len(cfg.StateGrants), "state_buckets", buckets, "role_arn", cfg.StateRoleARN)
-	return reader, nil
 }
 
 func (s *Server) apiConfig() api.Config {

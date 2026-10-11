@@ -15,6 +15,7 @@ import (
 	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/principal"
 	"github.com/stackorder/stackorder/internal/report"
+	"github.com/stackorder/stackorder/internal/stateread"
 	"github.com/stackorder/stackorder/internal/store"
 )
 
@@ -25,8 +26,11 @@ const stateObjectTimeout = 10 * time.Second
 // and moves the run on: the next wave, the end of the run, drift issues.
 // The state object an accepted apply or drift result names, whatever its
 // outcome, becomes the stack's recorded state location unless a newer run
-// already recorded one; a plan result's is ignored. Posting the same
-// result twice changes nothing.
+// already recorded one; when a StateReader is set and no grant of the
+// operator covers the object for the run's repository, the result clears
+// the recorded location instead, under the same order, so reads stop
+// serving an object the stack has left. A plan result's is ignored.
+// Posting the same result twice changes nothing.
 func (s *Service) RecordResult(ctx context.Context, p principal.Principal, runID, stackKey string, res v1.StackResult) (*v1.RunStack, error) {
 	run, repo, err := s.loadRun(ctx, runID)
 	if err != nil {
@@ -83,7 +87,7 @@ func (s *Service) RecordResult(ctx context.Context, p principal.Principal, runID
 	if err != nil {
 		return nil, storeErr(err, "record result of %s", stackKey)
 	}
-	s.recordStateObject(ctx, run, stack, res.State)
+	s.recordStateObject(ctx, run, repo, stack, res.State)
 	s.m.StackFinished(run.Mode, updated.Status, stackDuration(updated, res))
 	changed := []uuid.UUID{stack.ID}
 	if run.Mode == v1.ModeApply && updated.Status != v1.StackApplied {
@@ -125,7 +129,7 @@ func (s *Service) authorizeResult(ctx context.Context, p principal.Principal, ru
 	return 0, principal.Wrap(principal.ErrForbidden, "%s principals cannot report results", p.Kind)
 }
 
-func (s *Service) recordStateObject(ctx context.Context, run store.Run, stack store.Stack, obj *v1.StateObject) {
+func (s *Service) recordStateObject(ctx context.Context, run store.Run, repo store.Repo, stack store.Stack, obj *v1.StateObject) {
 	if obj == nil || (run.Mode != v1.ModeApply && run.Mode != v1.ModeDrift) {
 		return
 	}
@@ -133,10 +137,19 @@ func (s *Service) recordStateObject(ctx context.Context, run store.Run, stack st
 		s.log.WarnContext(ctx, "ignore a state object without a bucket or key", "run_id", run.ID, "stack", stack.Key)
 		return
 	}
+	granted := s.state == nil || s.state.Allows(repo.FullName, stateread.Location{Bucket: obj.Bucket, Key: obj.Key, Region: obj.Region})
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stateObjectTimeout)
 	defer cancel()
-	if err := s.st.SetStackStateObject(ctx, stack.ID, *obj, run.ID); err != nil {
-		s.log.WarnContext(ctx, "record state object", "run_id", run.ID, "stack", stack.Key, "error", err)
+	if granted {
+		if err := s.st.SetStackStateObject(ctx, stack.ID, *obj, run.ID); err != nil {
+			s.log.WarnContext(ctx, "record state object", "run_id", run.ID, "stack", stack.Key, "error", err)
+		}
+		return
+	}
+	s.log.WarnContext(ctx, "clear the state location for a state object no grant of its repository covers", "run_id", run.ID,
+		"repo", repo.FullName, "stack", stack.Key, "bucket", auditField(obj.Bucket), "key", auditField(obj.Key))
+	if err := s.st.ClearStackStateObject(ctx, stack.ID, run.ID); err != nil {
+		s.log.WarnContext(ctx, "clear state object", "run_id", run.ID, "stack", stack.Key, "error", err)
 	}
 }
 

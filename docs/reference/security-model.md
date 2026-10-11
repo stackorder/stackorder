@@ -48,7 +48,7 @@ Rotating anything means rotating the App's private key, which runners never see.
 | GitHub to server | Webhook payloads (HMAC-signed); from runners, JSON manifests and result summaries. No repository contents beyond file paths and parsed dependency edges. |
 | Server to GitHub | App installation tokens, scoped to one installation and valid for an hour, used for `workflow_dispatch`, check runs and comments. |
 | Runner to AWS | Your role, assumed with `aws-actions/configure-aws-credentials` and a trust policy pinned to the repository and environment. State, lock and plan files never leave this zone, except the state objects the server reads for [shared outputs](#shared-outputs). |
-| Server to your state buckets | Only with [shared outputs](#shared-outputs) on: `s3:GetObject` on the state objects under `STACKORDER_STATE_BUCKETS`, with the server's own role or the role `STACKORDER_STATE_ROLE_ARN` names, assumed through STS. The server keeps the `outputs` block in memory and returns the outputs the producer shares, with the state's serial, lineage and Terraform version, to the reading job or API key; nothing else of the object leaves the server, and nothing is written back. |
+| Server to your state buckets | Only with [shared outputs](#shared-outputs) on: `s3:GetObject` on the state objects under `STACKORDER_STATE_BUCKETS`, each entry granted to one repository, with the server's own role or the role `STACKORDER_STATE_ROLE_ARN` names, assumed through STS. The server keeps the `outputs` block in memory and returns the outputs the producer shares, with the state's serial, lineage and Terraform version, to the reading job or API key; nothing else of the object leaves the server, and nothing is written back. |
 | Server to anything else | Nothing, except Postgres, GitHub's OIDC signing keys, and, when enabled, the artifact bucket and the OTLP endpoint. |
 
 ## Shared outputs {#shared-outputs}
@@ -58,6 +58,15 @@ Rotating anything means rotating the App's private key, which runners never see.
 - **The reading stacks lose it.** With `terraform_remote_state`, every job that assumes the reading stack's role, pull request plans included, can read the producer's whole state object. With shared outputs that role needs no access to it, and the producer names its readers on its default branch.
 - **The server gains it.** Its AWS role, or the role `STACKORDER_STATE_ROLE_ARN` names, can read the whole state objects under the listed buckets and prefixes, secrets included. IAM grants whole objects: the filtering to outputs happens in the server, which keeps only the `outputs` block and stores, caches and logs nothing it reads.
 - **The server cannot write state.** It only reads state objects, and neither the grant the Terraform module creates nor the one [Security hardening](/operations/security-hardening#shared-outputs) recommends allows a write or a delete. It never takes the state lock and never decrypts state that OpenTofu encrypted.
+- **Each grant belongs to one repository.** An entry of `STACKORDER_STATE_BUCKETS` is `owner/repo=bucket/prefix`. The server reads a stack's state from the location that the stack's last apply or drift job reported, and both when it records that location and when it reads it, the location must lie under an entry of the stack's own repository, compared at path segment boundaries; otherwise a reported location is not recorded and clears the one recorded before, so reads answer `409 state_location_unknown`, and a read of a location recorded before the entries changed answers `403 state_bucket_not_allowed` before any request to S3, audited and logged. An entry for `*` is the operator's explicit opt-in to letting every repository use it.
+
+What a repository's jobs can and cannot make the server read follows from that. An apply or drift job runs the repository's code, and in the default `before_merge` mode an apply runs a pull request's code, so it can report any object for its stack and use the job's OIDC token to post the result itself:
+
+- It **cannot** make the server read an object outside its own repository's entries and the `*` entries: not another repository's state, in the same installation or another, as long as no entry of its repository, or of `*`, covers that state's location too; not a sibling of a granted prefix such as `stacks/production/` for `stacks/prod`; and not a key with a `.` or `..` segment.
+- It **can** point one of its stacks at any object under its repository's entries, another stack's state included, and that stack's readers then get the other stack's outputs. Within one repository the grant, not the stack, is the boundary of what can be read; `readers` decides who reads each stack, and the apply that reports a location is a step to review like its plan. Grant a repository only the prefixes that hold the state of its stacks that share outputs.
+- With an entry for `*`, every repository can point its stacks at objects under that entry.
+- Entries of different repositories that overlap, where one's location lies under the other's, as with `acme/infra=acme-tfstate/stacks/` beside `acme/network=acme-tfstate/stacks/network/`, give the repository of the wider entry the other's state as well. The server logs a warning at start-up for each such pair; keep the prefixes of different repositories apart.
+- IAM grants the server's role every entry at once and cannot tell repositories apart, so the per-repository check is the server's own; a compromised server is bound only by its role, as below.
 
 If the server is compromised while shared outputs are on, the attacker can, beyond the [table above](#compromise):
 
@@ -68,7 +77,7 @@ It still cannot write state while its role grants only reads, nor assume the rol
 
 | Control | Effect |
 | --- | --- |
-| Narrow prefixes, each ending in `/` and holding only the state of stacks that share outputs | Limits which state objects the server can read at all |
+| Narrow prefixes, one per repository, each ending in `/`, none under another repository's, and holding only the state of stacks that share outputs | Limits which state objects the server can read at all, and which ones each repository's stacks can be pointed at |
 | A dedicated role in `STACKORDER_STATE_ROLE_ARN`, with only `s3:GetObject` on those prefixes, `s3:ListBucket` limited to them by `s3:prefix`, and `kms:Decrypt` through S3 only | Limits what the server's credentials allow, whatever the server does |
 | CloudTrail data events on the state buckets | Records every read of the objects, including reads that leave no row in the server's own audit log, such as a compromised server's |
 | `STACKORDER_REQUIRED_WORKFLOW_REF` | Refuses reads by a copy of the workflow edited in a pull request |

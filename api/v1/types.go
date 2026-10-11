@@ -722,7 +722,8 @@ const (
 	// object holds the stack's state.
 	ErrCodeStateLocationUnknown = "state_location_unknown"
 	// ErrCodeStateBucketNotAllowed means the state object lies outside the
-	// buckets and prefixes the server may read.
+	// buckets and prefixes the server may read for the producer's
+	// repository.
 	ErrCodeStateBucketNotAllowed = "state_bucket_not_allowed"
 	// ErrCodeStateNotFound means the state object does not exist.
 	ErrCodeStateNotFound = "state_not_found"

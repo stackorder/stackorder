@@ -44,7 +44,7 @@ internal/api/              HTTP handlers, auth middleware, sessions and OAuth, A
 internal/ui/               embed.FS serving of the built UI with SPA fallback
 internal/server/           composition of all of the above into one http.Server; used by cmd and by tests
 internal/artifacts/        optional S3 store for full plan text (STACKORDER_ARTIFACT_BUCKET)
-internal/stateread/        reads only the root outputs of a state object in an allowed S3 bucket (STACKORDER_STATE_BUCKETS); stores and logs nothing
+internal/stateread/        reads only the root outputs of a state object a grant allows the producer's repository (STACKORDER_STATE_BUCKETS); stores and logs nothing
 internal/testutil/pgtest/  Postgres for tests: TEST_DATABASE_URL or testcontainers, one database per test
 internal/testutil/ghfake/  in-memory fake of the GitHub API with inspection and payload builders
 internal/testutil/oidcfake/ fake OIDC issuer and runner token endpoint
@@ -549,9 +549,15 @@ as the stack's `stacks.state_object` from an accepted apply or drift
 result, manual runs included and whatever the outcome, since a job that
 reports one got past init; never from a plan result or a graph upload. A
 refused or repeated result records nothing, and neither does a result of
-a run older than the run that recorded the current object. An object
-without a bucket or key, or a store error, is logged without failing the
-result.
+a run older than the run that recorded the current object. With a
+`runs.StateReader`, an object that `StateReader.Allows` refuses for the
+run's repository is not recorded either: `store.ClearStackStateObject`
+clears the stack's object instead, under the same run order, so reads
+answer `state_location_unknown` rather than serve an object the stack has
+left, and the location one repository reports is never another
+repository's state unless grants of different repositories overlap. An
+object without a bucket or key, one no grant of the repository covers, or
+a store error is logged at warn level without failing the result.
 
 `v1.StackOutputs` carries the root-module outputs of a stack: `repo`,
 `stack`, the state's `serial`, `lineage` and `terraform_version`,
@@ -797,10 +803,15 @@ order:
    shares nothing. `config.ReaderAllowed` must accept the reader; API keys
    skip it.
 4. Location. The stack's `stacks.state_object`, else
-   `state_location_unknown` (`principal.ErrConflict`); `stacks.backend` is
-   never read.
-5. Read. `StateReader.Read`; its sentinels map to
-   `state_bucket_not_allowed` and `state_access_denied`
+   `state_location_unknown` (`principal.ErrConflict`), whose message says
+   whether no job reported an object or the last report was cleared as not
+   granted (`stacks.state_object_at` set); `stacks.backend` is never read.
+5. Read. `StateReader.Read` for the producer's repository, which refuses a
+   location no grant of that repository, or of `*`, covers with
+   `stateread.ErrNotAllowed` before any request to S3; that is
+   `state_bucket_not_allowed` (`principal.ErrForbidden`), audited as a
+   refusal and logged at warn level with the repository, stack, bucket and
+   key. Its other sentinels map to `state_access_denied`
    (`principal.ErrForbidden`), `state_not_found` (`principal.ErrNotFound`),
    and `state_encrypted`, `state_unsupported`, `state_too_large` and
    `state_unreadable` (`principal.ErrUnprocessable`); any other error is
@@ -815,10 +826,11 @@ naming the files to edit, as does any reader of that repository when the
 policy does not resolve; across repositories every refusal of steps 2 and 3
 is `not_found` with one message for every cause. Reads are audited as
 `outputs_read` with the number of outputs served, sensitive outputs served
-and outputs withheld, and refusals of steps 1 to 4 as `outputs_refused`
-with the code as `reason`; `details.repo` is the producer when the caller
-may see it, else the caller's repository, so the producer's organisation
-sees reads of its stacks. Names the caller sent (repository, stack, reader,
+and outputs withheld, and refusals of steps 1 to 4, and of step 5 for a
+location no grant covers, as `outputs_refused` with the code as `reason`;
+`details.repo` is the producer when the caller may see it, else the
+caller's repository, so the producer's organisation sees reads of its
+stacks. Names the caller sent (repository, stack, reader,
 run id) are cut to 256 bytes in the audit row and its target. Nothing read
 from a state object is stored, cached or logged.
 
@@ -903,7 +915,7 @@ as `other`.
 | `STACKORDER_OIDC_AUDIENCE` | Default `STACKORDER_BASE_URL` |
 | `STACKORDER_REQUIRED_WORKFLOW_REF` | Optional glob pinning `job_workflow_ref`, validated at start-up |
 | `STACKORDER_ARTIFACT_BUCKET`, `STACKORDER_ARTIFACT_PREFIX` | Optional S3 bucket (and key prefix) for full plan text |
-| `STACKORDER_STATE_BUCKETS` | Comma-separated `bucket` or `bucket/prefix` entries whose state objects the server may read to serve stack outputs; unset turns shared outputs off |
+| `STACKORDER_STATE_BUCKETS` | Comma-separated `owner/repo=bucket` or `owner/repo=bucket/prefix` entries, `*` in place of `owner/repo` for every repository: the state objects the server may read to serve the stack outputs of each repository; unset turns shared outputs off |
 | `STACKORDER_STATE_ROLE_ARN` | Optional IAM role the server assumes to read those state objects; requires `STACKORDER_STATE_BUCKETS` |
 | `STACKORDER_SESSION_KEY` | 32 byte hex key for cookie signing; generated and logged as a warning when absent |
 | `STACKORDER_METRICS_TOKEN` | When set, `/metrics` requires this bearer token |
@@ -931,13 +943,21 @@ path-style addressing at that endpoint (LocalStack); the state reader's STS
 requests for `STACKORDER_STATE_ROLE_ARN` keep the SDK's own endpoint
 resolution (`AWS_ENDPOINT_URL_STS`), so an S3 endpoint does not redirect the
 role assumption. Artifact URLs are `s3://bucket/key`. Each entry of
-`STACKORDER_STATE_BUCKETS` must be a valid S3 bucket name, optionally
-followed by `/` and a key prefix, `STACKORDER_STATE_ROLE_ARN` must be the
-ARN of one IAM role, and setting it without `STACKORDER_STATE_BUCKETS` is an
-error. With state buckets the server builds a `stateread.Reader` for the
-listed grants, assuming `STACKORDER_STATE_ROLE_ARN` when set, passes it to
-the run service and logs once at start-up, at info level, that shared
-outputs are on, with the number of grants, the entries and the role.
+`STACKORDER_STATE_BUCKETS` is a `stateread.Grant`: a repository, `owner/repo`
+compared without case or `*` alone for every repository, then `=` and a
+valid S3 bucket name, optionally followed by `/` and a key prefix without a
+`.` or `..` segment; a bare `bucket[/prefix]` entry is an error that shows
+the accepted forms. A prefix covers a key that equals it or continues it
+past a `/` boundary, so `stacks/prod` does not cover `stacks/production/x`.
+`STACKORDER_STATE_ROLE_ARN` must be the ARN of one IAM role, and setting it
+without `STACKORDER_STATE_BUCKETS` is an error. With state buckets the
+server builds a `stateread.Reader` for the listed grants, assuming
+`STACKORDER_STATE_ROLE_ARN` when set, passes it to the run service and logs
+once at start-up, at info level, that shared outputs are on, with the
+number of grants, the entries as `repository=bucket/prefix` and the role,
+then, at warn level, each pair of grants of different repositories that
+`stateread.Grant.Overlaps` finds, since the stacks of either repository
+can then be pointed at the objects both cover.
 `stackorder-server healthcheck` GETs `/healthz` on the
 listen port (an unspecified host maps to `127.0.0.1`) and exits 0 on 200,
 for container health checks in images without a shell; the Dockerfile
@@ -989,9 +1009,11 @@ whether a repository has a default-branch graph and whether it holds a local
 stack key. `stacks.state_object` (`v1.StateObject` as jsonb, with
 `state_object_run_id` and `state_object_at`) is where an apply or drift job of
 the newest run that reported one found the stack's state; only
-`store.SetStackStateObject` writes it, for apply and drift runs of the stack's
-repository, ignoring a late report from an older run. Saving a graph, which
-rewrites the PR-writable `stacks.backend` and `stacks.config`, leaves it alone.
+`store.SetStackStateObject` writes it, and `store.ClearStackStateObject`
+clears it for a report the run service may not record, both for apply and
+drift runs of the stack's repository, ignoring a late report from an older
+run. Saving a graph, which rewrites the PR-writable `stacks.backend` and
+`stacks.config`, leaves it alone.
 
 ## CLI environment
 

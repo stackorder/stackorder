@@ -51,11 +51,13 @@ type outputsRead struct {
 // the reader; refusals across repositories answer as if the stack did not
 // exist. An API key is an admin: it may name a run and a reader, which are
 // only checked for form, and reads whatever readers say. The state object
-// is the one an apply or drift job last reported for the stack, and
-// sensitive outputs are withheld, by name, unless outputs.sensitive is
-// share. Refusals are *principal.CodedError values or wrap the principal
-// sentinels; reads and refusals before the state is read are audited with
-// counts and names cut to a bounded length, never values.
+// is the one an apply or drift job last reported for the stack, recorded
+// and read only when a grant of the operator covers it for the producer's
+// repository, and sensitive outputs are withheld, by name, unless
+// outputs.sensitive is share. Refusals are *principal.CodedError values or
+// wrap the principal sentinels; reads, refusals before the state is read
+// and locations no grant covers are audited with counts and names cut to a
+// bounded length, never values.
 func (s *Service) StackOutputs(ctx context.Context, p principal.Principal, repo, key, runID, reader string) (*v1.StackOutputs, error) {
 	if s.state == nil {
 		return nil, &principal.CodedError{Kind: principal.ErrNotFound, Code: v1.ErrCodeOutputsDisabled,
@@ -67,7 +69,12 @@ func (s *Service) StackOutputs(ctx context.Context, p principal.Principal, repo,
 		s.auditOutputsRefused(ctx, r, err)
 		return nil, err
 	}
-	st, err := s.state.Read(ctx, loc)
+	st, err := s.state.Read(ctx, r.producer.FullName, loc)
+	if errors.Is(err, stateread.ErrNotAllowed) {
+		err = s.locationNotGranted(ctx, r, loc)
+		s.auditOutputsRefused(ctx, r, err)
+		return nil, err
+	}
 	if err != nil {
 		return nil, s.stateError(ctx, r, err)
 	}
@@ -98,8 +105,12 @@ func (s *Service) authorizeOutputs(ctx context.Context, r *outputsRead) (config.
 		return config.Effective{}, stateread.Location{}, err
 	}
 	if stack.StateObject == nil {
+		why := "the stack has had no apply or drift job on a CLI that reports its state object"
+		if stack.StateObjectAt != nil {
+			why = "its last apply or drift job reported a state object outside the buckets and prefixes this server may read for " + producer.FullName
+		}
 		return config.Effective{}, stateread.Location{}, &principal.CodedError{Kind: principal.ErrConflict, Code: v1.ErrCodeStateLocationUnknown,
-			Message: fmt.Sprintf("the server does not know where the state of %s is: the stack has had no apply or drift job on a CLI that reports its state object", r.key)}
+			Message: fmt.Sprintf("the server does not know where the state of %s is: %s", r.key, why)}
 	}
 	obj := stack.StateObject
 	return eff, stateread.Location{Bucket: obj.Bucket, Key: obj.Key, Region: obj.Region}, nil
@@ -292,7 +303,6 @@ var stateErrors = []struct {
 	code string
 	text string
 }{
-	{stateread.ErrNotAllowed, principal.ErrForbidden, v1.ErrCodeStateBucketNotAllowed, "the state object of %s lies outside the buckets this server may read"},
 	{stateread.ErrNotFound, principal.ErrNotFound, v1.ErrCodeStateNotFound, "the state object of %s does not exist"},
 	{stateread.ErrAccessDenied, principal.ErrForbidden, v1.ErrCodeStateAccessDenied, "the server is denied access to the state object of %s"},
 	{stateread.ErrEncrypted, principal.ErrUnprocessable, v1.ErrCodeStateEncrypted, "the state of %s is encrypted, and the server does not decrypt state"},
@@ -300,6 +310,13 @@ var stateErrors = []struct {
 	{stateread.ErrTooLarge, principal.ErrUnprocessable, v1.ErrCodeStateTooLarge, "the state of %s or its outputs exceed the server's limits"},
 	{stateread.ErrMalformed, principal.ErrUnprocessable, v1.ErrCodeStateUnreadable, "the server could not decode the state of %s"},
 	{stateread.ErrUnreadable, principal.ErrUnprocessable, v1.ErrCodeStateUnreadable, "the server could not read the state object of %s"},
+}
+
+func (s *Service) locationNotGranted(ctx context.Context, r *outputsRead, loc stateread.Location) error {
+	s.log.WarnContext(ctx, "refuse a state object no grant of its repository covers",
+		"repo", r.producer.FullName, "stack", auditField(r.key), "bucket", auditField(loc.Bucket), "key", auditField(loc.Key))
+	return &principal.CodedError{Kind: principal.ErrForbidden, Code: v1.ErrCodeStateBucketNotAllowed,
+		Message: fmt.Sprintf("the state object of %s lies outside the buckets and prefixes this server may read for %s", r.key, r.producer.FullName)}
 }
 
 func (s *Service) stateError(ctx context.Context, r *outputsRead, err error) error {

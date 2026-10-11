@@ -147,7 +147,7 @@ func TestReadOutputs(t *testing.T) {
 		"env:/blue/stacks/prod/apps/tofu.tfstate":     fixture(t, "tofu.tfstate"),
 		"stacks/prod/vpc/encrypted/terraform.tfstate": fixture(t, "tofu-encrypted.tfstate"),
 	})
-	grants, err := stateread.ParseGrants(bucket + "/stacks/prod/, " + bucket + "/env:/blue/")
+	grants, err := stateread.ParseGrants(producer + "=" + bucket + "/stacks/prod/, *=" + bucket + "/env:/blue/")
 	require.NoError(t, err)
 	r := newLocalReader(t, ep, grants)
 	tests := []struct {
@@ -159,7 +159,7 @@ func TestReadOutputs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.key, func(t *testing.T) {
-			st, err := r.Read(t.Context(), stateread.Location{Bucket: bucket, Key: tt.key, Region: "us-east-1"})
+			st, err := r.Read(t.Context(), producer, stateread.Location{Bucket: bucket, Key: tt.key, Region: "us-east-1"})
 			require.NoError(t, err)
 			assert.Equal(t, tt.terraformVersion, st.TerraformVersion)
 			assert.Equal(t, uint64(1), st.Serial)
@@ -167,43 +167,58 @@ func TestReadOutputs(t *testing.T) {
 		})
 	}
 
-	_, err = r.Read(t.Context(), stateread.Location{Bucket: bucket, Key: "stacks/prod/vpc/encrypted/terraform.tfstate"})
+	_, err = r.Read(t.Context(), producer, stateread.Location{Bucket: bucket, Key: "stacks/prod/vpc/encrypted/terraform.tfstate"})
 	require.ErrorIs(t, err, stateread.ErrEncrypted)
+
+	_, err = r.Read(t.Context(), "acme/network", stateread.Location{Bucket: bucket, Key: "stacks/prod/vpc/terraform.tfstate", Region: "us-east-1"})
+	require.ErrorIs(t, err, stateread.ErrNotAllowed, "the prefix is granted to %s only", producer)
+	st, err := r.Read(t.Context(), "acme/network", stateread.Location{Bucket: bucket, Key: "env:/blue/stacks/prod/apps/tofu.tfstate", Region: "us-east-1"})
+	require.NoError(t, err, "the wildcard grant covers every repository")
+	assert.Equal(t, "1.12.6", st.TerraformVersion)
 }
 
 func TestReadMissingObject(t *testing.T) {
 	ep, bucket := newBucket(t, "us-east-1", nil)
-	r := newLocalReader(t, ep, []stateread.Grant{{Bucket: bucket}, {Bucket: "acme-state-missing"}})
+	r := newLocalReader(t, ep, []stateread.Grant{{Repository: producer, Bucket: bucket}, {Repository: producer, Bucket: "acme-state-missing"}})
 
-	_, err := r.Read(t.Context(), stateread.Location{Bucket: bucket, Key: "stacks/prod/vpc/terraform.tfstate"})
+	_, err := r.Read(t.Context(), producer, stateread.Location{Bucket: bucket, Key: "stacks/prod/vpc/terraform.tfstate"})
 	require.ErrorIs(t, err, stateread.ErrNotFound)
 	assert.Contains(t, err.Error(), "s3://"+bucket+"/stacks/prod/vpc/terraform.tfstate")
 
-	_, err = r.Read(t.Context(), stateread.Location{Bucket: "acme-state-missing", Key: "terraform.tfstate"})
+	_, err = r.Read(t.Context(), producer, stateread.Location{Bucket: "acme-state-missing", Key: "terraform.tfstate"})
 	require.ErrorIs(t, err, stateread.ErrNotFound, "a missing bucket holds no state object")
 }
 
 func TestReadRefusesUngrantedBucketWithoutCallingS3(t *testing.T) {
 	const unreachable = "http://127.0.0.1:1"
 	rec := &recorder{}
-	r, err := stateread.New(t.Context(), []stateread.Grant{{Bucket: "acme-state", Prefix: "stacks/prod/"}},
+	r, err := stateread.New(t.Context(), []stateread.Grant{
+		{Repository: producer, Bucket: "acme-state", Prefix: "stacks/prod"},
+		{Repository: "acme/network", Bucket: "acme-state", Prefix: "stacks/network/"},
+	},
 		stateread.WithEndpoint(unreachable), stateread.WithRegion("us-east-1"),
 		stateread.WithStaticCredentials(accessKey, secretKey), stateread.WithHTTPClient(&http.Client{Transport: rec}))
 	require.NoError(t, err)
 
-	for _, loc := range []stateread.Location{
-		{Bucket: "acme-other", Key: "stacks/prod/vpc/terraform.tfstate"},
-		{Bucket: "acme-state", Key: "stacks/dev/vpc/terraform.tfstate"},
-		{Bucket: "acme-state", Key: "stacks/prod/../dev/terraform.tfstate"},
+	for _, read := range []struct {
+		repo string
+		loc  stateread.Location
+	}{
+		{producer, stateread.Location{Bucket: "acme-other", Key: "stacks/prod/vpc/terraform.tfstate"}},
+		{producer, stateread.Location{Bucket: "acme-state", Key: "stacks/dev/vpc/terraform.tfstate"}},
+		{producer, stateread.Location{Bucket: "acme-state", Key: "stacks/production/vpc/terraform.tfstate"}},
+		{producer, stateread.Location{Bucket: "acme-state", Key: "stacks/prod/../dev/terraform.tfstate"}},
+		{producer, stateread.Location{Bucket: "acme-state", Key: "stacks/network/vpc/terraform.tfstate"}},
+		{"acme/network", stateread.Location{Bucket: "acme-state", Key: "stacks/prod/vpc/terraform.tfstate"}},
 	} {
-		_, err := r.Read(t.Context(), loc)
-		require.ErrorIs(t, err, stateread.ErrNotAllowed, "s3://%s/%s", loc.Bucket, loc.Key)
+		_, err := r.Read(t.Context(), read.repo, read.loc)
+		require.ErrorIs(t, err, stateread.ErrNotAllowed, "s3://%s/%s for %s", read.loc.Bucket, read.loc.Key, read.repo)
 	}
 	assert.Empty(t, rec.seen(), "no request was sent")
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	_, err = r.Read(ctx, stateread.Location{Bucket: "acme-state", Key: "stacks/prod/vpc/terraform.tfstate"})
+	_, err = r.Read(ctx, producer, stateread.Location{Bucket: "acme-state", Key: "stacks/prod/vpc/terraform.tfstate"})
 	require.Error(t, err, "a granted location does reach the unreachable endpoint")
 	assert.NotErrorIs(t, err, stateread.ErrNotAllowed)
 	assert.NotEmpty(t, rec.seen())
@@ -212,9 +227,9 @@ func TestReadRefusesUngrantedBucketWithoutCallingS3(t *testing.T) {
 func TestReadUsesTheObjectRegion(t *testing.T) {
 	ep, bucket := newBucket(t, "eu-central-1", map[string][]byte{"terraform.tfstate": fixture(t, "terraform.tfstate")})
 	rec := &recorder{}
-	r := newLocalReader(t, ep, []stateread.Grant{{Bucket: bucket}}, stateread.WithHTTPClient(&http.Client{Transport: rec}))
+	r := newLocalReader(t, ep, []stateread.Grant{{Repository: producer, Bucket: bucket}}, stateread.WithHTTPClient(&http.Client{Transport: rec}))
 
-	st, err := r.Read(t.Context(), stateread.Location{Bucket: bucket, Key: "terraform.tfstate", Region: "eu-central-1"})
+	st, err := r.Read(t.Context(), producer, stateread.Location{Bucket: bucket, Key: "terraform.tfstate", Region: "eu-central-1"})
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff(fixtureOutputs(), st.Outputs))
 	assert.Equal(t, []string{"GET s3 eu-central-1 " + accessKey}, rec.seen(), "signed for the object's region, not the reader's us-east-1")
@@ -223,12 +238,12 @@ func TestReadUsesTheObjectRegion(t *testing.T) {
 func TestReadAssumesTheRole(t *testing.T) {
 	ep, bucket := newBucket(t, "us-east-1", map[string][]byte{"terraform.tfstate": fixture(t, "tofu.tfstate")})
 	rec := &recorder{}
-	r := newLocalReader(t, ep, []stateread.Grant{{Bucket: bucket}},
+	r := newLocalReader(t, ep, []stateread.Grant{{Repository: producer, Bucket: bucket}},
 		stateread.WithRoleARN("arn:aws:iam::000000000000:role/acme-stackorder-state"),
 		stateread.WithHTTPClient(&http.Client{Transport: rec}))
 
 	for range 2 {
-		st, err := r.Read(t.Context(), stateread.Location{Bucket: bucket, Key: "terraform.tfstate", Region: "us-east-1"})
+		st, err := r.Read(t.Context(), producer, stateread.Location{Bucket: bucket, Key: "terraform.tfstate", Region: "us-east-1"})
 		require.NoError(t, err)
 		assert.Equal(t, "1.12.6", st.TerraformVersion)
 	}

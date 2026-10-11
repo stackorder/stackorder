@@ -35,11 +35,13 @@
 // default-branch stackorder.yaml and the stack's .stackorder.yaml read at
 // the commit that configuration was read at, never from a graph or a pull
 // request; the state object is the one an apply or drift job last reported
-// for the stack, never its backend. A runner job reads as a stack of its
-// run whose job has not reported yet, bound as for its results. Across
-// repositories, which must share an installation, every refusal answers as
-// if the stack did not exist. Values are never stored, cached or logged;
-// the audit rows of reads and refusals hold counts and names only.
+// for the stack, never its backend, and is recorded and read only when a
+// grant of the operator covers it for the stack's repository. A runner job
+// reads as a stack of its run whose job has not reported yet, bound as for
+// its results. Across repositories, which must share an installation,
+// every refusal answers as if the stack did not exist. Values are never
+// stored, cached or logged; the audit rows of reads and refusals hold
+// counts and names only.
 //
 // # Consistency across workers and servers
 //

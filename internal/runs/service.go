@@ -141,10 +141,18 @@ type ArtifactStore interface {
 }
 
 // StateReader reads the root module outputs of a state object, for serving
-// a stack's outputs to the stacks that may read them. *stateread.Reader
-// satisfies it.
+// a stack's outputs to the stacks that may read them. Both methods take the
+// producer's repository: the operator grants each location to the
+// repositories whose stacks may have it read. *stateread.Reader satisfies
+// it.
 type StateReader interface {
-	Read(ctx context.Context, loc stateread.Location) (*stateread.State, error)
+	// Allows reports whether the stacks of repo may have loc read, as Read
+	// checks before it reads.
+	Allows(repo string, loc stateread.Location) bool
+	// Read returns the outputs of the state object at loc for a stack of
+	// repo, failing with stateread.ErrNotAllowed, before any request, for a
+	// location Allows refuses.
+	Read(ctx context.Context, repo string, loc stateread.Location) (*stateread.State, error)
 }
 
 // Option changes an optional part of a Service.
@@ -158,8 +166,10 @@ func WithEnqueue(fn EnqueueFunc) Option { return func(s *Service) { s.enqueue = 
 // only its beginning and a link in Postgres.
 func WithArtifactStore(a ArtifactStore) Option { return func(s *Service) { s.artifacts = a } }
 
-// WithStateReader makes StackOutputs serve stack outputs read through r. A
-// nil r, a nil *stateread.Reader included, turns the feature off, like
+// WithStateReader makes StackOutputs serve stack outputs read through r,
+// and makes RecordResult record only the state objects r.Allows for the
+// run's repository, clearing the stack's recorded location for any other.
+// A nil r, a nil *stateread.Reader included, turns the feature off, like
 // leaving the option out.
 func WithStateReader(r StateReader) Option {
 	return func(s *Service) {
