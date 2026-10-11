@@ -4,7 +4,7 @@ description: 'The Postgres schema behind the Stackorder server: graph, run, queu
 
 # Data model
 
-Postgres is the server's only stateful dependency. It holds the graphs, the run history, the locks, the audit log and the work queue. Nothing in it is needed to operate Terraform: wiping the database loses history and locks, never state. It also loses where each stack's state lives, so [shared outputs](/configuration/outputs) answer `state_location_unknown` for a stack until its next apply or drift job.
+Postgres is the server's only stateful dependency. It holds the graphs, the run history, the locks, the audit log and the work queue. Nothing in it is needed to operate Terraform, except by stacks that read [shared outputs](/configuration/outputs): wiping the database loses history and locks, never state. It also loses where each stack's state lives, so shared outputs answer `state_location_unknown` for a stack until its next apply or drift job, and the plans of the stacks that read its outputs fail until then.
 
 All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.id`, `modules.id`, `graphs.id`, `dispatches.id`) are UUIDs; `installations.id` and `repos.id` are GitHub's numeric ids. The schema is created by the migrations in `migrations/`, `0001_graph` to `0008_stack_state_object`.
 

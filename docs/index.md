@@ -7,7 +7,7 @@ titleTemplate: Terraform orchestration on GitHub Actions
 hero:
   name: Stackorder
   text: '<span class="visually-hidden">: </span>Terraform and OpenTofu orchestration on GitHub Actions'
-  tagline: Which stacks, in what order. Stackorder plans every stack a pull request affects and applies them in dependency waves on GitHub Actions. Open source, self-hosted, and the server holds no cloud credentials.
+  tagline: Which stacks, in what order. Stackorder plans every stack a pull request affects and applies them in dependency waves on GitHub Actions. Open source and self-hosted, and by default the server holds no cloud credentials.
   image:
     light: /mark-light.svg
     dark: /mark-dark.svg
@@ -33,11 +33,11 @@ features:
     link: /guide/how-it-works#waves
     linkText: Waves
   - title: A coordinator, not an executor
-    details: The server holds no cloud credentials, no state and no plan files with secrets. A compromised server can trigger workflows and post comments. It cannot touch infrastructure.
+    details: The server holds no state and no plan files with secrets. By default it holds no cloud credentials either, so a compromised server can trigger workflows and post comments but cannot touch infrastructure. Shared outputs, once turned on, let it read the state objects an operator lists, and the secrets in them, and choose the outputs the stacks that read them plan and apply with.
     link: /reference/security-model
     linkText: Security model
   - title: Degrade gracefully, never silently
-    details: If the server is down, pull request plans still run and are marked unconfirmed. Applies fail closed, so nobody mistakes a fallback for a green light.
+    details: If the server is down, pull request plans still run and are marked unconfirmed, except those of stacks that read shared outputs, which fail. Applies fail closed, so nobody mistakes a fallback for a green light.
     link: /operations/troubleshooting
     linkText: Failure handling
 ---

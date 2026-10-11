@@ -4,7 +4,7 @@ description: 'A checklist for hardening Stackorder: IAM trust policies pinned to
 
 # Security hardening
 
-Stackorder's design keeps the server away from your cloud: it holds no AWS credentials and never runs Terraform. What stops an unauthorised apply is GitHub's environment gate and the AWS trust policy, not the server. This page is the checklist that makes those controls tight. The reasoning behind each layer is on [Environments and authorization](/configuration/environments-and-authorization) and [Security model](/reference/security-model).
+Stackorder's design keeps the server away from your cloud: it never runs Terraform, and holds no AWS credentials for your infrastructure unless you turn on [shared outputs](#shared-outputs), which give it read access to the state objects you list. What stops an unauthorised apply is GitHub's environment gate and the AWS trust policy, not the server. This page is the checklist that makes those controls tight. The reasoning behind each layer is on [Environments and authorization](/configuration/environments-and-authorization) and [Security model](/reference/security-model).
 
 | Control | Where | Protects against |
 | --- | --- | --- |
@@ -12,6 +12,7 @@ Stackorder's design keeps the server away from your cloud: it holds no AWS crede
 | [Environment gates](#environments) | GitHub repository settings | An apply starting without a human or rule approving it |
 | [Provider credentials](#provider-credentials) | GitHub secrets | A plan, which runs pull request code, holding a token that can change infrastructure |
 | [Required workflow ref](#workflow-ref) | Server and AWS | A locally edited workflow posting results or assuming a role |
+| [Shared outputs](#shared-outputs) | AWS IAM, CloudTrail and server | A compromised server reading more state than the shared outputs need, unnoticed; a job reading as a stack it does not run |
 | [Metrics token](#metrics) | Server | Anyone on the network reading operational metrics |
 | [Branch protection](#branch-protection) | GitHub | Merging without plans, applies or reviews; editing the workflow files unreviewed |
 | [Server secrets and network](#server) | Your platform | Session forgery, webhook forgery, database exposure |
@@ -238,6 +239,63 @@ STACKORDER_REQUIRED_WORKFLOW_REF='stackorder/actions/.github/workflows/*.yml@ref
 
 With the [Terraform module](/operations/deploy-aws), set `required_workflow_ref`.
 
+## Shared outputs {#shared-outputs}
+
+[Shared outputs](/configuration/outputs) are off until `STACKORDER_STATE_BUCKETS` is set. Once they are on, the server's role can read the whole state objects under the listed buckets and prefixes, secrets included, though the server returns only their outputs, so whoever controls the server can read those objects too. [Security model](/reference/security-model#shared-outputs) has the whole trade. If you turn them on:
+
+- **List narrow prefixes.** Give each entry of `STACKORDER_STATE_BUCKETS`, or of the module's `shared_outputs_state`, the narrowest prefix that holds the state of the stacks that share outputs, never a whole bucket, and end it with `/`: prefixes compare as plain strings, so `stacks/prod` also covers `stacks/production/`. Keep the state of stacks that share nothing outside those prefixes.
+- **Read through a dedicated role.** Create a role that only reads state and that only the server's role may assume, and set it as `STACKORDER_STATE_ROLE_ARN`, or as `shared_outputs_role_arn` in the [module](/operations/deploy-aws#shared-outputs), which then grants the task role nothing but `sts:AssumeRole` on it. Give the role `s3:GetObject` on the prefixes, `s3:ListBucket` on each bucket limited to the same prefixes by `s3:prefix`, and `kms:Decrypt` on the state key only through S3, and nothing else: no `s3:PutObject`, no `s3:DeleteObject` and no access to a lock table. The server reads through it under the session name `stackorder-stateread`.
+- **Log the reads in AWS.** Turn on CloudTrail data events for the state buckets. The server's [audit log](/configuration/outputs#audit) records the reads it serves; CloudTrail records every read of the objects, a compromised server's included.
+- **Pin the workflow.** With [`STACKORDER_REQUIRED_WORKFLOW_REF`](#workflow-ref) set, the server accepts a read with a runner token only from a job of the canonical reusable workflows, so a copy of the workflow edited in a pull request cannot read outputs.
+- **Apply one stack per dispatch.** A dispatched apply job proves only that its reader is a stack of its dispatch. With `apply.max_parallel: 1` in `stackorder.yaml`, every dispatch holds one stack, so a read at apply time names its reader exactly. Each dispatch is gated on its own, so an environment with required reviewers then asks for one approval per stack. A pull request's plan jobs bind only to the repository; see [Who may read](/configuration/outputs#who-may-read).
+- **Keep API keys out of CI.** An API key is an administrator and reads the outputs of any stack, whatever its `readers`. In a Stackorder job the provider reads with the job's OIDC token and needs no key.
+
+The role's permissions, for state under `stacks/prod/` in `acme-tfstate`, encrypted with a KMS key:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::acme-tfstate/stacks/prod/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::acme-tfstate",
+      "Condition": {
+        "StringLike": { "s3:prefix": "stacks/prod/*" }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000",
+      "Condition": {
+        "StringEquals": { "kms:ViaService": "s3.eu-west-1.amazonaws.com" }
+      }
+    }
+  ]
+}
+```
+
+Its trust policy admits only the server's task role, `stackorder-task` with the module's default `name`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::123456789012:role/stackorder-task" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+```
+
 ## Metrics token {#metrics}
 
 `GET /metrics` is open unless `STACKORDER_METRICS_TOKEN` is set. The metrics carry no secrets, but they reveal activity, queue depth, GitHub rate limits and the server version. Set a token when the server is reachable from the internet:
@@ -278,10 +336,10 @@ On the default branch, with a branch protection rule or a ruleset:
 - **`STACKORDER_SESSION_KEY`**: set it (`openssl rand -hex 32`), share it between instances, and keep it in a secret store. Without it the server generates one per start.
 - **`GITHUB_WEBHOOK_SECRET`**: deliveries without a valid `X-Hub-Signature-256` are refused with `401`. Rotate it in the App settings and the server together.
 - **`GITHUB_APP_PRIVATE_KEY`**: the server's only credential towards GitHub. Rotate it in the App settings; runners never see it.
-- **API keys** see every repository and act as administrators. Create them only for automation that needs `apply --local` or `unlock`, one per use, and revoke them when unused. See [API keys](/reference/server-configuration#api-keys).
+- **API keys** see every repository and act as administrators, and read the [shared outputs](#shared-outputs) of every stack. Create them only for automation that needs `apply --local` or `unlock`, one per use, and revoke them when unused. See [API keys](/reference/server-configuration#api-keys).
 - **HTTPS**: terminate TLS in front of the server and use an `https` base URL, which also marks the session cookie `Secure`.
 - **Ingress**: GitHub webhooks and GitHub-hosted runners come from large, changing ranges. If your runners are self-hosted with fixed egress, the Terraform module's `github_webhook_ip_ranges_only` limits the load balancer to GitHub's webhook ranges plus `admin_cidrs`.
-- **Egress**: the server needs only the GitHub API, GitHub's OIDC keys, Postgres and, when enabled, the artifact bucket and the OTLP endpoint. See [Network](/reference/server-configuration#network).
+- **Egress**: the server needs only the GitHub API, GitHub's OIDC keys, Postgres and, when enabled, the artifact bucket, the OTLP endpoint, and the state buckets and STS of [shared outputs](#shared-outputs). See [Network](/reference/server-configuration#network).
 - **Database**: use TLS (`sslmode=require` or stricter) and a role that owns only the Stackorder database.
 
 ## Plan output {#plan-output}

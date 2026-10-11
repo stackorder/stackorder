@@ -40,12 +40,12 @@ To go back, deploy the previous image. The server never runs down migrations, so
 
 ## Backups {#backups}
 
-Postgres holds the graphs, the run history, the locks, drift results, sessions, API keys and the work queue. Terraform state is never there.
+Postgres holds the graphs, the run history, the locks, drift results, sessions, API keys, the work queue and where each stack's state object lives. Terraform state itself is never there.
 
 - **RDS or Aurora:** turn on automated backups with point-in-time recovery.
 - **Elsewhere:** use your platform's snapshots or `pg_dump` on a schedule.
 
-What a lost database costs you: history, drift results and locks. Plans and applies keep working against your S3 state once a new database is in place, because nothing in the server is needed to operate Terraform.
+What a lost database costs you: history, drift results, locks, and the state locations [shared outputs](/configuration/outputs#state-location) read from, which each stack's next apply or drift job records again. Plans and applies keep working against your S3 state once a new database is in place, because nothing in the server is needed to operate Terraform, except by stacks that read shared outputs: their plans fail until each producer's next apply or drift job records its state location again.
 
 ## Restoring {#restore}
 

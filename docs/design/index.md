@@ -23,6 +23,10 @@ The server has exactly two jobs:
 
 It is explicitly **not** a state backend, a module registry, a secrets store, a policy engine or a runner. State lives in the user's S3 bucket (with S3-native or DynamoDB locking), modules live in git, and Terraform runs on GitHub-hosted or self-hosted Actions runners under the user's own OIDC-federated AWS role.
 
+::: info Implementation note
+An operator can turn on a third job, off by default: [shared outputs](/configuration/outputs), where the server returns a stack's root-module outputs to the stacks that stack lists as readers on its default branch, so their roles need no access to its state. With `STACKORDER_STATE_BUCKETS` set, the server's AWS role can read the whole state objects under the listed buckets and prefixes, secrets included; the server keeps only the `outputs` block and stores, caches and logs nothing it reads. It still stores no state and never returns one. With the feature on, the last cell of the Stackorder column below reads as on the [comparison page](/guide/comparison#cloud-credentials-held-by-server).
+:::
+
 |  | HCP Terraform | Terrakube | Stategraph (formerly Terrateam) | Stackorder |
 | --- | --- | --- | --- | --- |
 | Where Terraform runs | HashiCorp-hosted VMs by default, or self-hosted agents | Its own executors: a pod pool, Kubernetes Jobs or self-hosted agents | Your GitHub Actions or GitLab CI runners | GitHub Actions |
@@ -46,6 +50,10 @@ Every design choice below follows from five principles.
 4. **One binary each side.** The server is one Go binary in one distroless image with an embedded web UI. The runner side is one Go CLI (`stackorder`) that the Actions wrap; the same CLI works on a laptop for `stackorder graph` and `stackorder affected`.
 5. **Degrade gracefully, never silently.** Any step that cannot reach the server falls back to a local decision and marks the run as `unconfirmed` in the check run, so nobody mistakes a fallback for a green light.
 
+::: info Implementation note
+With [shared outputs](/configuration/outputs) on, principle 1 holds only in part. The server still holds no plan files with secrets and stores no state, but its AWS role, or the role `STACKORDER_STATE_ROLE_ARN` names, can read the whole state objects under the buckets and prefixes of `STACKORDER_STATE_BUCKETS`, secrets included, though the server returns only their outputs, and it never writes them. A compromised server can then read those objects and the secrets in them, and answer reads of outputs with values of its choosing, which the reading stacks' plans and applies use, so it can reach infrastructure. A stack that reads shared outputs also needs the server to plan, so its plans fail while the server is down. Shared outputs are off by default. See [Security model](/reference/security-model#shared-outputs).
+:::
+
 Non-goals, deliberately:
 
 - Terraform state backend or state viewer. Use the S3 backend; Stackorder stores only the S3 key so it can render links.
@@ -54,6 +62,10 @@ Non-goals, deliberately:
 - Multi-VCS. GitHub only. The App, OIDC claims and check-run model are GitHub-specific and that is where the leverage comes from.
 - Long-lived agents or self-hosted runners managed by Stackorder. Use GitHub's own runner mechanisms.
 - Managing the AWS role. The user creates one OIDC-trusted role per environment; Stackorder only tells the workflow which stack is running.
+
+::: info Implementation note
+Stackorder is still neither a state backend nor a state viewer: no endpoint or page returns state. Besides the S3 key, it records where each stack's last apply or drift job found its state, and with [shared outputs](/configuration/outputs) on it reads that object to return the root-module outputs, never the state itself, and only to the stacks that stack lists as readers or to an API key.
+:::
 
 ## System overview
 
@@ -95,12 +107,16 @@ What crosses each boundary:
 - **Server to nothing else**: no outbound calls except `api.github.com` and Postgres. This is the property that keeps the Fargate task's security group and IAM role trivial.
 
 ::: info Implementation note
-The server also fetches GitHub's OIDC signing keys, from `https://token.actions.githubusercontent.com/.well-known/jwks` or `GITHUB_OIDC_JWKS_URL`, and, when they are configured, writes to the artifact bucket and exports traces to `OTEL_EXPORTER_OTLP_ENDPOINT`. See [Server configuration](/reference/server-configuration#network).
+The server also fetches GitHub's OIDC signing keys, from `https://token.actions.githubusercontent.com/.well-known/jwks` or `GITHUB_OIDC_JWKS_URL`, and, when they are configured, writes to the artifact bucket and exports traces to `OTEL_EXPORTER_OTLP_ENDPOINT`. With [shared outputs](/configuration/outputs) on, it also talks to AWS for the user: it reads the state objects under `STACKORDER_STATE_BUCKETS` from S3, through STS when `STACKORDER_STATE_ROLE_ARN` is set, so those objects leave the runner's zone; the server keeps only their `outputs` block and writes nothing back. See [Server configuration](/reference/server-configuration#network).
 :::
 
 ## Execution model
 
 Plans are triggered natively by GitHub on every PR push; applies are dispatched by the server one dependency wave at a time. That split is what lets the server stay small and lets plans keep working when it is down.
+
+::: info Implementation note
+A stack that reads [shared outputs](/configuration/outputs#consumer) calls the server from its plan, through the `stackorder` provider, so its plans stop working while the server is down.
+:::
 
 ```mermaid
 sequenceDiagram
@@ -262,6 +278,10 @@ Instances are declared in `.stackorder.yaml` or derived from var files; see [Sta
 
 Inferred edges are drawn dashed in the UI and carry `inferred: true`; a stack config can promote one to explicit or suppress it with `ignore_inferred`. No other inference is attempted (no parsing of `aws_ssm_parameter` lookups or the like); the aim is a graph people can predict.
 
+::: info Implementation note
+`reads_state` is also inferred from `data` and `ephemeral` `stackorder_outputs` blocks of [shared outputs](/configuration/outputs#ordering) whose `stack` is a literal naming another stack, of the same repository or, as `owner/repo//key`, of another one. Such an edge carries `source: stackorder_outputs` instead of a bucket and key.
+:::
+
 **Resolution, given a graph at SHA and a list of changed paths**
 
 1. Directly changed stacks: any changed path under a stack directory (every instance of that directory), after `ignore` globs (`README.md`, `*.md`, `.terraform.lock.hcl` are ignored by default only if `ignore_lockfile` is set). A file outside every stack directory that a stack names in its `backend_config` or `var_files` affects that stack too, with the reason `watch_path`.
@@ -302,7 +322,7 @@ One Go binary, one distroless image of roughly 30 MB, one Postgres database, and
 | `store` | `pgx` queries and `golang-migrate` migrations, run automatically at start-up with a migration lock. |
 
 ::: info Implementation note
-The implementation has more packages: `config`, `scan`, `graph`, `report`, `command`, `tf`, `client` and `cli` on the runner side; `store`, `gh`, `oidc`, `principal`, `runs`, `webhook`, `worker`, `sched`, `metrics`, `api`, `ui`, `artifacts` and `server` on the server side. `oidc` never compares the `sha` claim (see the OIDC claims below). `sched` also schedules the reconciliation every minute, the hourly prune and the daily installation sync. Runs can also be `superseded`, and stacks `unconfirmed`, `unknown` or `skipped`. See the [architecture contract](/design/architecture).
+The implementation has more packages: `config`, `scan`, `graph`, `report`, `command`, `tf`, `client` and `cli` on the runner side; `store`, `gh`, `oidc`, `principal`, `runs`, `webhook`, `worker`, `sched`, `metrics`, `api`, `ui`, `artifacts`, `stateread` and `server` on the server side. `oidc` never compares the `sha` claim (see the OIDC claims below). `sched` also schedules the reconciliation every minute, the hourly prune and the daily installation sync. Runs can also be `superseded`, and stacks `unconfirmed`, `unknown` or `skipped`. See the [architecture contract](/design/architecture).
 :::
 
 **Data model** (Postgres, all timestamps UTC)
@@ -324,10 +344,14 @@ The implementation has more packages: `config`, `scan`, `graph`, `report`, `comm
 | `sessions`, `api_keys` |  | Human and automation auth |
 
 ::: info Implementation note
-The schema stores a stack's backend as one `backend` jsonb column, edges by `from_key` and `to_key` so they can point at other repositories, and a ref-less `base_key` family row per module. It adds `graph_stacks`, `graph_modules`, `checks`, `dispatches`, `oidc_jtis` and `audit`, and the trigger `manual`. With the artifact bucket, Postgres keeps only the first 8 KB of plan text. See [Data model](/reference/data-model).
+The schema stores a stack's backend as one `backend` jsonb column, edges by `from_key` and `to_key` so they can point at other repositories, and a ref-less `base_key` family row per module. It adds `graph_stacks`, `graph_modules`, `checks`, `dispatches`, `oidc_jtis` and `audit`, and the trigger `manual`. `stacks.state_object` records where the stack's last apply or drift job found its state, which [shared outputs](/configuration/outputs#state-location) read from. With the artifact bucket, Postgres keeps only the first 8 KB of plan text. See [Data model](/reference/data-model).
 :::
 
 Plan text beyond 256 KB is truncated with a pointer to the Actions job log. An optional `STACKORDER_ARTIFACT_BUCKET` moves full plan text and JSON into an S3 bucket owned by the server's task role, with lifecycle expiry; this is the only optional AWS dependency and it is for Stackorder's own artifacts, never for Terraform state.
+
+::: info Implementation note
+[Shared outputs](/configuration/outputs) add a second optional AWS dependency, and that one is for Terraform state: with `STACKORDER_STATE_BUCKETS` set, the server reads the state objects under the listed buckets and prefixes, through `STACKORDER_STATE_ROLE_ARN` when it is set, and keeps only their outputs. See [Server configuration](/reference/server-configuration#shared-outputs).
+:::
 
 **API surface**
 
@@ -345,7 +369,7 @@ Plan text beyond 256 KB is truncated with a pointer to the Actions job log. An o
 | `GET /healthz`, `GET /readyz`, `GET /metrics` | ALB, Prometheus | Liveness, readiness (DB reachable), metrics |
 
 ::: info Implementation note
-Stack keys in runner paths are percent-encoded (`{key}`). `GET /v1/runs/{id}` also accepts runner tokens. `POST /v1/unlock` releases a lock by repository and stack key, and the human API has more endpoints: `/v1/me`, `/v1/overview`, `/v1/repos`, the repository runs and stacks, modules, `/v1/runs/{id}/rerun` and `/v1/audit`. See [API](/reference/api).
+Stack keys in runner paths are percent-encoded (`{key}`). `GET /v1/runs/{id}` also accepts runner tokens. `POST /v1/unlock` releases a lock by repository and stack key, and the human API has more endpoints: `/v1/me`, `/v1/overview`, `/v1/repos`, the repository runs and stacks, modules, `/v1/runs/{id}/rerun` and `/v1/audit`. Runners and API keys read a stack's [shared outputs](/configuration/outputs) with `GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs`. See [API](/reference/api).
 :::
 
 Metrics worth having from day one: runs by status and trigger, plan and apply duration per stack, drifted stacks gauge, locks held gauge, webhook lag, GitHub API rate-limit remaining. Traces are OpenTelemetry with the run id as a span attribute so a run can be followed from webhook to check run.
@@ -365,7 +389,7 @@ The metric names are listed on [Metrics and tracing](/reference/metrics); spans 
 - Upgrades: migrations run at start-up under a lock; the previous image keeps serving until the new task passes `/readyz`.
 
 ::: info Implementation note
-The image is built on `gcr.io/distroless/static:nonroot` and declares `HEALTHCHECK CMD ["/stackorder-server", "healthcheck"]`. The server also reads `STACKORDER_LISTEN`, `GITHUB_WEB_URL`, `GITHUB_OIDC_ISSUER`, `GITHUB_OIDC_JWKS_URL`, `STACKORDER_ARTIFACT_PREFIX`, `STACKORDER_SESSION_KEY`, `STACKORDER_METRICS_TOKEN`, the three retention durations, `STACKORDER_WORKERS`, the log settings and `OTEL_EXPORTER_OTLP_ENDPOINT`; without the App variables it starts in setup mode. The Terraform module's task egress is HTTPS to anywhere, through NAT or, with `public_tasks`, from the tasks' public IPs, since security groups cannot name hosts. See [Server configuration](/reference/server-configuration).
+The image is built on `gcr.io/distroless/static:nonroot` and declares `HEALTHCHECK CMD ["/stackorder-server", "healthcheck"]`. The server also reads `STACKORDER_LISTEN`, `GITHUB_WEB_URL`, `GITHUB_OIDC_ISSUER`, `GITHUB_OIDC_JWKS_URL`, `STACKORDER_ARTIFACT_PREFIX`, `STACKORDER_SESSION_KEY`, `STACKORDER_METRICS_TOKEN`, the three retention durations, `STACKORDER_WORKERS`, the log settings, `OTEL_EXPORTER_OTLP_ENDPOINT`, and `STACKORDER_STATE_BUCKETS` and `STACKORDER_STATE_ROLE_ARN` for [shared outputs](/configuration/outputs); without the App variables it starts in setup mode. With shared outputs on, the Terraform module grants the task role read access to the listed state objects, or only `sts:AssumeRole` on the state role. The Terraform module's task egress is HTTPS to anywhere, through NAT or, with `public_tasks`, from the tasks' public IPs, since security groups cannot name hosts. See [Server configuration](/reference/server-configuration).
 :::
 
 ## The GitHub App
@@ -439,7 +463,7 @@ All runner-side logic lives in one static Go binary, `stackorder`, and the Actio
 | `stackorder unlock` | Not used | Releases an orchestration lock through the API, audited |
 
 ::: info Implementation note
-The CLI also has `check` and `version`. The `plan` and `apply` actions upload and download the plan artifact; the CLI does neither. `apply` in CI checks the run's SHA against the dispatch's `sha` input and the checkout's `HEAD`. On a laptop, `plan` and `drift` report to the server only when a server, a run id and `STACKORDER_API_KEY` are all set, and `stackorder unlock` needs an API key. See [CLI](/reference/cli).
+The CLI also has `check` and `version`. The `plan` and `apply` actions upload and download the plan artifact; the CLI does neither. `apply` in CI checks the run's SHA against the dispatch's `sha` input and the checkout's `HEAD`. On a laptop, `plan` and `drift` report to the server only when a server, a run id and `STACKORDER_API_KEY` are all set, and `stackorder unlock` needs an API key. `resolve` also parses `stackorder_outputs` blocks, and the result of a stack with an `s3` backend reports the S3 object that held its state. See [CLI](/reference/cli).
 :::
 
 The CLI detects the tool from `tool: terraform` or `tool: tofu` in the stack config and expects that binary on `PATH`; installing it is left to `hashicorp/setup-terraform` or `opentofu/setup-opentofu` in the workflow, both of which are already JavaScript actions. Provider plugins are cached with `actions/cache` keyed on `.terraform.lock.hcl`.
@@ -477,7 +501,7 @@ Both reusable workflows require `server-url`. `plan.yml` also takes `aws-region`
 Hooks: if `.stackorder/hooks/pre-plan.sh`, `post-plan.sh`, `pre-apply.sh` or `post-apply.sh` exist in the repo, the reusable workflow runs them with `STACKORDER_STACK`, `STACKORDER_STACK_PATH`, `STACKORDER_INSTANCE`, `STACKORDER_RUN_ID` and `STACKORDER_PLAN_JSON` in the environment, plus the stack's configured `env` variables for the mode. This is where OPA, Checkov or Infracost run; each can post a named verdict with `stackorder check --name policy --status pass|fail --summary '…'`, which the server shows as its own check run on the stack and honours in the apply gate.
 
 ::: info Implementation note
-The CLI runs the hooks itself, in CI and locally, and also sets `STACKORDER_PLAN_FILE`; `STACKORDER_PLAN_JSON` and `STACKORDER_PLAN_FILE` are file paths. `stackorder check` also accepts `--status warn`.
+The CLI runs the hooks itself, in CI and locally, and also sets `STACKORDER_PLAN_FILE`, `STACKORDER_SERVER_URL` and `STACKORDER_REPOSITORY`; `STACKORDER_PLAN_JSON` and `STACKORDER_PLAN_FILE` are file paths. Terraform runs with the same variables except the two plan paths, which is how the `stackorder` provider of [shared outputs](/configuration/outputs#consumer) finds the server, the run and the reading stack. `stackorder check` also accepts `--status warn`.
 :::
 
 **Authentication to the server with GitHub OIDC.** The CLI requests an ID token from the runner (`ACTIONS_ID_TOKEN_REQUEST_URL`) with `audience` set to the server's base URL and sends it as a bearer token. The server verifies the signature against GitHub's JWKS and then binds the request to the run using the claims:
@@ -550,6 +574,10 @@ The design goal is that no single compromise reaches infrastructure: the server 
 | A modified workflow in a PR | Change what runs in the plan job on that PR | Post results the server accepts, when `STACKORDER_REQUIRED_WORKFLOW_REF` pins the reusable workflow; assume the AWS role, when the role's trust policy pins `job_workflow_ref` or the environment |
 | A leaked App private key | Everything the server can | Everything the server cannot; rotate in the App settings and redeploy |
 
+::: info Implementation note
+With [shared outputs](/configuration/outputs) on, the server is no longer without cloud access: its role can read the whole state objects under the buckets and prefixes of `STACKORDER_STATE_BUCKETS`, and so can whoever compromises it, along with any secret in them and whatever those secrets open. It can also answer reads of outputs with values of its choosing, which the reading stacks' plans and applies use; an ephemeral read is made again at apply time, so a reviewed plan does not show the values its apply uses. With the feature on, the design goal that no single compromise reaches infrastructure no longer holds. It still cannot write state while its role grants only reads, nor assume the roles the jobs use. A leaked App private key does not reach the state, which takes the server's AWS role. The trade, and the narrow grant, CloudTrail data events and other controls that bound it, are on [Security model](/reference/security-model#shared-outputs).
+:::
+
 **Controls that belong to GitHub, not to Stackorder**
 
 - Branch protection requires the `stackorder/plan` and `stackorder/apply` checks and the configured approvals; Stackorder only reports, GitHub enforces the merge.
@@ -565,7 +593,15 @@ The CLI does not use a list of the runner's secret patterns. It redacts everythi
 
 **Data retention.** Plan text is kept 30 days by default, summaries and run history indefinitely, events 7 days, drift history 90 days. All are configurable; nothing in the server is needed to operate Terraform, so wiping the database loses history and locks but never state.
 
+::: info Implementation note
+Wiping the database also loses where each stack's state lives, so [shared outputs](/configuration/outputs#state-location) answer `state_location_unknown` for a stack until its next apply or drift job, and the plans of the stacks that read its outputs fail until then: for those stacks, the server is needed to operate Terraform.
+:::
+
 **Availability and failure modes.** The server is not in the path of `terraform plan`, so a server outage degrades to plans with `unconfirmed` checks and refused applies. Postgres is the only stateful dependency; point-in-time recovery on RDS covers it. If GitHub webhooks are delayed, the 60-second `workflow_run` reconciliation catches finished waves. If GitHub Actions itself is down, nothing runs, exactly as with any Actions-based tool.
+
+::: info Implementation note
+A stack that reads [shared outputs](/configuration/outputs#consumer) is the exception: its provider calls the server during `terraform plan`, so its plan fails while the server is unreachable instead of degrading to `unconfirmed`.
+:::
 
 **Abuse limits.** Comment commands are rate-limited per PR (10 per minute) and ignored from users without write access; webhook deliveries are deduplicated by id; the API refuses OIDC tokens older than 10 minutes and any token whose `run_id` the server has already seen complete.
 
@@ -699,6 +735,10 @@ As written, the two files do not run: both reusable workflows require `server-ur
 Branch protection on the default branch requires the `stackorder/plan` and `stackorder/apply` checks. The plan role needs read access to state and the read-only permissions the providers need to plan; the apply role has the write permissions. Both trust the GitHub OIDC provider with `sub` restricted to the repo and, for apply, the environment.
 
 **S3 backend.** Each stack's `backend "s3"` block is the source of truth for its state location. The CLI reads `bucket`, `key` and `region` from it, both to run `init` and to report them to the server so the UI can link a stack to its state object. With Terraform or OpenTofu 1.10 and later, `use_lockfile = true` gives S3-native locking with no DynamoDB table; older versions keep using `dynamodb_table`. Stackorder never touches either lock; its own orchestration lock sits above them.
+
+::: info Implementation note
+With every result of a stack whose backend `init` recorded as `s3`, with a bucket and a key, the CLI also reports the S3 object that held the stack's state after `init` and workspace selection, and the server records it from apply and drift results only. [Shared outputs](/configuration/outputs#state-location) read the state from there, never from the location the graph carries.
+:::
 
 ## Delivery plan and open questions
 
