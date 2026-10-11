@@ -7,7 +7,7 @@ description: 'What Stackorder is and is not: a GitHub App and a small server tha
 
 Stackorder decides **which** Terraform or OpenTofu stacks a change affects and **in what order** to apply them. GitHub Actions does all of the running.
 
-It is a GitHub App plus a small control-plane server. Execution, credentials, state and modules stay inside your GitHub organization or personal account and your AWS account. The server receives metadata and redacted, size-capped plan text, never cloud credentials or Terraform state.
+It is a GitHub App plus a small control-plane server. Execution, credentials, state and modules stay inside your GitHub organization or personal account and your AWS account. The server receives metadata and redacted, size-capped plan text, never cloud credentials. It stores no Terraform state, and reads none unless an operator turns on [shared outputs](/configuration/outputs): its AWS role can then read the state objects the operator lists, from which the server returns only the root-module outputs, to the stacks each producer lists as readers and to API keys. [Who may read](/configuration/outputs#who-may-read) says what the server can prove about a reader.
 
 ::: info About these pages
 The guide, configuration, reference and operations pages describe the code as released. The [design document](/design/) explains why it works this way, with implementation notes where the code departs from it, and the [architecture contract](/design/architecture) pins the names and shapes.
@@ -15,10 +15,12 @@ The guide, configuration, reference and operations pages describe the code as re
 
 ## The two jobs of the server
 
-The server does exactly two things.
+The server does two things.
 
 1. **Dependency resolution.** It holds the graph of stacks, shared modules and the edges between them. For a change it computes the affected set, orders applies into waves, and serializes conflicting work with stack-level locks.
 2. **Observability.** It records every plan and apply per stack and per commit, surfaces drift, and shows the dependency graph and which stacks consume each module at which version. All of it is available through a small web UI, a JSON API and Prometheus metrics.
+
+An operator can add a third, off by default: [shared outputs](/configuration/outputs), where the server returns a stack's root-module outputs to the stacks that stack lists as readers, so their roles need no access to its state.
 
 <Screenshot
   name="ui-overview"
@@ -34,7 +36,7 @@ Stackorder is deliberately not a state backend, a module registry, a secrets sto
 
 | Not a | Use instead |
 | --- | --- |
-| State backend or state viewer | The S3 backend, with S3-native or DynamoDB locking. Stackorder stores only the S3 key so it can link to it. |
+| State backend or state viewer | The S3 backend, with S3-native or DynamoDB locking. Stackorder stores only where each stack's state lives, to link to it and, with [shared outputs](/configuration/outputs) on, to serve the stack's root-module outputs to the stacks it lists as readers. It never stores or shows the state itself. |
 | Module registry | Git or local paths. Stackorder indexes module references; it does not host code. |
 | Policy engine | OPA or conftest, Checkov, Infracost or any other tool as a step in the plan job. Stackorder records the verdict as a named check on the stack. |
 | Runner | GitHub-hosted or self-hosted Actions runners, under your own OIDC-federated AWS role. |
@@ -54,7 +56,7 @@ The execution model of Stategraph (formerly Terrateam), where Terraform runs on 
 | Module registry and tracking | Built-in private registry; the Explorer shows module usage | Built-in private module and provider registry | A module-aware indexer, off by default, plans the directories that use a changed local module | No registry; lists each module's consumers, and for git modules how many releases they are behind |
 | Runtime footprint | SaaS; self-hosted Terraform Enterprise runs containers with PostgreSQL, object storage and Vault | API, executor, registry, UI, Dex (with OpenLDAP by default), a Redis-compatible store, object storage and Postgres | Server + Postgres behind a public HTTPS URL; Docker container action on the runner | One container + Postgres; non-Docker actions |
 | Cross-stack dependencies | Run triggers between workspaces; linked Stacks | Shared remote state in the stable 2.33 line; run triggers only in 2.34 pre-releases | Layered runs within one repository | A graph of stacks, modules and cross-repo edges; applies in waves |
-| Cloud credentials held by server | Yes: stored as variables, or short-lived per-run credentials through OIDC | Yes: stored as variables; with dynamic credentials it holds an OIDC signing key and mints tokens | No; they stay on the runner | No |
+| Cloud credentials held by server | Yes: stored as variables, or short-lived per-run credentials through OIDC | Yes: stored as variables; with dynamic credentials it holds an OIDC signing key and mints tokens | No; they stay on the runner | No; with shared outputs on, read access to the state objects an operator lists |
 
 The [comparison page](./comparison) goes through each row and links the source of every competitor claim, last reviewed 2026-09-30.
 

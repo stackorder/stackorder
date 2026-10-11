@@ -5,11 +5,11 @@ description: 'How Stackorder runs Terraform on GitHub Actions: resolve and plan 
 
 # How it works
 
-GitHub triggers plans natively on every pull request push. The server dispatches applies one dependency wave at a time. That split keeps the server small and keeps plans working when it is down.
+GitHub triggers plans natively on every pull request push. The server dispatches applies one dependency wave at a time. That split keeps the server small and keeps plans working when it is down, except those of stacks that read [shared outputs](/configuration/outputs) through it.
 
 ## System overview {#system-overview}
 
-There are three trust zones, and only the GitHub zone touches the other two. The server exchanges metadata and redacted plan text with GitHub and with runner jobs. It never talks to AWS on your behalf.
+There are three trust zones, and by default only the GitHub zone touches the other two. The server exchanges metadata and redacted plan text with GitHub and with runner jobs. It never talks to AWS on your behalf, unless an operator turns on [shared outputs](/configuration/outputs): the server then reads the state objects the operator lists, to return their root-module outputs to the stacks that read them.
 
 ```mermaid
 flowchart TB
@@ -34,10 +34,11 @@ flowchart TB
   runner -->|"5 graph, results"| server
   runner -->|"6 assume role"| role
   runner -->|"7 state, lock"| s3
+  server -.->|"9 state, read-only, shared outputs only"| s3
   server --- db
 ```
 
-GitHub sends webhooks to the server (2). The server answers with workflow dispatches, check runs and PR comments (3). The runner job posts its manifest and results to the server with a GitHub OIDC token (5), and assumes your IAM role with the same OIDC issuer to reach state in S3 (6, 7). Engineers reach the web UI through GitHub OAuth (8).
+GitHub sends webhooks to the server (2). The server answers with workflow dispatches, check runs and PR comments (3). The runner job posts its manifest and results to the server with a GitHub OIDC token (5), and assumes your IAM role with the same OIDC issuer to reach state in S3 (6, 7). Engineers reach the web UI through GitHub OAuth (8). With shared outputs on, the server reads state objects from S3 and returns only their outputs to the jobs that read them (9).
 
 What crosses each boundary:
 
@@ -45,7 +46,8 @@ What crosses each boundary:
 | --- | --- |
 | GitHub to server | Webhook payloads (HMAC-signed) and, from runners, JSON manifests and result summaries. No repository contents beyond file paths and parsed dependency edges. |
 | Server to GitHub | Calls made with App installation tokens, scoped to one installation and expiring within an hour: `workflow_dispatch`, check runs and comments. |
-| Runner to AWS | Your role, assumed with `aws-actions/configure-aws-credentials` and a trust policy pinned to the repository and environment. State, lock and plan files never leave this zone. |
+| Runner to AWS | Your role, assumed with `aws-actions/configure-aws-credentials` and a trust policy pinned to the repository and environment. State, lock and plan files never leave this zone, except the state objects the server reads for shared outputs. |
+| Server to your state buckets | Only with [shared outputs](/configuration/outputs) on: reads of the state objects under the buckets and prefixes the operator lists, with the server's own role or one it assumes. The server keeps the `outputs` block, returns the outputs the producer shares to the reading job or API key, and writes nothing back. See [Security model](/reference/security-model#shared-outputs). |
 | Server to anything else | Nothing, except Postgres, GitHub's OIDC signing keys, and, when enabled, an S3 bucket for the server's own plan text and an OTLP endpoint for traces. This keeps the server's network rules and IAM role trivial. |
 
 ## Execution model {#execution-model}
@@ -205,7 +207,7 @@ A run is `planned` when every stack is `planned`, `noop` or `skipped`, and `appl
 | --- | --- |
 | Plan fails on one stack | Other stacks continue; the roll-up check is red; apply is refused until it is fixed. |
 | Apply fails in wave n | Unrelated stacks in wave n finish; dependents are blocked; the run fails; locks are held. |
-| Server unreachable during plan | The CLI computes the affected set locally, plans, and sets a neutral `unconfirmed` check with `GITHUB_TOKEN`; apply is refused. |
+| Server unreachable during plan | The CLI computes the affected set locally, plans, and sets a neutral `unconfirmed` check with `GITHUB_TOKEN`; apply is refused. A stack that reads [shared outputs](/configuration/outputs#consumer) fails its plan instead, since its provider needs the server. |
 | Server unreachable during apply | The CLI cannot confirm the lock and refuses to apply (fail closed). |
 | Webhook lost | Every minute the server reconciles open dispatches with GitHub: it resends dispatches GitHub never accepted, binds workflow runs by their title, and marks stacks `unknown` whose dispatch no workflow run picked up within 30 minutes or whose workflow run ended without reporting. The CLI's result call is the source of truth. |
 | Runner dies mid-apply | The stack is marked `unknown`; the S3 lock is left as is; a human runs `stackorder unlock --force-state`. |

@@ -18,7 +18,7 @@ If you are not sure which repository is affected, use stackorder/stackorder. The
 Include as much of this as you can:
 
 - The version: the release tag or image tag of the server and the CLI, and the `stackorder/actions` ref your workflows call.
-- The deployment: the Terraform module, the container on another platform, or Docker Compose, and any settings that matter, such as `STACKORDER_REQUIRED_WORKFLOW_REF` or the artifact bucket.
+- The deployment: the Terraform module, the container on another platform, or Docker Compose, and any settings that matter, such as `STACKORDER_REQUIRED_WORKFLOW_REF`, the artifact bucket or the state buckets of shared outputs.
 - Steps to reproduce, with the smallest `stackorder.yaml`, workflow files or requests that show the problem.
 - The impact: what an attacker can read or change, and what access they need to start with.
 
@@ -32,13 +32,13 @@ In scope:
 - The Terraform deployment module in `deploy/terraform`.
 - The workflows and actions in [`stackorder/actions`](https://github.com/stackorder/actions).
 
-A good report shows one of these doing something the [security model](https://docs.stackorder.io/reference/security-model) says it cannot, for example a compromised server reaching Terraform state or an AWS role, a runner token accepted for a run it does not belong to, or a secret that the CLI should have redacted reaching the server.
+A good report shows one of these doing something the [security model](https://docs.stackorder.io/reference/security-model) says it cannot, for example a compromised server writing Terraform state, reading it without shared outputs on, or assuming the AWS role of a job; the server reading a state object outside `STACKORDER_STATE_BUCKETS`, or answering a read of outputs that [Who may read](https://docs.stackorder.io/configuration/outputs#who-may-read) says it refuses; a runner token accepted for a run it does not belong to; or a secret that the CLI should have redacted reaching the server.
 
 Out of scope:
 
 - Vulnerabilities in Terraform, OpenTofu, providers, GitHub, GitHub Actions or AWS themselves. Report those to their maintainers.
 - Findings that require an attacker who already controls a GitHub organisation owner account or the AWS account.
-- What the security model already lists as possible for a compromised party, such as a compromised server dispatching workflows and posting comments, or a PR author with write access adding a stack that nothing maps to a protected environment. A way to go beyond those limits is in scope.
+- What the security model already lists as possible for a compromised party, such as a compromised server dispatching workflows and posting comments, or reading the state objects an operator granted it for shared outputs, or a PR author with write access adding a stack that nothing maps to a protected environment. A way to go beyond those limits is in scope.
 - Deployments that leave out the controls the [security hardening](https://docs.stackorder.io/operations/security-hardening) guide describes, such as trust policies pinned to the environment, unless Stackorder's own documentation led to the gap.
 
 ## What happens next

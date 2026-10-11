@@ -21,7 +21,7 @@
   <a href="https://github.com/stackorder/stackorder/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/stackorder/stackorder/actions/workflows/ci.yml/badge.svg"></a>
 </p>
 
-Stackorder plans every stack a pull request affects and applies them in dependency waves on your GitHub Actions runners. Its server never holds cloud credentials or state.
+Stackorder plans every stack a pull request affects and applies them in dependency waves on your GitHub Actions runners. Its server stores no state, and holds no cloud credentials unless you turn on shared outputs.
 
 <p align="center">
   <picture>
@@ -38,14 +38,16 @@ Stackorder plans every stack a pull request affects and applies them in dependen
 
 ## What it does
 
-Stackorder is a GitHub App plus a small control-plane server that decides **which** stacks to run and **in what order**, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay inside your GitHub organization or personal account and your AWS account; the server receives metadata and redacted, size-capped plan text, never cloud credentials or Terraform state.
+Stackorder is a GitHub App plus a small control-plane server that decides **which** stacks to run and **in what order**, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay inside your GitHub organization or personal account and your AWS account; the server receives metadata and redacted, size-capped plan text, never cloud credentials. It stores no Terraform state, and reads none unless an operator turns on [shared outputs](docs/configuration/outputs.md), which let its AWS role read the state objects the operator lists.
 
-The server has exactly two jobs:
+The server has two jobs:
 
 - **Dependency resolution.** It holds the graph of stacks, shared modules and the edges between them. From that graph it computes the affected set for a change, orders applies into waves, and serializes conflicting work with stack-level locks.
 - **Observability.** It records every plan and apply per stack and per commit, surfaces drift, and shows the dependency graph and which stacks consume each module at which version. All of this is exposed through a small web UI, a JSON API and Prometheus metrics.
 
-It is deliberately **not** a state backend, module registry, secrets store, policy engine or runner. State stays in your S3 bucket, modules stay in git, and Terraform runs on your Actions runners under your own OIDC-federated AWS role.
+An operator can add a third, off by default: with [shared outputs](docs/configuration/outputs.md), a stack reads another stack's root-module outputs through the server, once that stack lists it as a reader on its default branch, so the reading stack's role needs no access to the other stack's state.
+
+It is deliberately **not** a state backend, module registry, secrets store, policy engine or runner. State stays in your S3 bucket, modules stay in git, and Terraform runs on your Actions runners under your own OIDC-federated AWS role. Shared outputs return a stack's outputs, never its state.
 
 ## How it compares
 
@@ -55,13 +57,13 @@ It is deliberately **not** a state backend, module registry, secrets store, poli
 | State backend | Bring your own; any except local state | Built in | Built in | Bring your own | Bring your own S3 |
 | Runtime footprint | One Go binary or container, no external database; a persistent disk for plans and locks, or Redis for locks | SaaS, or self-hosted Terraform Enterprise | API, executor, registry, UI, Dex, Redis-compatible store, object storage, Postgres | Server + Postgres; Docker action on the runner | One container + Postgres; non-Docker actions |
 | Cross-stack dependencies | `execution_order_group` and `depends_on` within one `atlantis.yaml` | Run triggers; linked Stacks | Shared remote state; run triggers only in 2.34 pre-releases | Layered runs within one repository | A graph of stacks, modules and cross-repo edges; applies in waves |
-| Server holds cloud creds | Yes: the server runs Terraform | Yes: stored, or short-lived per run through OIDC | Yes: stored, or mints OIDC tokens | No | No |
+| Server holds cloud creds | Yes: the server runs Terraform | Yes: stored, or short-lived per run through OIDC | Yes: stored, or mints OIDC tokens | No | No; with shared outputs on, read access to the state objects you list |
 
 Last reviewed 2026-09-30. The [comparison page](docs/guide/comparison.md) cites a source for every HCP Terraform, Terrakube and Stategraph claim, and [Stackorder vs Atlantis](https://stackorder.io/compare/atlantis/) cites the Atlantis column. The [full comparison](https://stackorder.io/compare/) also covers Spacelift, env zero, Scalr and OpenTaco.
 
 ## Design principles
 
-1. **The server coordinates; it never executes.** It holds no cloud credentials, no state and no plan files with secrets. If it is compromised, the attacker can trigger workflows and post comments but cannot touch infrastructure. If it is down, PR plans still run and only applies pause.
+1. **The server coordinates; it never executes.** It holds no state and no plan files with secrets, and no cloud credentials unless an operator turns on shared outputs, which give its role read access to the state objects the operator lists, never write access. Without them, a compromised server can trigger workflows and post comments but cannot touch infrastructure. With them, it can also read those state objects and the secrets in them, and choose the output values that the reading stacks' plans and applies use, so a compromise can reach infrastructure. See the [security model](docs/reference/security-model.md#shared-outputs). If it is down, PR plans still run and only applies pause, except that a stack reading shared outputs cannot plan.
 2. **GitHub already provides most of the control plane.** OIDC, repo permissions, CODEOWNERS, environments, check runs, secrets and compute all come from GitHub. Stackorder adds only what GitHub lacks: a graph across stacks, modules and repos, and a record of what ran.
 3. **Heavy work happens on the runner.** HCL parsing, diffing, `terraform plan`, redaction and artifact upload all run in the Actions job. The server receives a small JSON manifest and returns decisions.
 4. **One binary on each side.** The server is one Go binary in a distroless image with an embedded web UI. The runner side is one Go CLI, `stackorder`, that also works locally.

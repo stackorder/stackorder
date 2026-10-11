@@ -128,7 +128,7 @@ Then sign in at `https://stackorder.example.com` with GitHub. The UI shows the r
 
 ## 4. Create the AWS roles {#aws-roles}
 
-Stackorder never holds AWS credentials. Each job assumes a role with its own GitHub OIDC token. You create a **plan role**, for pull request plans and for the plans and drift checks the server dispatches, and one **apply role per environment**.
+The Stackorder server holds no AWS credentials for your stacks: each job assumes a role with its own GitHub OIDC token. Only [shared outputs](/configuration/outputs), which are off by default, give the server read access to the state objects an operator lists. You create a **plan role**, for pull request plans and for the plans and drift checks the server dispatches, and one **apply role per environment**.
 
 If the account has no GitHub OIDC provider yet, create it:
 

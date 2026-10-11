@@ -4,16 +4,16 @@ description: 'Stackorder''s security model: what a compromised server, PR author
 
 # Security model
 
-No single compromise reaches infrastructure. The server has no cloud access, the runner has no server secrets, and GitHub's own controls gate the one action that changes anything.
+No single compromise reaches infrastructure while [shared outputs](#shared-outputs) are off, as they are by default. The server has no cloud access, the runner has no server secrets, and GitHub's own controls gate the one action that changes anything. Shared outputs are the one exception an operator can choose, and with them a compromised server can reach infrastructure: they give it read access to the state objects the operator lists, and so to any secret in them and whatever those secrets reach, and they let it choose the output values that the reading stacks' plans and applies use. An ephemeral read is made again at apply time, so a reviewed plan does not show the values its apply uses.
 
 ## What each party can do if compromised {#compromise}
 
 | Compromised | Can | Cannot |
 | --- | --- | --- |
-| Stackorder server | Dispatch `stackorder-run.yml` in installed repos, post checks and comments, read `stackorder.yaml`, read plan summaries and capped plan text, answer its own deployment protection rule where one is configured | Read or write Terraform state, assume any AWS role, change workflow files, read repo secrets, approve pull requests, pass an environment's required reviewers |
+| Stackorder server | Dispatch `stackorder-run.yml` in installed repos, post checks and comments, read `stackorder.yaml`, read plan summaries and capped plan text, answer its own deployment protection rule where one is configured; with [shared outputs](#shared-outputs) on, read the whole state objects its role may read, secrets included, and answer reads of outputs with values of its choosing, which the reading stacks' plans and applies use | Write Terraform state; read any without shared outputs, or beyond the objects its role may read with them; assume any AWS role other than the state role of shared outputs; change workflow files, read repo secrets, approve pull requests, pass an environment's required reviewers |
 | A PR author with write access | Trigger plans on their PR, comment `stackorder apply` if policy allows; add a stack or instance that nothing on the default branch maps, so that an instance applies under an unprotected environment of its own name and a stack without instances under `default`, which has no reviewers; only an [IAM trust policy pinned to the environment](/configuration/environments-and-authorization#instances) stops such an apply | Bypass required approvals, branch protection or GitHub environment reviewers; skip policy checks recorded on the stack |
 | A modified workflow in a PR | Change what runs in the plan job on that PR | Post results the server accepts, when `STACKORDER_REQUIRED_WORKFLOW_REF` pins the reusable workflow; assume the AWS role, when the role's trust policy pins `job_workflow_ref` or the environment |
-| A leaked App private key | Everything the server can | Everything the server cannot; rotate in the App settings and redeploy |
+| A leaked App private key | Everything the server can, except reading state for shared outputs, which takes the server's AWS role | Everything the server cannot; rotate in the App settings and redeploy |
 
 ## Setup {#setup}
 
@@ -47,8 +47,35 @@ Rotating anything means rotating the App's private key, which runners never see.
 | --- | --- |
 | GitHub to server | Webhook payloads (HMAC-signed); from runners, JSON manifests and result summaries. No repository contents beyond file paths and parsed dependency edges. |
 | Server to GitHub | App installation tokens, scoped to one installation and valid for an hour, used for `workflow_dispatch`, check runs and comments. |
-| Runner to AWS | Your role, assumed with `aws-actions/configure-aws-credentials` and a trust policy pinned to the repository and environment. State, lock and plan files never leave this zone. |
+| Runner to AWS | Your role, assumed with `aws-actions/configure-aws-credentials` and a trust policy pinned to the repository and environment. State, lock and plan files never leave this zone, except the state objects the server reads for [shared outputs](#shared-outputs). |
+| Server to your state buckets | Only with [shared outputs](#shared-outputs) on: `s3:GetObject` on the state objects under `STACKORDER_STATE_BUCKETS`, with the server's own role or the role `STACKORDER_STATE_ROLE_ARN` names, assumed through STS. The server keeps the `outputs` block in memory and returns the outputs the producer shares, with the state's serial, lineage and Terraform version, to the reading job or API key; nothing else of the object leaves the server, and nothing is written back. |
 | Server to anything else | Nothing, except Postgres, GitHub's OIDC signing keys, and, when enabled, the artifact bucket and the OTLP endpoint. |
+
+## Shared outputs {#shared-outputs}
+
+[Shared outputs](/configuration/outputs) let a stack read another stack's root-module outputs through the server, so the reading stack's role needs no access to the other stack's state. They are off by default, and whatever on this page does not name them describes a server without them. An operator turns them on with `STACKORDER_STATE_BUCKETS`, or the Terraform module's `shared_outputs_state`, and that moves read access to state from the reading stacks to the server:
+
+- **The reading stacks lose it.** With `terraform_remote_state`, every job that assumes the reading stack's role, pull request plans included, can read the producer's whole state object. With shared outputs that role needs no access to it, and the producer names its readers on its default branch.
+- **The server gains it.** Its AWS role, or the role `STACKORDER_STATE_ROLE_ARN` names, can read the whole state objects under the listed buckets and prefixes, secrets included. IAM grants whole objects: the filtering to outputs happens in the server, which keeps only the `outputs` block and stores, caches and logs nothing it reads.
+- **The server cannot write state.** It only reads state objects, and neither the grant the Terraform module creates nor the one [Security hardening](/operations/security-hardening#shared-outputs) recommends allows a write or a delete. It never takes the state lock and never decrypts state that OpenTofu encrypted.
+
+If the server is compromised while shared outputs are on, the attacker can, beyond the [table above](#compromise):
+
+- read every state object the server's credentials reach, and every secret in those objects, such as a database password or an access key a stack created, and use whatever those secrets open;
+- answer any read of outputs with values of its choosing, which the reading stack's plan, and the apply of that plan, then use; an [ephemeral `stackorder_outputs`](/configuration/outputs#consumer) is read again at apply time and kept out of the saved plan, so a reviewed plan does not show the values its apply uses.
+
+It still cannot write state while its role grants only reads, nor assume the roles your jobs use. These bound the exposure:
+
+| Control | Effect |
+| --- | --- |
+| Narrow prefixes, each ending in `/` and holding only the state of stacks that share outputs | Limits which state objects the server can read at all |
+| A dedicated role in `STACKORDER_STATE_ROLE_ARN`, with only `s3:GetObject` on those prefixes, `s3:ListBucket` limited to them by `s3:prefix`, and `kms:Decrypt` through S3 only | Limits what the server's credentials allow, whatever the server does |
+| CloudTrail data events on the state buckets | Records every read of the objects, including reads that leave no row in the server's own audit log, such as a compromised server's |
+| `STACKORDER_REQUIRED_WORKFLOW_REF` | Refuses reads by a copy of the workflow edited in a pull request |
+| `apply.max_parallel: 1` | Makes a read at apply time name its reader exactly, since each dispatch then holds one stack |
+| API keys kept out of CI | Keeps an administrator key, which reads the outputs of any stack whatever its `readers`, out of reach of the code a job runs |
+
+[Security hardening](/operations/security-hardening#shared-outputs) has the policies. A runner token does not prove which stack's job calls: within one repository, a pull request's plan jobs can read whatever is shared with any stack key of the repository. [Who may read](/configuration/outputs#who-may-read) says what the server can and cannot prove about a reader.
 
 ## Secrets in plan output {#plan-secrets}
 
@@ -66,7 +93,7 @@ Plan text is kept 30 days by default, summaries and run history indefinitely, qu
 
 ## Availability {#availability}
 
-The server is not in the path of `terraform plan`. A server outage degrades to plans with `unconfirmed` checks and refused applies. Postgres is the only stateful dependency; point-in-time recovery on RDS covers it. If GitHub webhooks are delayed, the reconciliation that runs every minute catches finished waves. If GitHub Actions is down, nothing runs, exactly as with any Actions-based tool.
+The server is not in the path of `terraform plan`, except for a stack that reads [shared outputs](/configuration/outputs#consumer): its provider calls the server during the plan, so the plan fails while the server is unreachable. Otherwise a server outage degrades to plans with `unconfirmed` checks and refused applies. Postgres is the only stateful dependency; point-in-time recovery on RDS covers it. If GitHub webhooks are delayed, the reconciliation that runs every minute catches finished waves. If GitHub Actions is down, nothing runs, exactly as with any Actions-based tool.
 
 ## Abuse limits {#abuse}
 

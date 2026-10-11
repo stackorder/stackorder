@@ -7,7 +7,7 @@ description: 'Why Stackorder runs nothing itself: how its design differs from HC
 
 This page explains where Stackorder's design differs and why it runs nothing itself. For which tool to pick, see [the full comparison with Atlantis, HCP Terraform, Spacelift, env zero, Scalr, Terrakube, Stategraph and OpenTaco](https://stackorder.io/compare/) on stackorder.io.
 
-Stackorder keeps the execution model of an Actions-based tool and shrinks everything else. The server coordinates and remembers; it never runs Terraform and never holds cloud credentials.
+Stackorder keeps the execution model of an Actions-based tool and shrinks everything else. The server coordinates and remembers; it never runs Terraform, and holds no cloud credentials unless an operator turns on shared outputs, which let it read the state objects the operator lists.
 
 ::: info Last reviewed 2026-09-30
 Competitor facts on this page come from each vendor's own documentation, linked under [Sources](#sources). These products change often; check the sources before you decide.
@@ -20,7 +20,7 @@ Competitor facts on this page come from each vendor's own documentation, linked 
 | Module registry and tracking | Built-in private registry; the Explorer shows module usage | Built-in private module and provider registry | A module-aware indexer, off by default, plans the directories that use a changed local module | No registry; lists each module's consumers, and for git modules how many releases they are behind |
 | Runtime footprint | SaaS; self-hosted Terraform Enterprise runs containers with PostgreSQL, object storage and Vault | API, executor, registry, UI, Dex (with OpenLDAP by default), a Redis-compatible store, object storage and Postgres | Server + Postgres behind a public HTTPS URL; Docker container action on the runner | One container + Postgres; non-Docker actions |
 | Cross-stack dependencies | Run triggers between workspaces; linked Stacks | Shared remote state in the stable 2.33 line; run triggers only in 2.34 pre-releases | Layered runs within one repository | A graph of stacks, modules and cross-repo edges; applies in waves |
-| Cloud credentials held by server | Yes: stored as variables, or short-lived per-run credentials through OIDC | Yes: stored as variables; with dynamic credentials it holds an OIDC signing key and mints tokens | No; they stay on the runner | No |
+| Cloud credentials held by server | Yes: stored as variables, or short-lived per-run credentials through OIDC | Yes: stored as variables; with dynamic credentials it holds an OIDC signing key and mints tokens | No; they stay on the runner | No; with shared outputs on, read access to the state objects an operator lists |
 
 HCP Terraform is the SaaS formerly called Terraform Cloud, renamed on April 22, 2024; Terraform Enterprise is its self-hosted distribution, and HashiCorp has been an IBM company since February 27, 2025. The Stategraph column is Stategraph Orchestration. It reads `.stategraph/config.yml`, and still reads `.terrateam/config.yml` when that file is absent.
 
@@ -32,7 +32,7 @@ Terraform runs in your GitHub Actions jobs, on GitHub-hosted or self-hosted runn
 
 ### State backend
 
-State stays in your S3 bucket, locked with `use_lockfile = true` (Terraform or OpenTofu 1.10 and later) or a DynamoDB table. Each stack's `backend "s3"` block is the source of truth. The CLI reads `bucket`, `key` and `region` from it to run `init` and to report the location, so the UI can link a stack to its state object. Stackorder never takes or releases the state lock; its own [orchestration lock](./concepts#locks) sits above it.
+State stays in your S3 bucket, locked with `use_lockfile = true` (Terraform or OpenTofu 1.10 and later) or a DynamoDB table. Each stack's `backend "s3"` block is the source of truth. The CLI reads `bucket`, `key` and `region` from it to run `init` and to report the location, so the UI can link a stack to its state object. Stackorder never takes or releases the state lock; its own [orchestration lock](./concepts#locks) sits above it. With [shared outputs](/configuration/outputs) on, the server reads a stack's state object to return its root-module outputs to the stacks it lists as readers, and keeps nothing it reads.
 
 ### Module registry and tracking
 
@@ -46,16 +46,16 @@ On the runner side, the actions are one JavaScript action that installs a static
 
 ### Cross-stack dependencies
 
-The dependency graph is the server's core data structure, not an add-on. It has stacks and modules as nodes and three edge kinds: explicit `depends_on`, `uses_module` parsed from module sources, and `reads_state` inferred from `terraform_remote_state`. Applies run in [waves](./concepts#waves) layered by the longest path through the affected part of the graph, and a failed stack blocks its dependents. Edges can point at stacks in other repositories; they appear in the graph and can trigger plan-only runs downstream, but each run applies one repository. See [Concepts](./concepts#edges).
+The dependency graph is the server's core data structure, not an add-on. It has stacks and modules as nodes and three edge kinds: explicit `depends_on`, `uses_module` parsed from module sources, and `reads_state` inferred from `terraform_remote_state` and `stackorder_outputs` blocks. Applies run in [waves](./concepts#waves) layered by the longest path through the affected part of the graph, and a failed stack blocks its dependents. Edges can point at stacks in other repositories; they appear in the graph and can trigger plan-only runs downstream, but each run applies one repository. See [Concepts](./concepts#edges).
 
 ### Cloud credentials held by server
 
-None. The runner assumes your IAM role with its own GitHub OIDC token. The server's only outbound calls are to GitHub, for its API and its OIDC signing keys, and to Postgres, plus two optional ones: an S3 bucket of its own for full plan text, and an OTLP endpoint for traces. A compromised server can dispatch workflows and post comments, but cannot read state or assume your roles. See the [security model](/reference/security-model).
+None by default. The runner assumes your IAM role with its own GitHub OIDC token. The server's only outbound calls are to GitHub, for its API and its OIDC signing keys, and to Postgres, plus optional ones: an S3 bucket of its own for full plan text, an OTLP endpoint for traces, and, with [shared outputs](/configuration/outputs) on, the state buckets an operator lists and STS. A compromised server can dispatch workflows and post comments, but cannot write state or assume the roles your jobs use. It cannot read state either while shared outputs are off; with them on, its role can read the whole state objects under the listed buckets and prefixes, secrets included, though the server returns only their outputs. See the [security model](/reference/security-model#shared-outputs).
 
 ## When something else fits better
 
 - **You are not on GitHub.** Stackorder is GitHub only, by design.
-- **You want the tool to host state or modules.** Stackorder stores neither. Stack discovery looks for `backend "s3"` blocks, and state links assume S3.
+- **You want the tool to host state or modules.** Stackorder stores neither. Stack discovery looks for `backend "s3"` blocks, and state links assume S3. With [shared outputs](/configuration/outputs) it can serve a stack's root-module outputs to the stacks that stack lists as readers, never the state itself.
 - **You want a policy engine built in.** Stackorder records the verdicts of the tools you run; it does not evaluate policy itself.
 - **You want managed runners or agents.** Use GitHub's own runner mechanisms; Stackorder does not manage them.
 
