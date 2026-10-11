@@ -323,12 +323,17 @@ func (s *Service) refreshDriftGauge(ctx context.Context) {
 }
 
 func (s *Service) audit(ctx context.Context, actor, action, target string, details map[string]any) {
+	if err := s.recordAudit(ctx, actor, action, target, details); err != nil {
+		s.log.WarnContext(ctx, "record audit", "action", action, "target", target, "error", err)
+	}
+}
+
+func (s *Service) recordAudit(ctx context.Context, actor, action, target string, details map[string]any) error {
 	if actor == "" {
 		actor = schedulerActor
 	}
-	if _, err := s.st.RecordAudit(ctx, store.AuditEntry{Actor: actor, Action: action, Target: target, Details: details}); err != nil {
-		s.log.WarnContext(ctx, "record audit", "action", action, "target", target, "error", err)
-	}
+	_, err := s.st.RecordAudit(ctx, store.AuditEntry{Actor: actor, Action: action, Target: target, Details: details})
+	return err
 }
 
 type ttlCache struct {

@@ -801,8 +801,13 @@ unless the service has a `runs.StateReader` (`runs.WithStateReader`),
 which the server passes only when `STACKORDER_STATE_BUCKETS` is set. In
 order:
 
-1. Binding. A runner token names its run and the reader, a stack of that
-   run. The token carries the run's repository; the run is not superseded
+1. Binding. The repository, key, run id and reader are valid UTF-8 without
+   control characters, else `principal.InvalidError` before anything is
+   looked up. A runner token names its run and the reader, a stack of that
+   run. The token carries the run's repository: a run of another repository
+   id is refused with the message of a run that does not exist and the
+   reason is logged, while a token that names the run's repository id under
+   another name is refused with both names; the run is not superseded
    (`superseded`), not terminal, and for a `pull_request` token not
    `planned` either (`conflict`); the reader's row in the run has not
    reported (`pending`, `planning` or `unknown` in a plan or drift run;
@@ -869,8 +874,13 @@ of steps 1 to 4, and of step 5 for a location no grant covers, as
 `outputs_refused` with the code as `reason`; `details.repo` is the producer
 when the caller may see it, else the caller's repository, so the producer's
 organisation sees reads of its stacks. Names the caller sent (repository,
-stack, reader, run id) are cut to 256 bytes in the audit row and its target.
-Nothing read from a state object is stored, cached or logged.
+stack, reader, run id) have control characters and invalid UTF-8 replaced
+by U+FFFD and are then cut to 256 bytes in the audit row and its target.
+Outputs are served only once their `outputs_read` row is written: a failed
+write is logged at error level and the read answers
+`principal.ErrUnavailable`; a refusal whose row cannot be written is
+logged the same way and still refused. Nothing read from a state object is
+stored, cached or logged.
 
 ## OIDC binding
 

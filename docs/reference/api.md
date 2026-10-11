@@ -500,7 +500,9 @@ GET /v1/repos/acme/infra/stacks/stacks%2Fprod%2Fvpc/outputs?run=7c9e6679-7425-40
 | `run` | The id of the run the calling job belongs to. Required with a runner token. Optional with an API key, which only has its form checked: `400 invalid` with `details.field` `run_id` when it is not a UUID. |
 | `reader` | The key of the reading stack. Required with a runner token. Optional with an API key, which only has its form checked: `400 invalid` with `details.field` `reader` when it is not a stack key. |
 
-A runner token must name a run of its own repository and a stack of that run whose job has not reported yet: `pending`, `planning` or `unknown` in a plan or drift run, and `pending`, `planned`, `applying` or `unknown` in an apply run. The run must not be superseded (`409 superseded`) or finished, nor, for a `pull_request` token, `planned` (`409 conflict`). A `workflow_dispatch` token's reader must have been dispatched, and the job binds to its dispatch as for a [result](#oidc-binding). A missing run or reader, a run that does not exist and a stack that is not one of the run's are `403 forbidden`. The producer must belong to the reader's installation, and the producer's `outputs.readers` must match the reader. An API key is an administrator: it reads the outputs of any stack, whatever its `readers`, and every read is audited.
+Whatever the credential, a repository, key, `run` or `reader` that is not valid UTF-8 or holds a control character, such as `%00`, is `400 invalid` before anything is looked up, with `details.field` `repo`, `stack_key`, `run_id` or `reader`.
+
+A runner token must name a run of its own repository and a stack of that run whose job has not reported yet: `pending`, `planning` or `unknown` in a plan or drift run, and `pending`, `planned`, `applying` or `unknown` in an apply run. The run must not be superseded (`409 superseded`) or finished, nor, for a `pull_request` token, `planned` (`409 conflict`). A `workflow_dispatch` token's reader must have been dispatched, and the job binds to its dispatch as for a [result](#oidc-binding). A missing run or reader, a run that does not exist or belongs to another repository, which answer alike, and a stack that is not one of the run's are `403 forbidden`. The producer must belong to the reader's installation, and the producer's `outputs.readers` must match the reader. An API key is an administrator: it reads the outputs of any stack, whatever its `readers`, and every read is audited.
 
 The producer's repository is matched without regard to case. Its policy comes from the default branch only: `repos.config` and the stack's `.stackorder.yaml` at the commit that configuration was read at. At that commit, the key must name a stack the default branch still has: `stackorder.yaml` discovers its directory, the directory exists, and the key names one of the stack's instances, declared in its `.stackorder.yaml` or derived by `stacks.instances.from_var_files` from the var files there, or none for a stack without instances.
 
@@ -534,7 +536,7 @@ The producer's repository is matched without regard to case. Its policy comes fr
 | `outputs` | Every output served, by name: its `value` and its `type`, the cty type as the state writes it, such as `"string"` or `["list", "string"]`, both as JSON, and `sensitive`. Always an object, `{}` when there is nothing to serve |
 | `withheld` | The names of the sensitive outputs left out, sorted, when the producer's `outputs.sensitive` is `withhold`; absent when there are none |
 
-The response carries `Cache-Control: no-store`. Nothing read from the state is stored, cached or logged by the server. Reads are recorded in the [audit log](#audit) as `outputs_read`, and refusals of the caller, the run, the producer or its policy as `outputs_refused`, with counts and never values. [Errors](#stack-outputs-errors) says which refusals are not recorded.
+The response carries `Cache-Control: no-store`. Nothing read from the state is stored, cached or logged by the server. Reads are recorded in the [audit log](#audit) as `outputs_read`, and refusals of the caller, the run, the producer or its policy as `outputs_refused`, with counts and never values; a read that cannot be recorded is not served. [Errors](#stack-outputs-errors) says which refusals are not recorded.
 
 #### Errors {#stack-outputs-errors}
 
@@ -553,7 +555,7 @@ Beyond `401 unauthorized`, `400 invalid`, `403 forbidden`, `409 conflict` and `4
 | 422 | `state_unsupported` | The state's format version is not 4. |
 | 422 | `state_too_large` | More than 64 MiB of the object precede its outputs, or the outputs, or a single string or number before them, exceed 4 MiB. |
 | 422 | `state_unreadable` | The object is not valid state JSON, its location is unusable, such as an invalid region, or S3 refused the request for another reason. |
-| 503 | `unavailable` | The read failed for now: S3 throttled it, answered with a server error or did not answer within 30 s, or the server's read slots stayed busy for 20 s. Retry. |
+| 503 | `unavailable` | The read failed for now: S3 throttled it, answered with a server error or did not answer within 30 s, the server's read slots stayed busy for 20 s, or the server could not record the read in the audit log, so it served nothing. Retry. |
 
 A read never answers the generic `422 unprocessable`: each of its 422s carries one of the codes above.
 

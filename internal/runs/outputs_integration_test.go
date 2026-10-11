@@ -39,6 +39,7 @@ const (
 	globexRepo  = "globex/infra"
 	globexID    = int64(200)
 	globexInst  = int64(2)
+	renamedRepo = "acme/platform"
 	sharedVPC   = "stacks/shared/vpc"
 	sharedDNS   = "stacks/shared/dns"
 
@@ -382,6 +383,8 @@ func TestOutputsReaderMustBelongToTheRun(t *testing.T) {
 		reason  string
 		scope   string
 		audited *read
+		notARun bool
+		message string
 	}{
 		{
 			name:    "a pending stack of the run",
@@ -415,7 +418,7 @@ func TestOutputsReaderMustBelongToTheRun(t *testing.T) {
 		{
 			name:    "a malformed run id",
 			prepare: func(_ *testing.T, _ *env, job planJob, _ string) read { return read{job.p, "not-a-run", eks} },
-			kind:    principal.ErrForbidden, reason: "forbidden",
+			kind:    principal.ErrForbidden, reason: "forbidden", notARun: true,
 		},
 		{
 			name:    "a reader that is not a stack key",
@@ -433,7 +436,7 @@ func TestOutputsReaderMustBelongToTheRun(t *testing.T) {
 		{
 			name:    "an unknown run",
 			prepare: func(_ *testing.T, _ *env, job planJob, _ string) read { return read{job.p, uuid.NewString(), eks} },
-			kind:    principal.ErrForbidden, reason: "forbidden",
+			kind:    principal.ErrForbidden, reason: "forbidden", notARun: true,
 		},
 		{
 			name: "a reader that already reported",
@@ -471,7 +474,22 @@ func TestOutputsReaderMustBelongToTheRun(t *testing.T) {
 			prepare: func(_ *testing.T, e *env, _ planJob, runID string) read {
 				return read{claims(e.oidc.PlanClaims(networkRepo, fmt.Sprint(networkID), 7, mergeSHA)), runID, eks}
 			},
-			kind: principal.ErrForbidden, reason: "forbidden", scope: networkRepo,
+			kind: principal.ErrForbidden, reason: "forbidden", scope: networkRepo, notARun: true,
+		},
+		{
+			name: "a token of another installation",
+			prepare: func(_ *testing.T, e *env, _ planJob, runID string) read {
+				return read{claims(e.oidc.PlanClaims(globexRepo, fmt.Sprint(globexID), 7, mergeSHA)), runID, eks}
+			},
+			kind: principal.ErrForbidden, reason: "forbidden", scope: globexRepo, notARun: true,
+		},
+		{
+			name: "a token of the repository under a name the server has not caught up with",
+			prepare: func(_ *testing.T, e *env, _ planJob, runID string) read {
+				return read{claims(e.oidc.PlanClaims(renamedRepo, fmt.Sprint(repoID), 7, mergeSHA)), runID, eks}
+			},
+			kind: principal.ErrForbidden, reason: "forbidden", scope: renamedRepo,
+			message: fmt.Sprintf("forbidden: claim repository is %q, want %q", renamedRepo, repoName),
 		},
 		{
 			name: "a token of another pull request",
@@ -502,6 +520,13 @@ func TestOutputsReaderMustBelongToTheRun(t *testing.T) {
 				return
 			}
 			require.ErrorIs(t, err, tt.kind)
+			if tt.notARun {
+				assert.Equal(t, fmt.Sprintf("forbidden: %q is not a run; reading stack outputs needs the id of the run the job belongs to", rd.runID), err.Error(),
+					"a run of another repository is refused like one that does not exist")
+			}
+			if tt.message != "" {
+				assert.Equal(t, tt.message, err.Error(), "a run of the caller's own repository is named")
+			}
 			assert.Empty(t, state.reads())
 			rows := e.audit("outputs_refused")
 			require.Len(t, rows, 1)
@@ -1308,6 +1333,137 @@ func TestOutputsAuditCarriesNoValues(t *testing.T) {
 	assert.NotContains(t, string(audit), "canary")
 	require.Len(t, logs.records(t, "read stack outputs"), 1, "the failed read is logged")
 	assert.NotContains(t, logs.String(), "canary")
+}
+
+func TestOutputsRefusesControlCharacters(t *testing.T) {
+	type read struct{ repo, key, runID, reader string }
+	logs := &logRecorder{}
+	e, state := newOutputsEnv(t, sharedConfig("stacks/**"), withLogger(logs.logger()))
+	job, runID := e.readingPlan(7)
+	callers := []struct {
+		name string
+		p    principal.Principal
+	}{
+		{name: "a runner job", p: job.p},
+		{name: "an API key", p: apiKey()},
+	}
+	fields := []struct {
+		field string
+		at    func(rd *read) *string
+	}{
+		{field: "repo", at: func(rd *read) *string { return &rd.repo }},
+		{field: "stack_key", at: func(rd *read) *string { return &rd.key }},
+		{field: "run_id", at: func(rd *read) *string { return &rd.runID }},
+		{field: "reader", at: func(rd *read) *string { return &rd.reader }},
+	}
+	replaced := func(name string) string { return name + "\uFFFD" }
+	cut := func(name string) string {
+		return name + strings.Repeat("\uFFFD", (256-len(name))/len("\uFFFD")) + "…"
+	}
+	values := []struct {
+		name  string
+		bad   string
+		clean func(name string) string
+	}{
+		{name: "a NUL byte", bad: "\x00", clean: replaced},
+		{name: "a newline", bad: "\n", clean: replaced},
+		{name: "a DEL", bad: "\x7f", clean: replaced},
+		{name: "a C1 control", bad: "\u0085", clean: replaced},
+		{name: "invalid UTF-8", bad: "\xff", clean: replaced},
+		{name: "a thousand NUL bytes", bad: strings.Repeat("\x00", 1000), clean: cut},
+		{name: "a thousand invalid bytes", bad: strings.Repeat("\xff", 1000), clean: cut},
+	}
+	for _, c := range callers {
+		for _, f := range fields {
+			for _, v := range values {
+				t.Run(fmt.Sprintf("%s, %s with %s", c.name, f.field, v.name), func(t *testing.T) {
+					sent, clean := read{repoName, vpc, runID, eks}, read{repoName, vpc, runID, eks}
+					*f.at(&sent) += v.bad
+					*f.at(&clean) = v.clean(*f.at(&clean))
+					before := len(e.audit("outputs_refused"))
+
+					got, err := e.svc.StackOutputs(e.ctx, c.p, sent.repo, sent.key, sent.runID, sent.reader)
+					require.ErrorIs(t, err, principal.ErrInvalid)
+					var invalid *principal.InvalidError
+					require.ErrorAs(t, err, &invalid)
+					assert.Equal(t, f.field, invalid.Field)
+					assert.Equal(t, "invalid "+f.field+": holds a control character or is not valid UTF-8", err.Error())
+					assert.Nil(t, got)
+					assert.Empty(t, state.reads(), "nothing is read")
+
+					rows := e.audit("outputs_refused")
+					require.Len(t, rows, before+1, "the refusal is audited")
+					assert.Equal(t, c.p.Actor(), rows[0].Actor)
+					assert.Equal(t, clean.repo+"//"+clean.key, rows[0].Target)
+					want := map[string]any{
+						"repo": clean.repo, "stack": clean.key, "reader_repo": clean.repo, "reader": clean.reader, "run_id": clean.runID, "reason": "invalid",
+					}
+					if c.p.Kind == principal.OIDC {
+						want["repo"], want["reader_repo"] = repoName, repoName
+					}
+					assert.Equal(t, want, rows[0].Details, "names are written with their control characters and invalid bytes replaced")
+					for name, d := range rows[0].Details {
+						assert.LessOrEqual(t, len(fmt.Sprint(d)), 256+len("…"), "%s is cut after its characters are replaced", name)
+					}
+				})
+			}
+		}
+	}
+	assert.Empty(t, e.audit("outputs_read"))
+	assert.Empty(t, logs.records(t, "record audit"), "every refusal row is written")
+}
+
+func (e *env) failAudit(action string) {
+	e.t.Helper()
+	_, err := e.st.Pool().Exec(e.ctx, fmt.Sprintf(`ALTER TABLE audit ADD CONSTRAINT audit_unavailable CHECK (action <> '%s')`, action))
+	require.NoError(e.t, err)
+}
+
+func TestOutputsFailClosedWhenAuditFails(t *testing.T) {
+	tests := []struct {
+		name   string
+		action string
+		admin  bool
+		reader string
+		kind   error
+		code   string
+		reads  int
+	}{
+		{name: "a runner's read", action: "outputs_read", reader: eks, kind: principal.ErrUnavailable, reads: 1},
+		{name: "an API key's read", action: "outputs_read", admin: true, kind: principal.ErrUnavailable, reads: 1},
+		{name: "a refusal", action: "outputs_refused", reader: apps, kind: principal.ErrForbidden, code: v1.ErrCodeOutputsNotShared},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logs := &logRecorder{}
+			e, state := newOutputsEnv(t, sharedConfig(eks), withLogger(logs.logger()))
+			job, runID := e.readingPlan(7)
+			p := job.p
+			if tt.admin {
+				p, runID = apiKey(), ""
+			}
+			e.failAudit(tt.action)
+
+			got, err := e.outputs(p, vpc, runID, tt.reader)
+			require.ErrorIs(t, err, tt.kind)
+			assert.Nil(t, got, "nothing is served")
+			if tt.code != "" {
+				assert.Equal(t, notSharedMessage(vpc, apps, vpc), requireCoded(t, err, tt.kind, tt.code), "the refusal stands")
+			} else {
+				assert.Equal(t, "unavailable: the read of the outputs of "+vpc+" could not be audited, so nothing is served; try again", err.Error())
+			}
+			assert.Len(t, state.reads(), tt.reads)
+			assert.Empty(t, e.audit(tt.action))
+
+			recs := logs.records(t, "record audit")
+			require.Len(t, recs, 1)
+			assert.Equal(t, slog.LevelError.String(), recs[0]["level"])
+			assert.Equal(t, tt.action, recs[0]["action"])
+			assert.Equal(t, repoName+"//"+vpc, recs[0]["target"])
+			assert.Contains(t, recs[0]["error"], "audit_unavailable", "the store's error is logged")
+			assert.NotContains(t, logs.String(), "canary")
+		})
+	}
 }
 
 func TestOutputsDisabledWithoutStateReader(t *testing.T) {
