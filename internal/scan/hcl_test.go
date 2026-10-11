@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 
@@ -377,7 +378,8 @@ data "stackorder_outputs" "new" {
 				warnings = append(warnings, fmt.Sprintf(format, args...))
 			}}
 			got := r.readDir("stack", names)
-			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(dirConfig{}, remoteState{}, outputRead{})); diff != "" {
+			opts := cmp.Options{cmp.AllowUnexported(dirConfig{}, remoteState{}, outputRead{}), cmpopts.IgnoreFields(outputRead{}, "expr")}
+			if diff := cmp.Diff(tt.want, got, opts); diff != "" {
 				t.Errorf("readDir mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tt.warnings, warnings); diff != "" {

@@ -82,7 +82,7 @@ These are fixed. Do not introduce an alternative for the same job.
 | Postgres | `github.com/jackc/pgx/v5` with `pgxpool`; no ORM, no sqlx |
 | Migrations | `github.com/golang-migrate/migrate/v4` with the `pgx/v5` database driver and the `iofs` source over an embedded FS |
 | YAML | `gopkg.in/yaml.v3` |
-| HCL | `github.com/hashicorp/hcl/v2` (`hclparse`, `hclsyntax`) and `github.com/hashicorp/terraform-config-inspect/tfconfig` |
+| HCL | `github.com/hashicorp/hcl/v2` (`hclparse`, `hclsyntax`), `github.com/zclconf/go-cty` for module argument values, and `github.com/hashicorp/terraform-config-inspect/tfconfig` |
 | Plan JSON | `github.com/hashicorp/terraform-json` |
 | Globs | `github.com/bmatcuk/doublestar/v4` |
 | JWT | `github.com/golang-jwt/jwt/v5` (App JWT signing and OIDC token parsing) |
@@ -387,7 +387,8 @@ JSON always uses the map form (`v1.StackConfig.Instances`, custom
   repository resolves as its unqualified key, and one that, cleaned as a
   path, names a stack of this repository (`stacks/prod//vpc`) keeps that
   reading. A cross-repository `ignore_inferred` entry that no
-  `stackorder_outputs` block of the stack reads is a warning.
+  `stackorder_outputs` block of the stack or of its local modules reads is
+  a warning.
 - A `data` or `ephemeral` `stackorder_outputs` block, in `.tf` or `.tf.json`,
   infers a `reads_state` edge from each instance of its stack when its
   `stack` attribute is a literal string; override files replace a block's
@@ -397,10 +398,24 @@ JSON always uses the map form (`v1.StackConfig.Instances`, custom
   name characters, becomes an external stack. A non-literal `stack` warns
   to add `depends_on`; a key that names no stack, a malformed key (an empty
   repository part included) and a stack reading its own outputs are
-  warnings without an edge. Only blocks in the stack's own directory are
-  read, as for `terraform_remote_state`: module bodies are not followed, so
-  a block inside a module the stack calls infers nothing and warns nothing,
-  and the stack needs `depends_on`.
+  warnings without an edge. Blocks are also read in every local module the
+  stack reaches through module sources, transitively, and infer the same
+  edges from the stack; a module no stack reaches infers nothing, and the
+  stack's own directory, reached again through a module, is not read twice.
+  A block in a module whose `stack` refers only to `var.<name>` values takes
+  them from the literal arguments of each `module` block that calls the
+  module, one level up (`stack = var.producer` with
+  `producer = "stacks/vpc"` in the call); a warning about the result points
+  at that `module` block, once per call. Any other warning about a block in
+  a module points at the block, once per block. Each names the module's
+  directory (`data.stackorder_outputs.vpc in module modules/lookup`), and
+  one about a non-literal, malformed or unknown `stack` says that only
+  `depends_on` orders the stacks that call the module; like a direct block's
+  warning, it stays after they add `depends_on`. A module directory that is
+  also a stack directory does not repeat the warnings of that stack's own
+  blocks. Registry and git module sources are not fetched, so a block inside
+  one infers nothing and warns nothing, and the stack needs `depends_on`;
+  `terraform_remote_state` is read only in the stack's own directory.
 - A listed var file that does not exist is a scan warning; the CLI errors
   at plan.
 - Affected reasons, in order: `changed`, `watch_path`
