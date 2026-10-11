@@ -167,14 +167,15 @@ func queueBackendHCL(key string) string {
 }
 
 type story struct {
-	tool    v1.Tool
-	ls      *localStack
-	cp      *controlPlane
-	repo    *gitRepo
-	rn      *runner
-	main    string
-	serials map[string]int
-	pulls   map[int]*pullRequest
+	tool       v1.Tool
+	ls         *localStack
+	cp         *controlPlane
+	repo       *gitRepo
+	rn         *runner
+	main       string
+	serials    map[string]int
+	pulls      map[int]*pullRequest
+	vpcOutputs map[string]toolOutput
 }
 
 func newStory(t *testing.T, tool v1.Tool, ls *localStack, cliBin, src string) *story {
@@ -211,6 +212,7 @@ func (s *story) run(t *testing.T) {
 	}{
 		{"adopt", s.adopt},
 		{"bootstrap", s.bootstrap},
+		{"shared_outputs", s.sharedOutputs},
 		{"pr_plan", s.prPlan},
 		{"apply", s.apply},
 		{"lock_safety", s.lockSafety},
@@ -437,6 +439,7 @@ func (s *story) bootstrap(t *testing.T) {
 	}
 	vpc := s.ls.requireState(t, stateKeys[prodVPC])
 	assert.Equal(t, "vpc-6754af9632a2745e8", vpc.Outputs["vpc_id"].Value)
+	s.vpcOutputs = s.toolOutputs(t, ws, prodVPC)
 	apps := s.ls.requireState(t, stateKeys[prodApps])
 	assert.Equal(t, "vpc-6754af9632a2745e8", apps.input("terraform_data.app")["vpc_id"], "prod/apps read the vpc id from prod/vpc's state")
 
