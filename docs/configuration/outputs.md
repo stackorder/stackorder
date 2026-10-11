@@ -171,12 +171,47 @@ resource "aws_security_group" "cluster" {
 
 ## Ordering {#ordering}
 
-The scanner infers a `reads_state` edge from the consumer to the producer for each `data` or `ephemeral` `stackorder_outputs` block, in a `.tf` or `.tf.json` file of the consumer's directory, whose `stack` is a literal string, as it does for `terraform_remote_state`. The edge orders applies and propagates change like any [`reads_state` edge](/guide/concepts#edges), and carries `source: stackorder_outputs`.
+The scanner infers a `reads_state` edge from the consumer to the producer for each `data` or `ephemeral` `stackorder_outputs` block whose `stack` is a literal string, in a `.tf` or `.tf.json` file of the consumer's directory or of a [local module](#modules) the consumer calls. The edge orders applies and propagates change like any [`reads_state` edge](/guide/concepts#edges), and carries `source: stackorder_outputs`.
 
 - A `path` or `path:instance` must equal a stack key of the repository exactly. A bare path of a directory with instances names no stack and only warns: name the instance.
 - `owner/repo//key` adds the producer to the graph as an external stack, as a cross-repository `depends_on` does. See [Cross-repo dependencies](./cross-repo).
-- A `stack` built from variables or expressions infers no edge and warns: list the producer in [`depends_on`](./stack-yaml#depends-on). A block inside a module the stack calls infers nothing and warns nothing, since only the stack's own directory is read, so list the producer in `depends_on` there too.
+- A `stack` built from variables or expressions infers no edge and warns: list the producer in [`depends_on`](./stack-yaml#depends-on). In a module, a `stack` built only from the module's variables can take them from the `module` block that calls it: see [Blocks in modules](#modules).
 - A `depends_on` entry for the same producer replaces the inferred edge, and an [`ignore_inferred`](./stack-yaml#inferred) entry suppresses it. Qualify the entry with `owner/repo//` for a producer in another repository.
+
+### Blocks in modules {#modules}
+
+The scanner also reads the `stackorder_outputs` blocks of every local module a stack calls through a relative `source` inside the repository, and of the local modules those call in turn. Each block infers the edge from the stack under the rules above, the stack's `depends_on` and `ignore_inferred` included. A module that no stack calls infers nothing.
+
+```hcl
+# acme/infra: modules/vpc-lookup/main.tf
+variable "producer" {
+  type = string
+}
+
+data "stackorder_outputs" "vpc" {
+  stack = var.producer
+}
+
+output "vpc_id" {
+  value = data.stackorder_outputs.vpc.nonsensitive_values.vpc_id
+}
+```
+
+```hcl
+# acme/infra: stacks/prod/eks/main.tf
+module "vpc" {
+  source   = "../../../modules/vpc-lookup"
+  producer = "stacks/prod/vpc"
+}
+```
+
+- A `stack` that refers only to `var.<name>` values and calls no function, such as `var.producer` or `"stacks/${var.env}/vpc"`, takes them from the arguments of each `module` block that calls the module, when those arguments are literals; a variable's `default` is not used. A function call stops the resolution even over literal arguments, so `lower(var.producer)` or `"stacks/${lower(var.env)}/vpc"` resolves nothing and warns. The values come from the calling `module` block only, one level up: an argument that is itself a variable of the calling module, such as `producer = var.producer` in a module that wraps the lookup, resolves nothing. Above, `stacks/prod/eks` reads `stacks/prod/vpc`.
+- A `stack` that does not resolve, is malformed or names no stack of the repository infers nothing and warns that only `depends_on` orders the stacks that call the module: list the producer in the `depends_on` of each of them. Like the warning about a non-literal `stack` in a stack's own directory, it stays once the entries are there.
+- A warning about a block in a module names the module's directory, as in `data.stackorder_outputs.vpc in module modules/vpc-lookup`. One about a value that a `module` block passed points at that `module` block, once per call; any other points at the `stackorder_outputs` block, once per block.
+- A block whose `stack` is a stack that calls the module is ignored for that stack, with a warning; the other stacks that call the module still get the edge.
+- A module directory that is also a stack directory does not repeat the warnings that stack gives about its own blocks, and a module that calls back into the stack's own directory does not read it twice.
+- Registry and git modules are not fetched, so a block inside one infers nothing and warns nothing: list the producer in the `depends_on` of the stack that calls the module.
+- `terraform_remote_state` blocks are read only in the stack's own directory, never in a module.
 
 ## Turning it on {#server}
 

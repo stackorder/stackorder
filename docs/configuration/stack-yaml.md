@@ -101,7 +101,7 @@ When a stack reads another stack's state through `terraform_remote_state` with a
 
 A `data` or `ephemeral` `stackorder_outputs` block whose `stack` is a literal string infers the same edge to the stack it names, which must be a stack key of this repository exactly or `owner/repo//key` for another repository. A `stack` that is not a literal infers nothing and warns; list the stack in `depends_on`. See [Shared outputs](./outputs#ordering).
 
-Only the blocks in the stack's own directory are read, never those in the modules it calls.
+`terraform_remote_state` blocks are read only in the stack's own directory. `stackorder_outputs` blocks are also read in the local modules the stack calls, directly or through other local modules, and infer the edge from the stack; in a module, a `stack` that refers only to `var.<name>` values and calls no function takes them from the literal arguments of the `module` block that calls it. Git and registry modules are not fetched, so a stack that reads another through one of them, or through a `terraform_remote_state` block in any module, needs `depends_on`. See [Blocks in modules](./outputs#modules).
 
 For each inferred edge, you can:
 
