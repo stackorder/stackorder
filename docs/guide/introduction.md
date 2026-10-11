@@ -15,7 +15,7 @@ The guide, configuration, reference and operations pages describe the code as re
 
 ## The two jobs of the server
 
-The server does two things.
+By default the server does two things.
 
 1. **Dependency resolution.** It holds the graph of stacks, shared modules and the edges between them. For a change it computes the affected set, orders applies into waves, and serializes conflicting work with stack-level locks.
 2. **Observability.** It records every plan and apply per stack and per commit, surfaces drift, and shows the dependency graph and which stacks consume each module at which version. All of it is available through a small web UI, a JSON API and Prometheus metrics.
