@@ -4,7 +4,7 @@ description: 'Reference for the root stackorder.yaml: stack discovery, instances
 
 # `stackorder.yaml`
 
-The root `stackorder.yaml` sets the repository's discovery rules, stack instances, tool, backend and variable defaults, environment mapping, apply policy, propagation and drift schedule. Every key has a default, so the smallest valid file is one line:
+The root `stackorder.yaml` sets the repository's discovery rules, stack instances, tool, backend and variable defaults, environment mapping, apply policy, propagation, drift schedule and shared outputs. Every key has a default, so the smallest valid file is one line:
 
 ```yaml
 version: 1
@@ -17,7 +17,7 @@ The server reads the file through the GitHub Contents API when it first sees a r
 | Setting | Read from |
 | --- | --- |
 | `stacks`, `modules`, `tool`, `tool_version`, `propagate.dependents` | The pull request's copy, for that pull request's plans; when it differs from the default branch's, the stacks the default branch's copy finds affected are planned too, with a warning, so a PR cannot drop stacks from its own plan |
-| `apply`, `environments` for applies, `plan_output: summary`, `propagate.cross_repo`, `drift` | The default branch |
+| `apply`, `environments` for applies, `plan_output: summary`, `propagate.cross_repo`, `drift`, `outputs` | The default branch |
 | `backend_config`, `var_files`, `env` | The commit being planned or applied, read by the CLI from its checkout |
 
 ## Full example
@@ -58,6 +58,10 @@ drift:
   open_issue: true
 
 plan_output: full                 # or summary
+
+outputs:                          # who may read every stack's outputs through the server
+  readers: ["stacks/prod/**"]     # unset shares nothing
+  sensitive: withhold             # or share
 ```
 
 ## Keys
@@ -74,6 +78,7 @@ plan_output: full                 # or summary
 | `var_files` | list of paths | `[]` | `-var-file` values for every plan, relative to each stack directory. Templates. See [`var_files`](./instances#var-files). |
 | `env` | map of name to string or `{plan, apply, drift}` | `{}` | Environment variables for the tool and the hooks, for every stack. Templates. See [`env`](./instances#env). |
 | `plan_output` | `full` or `summary` | `full` | How much of a plan reaches the server and the PR comment. `summary` sends only resource counts and addresses. Overridable per stack. |
+| `outputs` | `readers` and `sensitive` | unset | The stacks that may read the root-module outputs of every stack through the server, and whether sensitive outputs are served. A stack or an instance that sets its own `readers` replaces these. Read from the default branch. See [Shared outputs](./outputs). |
 
 ### `stacks`
 
@@ -220,10 +225,11 @@ The file is parsed strictly. The CLI and the server reject:
 - a `backend_config` entry that is empty, has no name before `=`, or is an absolute file;
 - a `var_files` entry that is empty or absolute;
 - an `env` name that is not a valid variable name or is reserved (`STACKORDER_*`, `GITHUB_*`, `ACTIONS_*`, `RUNNER_*`, `PATH`, `HOME`, in any letter case), a null `env` value, an `env` object with a key other than `plan`, `apply` and `drift`, or one with none of them;
-- a `from_var_files` match whose derived name is not a valid instance name, or two matches in one stack that derive the same name.
+- a `from_var_files` match whose derived name is not a valid instance name, or two matches in one stack that derive the same name;
+- an `outputs` or `outputs.readers` key with no value, an empty `outputs.readers` item, a reader that is not a valid glob, is not spelled as a stack key, or names a repository other than a literal `owner/repo`, or an `outputs.sensitive` other than `share` or `withhold`.
 
 All problems are reported together, each with the key that caused it.
 
 ## Per-stack overrides
 
-A `.stackorder.yaml` in a stack directory declares dependencies and instances, adds `backend_config`, `var_files` and `env`, and overrides `tool`, `tool_version`, `workspace`, `environment`, `plan_output` and `apply.allowed_teams` for that stack. See [`.stackorder.yaml`](./stack-yaml) and [Stack instances](./instances).
+A `.stackorder.yaml` in a stack directory declares dependencies and instances, adds `backend_config`, `var_files` and `env`, and overrides `tool`, `tool_version`, `workspace`, `environment`, `plan_output`, `apply.allowed_teams` and `outputs` for that stack. See [`.stackorder.yaml`](./stack-yaml) and [Stack instances](./instances).

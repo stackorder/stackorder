@@ -61,7 +61,7 @@ The file contents are on the [Workflows](/configuration/workflows) page.
 
 ### Resolve
 
-The resolve job runs `stackorder resolve`. It scans the `stacks.discover` paths and module directories, parses `module` sources and `terraform_remote_state` blocks, diffs base to head, and posts the graph with the changed paths. The server answers with the affected stacks, their waves, any warnings and the plan matrix. The job sends a tree hash of the paths it scanned, so a re-run on the same tree is a cache hit.
+The resolve job runs `stackorder resolve`. It scans the `stacks.discover` paths and module directories, parses `module` sources, `terraform_remote_state` blocks and `stackorder_outputs` blocks, diffs base to head, and posts the graph with the changed paths. The server answers with the affected stacks, their waves, any warnings and the plan matrix. The job sends a tree hash of the paths it scanned, so a re-run on the same tree is a cache hit.
 
 A dependency cycle fails the `stackorder/resolve` check with the cycle spelled out.
 

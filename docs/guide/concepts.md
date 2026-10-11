@@ -60,9 +60,9 @@ Only local modules propagate changes: a changed path under a local module's dire
 | --- | --- | --- | --- | --- |
 | `depends_on` | stack to stack | `.stackorder.yaml` in the stack directory; may name a stack in another repo | Yes | Yes |
 | `uses_module` | stack or module to module | Parsed from `module` block sources, transitively through nested local modules | No | Yes |
-| `reads_state` | stack to stack | Inferred from `terraform_remote_state` data sources whose S3 bucket and key match another stack's backend | Yes (soft) | Yes |
+| `reads_state` | stack to stack | Inferred from `terraform_remote_state` data sources whose S3 bucket and key match another stack's backend, and from `stackorder_outputs` blocks whose `stack` names another stack | Yes (soft) | Yes |
 
-A `uses_module` edge carries the pinned git `ref` of the module. A `reads_state` edge carries the matched bucket and key.
+A `uses_module` edge carries the pinned git `ref` of the module. A `reads_state` edge carries the matched bucket and key, or `source: stackorder_outputs` when a [`stackorder_outputs`](/configuration/outputs#ordering) block inferred it. A `stackorder_outputs` block may name a stack of another repository, which then appears in the graph as an external stack.
 
 ### Inferred edges {#inferred-edges}
 

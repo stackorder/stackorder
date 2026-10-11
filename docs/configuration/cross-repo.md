@@ -5,7 +5,7 @@ description: 'Declare Terraform dependencies on stacks in other repositories wit
 
 # Cross-repo dependencies
 
-A stack can depend on a stack in another repository, and a stack can use a module from another repository. Stackorder records both kinds of edge, so the graph and the UI span repositories. What it cannot do is order a single run across repositories: each run applies the stacks of one repository.
+A stack can depend on a stack in another repository, read the outputs of a stack in another repository, and use a module from another repository. Stackorder records an edge for each of them, so the graph and the UI span repositories. What it cannot do is order a single run across repositories: each run applies the stacks of one repository.
 
 ## Declaring a cross-repo dependency {#declaring}
 
@@ -42,6 +42,29 @@ propagate:
 The default is `off`: external dependents are listed on the run, and nothing is dispatched.
 
 A cross-repo plan run never applies. Applying the downstream stack is a change in its own repository, through its own pull request and apply gate.
+
+## Reading outputs across repositories {#outputs}
+
+A stack can read the root-module outputs of a stack in another repository through the server, with [shared outputs](./outputs), instead of reading its state. The producer lists the reader under `outputs.readers`, qualified with the reader's repository, on its default branch:
+
+```yaml
+# acme/network-infra: stacks/prod/tgw/.stackorder.yaml
+outputs:
+  readers:
+    - acme/infra//stacks/prod/*
+```
+
+```hcl
+# acme/infra: stacks/prod/vpc/main.tf
+data "stackorder_outputs" "tgw" {
+  stack = "acme/network-infra//stacks/prod/tgw"
+}
+```
+
+- Both repositories are covered by the same App installation. A reader of another installation is refused.
+- `owner/repo` in a reader is literal and compares without regard to case; the stack key part is a pattern. An entry without `//` never matches a stack of another repository.
+- Across repositories, a stack that does not exist, does not list the reader or has an `outputs` configuration that does not resolve answers `404 not_found`, with one message for every cause, so a reader cannot tell them apart. Within one repository a reader that is not listed gets `403 outputs_not_shared`.
+- A `stackorder_outputs` block whose `stack` is a literal `owner/repo//key` makes the scanner add an inferred `reads_state` edge to that stack, marked `external`, as a cross-repo `depends_on` does. The reading stack is then one of the upstream stack's external dependents, and `propagate.cross_repo: plan` plans it after an upstream apply.
 
 ## Modules from other repositories {#modules}
 

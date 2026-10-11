@@ -17,6 +17,7 @@ Stackorder degrades gracefully but never silently. Every refusal is a PR comment
 | No reaction to a comment command | [Command ignored](#command-ignored) |
 | `stackorder/resolve` failed | [Dependency cycle](#cycle) |
 | API errors `unauthorized` or `forbidden` in a job log | [OIDC rejected](#oidc) |
+| A `stackorder_outputs` read refused, such as `outputs_not_shared` or `state_location_unknown` | [Shared outputs refused](#shared-outputs) |
 | The server serves only `/setup` | [Server start-up](#server-start) |
 | `/setup` answers `403` "Setup needs the setup token" | [Server start-up](#server-start) |
 
@@ -30,7 +31,7 @@ Stackorder degrades gracefully but never silently. Every refusal is a PR comment
 | The App's delivery log on GitHub | Whether GitHub delivered a webhook, and the server's response |
 | Server logs | JSON by default; set `STACKORDER_LOG_LEVEL=debug` for more detail. Every request logs its `request_id`, which the response carries as `X-Request-Id` |
 | The run's `warnings` in `GET /v1/runs/{id}` | Dispatches GitHub refused, external dependents that were not scheduled |
-| `GET /v1/audit` | Commands ignored or rate limited, unlocks, `config_invalid` for a default-branch `stackorder.yaml` the server could not parse |
+| `GET /v1/audit` | Commands ignored or rate limited, unlocks, `config_invalid` for a default-branch `stackorder.yaml` the server could not parse, `outputs_read` and `outputs_refused` for reads of a stack's outputs |
 | `GET /readyz` and `GET /metrics` | Whether the database is reachable; queue depth, webhook lag and rate limit. `/metrics` needs `Authorization: Bearer <STACKORDER_METRICS_TOKEN>` when the token is set, which the Terraform module always does |
 
 ## Unconfirmed checks {#unconfirmed}
@@ -180,11 +181,34 @@ The command is the first line whose first word is `stackorder` and second word a
 | A finished plan run | `409 conflict` | Once a pull request's plan run is `planned` or `failed`, its `pull_request` jobs can no longer post results or check verdicts. Post verdicts from a `post-plan.sh` hook, before the result. "Re-run failed jobs" reports to the finished run; re-run all jobs, push or comment `stackorder plan` to plan again. |
 | Fork pull request | | Forks get no `id-token` permission. Stackorder posts a neutral check and runs nothing. |
 
+## Shared outputs refused {#shared-outputs}
+
+**Symptom.** A plan or apply fails at a `data` or `ephemeral` `stackorder_outputs` block, with an error code from the server. See [Shared outputs](/configuration/outputs).
+
+The reading stack is the consumer and the stack it names is the producer. Refusals of the caller, the run, the producer or its policy, `state_location_unknown` included, are in the audit log as `outputs_refused`, with the code as `details.reason`. `outputs_disabled` and the codes of the state read, `state_bucket_not_allowed` among them, are not.
+
+| Code | Cause | Fix |
+| --- | --- | --- |
+| `outputs_disabled` (404) | The server reads no state: `STACKORDER_STATE_BUCKETS` is not set. | Set it to the buckets, or buckets and prefixes, that hold the producers' state, with `shared_outputs_state` in the [Terraform module](/operations/deploy-aws#shared-outputs), and restart the server. |
+| `outputs_not_shared` (403) | The producer's default-branch `outputs.readers` does not list the consumer, or the producer's `outputs` configuration does not parse or render. | Add the consumer's key, or a pattern that matches it, to `outputs.readers` in the producer's `.stackorder.yaml`, its instance override or `stackorder.yaml`, and merge it: a pull request's copy does not count. Check that a more specific level does not set its own `readers`, such as `readers: []`. An instance needs its suffix, as in `stacks/prod/apps:blue` or `stacks/prod/apps:*`. |
+| `not_found` (404) | The producer is not a stack of its repository's default-branch graph, the key or repository is misspelled, or the repository is suspended or in another installation. For a consumer in another repository, also a producer that does not list it, or whose `outputs` configuration does not resolve. | Check the `stack` attribute, merge the producer before reading it, and list a consumer of another repository with its repository, as `acme/infra//stacks/prod/eks`. Both repositories must be covered by the same App installation. |
+| `state_location_unknown` (409) | No apply or drift job of the producer has reported where its state is: none has run on a CLI that reports it, or the producer's backend is not `s3` with a bucket and a key, so no job reports its state object. | Run an apply or drift job of the producer with a CLI that reports the state object: its next apply, a scheduled [drift check](/configuration/drift), which records the location without changing anything, or `stackorder apply --local`. A producer whose backend is not `s3` cannot share its outputs. |
+| `state_bucket_not_allowed` (403) | The producer's state object is outside every entry of `STACKORDER_STATE_BUCKETS`. | Add its bucket, or a prefix that covers its key, to `STACKORDER_STATE_BUCKETS`, and grant the server read access to it. |
+| `state_access_denied` (403) | S3, or KMS through S3, refused the server's credentials, or STS refused to let the server assume `STACKORDER_STATE_ROLE_ARN`. Without `s3:ListBucket` on the prefix, S3 answers a request for a missing object this way too. | Grant `s3:GetObject` on the objects, `s3:ListBucket` limited to the prefix and `kms:Decrypt` on the bucket's KMS key to the task role, or to `STACKORDER_STATE_ROLE_ARN`; a bucket or key in another account must also allow that role in its policy. With a role, check that its trust policy admits the server's task role and that the task role has `sts:AssumeRole` on it, which the module grants with `shared_outputs_role_arn`. With the `s3:ListBucket` grant in place, a missing object answers `state_not_found` instead, which tells the two causes apart. |
+| `state_not_found` (404) | The object, or its bucket, does not exist where the producer's last apply or drift job found it: the backend key changed, or the state was moved or deleted. | Run an apply or drift job of the producer so that it reports where its state is now. |
+| `state_encrypted` (422) | OpenTofu encrypts the producer's state. | The server never decrypts state, so shared outputs cannot read this stack; keep `terraform_remote_state` for it. |
+| `state_unsupported` (422) | The producer's state has a format version other than 4. | Apply the producer with a Terraform or OpenTofu release that writes version 4 state. |
+| `state_too_large` (422) | More than 256 MiB of the state precede its outputs, or the outputs, or a single value before them, exceed 8 MiB. | Move large values out of the producer's outputs, or split the stack. |
+| `state_unreadable` (422) | The object is not valid state JSON, its recorded region is not a valid region, or S3 refused the request for another reason. | Check that the object is the producer's state and that its backend's `region` is right, then run an apply or drift job of the producer. |
+| `unavailable` (503) | S3 throttled the read, answered with a server error, or the read did not finish within 30 s, waiting for one of the server's 16 read slots included. | Retry. The server logs the S3 error, never state content. |
+| `forbidden` (403) | The token does not prove the consumer: the run id or the stack key is missing or wrong, the stack is not one of the run's, its job already reported, or a dispatched job's stack has not been dispatched. | Read from the consumer's own Stackorder plan, apply or drift job, where the CLI sets `STACKORDER_RUN_ID` and `STACKORDER_STACK`. |
+| `conflict` (409), `superseded` (409) | The run finished, a pull request's plan run is already `planned`, or a newer commit superseded the run. | Plan again: push, or comment `stackorder plan`. |
+
 ## Server start-up {#server-start}
 
 | Symptom | Cause |
 | --- | --- |
-| The server exits at start | The log lists every invalid variable: `DATABASE_URL` or `STACKORDER_BASE_URL` missing, only some of the three `GITHUB_APP_*` variables set, a malformed private key, `STACKORDER_ARTIFACT_PREFIX` without a bucket, a bad duration or pattern. Or the database cannot be reached or migrated. |
+| The server exits at start | The log lists every invalid variable: `DATABASE_URL` or `STACKORDER_BASE_URL` missing, only some of the three `GITHUB_APP_*` variables set, a malformed private key, `STACKORDER_ARTIFACT_PREFIX` without a bucket, an entry of `STACKORDER_STATE_BUCKETS` without a valid bucket name, a `STACKORDER_STATE_ROLE_ARN` that is not a role ARN or is set without `STACKORDER_STATE_BUCKETS`, a bad duration or pattern. Or the database cannot be reached or migrated. |
 | Only `/setup`, `/healthz` and `/readyz` respond | Setup mode: the GitHub App variables are not set. |
 | `/setup` answers `403` "Setup needs the setup token" | `/setup` needs the one-time [setup token](/reference/server-configuration#setup-token). Open the `setup_url` from the server's log, in the same browser for the whole setup. A generated token changes at every start, so take the latest line; with two instances, each has its own token. With `STACKORDER_LOG_LEVEL=error` the line is not logged: use `info` or `warn`, or set `STACKORDER_SETUP_TOKEN`. |
 | `/setup` says the server already has a GitHub App, but it runs in setup mode | An App was already created with this start's token. Restart the server with that App's credentials; if they were lost, delete the App in its GitHub settings and restart the server for a new token. |

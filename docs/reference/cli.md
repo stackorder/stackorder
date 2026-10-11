@@ -114,7 +114,7 @@ Global Flags:
   -v, --verbose            log debug output
 ```
 
-Loads `stackorder.yaml`, scans the `stacks.discover` paths and module directories, parses `module` sources and `terraform_remote_state` blocks, and lists the paths changed between the merge base of the base ref and `HEAD`. Only committed changes count.
+Loads `stackorder.yaml`, scans the `stacks.discover` paths and module directories, parses `module` sources, `terraform_remote_state` blocks and `stackorder_outputs` blocks, and lists the paths changed between the merge base of the base ref and `HEAD`. Only committed changes count.
 
 The base is, in order: `--base`; the pull request's base SHA; the `before` commit of a push; the merge base of `origin/<default branch>` (or `origin/main` when the default branch is unknown) and `HEAD`. Without any of them the command fails with `no base to diff against; pass --base`.
 
@@ -180,6 +180,8 @@ Global Flags:
 6. Unless the stack's `plan_output` is `summary`, captures `show -no-color`, redacts it and cuts it at 256 KB.
 7. Runs the `post-plan` hook, with `STACKORDER_PLAN_FILE` and `STACKORDER_PLAN_JSON` set.
 8. Posts the result to `POST /v1/runs/{id}/stacks/{key}/result`, when a server and a run id are set (and, outside Actions, `STACKORDER_API_KEY`). Otherwise the result is `unconfirmed`.
+
+Every result, of `plan`, `apply` and `drift`, carries the backend `init` recorded, with the stack's `backend_config` and `STACKORDER_BACKEND_CONFIG` merged in, as `backend`. For an `s3` backend with a bucket and a key it also carries `state`: the bucket, the full object key, with the `workspace_key_prefix` and workspace when the tool uses a workspace other than `default`, and the region. The workspace is found as the tool finds it: a non-empty `TF_WORKSPACE`, else the workspace `init` and `workspace select` left in the data directory, else `default`. `state` is left out when workspace selection fails. The server records it from apply and drift results as the place to read the stack's [shared outputs](/configuration/outputs#state-location) from.
 
 The plan file is `<plan dir>/<artifact>.tfplan`, where the plan dir is `STACKORDER_PLAN_DIR` (default `.stackorder/plans`, relative to the repository root, so local plans write their files under `.stackorder/plans/` in the checkout; add it to `.gitignore`) and the artifact is `stackorder-plan-<slug>-<sha>`, where the slug is the key with `/` and `:` replaced by `-`, then `-` and the first 8 hex characters of the key's SHA-256 (`stackorder-plan-stacks-prod-vpc-69df0ef0-<sha>`), so keys such as `a/b` and `a-b` get different artifacts. Outside a git checkout the SHA part is `local`.
 
@@ -460,6 +462,11 @@ Terraform and OpenTofu run with the process environment, then `TF_IN_AUTOMATION=
 | `STACKORDER_STACK` | The stack key, such as `infra/network:production` |
 | `STACKORDER_STACK_PATH` | The stack directory, such as `infra/network` |
 | `STACKORDER_INSTANCE` | The instance name, such as `production`; empty for a stack with no instances |
+| `STACKORDER_RUN_ID` | The run id the CLI uses; empty when there is none |
+| `STACKORDER_SERVER_URL` | The `--server` value; empty in local mode |
+| `STACKORDER_REPOSITORY` | The repository as `owner/repo`, from `GITHUB_REPOSITORY`, the event payload or the `origin` remote; empty when none of them tells it |
+
+The CLI sets each of these even when it is empty, so a value inherited from the job never disagrees with what the CLI uses. They are what the [`stackorder` provider](/configuration/outputs#consumer) reads to call the server from a stack's job.
 
 ## Tool selection {#tool}
 

@@ -6,7 +6,7 @@ description: 'Deploy one Terraform stack directory once per environment with Sta
 
 A stack directory can be deployed several times, once per **instance**. Each instance runs the same code with its own state object, var files, environment variables and GitHub environment. A `network` component deployed to `staging` and `production` is one directory and two instances.
 
-Every instance is a stack of its own wherever a stack appears: the graph, the affected set, waves, locks, runs, check runs, plan artifacts, drift and the UI. The CLI renders every setting on this page from the checkout it runs in. The server re-resolves the policy of an apply, its environment, `allowed_teams` and `plan_output`, from the default branch with the same rules.
+Every instance is a stack of its own wherever a stack appears: the graph, the affected set, waves, locks, runs, check runs, plan artifacts, drift and the UI. The CLI renders every setting on this page from the checkout it runs in. The server re-resolves the policy of an apply, its environment, `allowed_teams` and `plan_output`, and the readers of a stack's [shared outputs](./outputs), from the default branch with the same rules.
 
 ## Keys and names {#keys}
 
@@ -91,7 +91,7 @@ instances:
       TF_VAR_replicas: "3"
 ```
 
-An override may set `environment`, `workspace`, `backend_config`, `var_files`, `env`, `plan_output`, `apply.allowed_teams`, `depends_on` and `ignore_inferred`. The map is the instance set, like the list, so name every instance, even those with nothing to override. A map that lists only `production` drops `staging` from the directory.
+An override may set `environment`, `workspace`, `backend_config`, `var_files`, `env`, `plan_output`, `apply.allowed_teams`, `depends_on`, `ignore_inferred` and `outputs`. The map is the instance set, like the list, so name every instance, even those with nothing to override. A map that lists only `production` drops `staging` from the directory.
 
 In JSON, such as a stack's `config` in the API, `instances` is always a map.
 
@@ -128,12 +128,14 @@ The settings of an instance come from three levels: the root `stackorder.yaml`, 
 | `plan_output` | The instance's, else the stack's, else the root's |
 | `tool`, `tool_version` | The stack's, else the root's |
 | `apply.allowed_teams` | The most specific non-empty list: the instance's, else the stack's, else the root's |
+| `outputs.readers` | The list of the most specific level that sets one, `[]` included: the instance's, else the stack's, else the root's |
+| `outputs.sensitive` | The instance's, else the stack's, else the root's, else `withhold` |
 
 `workspace`, `plan_output`, `tool` and `tool_version` take the most specific value that is set. `workspace` is then rendered, and an empty result does not fall back to a less specific level. `plan_output`, `tool` and `tool_version` are not templates. `environment` is rendered too, but an empty result falls through to the next source.
 
 An `env` value is replaced as a whole. An instance that sets `TF_VAR_role: admin` replaces a stack's `{ plan: reader, apply: deployer }`, for every mode.
 
-The server reads `environment`, `plan_output` and `apply.allowed_teams` of an instance from the default branch when an apply starts, as it does for any stack. The CLI reads everything else from the checkout it runs in.
+The server reads `environment`, `plan_output` and `apply.allowed_teams` of an instance from the default branch when an apply starts, and `outputs` when a stack reads the instance's outputs, as it does for any stack. The CLI reads everything else from the checkout it runs in.
 
 ## Templates {#templates}
 
@@ -170,7 +172,7 @@ Templates also have the builtins `and`, `or`, `not`, `eq`, `ne`, `lt`, `le`, `gt
 workspace: '{{ if eq .Instance "legacy" }}default{{ else }}{{ .Instance }}{{ end }}'
 ```
 
-Templates apply to `environments` values, `environment`, `workspace`, `backend_config`, `var_files`, `env` values, `depends_on` and `ignore_inferred`. A string without `{{` is used as it is.
+Templates apply to `environments` values, `environment`, `workspace`, `backend_config`, `var_files`, `env` values, `depends_on`, `ignore_inferred` and `outputs.readers`. A string without `{{` is used as it is.
 
 - **Quoting.** A YAML value that starts with `{` is read as a map, so quote every template. Use single quotes around a template that contains double quotes: `'key={{ trimPrefix "infra/" .Path }}.tfstate'`.
 - **Errors.** A name that does not exist, such as `.Instanse`, is an error, not an empty string. A template that fails to parse or render is a validation error of the file that holds it.
@@ -259,7 +261,7 @@ env:
 A mode the object leaves out, other than `drift`, leaves the variable as the job already has it: Stackorder neither sets nor removes it.
 
 - **Merging.** Variables merge by name: the instance's value, else the stack's, else the root's.
-- **Order.** The variables are set on top of the job's environment and the automation variables. Then the CLI sets `STACKORDER_STACK` (the key), `STACKORDER_STACK_PATH` and `STACKORDER_INSTANCE`, which `env` cannot override.
+- **Order.** The variables are set on top of the job's environment and the automation variables. Then the CLI sets `STACKORDER_STACK` (the key), `STACKORDER_STACK_PATH`, `STACKORDER_INSTANCE`, `STACKORDER_RUN_ID`, `STACKORDER_SERVER_URL` and `STACKORDER_REPOSITORY`, which `env` cannot override.
 - **Names.** A name matches `[A-Za-z_][A-Za-z0-9_]*`. It may not start with `STACKORDER_`, `GITHUB_`, `ACTIONS_` or `RUNNER_`, nor be `PATH` or `HOME`, in any letter case: `github_token` and `Path` are refused too.
 - **Values.** A value may not be null: `TF_VAR_x:` with nothing after it is an error. Write `""` for an empty string.
 - **Redaction.** A value whose variable name looks like a secret, such as `DB_PASSWORD`, is masked in everything the CLI reports, under the same rule as the process environment (see [Secrets](/reference/cli#secrets)). The values are still in the repository: never put a secret in `env`.
