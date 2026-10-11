@@ -7,12 +7,17 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"unicode"
+	"unicode/utf16"
+	"unicode/utf8"
 )
 
 const (
-	stateVersion = 4
-	maxDepth     = 10000
-	outputCost   = 256
+	stateVersion     = 4
+	outputCost       = 256
+	bufferSize       = 32 << 10
+	maxIdentityBytes = 256
+	maxFieldBytes    = 128
 )
 
 var (
@@ -22,41 +27,54 @@ var (
 )
 
 // Decode reads a state object from r and returns its identity and root
-// module outputs. It streams the top-level object, skips every value other
-// than version, serial, lineage, terraform_version and outputs one token at
-// a time, and returns without reading further once it has the outputs of a
-// version 4 state, which Terraform and OpenTofu write before resources. It
-// fails with ErrTooLarge when r holds more than MaxObjectBytes before the
-// outputs are complete, or the outputs exceed MaxOutputsBytes.
+// module outputs. It streams the top-level object through a fixed buffer,
+// checks and skips every value other than version, serial, lineage,
+// terraform_version and outputs byte by byte without keeping it, and
+// returns without reading further once it has the outputs of a version 4
+// state, which Terraform and OpenTofu write before resources. It fails with
+// ErrTooLarge when r holds more than MaxObjectBytes before the outputs are
+// complete, the outputs exceed MaxOutputsBytes, or a string or number
+// before them does, and with ErrMalformed when the lineage or Terraform
+// version is longer than 256 bytes.
 func Decode(r io.Reader) (*State, error) {
 	return decode(r, MaxObjectBytes, MaxOutputsBytes)
 }
 
 func decode(r io.Reader, maxObject, maxOutputs int64) (*State, error) {
-	src := &countingReader{r: r, window: maxOutputs}
-	src.limitTo(maxObject, errObjectLimit)
-	d := &decoder{dec: json.NewDecoder(src), src: src, maxObject: maxObject, maxOutputs: maxOutputs}
-	d.dec.UseNumber()
-	src.consumed = d.dec.InputOffset
-	return d.state()
+	d := newDecoder(r, maxObject, maxOutputs)
+	st, err := d.state()
+	if err != nil {
+		return nil, d.fail(err)
+	}
+	return st, nil
+}
+
+func newDecoder(r io.Reader, maxObject, maxOutputs int64) *decoder {
+	d := &decoder{r: r, buf: make([]byte, bufferSize), maxObject: maxObject, maxOutputs: maxOutputs}
+	d.limitTo(maxObject, errObjectLimit)
+	return d
 }
 
 type decoder struct {
-	dec        *json.Decoder
-	src        *countingReader
+	r          io.Reader
+	buf        []byte
+	pos        int
+	end        int
+	n          int
+	off        int64
+	limit      int64
+	limitErr   error
+	err        error
 	maxObject  int64
 	maxOutputs int64
-	buf        bytes.Buffer
-}
-
-type rawOutput struct {
-	Value     json.RawMessage `json:"value"`
-	Type      json.RawMessage `json:"type"`
-	Sensitive bool            `json:"sensitive"`
+	limitAt    int64
+	stack      []byte
+	key        []byte
+	scratch    []byte
 }
 
 func (d *decoder) state() (*State, error) {
-	if err := d.delim('{'); err != nil {
+	if err := d.expect('{'); err != nil {
 		return nil, err
 	}
 	var (
@@ -64,14 +82,27 @@ func (d *decoder) state() (*State, error) {
 		version             uint64
 		hasVersion, hasOuts bool
 	)
-	for d.dec.More() {
-		key, err := d.key()
+	for first := true; ; first = false {
+		more, err := d.member(first)
 		if err != nil {
 			return nil, err
 		}
-		switch key {
+		if !more {
+			break
+		}
+		key, err := d.field()
+		if err != nil {
+			return nil, err
+		}
+		if string(key) == "encrypted_data" || string(key) == "encryption_version" {
+			return nil, ErrEncrypted
+		}
+		if err := d.colon(); err != nil {
+			return nil, err
+		}
+		switch string(key) {
 		case "version":
-			at := d.dec.InputOffset()
+			at := d.offset()
 			if version, err = d.uint(); err == nil && version != stateVersion {
 				return nil, fmt.Errorf("%w: not version %d at byte %d", ErrUnsupported, stateVersion, at)
 			}
@@ -79,16 +110,15 @@ func (d *decoder) state() (*State, error) {
 		case "serial":
 			st.Serial, err = d.uint()
 		case "lineage":
-			st.Lineage, err = d.string()
+			st.Lineage, err = d.identity("lineage")
 		case "terraform_version":
-			st.TerraformVersion, err = d.string()
+			st.TerraformVersion, err = d.identity("terraform_version")
 		case "outputs":
+			st.Outputs = nil
 			st.Outputs, err = d.outputs()
 			hasOuts = true
-		case "encrypted_data", "encryption_version":
-			return nil, ErrEncrypted
 		default:
-			err = d.skip()
+			_, err = d.value(nil, false)
 		}
 		if err != nil {
 			return nil, err
@@ -96,9 +126,6 @@ func (d *decoder) state() (*State, error) {
 		if hasVersion && hasOuts {
 			return &st, nil
 		}
-	}
-	if err := d.delim('}'); err != nil {
-		return nil, err
 	}
 	if !hasVersion {
 		return nil, fmt.Errorf("%w: no version", ErrUnsupported)
@@ -108,139 +135,287 @@ func (d *decoder) state() (*State, error) {
 }
 
 func (d *decoder) outputs() (map[string]Output, error) {
-	start := d.dec.InputOffset()
-	if start+d.maxOutputs < d.maxObject {
-		d.src.limitTo(start+d.maxOutputs, errOutputsLimit)
-		defer d.src.limitTo(d.maxObject, errObjectLimit)
-	}
-	tok, err := d.dec.Token()
+	c, err := d.peek()
 	if err != nil {
-		return nil, d.fail(err)
+		return nil, err
+	}
+	if start := d.offset(); start+d.maxOutputs < d.maxObject {
+		d.limitTo(start+d.maxOutputs, errOutputsLimit)
+		defer d.limitTo(d.maxObject, errObjectLimit)
 	}
 	outs := map[string]Output{}
-	if tok == nil {
-		return outs, nil
+	if c == 'n' {
+		_, err := d.literal(nil, false, "null")
+		return outs, err
 	}
-	if tok != json.Delim('{') {
+	if c != '{' {
 		return nil, d.malformed("outputs is not an object")
 	}
-	var (
-		raw  rawOutput
-		size int64
-	)
-	for d.dec.More() {
-		name, err := d.key()
+	d.pos++
+	var size int64
+	for first := true; ; first = false {
+		more, err := d.member(first)
 		if err != nil {
 			return nil, err
 		}
-		at := d.dec.InputOffset()
-		raw = rawOutput{Value: raw.Value[:0], Type: raw.Type[:0]}
-		if err := d.dec.Decode(&raw); err != nil {
-			return nil, d.fail(err)
+		if !more {
+			return outs, nil
 		}
-		if d.dec.InputOffset()-start > d.maxOutputs {
-			return nil, d.fail(errOutputsLimit)
+		name, at, err := d.name()
+		if err != nil {
+			return nil, err
 		}
-		if len(raw.Value) == 0 {
-			return nil, fmt.Errorf("%w: output without a value at byte %d", ErrMalformed, at)
+		if err := d.colon(); err != nil {
+			return nil, err
 		}
-		if len(raw.Type) == 0 || string(raw.Type) == "null" {
-			return nil, fmt.Errorf("%w: output without a type at byte %d", ErrMalformed, at)
+		o, err := d.output(at)
+		if err != nil {
+			return nil, err
 		}
-		o := Output{Value: d.compact(raw.Value), Type: d.compact(raw.Type), Sensitive: raw.Sensitive}
 		if size += int64(len(name)+len(o.Value)+len(o.Type)) + outputCost; size > d.maxOutputs {
-			return nil, d.fail(errOutputsLimit)
+			return nil, errOutputsLimit
 		}
 		outs[name] = o
 	}
-	if err := d.delim('}'); err != nil {
+}
+
+func (d *decoder) output(at int64) (Output, error) {
+	var o Output
+	c, err := d.peek()
+	if err != nil {
+		return o, err
+	}
+	if c == 'n' {
+		if _, err := d.literal(nil, false, "null"); err != nil {
+			return o, err
+		}
+		return o, fmt.Errorf("%w: output without a value at byte %d", ErrMalformed, at)
+	}
+	if c != '{' {
+		return o, d.malformed("output is not an object")
+	}
+	d.pos++
+	for first := true; ; first = false {
+		more, err := d.member(first)
+		if err != nil {
+			return o, err
+		}
+		if !more {
+			break
+		}
+		field, err := d.field()
+		if err != nil {
+			return o, err
+		}
+		if err := d.colon(); err != nil {
+			return o, err
+		}
+		switch {
+		case bytes.EqualFold(field, []byte("value")):
+			o.Value, err = d.compact()
+		case bytes.EqualFold(field, []byte("type")):
+			o.Type, err = d.compact()
+		case bytes.EqualFold(field, []byte("sensitive")):
+			o.Sensitive, err = d.bool(o.Sensitive)
+		default:
+			_, err = d.value(nil, false)
+		}
+		if err != nil {
+			return o, err
+		}
+	}
+	if len(o.Value) == 0 {
+		return o, fmt.Errorf("%w: output without a value at byte %d", ErrMalformed, at)
+	}
+	if len(o.Type) == 0 || string(o.Type) == "null" {
+		return o, fmt.Errorf("%w: output without a type at byte %d", ErrMalformed, at)
+	}
+	return o, nil
+}
+
+func (d *decoder) compact() (json.RawMessage, error) {
+	var err error
+	if d.scratch, err = d.value(d.scratch[:0], true); err != nil {
 		return nil, err
 	}
-	return outs, nil
+	return bytes.Clone(d.scratch), nil
 }
 
-func (d *decoder) compact(raw json.RawMessage) json.RawMessage {
-	d.buf.Reset()
-	if err := json.Compact(&d.buf, raw); err != nil {
-		return bytes.Clone(raw)
+func (d *decoder) member(first bool) (bool, error) {
+	c, err := d.peek()
+	if err != nil {
+		return false, err
 	}
-	return bytes.Clone(d.buf.Bytes())
+	if c == '}' {
+		d.pos++
+		return false, nil
+	}
+	if !first {
+		if c != ',' {
+			return false, d.malformed("unexpected token")
+		}
+		d.pos++
+		if c, err = d.peek(); err != nil {
+			return false, err
+		}
+	}
+	if c != '"' {
+		return false, d.malformed("unexpected token")
+	}
+	return true, nil
 }
 
-func (d *decoder) skip() error {
-	depth := 0
-	for {
-		tok, err := d.dec.Token()
-		if err != nil {
-			return d.fail(err)
+func (d *decoder) name() (string, int64, error) {
+	var err error
+	if d.key, err = d.str(d.key[:0], true, d.maxOutputs); err != nil {
+		return "", 0, err
+	}
+	at := d.offset()
+	name, err := d.unquote(d.key)
+	if err != nil {
+		return "", 0, err
+	}
+	return name, at, nil
+}
+
+func (d *decoder) field() ([]byte, error) {
+	start := d.offset()
+	var err error
+	if d.key, err = d.str(d.key[:0], true, min(maxFieldBytes, d.maxOutputs)); err == nil {
+		return unescape(d.key[1 : len(d.key)-1]), nil
+	}
+	if !errors.Is(err, errValueLimit) {
+		return nil, err
+	}
+	_, err = d.strFrom(start, nil, false, d.maxOutputs)
+	return nil, err
+}
+
+func unescape(b []byte) []byte {
+	i := bytes.IndexByte(b, '\\')
+	if i < 0 {
+		return b
+	}
+	out := b[:i]
+	for i < len(b) {
+		if b[i] != '\\' {
+			out = append(out, b[i])
+			i++
+			continue
 		}
-		switch tok {
-		case json.Delim('{'), json.Delim('['):
-			if depth++; depth > maxDepth {
-				return d.malformed("nested too deeply")
+		if b[i+1] != 'u' {
+			out = append(out, escaped[b[i+1]])
+			i += 2
+			continue
+		}
+		r := hexRune(b[i+2 : i+6])
+		i += 6
+		if utf16.IsSurrogate(r) {
+			r2 := unicode.ReplacementChar
+			if i+6 <= len(b) && b[i] == '\\' && b[i+1] == 'u' {
+				r2 = hexRune(b[i+2 : i+6])
 			}
-		case json.Delim('}'), json.Delim(']'):
-			depth--
+			if r = utf16.DecodeRune(r, r2); r != unicode.ReplacementChar {
+				i += 6
+			}
 		}
-		if depth == 0 {
-			return nil
+		out = utf8.AppendRune(out, r)
+	}
+	return out
+}
+
+var escaped = [256]byte{'"': '"', '\\': '\\', '/': '/', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t'}
+
+func hexRune(h []byte) rune {
+	var r rune
+	for _, c := range h {
+		switch {
+		case c <= '9':
+			c -= '0'
+		case c <= 'F':
+			c -= 'A' - 10
+		default:
+			c -= 'a' - 10
 		}
+		r = r<<4 | rune(c)
 	}
+	return r
 }
 
-func (d *decoder) delim(want json.Delim) error {
-	tok, err := d.dec.Token()
-	if err != nil {
-		return d.fail(err)
+func (d *decoder) unquote(quoted []byte) (string, error) {
+	if bytes.IndexByte(quoted, '\\') < 0 && utf8.Valid(quoted) {
+		return string(quoted[1 : len(quoted)-1]), nil
 	}
-	if tok != want {
-		return d.malformed("unexpected token")
-	}
-	return nil
-}
-
-func (d *decoder) key() (string, error) {
-	tok, err := d.dec.Token()
-	if err != nil {
-		return "", d.fail(err)
-	}
-	key, ok := tok.(string)
-	if !ok {
-		return "", d.malformed("unexpected token")
-	}
-	return key, nil
-}
-
-func (d *decoder) string() (string, error) {
-	tok, err := d.dec.Token()
-	if err != nil {
-		return "", d.fail(err)
-	}
-	s, ok := tok.(string)
-	if !ok {
-		return "", d.malformed("expected a string")
+	var s string
+	if err := json.Unmarshal(quoted, &s); err != nil {
+		return "", d.malformed("invalid JSON")
 	}
 	return s, nil
 }
 
-func (d *decoder) uint() (uint64, error) {
-	tok, err := d.dec.Token()
+func (d *decoder) identity(what string) (string, error) {
+	c, err := d.peek()
 	if err != nil {
-		return 0, d.fail(err)
+		return "", err
 	}
-	n, ok := tok.(json.Number)
-	if !ok {
+	if c != '"' {
+		return "", d.malformed("expected a string")
+	}
+	at, limit := d.offset(), int64(maxIdentityBytes+2)
+	d.key, err = d.str(d.key[:0], true, min(limit, d.maxOutputs))
+	if errors.Is(err, errValueLimit) && limit <= d.maxOutputs {
+		return "", fmt.Errorf("%w: %s longer than %d bytes at byte %d", ErrMalformed, what, maxIdentityBytes, at)
+	}
+	if err != nil {
+		return "", err
+	}
+	return d.unquote(d.key)
+}
+
+func (d *decoder) uint() (uint64, error) {
+	c, err := d.peek()
+	if err != nil {
+		return 0, err
+	}
+	if c != '-' && (c < '0' || c > '9') {
 		return 0, d.malformed("expected a number")
 	}
-	v, err := strconv.ParseUint(n.String(), 10, 64)
+	if d.key, err = d.number(d.key[:0], true); err != nil {
+		return 0, err
+	}
+	v, err := strconv.ParseUint(string(d.key), 10, 64)
 	if err != nil {
 		return 0, d.malformed("expected an unsigned integer")
 	}
 	return v, nil
 }
 
+func (d *decoder) bool(previous bool) (bool, error) {
+	c, err := d.peek()
+	if err != nil {
+		return false, err
+	}
+	switch c {
+	case 't':
+		_, err = d.literal(nil, false, "true")
+		return true, err
+	case 'f':
+		_, err = d.literal(nil, false, "false")
+		return false, err
+	case 'n':
+		_, err = d.literal(nil, false, "null")
+		return previous, err
+	}
+	return false, d.malformed("unexpected value")
+}
+
 func (d *decoder) malformed(what string) error {
-	return fmt.Errorf("%w: %s at byte %d", ErrMalformed, what, d.dec.InputOffset())
+	return fmt.Errorf("%w: %s at byte %d", ErrMalformed, what, d.offset())
+}
+
+func (d *decoder) tooLarge(at int64) error {
+	d.limitAt = at
+	return errValueLimit
 }
 
 func (d *decoder) fail(err error) error {
@@ -250,68 +425,9 @@ func (d *decoder) fail(err error) error {
 	case errors.Is(err, errOutputsLimit):
 		return fmt.Errorf("%w: outputs exceed %d bytes", ErrTooLarge, d.maxOutputs)
 	case errors.Is(err, errValueLimit):
-		return fmt.Errorf("%w: a value at byte %d exceeds %d bytes", ErrTooLarge, d.dec.InputOffset(), d.maxOutputs)
-	case d.src.readErr != nil:
-		return fmt.Errorf("stateread: read state at byte %d: %w", d.src.n, d.src.readErr)
-	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
-		return fmt.Errorf("%w: unexpected end at byte %d", ErrMalformed, d.src.n)
+		return fmt.Errorf("%w: a value at byte %d exceeds %d bytes", ErrTooLarge, d.limitAt, d.maxOutputs)
+	case errors.Is(err, io.EOF):
+		return fmt.Errorf("%w: unexpected end at byte %d", ErrMalformed, d.off+int64(d.n))
 	}
-	var syntax *json.SyntaxError
-	if errors.As(err, &syntax) {
-		return fmt.Errorf("%w: invalid JSON at byte %d", ErrMalformed, syntax.Offset)
-	}
-	return d.malformed("unexpected value")
-}
-
-type countingReader struct {
-	r        io.Reader
-	n        int64
-	limit    int64
-	limitErr error
-	window   int64
-	consumed func() int64
-	err      error
-	readErr  error
-}
-
-func (c *countingReader) limitTo(limit int64, err error) {
-	c.limit, c.limitErr = limit, err
-}
-
-func (c *countingReader) Read(p []byte) (int, error) {
-	if c.err != nil {
-		return 0, c.err
-	}
-	if c.consumed != nil {
-		room := c.window - (c.n - c.consumed())
-		if room <= 0 {
-			c.err = errValueLimit
-			return 0, c.err
-		}
-		p = p[:min(int64(len(p)), room)]
-	}
-	room := c.limit - c.n
-	if room <= 0 {
-		return c.probe()
-	}
-	k, err := c.r.Read(p[:min(int64(len(p)), room)])
-	c.n += int64(k)
-	if err != nil && !errors.Is(err, io.EOF) {
-		c.err, c.readErr = err, err
-	}
-	return k, err
-}
-
-func (c *countingReader) probe() (int, error) {
-	var b [1]byte
-	k, err := c.r.Read(b[:])
-	switch {
-	case k > 0:
-		c.err = c.limitErr
-	case err != nil && !errors.Is(err, io.EOF):
-		c.err, c.readErr = err, err
-	default:
-		return 0, err
-	}
-	return 0, c.err
+	return err
 }

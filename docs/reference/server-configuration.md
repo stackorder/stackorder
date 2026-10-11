@@ -156,7 +156,7 @@ STACKORDER_STATE_ROLE_ARN=arn:aws:iam::123456789012:role/stackorder-state-reader
 - The server has read access to whole state objects, secrets included, though it returns only the outputs and stores, caches and logs nothing it reads. List the narrowest prefixes that hold the state of the stacks that share outputs, one per repository.
 - At start-up the server logs once, at `info` level, that shared outputs are on, with the number of entries, the entries as `repository=bucket/prefix` and the role. It then logs at `warn` level each pair of entries of different repositories, `*` included, where one's location lies under the other's, such as `acme/infra=acme-tfstate/stacks/` and `acme/network=acme-tfstate/stacks/network/`: the stacks of either repository can be pointed at the objects both cover.
 
-The limits on a read, 256 MiB of state scanned, 8 MiB of outputs, 30 s and 16 reads at a time per instance, are on the [Shared outputs](/configuration/outputs#server) page.
+The limits on a read, 64 MiB of state scanned, 4 MiB of outputs, 30 s once it has a slot, 4 reads at a time per instance and 20 s of waiting for a slot, are on the [Shared outputs](/configuration/outputs#server) page.
 
 ## GitHub Enterprise Server {#ghes}
 

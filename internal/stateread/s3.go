@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
@@ -36,6 +37,7 @@ type Reader struct {
 	region string
 	grants []Grant
 	slots  chan struct{}
+	wait   time.Duration
 }
 
 type options struct {
@@ -45,6 +47,7 @@ type options struct {
 	roleARN     string
 	creds       aws.CredentialsProvider
 	httpClient  *http.Client
+	wait        time.Duration
 }
 
 // Option changes how New reaches S3.
@@ -108,7 +111,7 @@ func New(ctx context.Context, grants []Grant, opts ...Option) (*Reader, error) {
 			return nil, fmt.Errorf("stateread: grant %s: %w", g, err)
 		}
 	}
-	var o options
+	o := options{wait: MaxWait}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -155,6 +158,7 @@ func New(ctx context.Context, grants []Grant, opts ...Option) (*Reader, error) {
 		region: cfg.Region,
 		grants: slices.Clone(grants),
 		slots:  make(chan struct{}, MaxConcurrent),
+		wait:   o.wait,
 	}, nil
 }
 
@@ -172,8 +176,12 @@ func (r *Reader) Allows(repo string, loc Location) bool {
 // elsewhere. A missing object fails with ErrNotFound, refused credentials
 // with ErrAccessDenied and other permanent S3 errors with ErrUnreadable;
 // throttling, server errors and timeouts are returned wrapped as they are.
-// Decoding errors are those of Decode. The body is read only as far as the
-// outputs and is never kept.
+// Decoding errors are those of Decode. Read waits up to MaxWait, or until
+// ctx ends, for one of MaxConcurrent slots and only then starts its
+// Timeout. It gives the slot back when it returns; the State it returns
+// holds at most MaxOutputsBytes of outputs and 256 bytes each of lineage
+// and Terraform version. The body is read only as far as the outputs and
+// is never kept.
 func (r *Reader) Read(ctx context.Context, repo string, loc Location) (*State, error) {
 	if !r.Allows(repo, loc) {
 		return nil, fmt.Errorf("%w: %s for %s", ErrNotAllowed, loc.url(), repo)
@@ -185,14 +193,12 @@ func (r *Reader) Read(ctx context.Context, repo string, loc Location) (*State, e
 	if !validRegion(region) {
 		return nil, fmt.Errorf("%w: %s: invalid region %q", ErrUnreadable, loc.url(), region)
 	}
-	ctx, cancel := context.WithTimeout(ctx, Timeout)
-	defer cancel()
-	select {
-	case r.slots <- struct{}{}:
-	case <-ctx.Done():
-		return nil, fmt.Errorf("stateread: wait to read %s: %w", loc.url(), ctx.Err())
+	if err := r.acquire(ctx); err != nil {
+		return nil, fmt.Errorf("stateread: wait to read %s: %w", loc.url(), err)
 	}
 	defer func() { <-r.slots }()
+	ctx, cancel := context.WithTimeout(ctx, Timeout)
+	defer cancel()
 
 	body, err := r.get(ctx, loc, region)
 	if err != nil {
@@ -204,6 +210,17 @@ func (r *Reader) Read(ctx context.Context, repo string, loc Location) (*State, e
 		return nil, fmt.Errorf("stateread: %s: %w", loc.url(), err)
 	}
 	return st, nil
+}
+
+func (r *Reader) acquire(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, r.wait)
+	defer cancel()
+	select {
+	case r.slots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (r *Reader) get(ctx context.Context, loc Location, region string) (io.ReadCloser, error) {

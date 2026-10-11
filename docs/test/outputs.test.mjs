@@ -155,6 +155,7 @@ test('the shared outputs page states the limits of a state read', () => {
     `${value('MaxObjectBytes', '(\\d+) << 20')} MiB`,
     `${value('MaxOutputsBytes', '(\\d+) << 20')} MiB`,
     `${value('Timeout', '(\\d+) \\* time\\.Second')} s`,
+    `${value('MaxWait', '(\\d+) \\* time\\.Second')} s`,
     value('MaxConcurrent', '(\\d+)'),
   ]) {
     assert.match(limits, new RegExp(`^\\| [^|]+ \\| ${cell} \\|`, 'm'), cell)

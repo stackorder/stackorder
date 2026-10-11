@@ -232,12 +232,13 @@ An operator turns shared outputs on in the [server configuration](/reference/ser
 
 | Limit | Value | Beyond it |
 | --- | --- | --- |
-| State scanned before the outputs | 256 MiB | `422 state_too_large` |
-| The outputs, and any single value scanned before them | 8 MiB | `422 state_too_large` |
-| One read, waiting for a slot included | 30 s | `503 unavailable` |
-| Reads at a time, per server instance | 16 | Further reads wait for a slot |
+| State scanned before the outputs | 64 MiB | `422 state_too_large` |
+| The outputs, and any single string or number scanned before them | 4 MiB | `422 state_too_large` |
+| One read, from the moment it has a slot | 30 s | `503 unavailable` |
+| Reads at a time, per server instance | 4 | Further reads wait for a slot |
+| Waiting for a slot | 20 s | `503 unavailable` |
 
-The server decodes only the `outputs` block and stops reading once it has it. Nothing it reads is stored, cached or logged: responses carry `Cache-Control: no-store`, and decoding errors name byte offsets, never state content.
+The server decodes only the `outputs` block and stops reading once it has it. Terraform and OpenTofu write the outputs before the resources, so the scan limit matters only for a state written in another order. Nothing it reads is stored, cached or logged: responses carry `Cache-Control: no-store`, and decoding errors name byte offsets, never state content.
 
 ## Audit {#audit}
 
