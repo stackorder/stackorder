@@ -1196,10 +1196,22 @@ func (s *Server) getContents(w http.ResponseWriter, r *http.Request, c *caller) 
 		return
 	}
 	var entries []map[string]any
+	seen := map[string]bool{}
 	for _, fp := range slices.Sorted(maps.Keys(files)) {
-		if rest, ok := strings.CutPrefix(fp, p+"/"); ok && p != "" {
-			entries = append(entries, map[string]any{"type": "file", "name": rest, "path": fp})
+		rest, ok := strings.CutPrefix(fp, p+"/")
+		if !ok || p == "" {
+			continue
 		}
+		name, _, nested := strings.Cut(rest, "/")
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		typ := "file"
+		if nested {
+			typ = "dir"
+		}
+		entries = append(entries, map[string]any{"type": typ, "name": name, "path": p + "/" + name})
 	}
 	if len(entries) > 0 {
 		writeJSON(w, http.StatusOK, entries)

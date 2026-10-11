@@ -69,6 +69,7 @@ func TestInvalidRepositoryNameEveryMethod(t *testing.T) {
 		"ReviewRule":     func() error { return c.ReviewDeploymentProtectionRule(ctx, bad, 1, "e", "approved", "") },
 		"Pending":        func() error { _, err := c.ListPendingDeployments(ctx, bad, 1); return err },
 		"GetContents":    func() error { _, err := c.GetContents(ctx, bad, "p", ""); return err },
+		"ListDir":        func() error { _, err := c.ListDir(ctx, bad, "p", ""); return err },
 		"ListTags":       func() error { _, err := c.ListTags(ctx, bad); return err },
 		"GetRef":         func() error { _, err := c.GetRef(ctx, bad, "heads/main"); return err },
 		"Codeowners":     func() error { _, err := c.CodeownersFor(ctx, bad, ""); return err },
@@ -92,6 +93,7 @@ func TestPathParametersRejectDotSegments(t *testing.T) {
 		"contents inner":      func() error { _, err := c.GetContents(ctx, repo, "stacks/../stackorder.yaml", ""); return err },
 		"contents dot":        func() error { _, err := c.GetContents(ctx, repo, "./stackorder.yaml", ""); return err },
 		"contents empty":      func() error { _, err := c.GetContents(ctx, repo, "stacks//vpc", ""); return err },
+		"listing parent":      func() error { _, err := c.ListDir(ctx, repo, "stacks/../..", ""); return err },
 		"git ref":             func() error { _, err := c.GetRef(ctx, repo, "heads/../../../x"); return err },
 		"check runs ref":      func() error { _, err := c.ListCheckRunsForRef(ctx, repo, "..", ""); return err },
 		"check runs ref path": func() error { _, err := c.ListCheckRunsForRef(ctx, repo, "heads/../x", ""); return err },
@@ -931,6 +933,44 @@ func TestContents(t *testing.T) {
 	fake.FailNext("GET /repos/{owner}/{repo}/contents/{path...}", http.StatusForbidden, 1)
 	_, err = c.PathExists(ctx, repo, "stacks/prod", "")
 	require.Error(t, err, "only a missing path answers false")
+}
+
+func TestListDir(t *testing.T) {
+	fake, c := setup(t)
+	ctx := context.Background()
+	fake.SetContents(repo, "mainsha", "stacks/prod/vpc/main.tf", []byte("terraform {}"))
+	fake.SetContents(repo, "mainsha", "stacks/prod/vpc/vars/blue.tfvars", []byte(`name = "blue"`))
+	fake.SetContents(repo, "feature", "stacks/prod/vpc/main.tf", []byte("terraform {}"))
+
+	tests := []struct {
+		name, path, ref string
+		want            []gh.DirEntry
+		err             error
+	}{
+		{name: "files and directories", path: "stacks/prod/vpc", ref: "mainsha", want: []gh.DirEntry{{Name: "main.tf", Type: "file"}, {Name: "vars", Type: "dir"}}},
+		{name: "at another ref", path: "stacks/prod/vpc", ref: "feature", want: []gh.DirEntry{{Name: "main.tf", Type: "file"}}},
+		{name: "a missing directory", path: "stacks/prod/eks", ref: "mainsha", err: gh.ErrNotFound},
+		{name: "a file", path: "stacks/prod/vpc/main.tf", ref: "mainsha", err: gh.ErrNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := c.ListDir(ctx, repo, tt.path, tt.ref)
+			if tt.err != nil {
+				require.ErrorIs(t, err, tt.err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+			last := fake.Requests()[len(fake.Requests())-1]
+			assert.Equal(t, "/repos/acme/infra/contents/"+tt.path, last.Path)
+			assert.Equal(t, "ref="+tt.ref, last.RawQuery)
+		})
+	}
+
+	fake.FailNext("GET /repos/{owner}/{repo}/contents/{path...}", http.StatusForbidden, 1)
+	_, err := c.ListDir(ctx, repo, "stacks/prod/vpc", "mainsha")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, gh.ErrNotFound, "only a missing directory is ErrNotFound")
 }
 
 func TestContentsDecodingErrors(t *testing.T) {

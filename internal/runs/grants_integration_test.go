@@ -84,6 +84,7 @@ func TestOutputsLocationMustBeGrantedToTheProducerRepository(t *testing.T) {
 			logs := &logRecorder{}
 			reader, s3 := newGrantedReader(t, grants)
 			e := newEnv(t, sharedConfig("stacks/**"), withStateReader(reader), withLogger(logs.logger()))
+			e.setStackDir(repoName, mainSHA, vpc)
 			job, runID := e.readingPlan(7)
 			e.setStateObject(repoID, vpc, tt.obj)
 
@@ -125,6 +126,7 @@ func TestOutputsLocationMustBeGrantedToTheProducerRepository(t *testing.T) {
 func TestOutputsAPIKeyReadsOnlyGrantedLocations(t *testing.T) {
 	reader, s3 := newGrantedReader(t, "acme/network=acme-state/stacks/")
 	e := newEnv(t, baseConfig(), withStateReader(reader))
+	e.setStackDir(repoName, mainSHA, vpc)
 	e.readingPlan(7)
 	e.setStateObject(repoID, vpc, objectAt("acme-state", "stacks/prod/vpc.tfstate"))
 
@@ -275,6 +277,7 @@ func TestResultDoesNotRecordAnUngrantedStateObject(t *testing.T) {
 	t.Run("an ungranted report clears the recorded location", func(t *testing.T) {
 		reader, s3 := newGrantedReader(t, grants)
 		e := newEnv(t, baseConfig(), withStateReader(reader))
+		e.setStackDir(repoName, mainSHA, vpc)
 		applyID, _ := reports[0].report(t, e, granted)
 		e.requireStateObject(vpc, granted, applyID)
 		e.clock.Advance(time.Hour)

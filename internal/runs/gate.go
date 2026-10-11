@@ -212,11 +212,15 @@ func stackFileAt(ctx context.Context, c *gh.Client, repo store.Repo, dir, ref st
 	return data, true, nil
 }
 
-func (s *Service) defaultStackFile(ctx context.Context, c *gh.Client, repo store.Repo, dir string) ([]byte, bool, error) {
-	ref, ttl := repo.ConfigSHA, stackFileAtCommitTTL
-	if ref == "" {
-		ref, ttl = repo.DefaultBranch, stackFileAtBranchTTL
+func defaultRef(repo store.Repo) (string, time.Duration) {
+	if repo.ConfigSHA == "" {
+		return repo.DefaultBranch, stackFileAtBranchTTL
 	}
+	return repo.ConfigSHA, stackFileAtCommitTTL
+}
+
+func (s *Service) defaultStackFile(ctx context.Context, c *gh.Client, repo store.Repo, dir string) ([]byte, bool, error) {
+	ref, ttl := defaultRef(repo)
 	key := "stackfile:" + strconv.FormatInt(repo.ID, 10) + ":" + ref + ":" + dir
 	if v, ok := s.cache.get(key, ttl, s.now()); ok {
 		data, found := strings.CutPrefix(v, stackFileFound)

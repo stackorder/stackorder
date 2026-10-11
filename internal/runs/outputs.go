@@ -45,10 +45,14 @@ type outputsRead struct {
 // be neither superseded nor finished. A read binds a workflow run no
 // dispatch holds yet only when its jobs name a stack of the reader's
 // dispatch. The producer must belong to the reader's installation and be a
-// stack of its default-branch graph when one is known. Its outputs.readers,
-// resolved from the stored default-branch stackorder.yaml and the stack's
-// .stackorder.yaml at the commit that configuration was read at, must list
-// the reader; refusals across repositories answer as if the stack did not
+// stack its default branch still has at the commit the stored
+// default-branch stackorder.yaml was read at: that configuration discovers
+// the key's directory, the directory exists, and the key's instance is one
+// of config.InstanceNames for the directory's .stackorder.yaml and, under
+// stacks.instances.from_var_files, the var files of that commit. A merged
+// pull request's graph plays no part. Its outputs.readers,
+// resolved from that stackorder.yaml and .stackorder.yaml, must list the
+// reader; refusals across repositories answer as if the stack did not
 // exist. An API key is an admin: it may name a run and a reader, which are
 // only checked for form, and reads whatever readers say. The state object
 // is the one an apply or drift job last reported for the stack, recorded
@@ -230,13 +234,6 @@ func (s *Service) producerStack(ctx context.Context, r *outputsRead, producer st
 	if !validStackKey(r.key) {
 		return store.Stack{}, r.notFound()
 	}
-	known, has, err := s.st.DefaultGraphHasStack(ctx, producer.ID, r.key)
-	if err != nil {
-		return store.Stack{}, storeErr(err, "default graph of %s", producer.FullName)
-	}
-	if known && !has {
-		return store.Stack{}, r.notFound()
-	}
 	stack, err := s.st.GetStackByKey(ctx, producer.ID, r.key)
 	if errors.Is(err, store.ErrNotFound) {
 		return store.Stack{}, r.notFound()
@@ -249,22 +246,13 @@ func (s *Service) producerStack(ctx context.Context, r *outputsRead, producer st
 
 func (s *Service) outputsPolicy(ctx context.Context, r *outputsRead, producer store.Repo) (config.Effective, error) {
 	sameRepo := r.readerRepo.ID == producer.ID
+	root := repoConfig(producer)
 	dir, _ := keyDir(r.key, "")
-	c, err := s.client(ctx, producer)
+	sc, err := s.producerOnDefaultBranch(ctx, r, producer, root)
 	if err != nil {
 		return config.Effective{}, err
 	}
-	data, found, err := s.defaultStackFile(ctx, c, producer, dir)
-	if err != nil {
-		return config.Effective{}, err
-	}
-	var sc *v1.StackConfig
-	if found {
-		if sc, err = config.ParseStack(data); err != nil {
-			return config.Effective{}, r.unresolved(sameRepo, err)
-		}
-	}
-	eff, err := defaultEffective(repoConfig(producer), map[string]*v1.StackConfig{dir: sc}, r.key, "")
+	eff, err := defaultEffective(root, map[string]*v1.StackConfig{dir: sc}, r.key, "")
 	if err != nil {
 		return config.Effective{}, r.unresolved(sameRepo, err)
 	}
@@ -277,6 +265,56 @@ func (s *Service) outputsPolicy(ctx context.Context, r *outputsRead, producer st
 	return config.Effective{}, &principal.CodedError{Kind: principal.ErrForbidden, Code: v1.ErrCodeOutputsNotShared,
 		Message: fmt.Sprintf("%s does not share its outputs with %s; list it under outputs.readers in %s or %s on the default branch",
 			r.key, r.reader, path.Join(dir, config.StackFile), config.RootFile)}
+}
+
+func (s *Service) producerOnDefaultBranch(ctx context.Context, r *outputsRead, producer store.Repo, root *v1.RepoConfig) (*v1.StackConfig, error) {
+	dir, instance := keyDir(r.key, "")
+	if !discovers(root, dir) {
+		return nil, r.notFound()
+	}
+	c, err := s.client(ctx, producer)
+	if err != nil {
+		return nil, err
+	}
+	data, found, err := s.defaultStackFile(ctx, c, producer, dir)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		_, exists, err := s.defaultDir(ctx, c, producer, dir)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, r.notFound()
+		}
+	}
+	sameRepo := r.readerRepo.ID == producer.ID
+	var sc *v1.StackConfig
+	if found {
+		if sc, err = config.ParseStack(data); err != nil {
+			return nil, r.unresolved(sameRepo, err)
+		}
+	}
+	var matched []string
+	if sc == nil || len(sc.Instances) == 0 {
+		tree := &defaultTree{ctx: ctx, s: s, c: c, repo: producer, dir: dir}
+		matched, err = config.MatchVarFilesFS(root, tree)
+		if tree.err != nil {
+			return nil, tree.err
+		}
+		if err != nil {
+			return nil, r.unresolved(sameRepo, err)
+		}
+	}
+	names, err := config.InstanceNames(root, dir, sc, matched)
+	if err != nil {
+		return nil, r.unresolved(sameRepo, err)
+	}
+	if !slices.Contains(names, instance) {
+		return nil, r.notFound()
+	}
+	return sc, nil
 }
 
 func (r *outputsRead) unresolved(sameRepo bool, err error) error {

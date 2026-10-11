@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -24,6 +26,7 @@ import (
 	"github.com/stackorder/stackorder/internal/principal"
 	"github.com/stackorder/stackorder/internal/stateread"
 	"github.com/stackorder/stackorder/internal/store"
+	"github.com/stackorder/stackorder/internal/testutil/ghfake"
 )
 
 const (
@@ -116,7 +119,27 @@ func (l *logRecorder) debugLogger() *slog.Logger {
 func newOutputsEnv(t *testing.T, cfg *v1.RepoConfig, opts ...envOption) (*env, *fakeState) {
 	t.Helper()
 	state := newFakeState()
-	return newEnv(t, cfg, append(opts, withStateReader(state))...), state
+	e := newEnv(t, cfg, append(opts, withStateReader(state))...)
+	for _, st := range wideGraph(mainSHA).Stacks {
+		e.setStackDir(repoName, mainSHA, st.Path)
+	}
+	return e, state
+}
+
+func (e *env) setStackDir(repo, sha, dir string) {
+	e.gh.SetContents(repo, sha, dir+"/main.tf", []byte("terraform {}\n"))
+}
+
+func (e *env) pushDefault(sha, root string, dirs ...string) {
+	e.t.Helper()
+	e.gh.SetContents(repoName, sha, "stackorder.yaml", []byte(root))
+	for _, dir := range dirs {
+		e.setStackDir(repoName, sha, dir)
+	}
+	require.NoError(e.t, e.svc.HandlePush(e.ctx, e.gh.PushEvent(repoName, "refs/heads/main", sha, "stackorder.yaml")))
+	repo, err := e.st.GetRepo(e.ctx, repoID)
+	require.NoError(e.t, err)
+	require.Equal(e.t, sha, repo.ConfigSHA)
 }
 
 func sharedConfig(readers ...string) *v1.RepoConfig {
@@ -167,6 +190,7 @@ func (e *env) addRepo(id, inst int64, name string, cfg *v1.RepoConfig, keys ...s
 	_, _, err = e.st.SaveGraph(e.ctx, id, &g)
 	require.NoError(e.t, err)
 	for _, key := range keys {
+		e.setStackDir(name, mainSHA, key)
 		e.setStateObject(id, key, stateAt(name+"/"+key))
 	}
 }
@@ -935,11 +959,12 @@ func TestOutputsLocationComesFromApplyAndDriftResults(t *testing.T) {
 }
 
 func TestOutputsProducerRemovedFromTheDefaultBranch(t *testing.T) {
-	e, state := newOutputsEnv(t, sharedConfig("stacks/**"))
-	job, runID := e.readingPlan(7)
-	setDefault := func(sha string, keep func(key string) bool) {
+	const shared = "version: 1\noutputs:\n  readers: [\"stacks/**\"]\n"
+	queue := "stacks/prod/queue"
+	blue, green := v1.StackKey(vpc, "blue"), v1.StackKey(vpc, "green")
+	setDefault := func(t *testing.T, e *env, keep func(key string) bool) {
 		t.Helper()
-		g := testGraph(sha)
+		g := testGraph(mergeSHA)
 		var stacks []v1.Stack
 		for _, st := range g.Stacks {
 			if keep(st.Key) {
@@ -957,30 +982,243 @@ func TestOutputsProducerRemovedFromTheDefaultBranch(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, e.st.SetDefaultGraph(e.ctx, repoID, gid))
 	}
+	removeVPC := func(_ *testing.T, e *env) { e.pushDefault(pushSHA, shared, eks) }
+	instances := func(stackFile string) func(t *testing.T, e *env) {
+		return func(t *testing.T, e *env) {
+			t.Helper()
+			g := instancesGraph(mainSHA, "blue", "green")
+			_, _, err := e.st.SaveGraph(e.ctx, repoID, &g)
+			require.NoError(t, err)
+			for _, key := range []string{blue, green} {
+				e.setStateObject(repoID, key, stateAt(key))
+			}
+			if stackFile != "" {
+				e.setStackFile(repoName, mainSHA, vpc, stackFile)
+			}
+		}
+	}
+	fromVarFiles := func(glob, stackFile string, files ...string) func(t *testing.T, e *env) {
+		return func(t *testing.T, e *env) {
+			t.Helper()
+			instances("")(t, e)
+			if stackFile != "" {
+				e.setStackFile(repoName, pushSHA, vpc, stackFile)
+			}
+			for _, f := range files {
+				e.gh.SetContents(repoName, pushSHA, vpc+"/"+f, []byte("cidr = \"10.0.0.0/16\"\n"))
+			}
+			e.pushDefault(pushSHA, shared+"stacks:\n  instances:\n    from_var_files: \""+glob+"\"\n", vpc, eks)
+		}
+	}
 	tests := []struct {
 		name    string
-		prepare func()
+		key     string
+		prepare func(t *testing.T, e *env)
 		ok      bool
 	}{
-		{name: "no default-branch graph is known yet", prepare: func() {}, ok: true},
-		{name: "the default branch no longer has the stack", prepare: func() { setDefault(mainSHA, func(key string) bool { return key != vpc }) }},
-		{name: "the default branch has it again", prepare: func() { setDefault(mergeSHA, func(string) bool { return true }) }, ok: true},
+		{name: "the default branch has the stack", key: vpc, prepare: func(*testing.T, *env) {}, ok: true},
+		{name: "a push deletes its directory", key: vpc, prepare: removeVPC},
+		{
+			name: "a later push restores its directory", key: vpc, ok: true,
+			prepare: func(t *testing.T, e *env) {
+				removeVPC(t, e)
+				e.pushDefault(laterPushSHA, shared, vpc, eks)
+			},
+		},
+		{
+			name: "a stale merge puts it back in the default-branch graph", key: vpc,
+			prepare: func(t *testing.T, e *env) {
+				removeVPC(t, e)
+				setDefault(t, e, func(string) bool { return true })
+			},
+		},
+		{
+			name: "a stale merge leaves it out of the default-branch graph", key: vpc, ok: true,
+			prepare: func(t *testing.T, e *env) { setDefault(t, e, func(key string) bool { return key != vpc }) },
+		},
+		{
+			name: "stackorder.yaml excludes its directory", key: vpc,
+			prepare: func(_ *testing.T, e *env) {
+				e.pushDefault(pushSHA, shared+"stacks:\n  exclude: [stacks/prod/vpc]\n", vpc, eks)
+			},
+		},
+		{
+			name: "stackorder.yaml makes its directory a module", key: vpc,
+			prepare: func(_ *testing.T, e *env) {
+				e.pushDefault(pushSHA, shared+"modules:\n  paths: [stacks/prod/vpc]\n", vpc, eks)
+			},
+		},
+		{
+			name: "a stack only a pull request adds", key: queue,
+			prepare: func(t *testing.T, e *env) {
+				g := testGraph(newHeadSHA)
+				g.Stacks = append(g.Stacks, v1.Stack{Key: queue, Path: queue})
+				_, _, err := e.st.SaveGraph(e.ctx, repoID, &g)
+				require.NoError(t, err)
+				e.setStateObject(repoID, queue, stateAt(queue))
+			},
+		},
+		{name: "an instance its stack file declares", key: blue, prepare: instances("instances: [blue]\n"), ok: true},
+		{name: "an instance its stack file no longer declares", key: green, prepare: instances("instances: [blue]\n")},
+		{name: "a stack whose stack file now declares instances", key: vpc, prepare: instances("instances: [blue]\n")},
+		{name: "an instance of a stack that declares none", key: green, prepare: instances("")},
+		{name: "an instance whose var file the default branch has", key: green, ok: true, prepare: fromVarFiles("vars/*.tfvars", "", "vars/blue.tfvars", "vars/green.tfvars")},
+		{name: "an instance whose var file the default branch has deleted", key: green, prepare: fromVarFiles("vars/*.tfvars", "", "vars/blue.tfvars")},
+		{name: "an instance whose var file a recursive glob finds", key: green, ok: true, prepare: fromVarFiles("envs/**/*.tfvars", "", "envs/prod/eu/green.tfvars")},
+		{name: "a stack var files now derive instances for", key: vpc, prepare: fromVarFiles("vars/*.tfvars", "", "vars/blue.tfvars")},
+		{name: "a stack no var file derives instances for", key: vpc, ok: true, prepare: fromVarFiles("vars/*.tfvars", "")},
+		{
+			name: "an instance only a var file names, of a stack that declares its own", key: green,
+			prepare: fromVarFiles("vars/*.tfvars", "instances: [blue]\n", "vars/blue.tfvars", "vars/green.tfvars"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.prepare()
-			before := len(state.reads())
-			_, err := e.outputs(job.p, vpc, runID, eks)
+			e, state := newOutputsEnv(t, sharedConfig("stacks/**"))
+			job, runID := e.readingPlan(7)
+			tt.prepare(t, e)
+
+			_, err := e.outputs(job.p, tt.key, runID, eks)
 			if tt.ok {
 				require.NoError(t, err)
-				assert.Len(t, state.reads(), before+1)
+				assert.Equal(t, []stateread.Location{locationOf(stateAt(tt.key))}, state.reads())
 				return
 			}
 			message := requireCoded(t, err, principal.ErrNotFound, "not_found")
-			assert.Equal(t, notFoundMessage(repoName, vpc), message)
-			assert.Len(t, state.reads(), before)
+			assert.Equal(t, notFoundMessage(repoName, tt.key), message)
+			assert.Empty(t, state.reads())
+			rows := e.audit("outputs_refused")
+			require.Len(t, rows, 1)
+			assert.Equal(t, "not_found", rows[0].Details["reason"])
 		})
 	}
+}
+
+func contentsLookups(t *testing.T, requests []ghfake.Request, path string) []string {
+	t.Helper()
+	var refs []string
+	for _, r := range requests {
+		if r.Method != http.MethodGet || r.Path != "/repos/"+repoName+"/contents/"+path {
+			continue
+		}
+		q, err := url.ParseQuery(r.RawQuery)
+		require.NoError(t, err)
+		refs = append(refs, q.Get("ref"))
+	}
+	return refs
+}
+
+func TestOutputsProducerDirectoryIsLookedUpOncePerCommit(t *testing.T) {
+	const shared = "version: 1\noutputs:\n  readers: [\"stacks/**\"]\n"
+	tests := []struct {
+		name      string
+		stackFile string
+		want      []string
+	}{
+		{name: "the stack file shows the directory exists", stackFile: "outputs:\n  sensitive: withhold\n"},
+		{name: "without a stack file the directory is looked up", want: []string{mainSHA}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, state := newOutputsEnv(t, sharedConfig("stacks/**"))
+			if tt.stackFile != "" {
+				e.setStackFile(repoName, mainSHA, vpc, tt.stackFile)
+			}
+			job, runID := e.readingPlan(7)
+			for range 3 {
+				_, err := e.outputs(job.p, vpc, runID, eks)
+				require.NoError(t, err)
+			}
+			require.Len(t, state.reads(), 3)
+			assert.Equal(t, tt.want, contentsLookups(t, e.gh.Requests(), vpc))
+
+			e.pushDefault(pushSHA, shared, eks)
+			_, err := e.outputs(job.p, vpc, runID, eks)
+			requireCoded(t, err, principal.ErrNotFound, "not_found")
+			assert.Len(t, state.reads(), 3)
+			assert.Equal(t, append(tt.want, pushSHA), contentsLookups(t, e.gh.Requests(), vpc),
+				"the directory is looked up again at the commit of a push that deletes it")
+		})
+	}
+}
+
+func TestOutputsProducerIsLookedUpAtTheConfigurationCommit(t *testing.T) {
+	e, state := newOutputsEnv(t, sharedConfig("stacks/**"))
+	job, runID := e.readingPlan(7)
+	e.gh.SetContents(repoName, pushSHA, "stackorder.yaml", []byte("version: [\n"))
+	e.setStackDir(repoName, pushSHA, eks)
+	require.NoError(t, e.svc.HandlePush(e.ctx, e.gh.PushEvent(repoName, "refs/heads/main", pushSHA, "stackorder.yaml")))
+	repo, err := e.st.GetRepo(e.ctx, repoID)
+	require.NoError(t, err)
+	require.Equal(t, mainSHA, repo.ConfigSHA, "an invalid stackorder.yaml keeps the configuration and its commit")
+
+	before := len(e.gh.Requests())
+	_, err = e.outputs(job.p, vpc, runID, eks)
+	require.NoError(t, err, "the head deleted the directory, but the configuration in force was read at a commit that has it")
+	assert.Equal(t, []stateread.Location{locationOf(stateAt(vpc))}, state.reads())
+	read := e.gh.Requests()[before:]
+	assert.Equal(t, []string{mainSHA}, contentsLookups(t, read, vpc+"/.stackorder.yaml"))
+	assert.Equal(t, []string{mainSHA}, contentsLookups(t, read, vpc))
+}
+
+func TestOutputsProducerVarFilesAreListedOnlyToDeriveInstances(t *testing.T) {
+	green := v1.StackKey(vpc, "green")
+	tests := []struct {
+		name      string
+		stackFile string
+		want      []string
+	}{
+		{name: "var files derive the instances", want: []string{mainSHA}},
+		{name: "the stack file declares them", stackFile: "instances: [blue, green]\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := sharedConfig("stacks/**")
+			cfg.Stacks.Instances.FromVarFiles = "vars/*.tfvars"
+			e, state := newOutputsEnv(t, cfg)
+			job, runID := e.readingPlan(7)
+			g := instancesGraph(mainSHA, "blue", "green")
+			_, _, err := e.st.SaveGraph(e.ctx, repoID, &g)
+			require.NoError(t, err)
+			e.setStateObject(repoID, green, stateAt(green))
+			e.gh.SetContents(repoName, mainSHA, vpc+"/vars/green.tfvars", []byte("cidr = \"10.0.0.0/16\"\n"))
+			if tt.stackFile != "" {
+				e.setStackFile(repoName, mainSHA, vpc, tt.stackFile)
+			}
+			for range 2 {
+				_, err := e.outputs(job.p, green, runID, eks)
+				require.NoError(t, err)
+			}
+			assert.Len(t, state.reads(), 2)
+			assert.Equal(t, tt.want, contentsLookups(t, e.gh.Requests(), vpc+"/vars"))
+		})
+	}
+}
+
+func TestOutputsProducerListingFailureIsNotARefusal(t *testing.T) {
+	green := v1.StackKey(vpc, "green")
+	cfg := sharedConfig("stacks/**")
+	cfg.Stacks.Instances.FromVarFiles = "vars/*.tfvars"
+	e, state := newOutputsEnv(t, cfg)
+	job, runID := e.readingPlan(7)
+	g := instancesGraph(mainSHA, "blue", "green")
+	_, _, err := e.st.SaveGraph(e.ctx, repoID, &g)
+	require.NoError(t, err)
+	e.setStateObject(repoID, green, stateAt(green))
+	e.gh.SetContents(repoName, mainSHA, vpc+"/vars/green.tfvars", []byte("cidr = \"10.0.0.0/16\"\n"))
+	e.gh.FailNext("GET /repos/"+repoName+"/contents/"+vpc+"/vars", http.StatusForbidden, 1)
+
+	_, err = e.outputs(job.p, green, runID, eks)
+	require.Error(t, err)
+	var coded *principal.CodedError
+	assert.False(t, errors.As(err, &coded), "a listing GitHub refuses fails the read without a refusal code: %v", err)
+	assert.Contains(t, err.Error(), vpc+"/vars")
+	assert.Empty(t, state.reads())
+	assert.Empty(t, e.audit("outputs_refused"))
+
+	_, err = e.outputs(job.p, green, runID, eks)
+	require.NoError(t, err, "a failed listing is not cached")
+	assert.Equal(t, []stateread.Location{locationOf(stateAt(green))}, state.reads())
 }
 
 func TestOutputsAPIKeyBypassesReadersAndIsAudited(t *testing.T) {

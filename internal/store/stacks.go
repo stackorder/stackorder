@@ -178,19 +178,3 @@ func (s *Store) reportStateObject(ctx context.Context, op string, stackID uuid.U
 	}
 	return nil
 }
-
-// DefaultGraphHasStack reports whether the repository has a default-branch
-// graph and whether that graph holds the local, non-external stack key. It
-// returns ErrNotFound when the repository does not exist.
-func (s *Store) DefaultGraphHasStack(ctx context.Context, repoID int64, key string) (known, has bool, err error) {
-	err = s.db.QueryRow(ctx, `
-		SELECT r.default_graph_id IS NOT NULL, EXISTS (
-			SELECT 1 FROM graph_stacks gs JOIN stacks s ON s.id = gs.stack_id
-			WHERE gs.graph_id = r.default_graph_id AND s.repo_id = r.id AND s.key = $2
-			  AND NOT COALESCE((gs.node->>'external')::boolean, false))
-		FROM repos r WHERE r.id = $1`, repoID, key).Scan(&known, &has)
-	if err != nil {
-		return false, false, wrap("default graph has stack", err)
-	}
-	return known, has, nil
-}
