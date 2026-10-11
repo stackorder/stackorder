@@ -8,8 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
@@ -18,7 +21,7 @@ import (
 	"github.com/stackorder/stackorder/internal/stateread"
 )
 
-func fixture(t *testing.T, name string) []byte {
+func fixture(t testing.TB, name string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", name))
 	require.NoError(t, err)
@@ -94,6 +97,121 @@ func TestDecodeStopsAfterOutputs(t *testing.T) {
 	}
 }
 
+func stateWithResources(resource string, size int) []byte {
+	return slices.Concat(
+		[]byte(`{"version": 4, "terraform_version": "1.14.4", "serial": 7, "lineage": "acme", "resources": [`),
+		bytes.Repeat([]byte(resource+",\n"), size/(len(resource)+2)),
+		[]byte(resource+`], "outputs": {"vpc_id": {"value": "vpc-0acme", "type": "string"}}}`))
+}
+
+func stateWithMembers(member string, size int) []byte {
+	return slices.Concat(
+		[]byte(`{"version": 4, "terraform_version": "1.14.4", "serial": 7, "lineage": "acme", `),
+		bytes.Repeat([]byte(member+",\n"), size/(len(member)+2)),
+		[]byte(`"outputs": {"vpc_id": {"value": "vpc-0acme", "type": "string"}}}`))
+}
+
+func TestDecodeSkipsResourcesQuickly(t *testing.T) {
+	tests := []struct {
+		name  string
+		state func(string, int) []byte
+		piece string
+	}{
+		{"resources", stateWithResources, `{"mode": "managed", "type": "aws_iam_policy", "name": "acme", "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+  "instances": [{"schema_version": 0, "attributes": {"arn": "arn:aws:iam::123456789012:policy/acme", "id": "acme",
+    "policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"s3:GetObject\",\"Resource\":\"*\"}]}",
+    "tags": {"env": "prod"}, "count": 3, "enabled": true, "weights": [1.5, -2, 3e2, null]}, "sensitive_attributes": [], "dependencies": ["aws_vpc.main"]}]}`},
+		{"small objects", stateWithResources, `{"a":0}`},
+		{"numbers", stateWithResources, `0`},
+		{"strings", stateWithResources, `"\u0061"`},
+		{"keys", stateWithMembers, `"ab": 0`},
+		{"escaped keys", stateWithMembers, `"\u0061b": 0`},
+		{"long keys", stateWithMembers, `"` + strings.Repeat("k", 200) + `": 0`},
+	}
+	size, timed := 32<<20, !raceDetector && testing.CoverMode() == ""
+	if !timed {
+		size /= 16
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := tt.state(tt.piece, size)
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			start := time.Now()
+			st, err := stateread.Decode(bytes.NewReader(state))
+			elapsed := time.Since(start)
+			runtime.ReadMemStats(&after)
+			require.NoError(t, err)
+			require.Empty(t, cmp.Diff(map[string]stateread.Output{"vpc_id": out(`"vpc-0acme"`, `"string"`, false)}, st.Outputs))
+			assert.Less(t, after.Mallocs-before.Mallocs, uint64(64), "skipping allocates nothing per token")
+			if timed {
+				assert.Less(t, elapsed, 2*time.Second, "%d MiB before the outputs", size>>20)
+			}
+		})
+	}
+}
+
+func TestDecodeSkipsInConstantMemory(t *testing.T) {
+	long := `"` + strings.Repeat("r", stateread.MaxOutputsBytes-2) + `"`
+	state := stateWithResources(long, 8*stateread.MaxOutputsBytes)
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	st, err := stateread.Decode(bytes.NewReader(state))
+	runtime.ReadMemStats(&after)
+	require.NoError(t, err)
+	assert.Len(t, st.Outputs, 1)
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20),
+		"strings as long as MaxOutputsBytes before the outputs are skipped without being held")
+
+	half := `"` + strings.Repeat("f", stateread.MaxOutputsBytes/2) + `"`
+	state = slices.Concat([]byte(`{"version": 4, `), []byte(long), []byte(`: 1, "outputs": {"vpc_id": {`),
+		[]byte(half), []byte(`: 1, "value": 1, "type": "number"}}}`))
+	runtime.ReadMemStats(&before)
+	st, err = stateread.Decode(bytes.NewReader(state))
+	runtime.ReadMemStats(&after)
+	require.NoError(t, err)
+	assert.Len(t, st.Outputs, 1)
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20),
+		"long unknown keys, at the top level and in an output, are skipped without being held")
+
+	_, err = stateread.Decode(bytes.NewReader(stateWithResources(long[:len(long)-1]+`r"`, 0)))
+	require.ErrorIs(t, err, stateread.ErrTooLarge, "one byte longer is too large")
+}
+
+func TestDecodeFieldNames(t *testing.T) {
+	tests := []struct {
+		name  string
+		state string
+		want  map[string]stateread.Output
+		err   error
+	}{
+		{"escaped keys", `{"\u0076ersion": 4, "\u006Fu\u0074puts": {"a": {"value": 1, "type": "number"}}}`,
+			map[string]stateread.Output{"a": out(`1`, `"number"`, false)}, nil},
+		{"output fields in any case", `{"version": 4, "outputs": {"a": {"VALUE": 1, "\u0054ype": "number", "ſensitive": true}}}`,
+			map[string]stateread.Output{"a": out(`1`, `"number"`, true)}, nil},
+		{"escaped folded field", `{"version": 4, "outputs": {"a": {"Value": 1, "type": "number", "\u017Fensitive": true}}}`,
+			map[string]stateread.Output{"a": out(`1`, `"number"`, true)}, nil},
+		{"surrogate pairs", `{"version": 4, "\ud83d\ude00": 1, "\ud800outputs": 1, "\ud800\u0041": 1, "outputs": {}}`,
+			map[string]stateread.Output{}, nil},
+		{"long unknown keys", `{"version": 4, "` + strings.Repeat("version", 40) + `": 1, "outputs": {"a": {"` +
+			strings.Repeat(" ", 200) + `": 1, "value": 1, "type": "number"}}}`,
+			map[string]stateread.Output{"a": out(`1`, `"number"`, false)}, nil},
+		{"escaped encryption key", `{"encrypted\u005fdata": "c2VjcmV0"}`, nil, stateread.ErrEncrypted},
+		{"top-level keys match case", `{"Version": 4, "outputs": {}}`, nil, stateread.ErrUnsupported},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st, err := decodeString(tt.state)
+			if tt.err != nil {
+				require.ErrorIs(t, err, tt.err)
+				return
+			}
+			require.NoError(t, err)
+			require.Empty(t, cmp.Diff(tt.want, st.Outputs))
+		})
+	}
+}
+
 func TestDecodeOutputsAfterResources(t *testing.T) {
 	const resources = `"resources": [
     {"mode": "managed", "type": "aws_vpc", "name": "main", "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
@@ -120,6 +238,40 @@ func TestDecodeOutputsAfterResources(t *testing.T) {
 			want := &stateread.State{Serial: 7, Lineage: "acme", TerraformVersion: "1.14.4",
 				Outputs: map[string]stateread.Output{"vpc_id": out(`"vpc-0acme"`, `"string"`, false)}}
 			require.Empty(t, cmp.Diff(want, st))
+		})
+	}
+}
+
+func TestDecodeRepeatedOutputs(t *testing.T) {
+	st, err := decodeString(`{"outputs": {"a": {"value": 1, "type": "number"}}, "outputs": {"b": {"value": 2, "type": "number"}}, "version": 4}`)
+	require.NoError(t, err)
+	require.Empty(t, cmp.Diff(map[string]stateread.Output{"b": out(`2`, `"number"`, false)}, st.Outputs), "the last outputs key wins")
+}
+
+func TestDecodeIdentityLimit(t *testing.T) {
+	tests := []struct {
+		field string
+		size  int
+		ok    bool
+	}{
+		{"lineage", 256, true},
+		{"lineage", 257, false},
+		{"terraform_version", 256, true},
+		{"terraform_version", 257, false},
+		{"lineage", stateread.MaxOutputsBytes, false},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s of %d bytes", tt.field, tt.size), func(t *testing.T) {
+			value := strings.Repeat("a", tt.size)
+			prefix := `{"version": 4, "` + tt.field + `": `
+			st, err := decodeString(prefix + `"` + value + `", "outputs": {}}`)
+			if tt.ok {
+				require.NoError(t, err)
+				assert.Equal(t, value, st.Lineage+st.TerraformVersion)
+				return
+			}
+			require.ErrorIs(t, err, stateread.ErrMalformed)
+			assert.EqualError(t, err, fmt.Sprintf("stateread: malformed state: %s longer than 256 bytes at byte %d", tt.field, len(prefix)))
 		})
 	}
 }
@@ -250,7 +402,7 @@ func TestDecodeLimits(t *testing.T) {
 		_, err = decodeString(`{"version": 4, "outputs": ` + outputsOf(16, 64<<10) + `}`)
 		require.NoError(t, err, "less than MaxOutputsBytes of outputs")
 
-		small := numberOutputs(200000)
+		small := numberOutputs(stateread.MaxOutputsBytes / 100)
 		require.Less(t, len(small), stateread.MaxOutputsBytes)
 		_, err = decodeString(`{"version": 4, "outputs": ` + small + `}`)
 		require.ErrorIs(t, err, stateread.ErrTooLarge, "less than MaxOutputsBytes of JSON, but more once each output counts its map entry")

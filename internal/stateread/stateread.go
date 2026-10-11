@@ -18,21 +18,30 @@ import (
 
 const (
 	// MaxObjectBytes is the most of a state object Read scans for its
-	// outputs before it gives up with ErrTooLarge.
-	MaxObjectBytes = 256 << 20
+	// outputs before it gives up with ErrTooLarge. Terraform and OpenTofu
+	// write the outputs before the resources, so only a state written in
+	// another order comes near it.
+	MaxObjectBytes = 64 << 20
 
-	// MaxOutputsBytes caps the outputs block, and any single value scanned
-	// on the way to it, at 8 MiB. Each decoded output also counts its name,
-	// value and type plus a fixed cost for its map entry against the cap,
-	// so that many small outputs cannot hold more memory than it.
-	MaxOutputsBytes = 8 << 20
+	// MaxOutputsBytes caps the outputs block, and any single string or
+	// number scanned on the way to it, at 4 MiB. Each decoded output also
+	// counts its name, value and type plus a fixed cost for its map entry
+	// against the cap, so that many small outputs cannot hold more memory
+	// than it.
+	MaxOutputsBytes = 4 << 20
 
-	// Timeout bounds one Read, waiting for a slot included.
+	// Timeout bounds one Read from the moment it has a slot.
 	Timeout = 30 * time.Second
 
+	// MaxWait bounds how long a Read waits for a slot, so that waiting and
+	// Timeout together stay within a minute, the idle timeout of the load
+	// balancer in the AWS deployment, and well within the server's write
+	// timeout.
+	MaxWait = 20 * time.Second
+
 	// MaxConcurrent is how many reads one Reader runs at a time; further
-	// reads wait for a slot.
-	MaxConcurrent = 16
+	// reads wait up to MaxWait for a slot.
+	MaxConcurrent = 4
 )
 
 var (
@@ -76,7 +85,8 @@ type Location struct {
 }
 
 // State is what Read keeps of a state object: its identity and its root
-// module outputs.
+// module outputs. Decode keeps at most MaxOutputsBytes of outputs and 256
+// bytes each of lineage and Terraform version.
 type State struct {
 	Serial           uint64
 	Lineage          string

@@ -551,9 +551,9 @@ Beyond `401 unauthorized`, `400 invalid`, `403 forbidden`, `409 conflict` and `4
 | 404 | `state_not_found` | The state object, or its bucket, does not exist. |
 | 422 | `state_encrypted` | OpenTofu encrypted the state. The server never decrypts state. |
 | 422 | `state_unsupported` | The state's format version is not 4. |
-| 422 | `state_too_large` | More than 256 MiB of the object precede its outputs, or the outputs, or a single value before them, exceed 8 MiB. |
+| 422 | `state_too_large` | More than 64 MiB of the object precede its outputs, or the outputs, or a single string or number before them, exceed 4 MiB. |
 | 422 | `state_unreadable` | The object is not valid state JSON, its location is unusable, such as an invalid region, or S3 refused the request for another reason. |
-| 503 | `unavailable` | The read failed for now: S3 throttled it, answered with a server error or did not answer within 30 s. Retry. |
+| 503 | `unavailable` | The read failed for now: S3 throttled it, answered with a server error or did not answer within 30 s, or the server's read slots stayed busy for 20 s. Retry. |
 
 A read never answers the generic `422 unprocessable`: each of its 422s carries one of the codes above.
 

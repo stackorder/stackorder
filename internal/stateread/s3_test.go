@@ -380,6 +380,101 @@ func TestReadWaitsForASlotWithinTheContext(t *testing.T) {
 	assert.False(t, errors.Is(err, stateread.ErrUnreadable))
 }
 
+func TestReadGivesUpWaitingForASlot(t *testing.T) {
+	state := fixture(t, "terraform.tfstate")
+	released, release := blockUntilReleased(t)
+	var inFlight atomic.Int32
+	s3 := newFakeS3(t, func(w http.ResponseWriter, r *http.Request, region string) {
+		inFlight.Add(1)
+		<-released
+		serveState(state)(w, r, region)
+	})
+	t.Cleanup(release)
+	const wait = 200 * time.Millisecond
+	r, err := stateread.New(t.Context(), []stateread.Grant{{Repository: producer, Bucket: "acme-state"}},
+		stateread.WithEndpoint(s3.URL), stateread.WithRegion("us-east-1"),
+		stateread.WithStaticCredentials("AKIDEXAMPLE", "secret"), stateread.WithWait(wait))
+	require.NoError(t, err)
+	done := make(chan struct{})
+	for range stateread.MaxConcurrent {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			_, _ = r.Read(t.Context(), producer, acme)
+		}()
+	}
+	require.Eventually(t, func() bool { return inFlight.Load() == stateread.MaxConcurrent }, 10*time.Second, 5*time.Millisecond)
+
+	start := time.Now()
+	_, err = r.Read(t.Context(), producer, acme)
+	waited := time.Since(start)
+	require.ErrorIs(t, err, context.DeadlineExceeded, "a context without a deadline still stops waiting")
+	assert.ErrorContains(t, err, "wait to read")
+	assert.GreaterOrEqual(t, waited, wait)
+	regions, _ := s3.requests()
+	assert.Len(t, regions, stateread.MaxConcurrent, "a read that gives up makes no request")
+	release()
+	for range stateread.MaxConcurrent {
+		<-done
+	}
+	assert.Less(t, stateread.MaxWait+stateread.Timeout, time.Minute, "a read ends within the load balancer's idle timeout")
+}
+
+func TestReadStartsItsTimeoutOnceItHasASlot(t *testing.T) {
+	state := fixture(t, "terraform.tfstate")
+	waiting := acme
+	waiting.Key = "stacks/prod/eks/terraform.tfstate"
+	waitingPath := "/" + waiting.Bucket + "/" + waiting.Key
+	released, release := blockUntilReleased(t)
+	var inFlight atomic.Int32
+	s3 := newFakeS3(t, func(w http.ResponseWriter, r *http.Request, region string) {
+		if r.URL.Path != waitingPath {
+			inFlight.Add(1)
+			<-released
+		}
+		serveState(state)(w, r, region)
+	})
+	t.Cleanup(release)
+	deadlines := make(chan time.Time, 1)
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if deadline, ok := req.Context().Deadline(); ok && req.URL.Path == waitingPath {
+			select {
+			case deadlines <- deadline:
+			default:
+			}
+		}
+		return http.DefaultTransport.RoundTrip(req)
+	})}
+	r, err := stateread.New(t.Context(), []stateread.Grant{{Repository: producer, Bucket: "acme-state"}},
+		stateread.WithEndpoint(s3.URL), stateread.WithRegion("us-east-1"),
+		stateread.WithStaticCredentials("AKIDEXAMPLE", "secret"), stateread.WithHTTPClient(client))
+	require.NoError(t, err)
+
+	done := make(chan error, stateread.MaxConcurrent)
+	for range stateread.MaxConcurrent {
+		go func() {
+			_, err := r.Read(t.Context(), producer, acme)
+			done <- err
+		}()
+	}
+	require.Eventually(t, func() bool { return inFlight.Load() == stateread.MaxConcurrent }, 10*time.Second, 5*time.Millisecond)
+	result := make(chan error, 1)
+	go func() {
+		_, err := r.Read(t.Context(), producer, waiting)
+		result <- err
+	}()
+	time.Sleep(300 * time.Millisecond)
+	freed := time.Now()
+	release()
+
+	require.NoError(t, <-result)
+	require.Len(t, deadlines, 1, "the waiting read's request carries a deadline")
+	assert.WithinRange(t, <-deadlines, freed.Add(stateread.Timeout), time.Now().Add(stateread.Timeout),
+		"the timeout starts when the read gets a slot, not while it waits")
+	for range stateread.MaxConcurrent {
+		require.NoError(t, <-done)
+	}
+}
+
 const assumeRoleResponse = `<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><AssumeRoleResult>` +
 	`<Credentials><AccessKeyId>ASIAEXAMPLE</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>token</SessionToken><Expiration>2099-01-01T00:00:00Z</Expiration></Credentials>` +
 	`<AssumedRoleUser><Arn>arn:aws:sts::123456789012:assumed-role/acme-state-reader/stackorder-stateread</Arn><AssumedRoleId>AROAEXAMPLE:stackorder-stateread</AssumedRoleId></AssumedRoleUser>` +
