@@ -52,8 +52,8 @@ docker compose exec server /stackorder-server healthcheck
 ```
 
 ```text
-{"status":"ok","version":"0.3.0","setup_mode":true}
-{"status":"ok","version":"0.3.0","setup_mode":true}
+{"status":"ok","version":"0.4.0","setup_mode":true}
+{"status":"ok","version":"0.4.0","setup_mode":true}
 {"code":"unavailable","message":"setup is required: the GitHub App is not configured yet; open http://localhost:8080/setup with the setup token from the server log"}
 stackorder-server healthcheck: GET http://127.0.0.1:8080/healthz: 200 OK
 ```
@@ -73,11 +73,11 @@ Download the release archive for your system and the checksums file into `bin/`,
 ```sh
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
 arch=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
-url=https://github.com/stackorder/stackorder/releases/download/v0.3.0
+url=https://github.com/stackorder/stackorder/releases/download/v0.4.0
 mkdir -p bin && cd bin
-curl -fsSLO "$url/stackorder_0.3.0_${os}_${arch}.tar.gz" -O "$url/stackorder_0.3.0_checksums.txt"
-grep "_${os}_${arch}.tar.gz" stackorder_0.3.0_checksums.txt | $(command -v sha256sum || echo shasum -a 256) -c -
-tar -xzf "stackorder_0.3.0_${os}_${arch}.tar.gz" stackorder
+curl -fsSLO "$url/stackorder_0.4.0_${os}_${arch}.tar.gz" -O "$url/stackorder_0.4.0_checksums.txt"
+grep "_${os}_${arch}.tar.gz" stackorder_0.4.0_checksums.txt | $(command -v sha256sum || echo shasum -a 256) -c -
+tar -xzf "stackorder_0.4.0_${os}_${arch}.tar.gz" stackorder
 cd ..
 export PATH="$PWD/bin:$PATH"
 stackorder version

@@ -4,6 +4,8 @@ All notable changes to this repository are documented here. The format follows [
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-11
+
 ### Added
 
 - [Shared outputs](docs/configuration/outputs.md): a stack can read another stack's root-module outputs through the server instead of `terraform_remote_state`, so its role needs no access to the other stack's state object. The producer lists its readers under `outputs.readers` in `stackorder.yaml`, in its `.stackorder.yaml` or on an instance, as doublestar patterns over stack keys, or `owner/repo//pattern` for stacks of another repository of the same installation. The most specific level that sets `readers` replaces the others, `[]` withdraws a broader grant, and unset at every level the outputs are not shared, inside one repository too. The server reads the producer's `outputs` configuration from its default branch only, never from a pull request or a graph upload. Outputs marked sensitive are left out and named in `withheld` unless `outputs.sensitive` is `share`; the default, `withhold`, keeps them out of the consumer's saved plan and state.
@@ -199,7 +201,8 @@ Recorded in [ARCHITECTURE.md](ARCHITECTURE.md) and in the implementation notes o
 - The schema stores a stack's backend as one `backend` jsonb column and edges by `from_key` and `to_key`, keeps a ref-less family row per module, and adds tables for graph membership, checks, dispatches, OIDC `jti`s and the audit log.
 - Named checks accept `warn`, which passes; a stack's `apply.allowed_teams` replaces the root list rather than narrowing it.
 
-[Unreleased]: https://github.com/stackorder/stackorder/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/stackorder/stackorder/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/stackorder/stackorder/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/stackorder/stackorder/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/stackorder/stackorder/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/stackorder/stackorder/releases/tag/v0.1.0
