@@ -146,8 +146,9 @@ type Config struct {
 
 	// StateGrants is STACKORDER_STATE_BUCKETS as stateread.ParseGrants
 	// reads it: the buckets, each with an optional key prefix, whose state
-	// objects the server may read to serve stack outputs. Empty turns
-	// shared outputs off.
+	// objects the server may read to serve the stack outputs of one
+	// repository, or of every repository for an entry granted to *. Empty
+	// turns shared outputs off.
 	StateGrants []stateread.Grant
 	// StateRoleARN is STACKORDER_STATE_ROLE_ARN, an IAM role the state
 	// reader assumes to read state objects; it requires state buckets.
@@ -482,7 +483,7 @@ func (e *env) bucket(name string) string {
 func (e *env) stateGrants(name string) []stateread.Grant {
 	grants, err := stateread.ParseGrants(e.str(name))
 	if err != nil {
-		e.fail(name, "must be comma-separated bucket or bucket/prefix entries: %v", err)
+		e.fail(name, "is not a valid list of state grants: %v", err)
 		return nil
 	}
 	return grants

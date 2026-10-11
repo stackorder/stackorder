@@ -65,12 +65,14 @@ func serveState(state []byte) func(http.ResponseWriter, *http.Request, string) {
 	}
 }
 
+const producer = "acme/infra"
+
 var acme = stateread.Location{Bucket: "acme-state", Key: "stacks/prod/vpc/terraform.tfstate", Region: "eu-west-1"}
 
 func newReader(t *testing.T, endpoint string, grants ...stateread.Grant) *stateread.Reader {
 	t.Helper()
 	if len(grants) == 0 {
-		grants = []stateread.Grant{{Bucket: "acme-state"}}
+		grants = []stateread.Grant{{Repository: producer, Bucket: "acme-state"}}
 	}
 	r, err := stateread.New(t.Context(), grants,
 		stateread.WithEndpoint(endpoint), stateread.WithRegion("us-east-1"),
@@ -86,8 +88,14 @@ func TestNewRequiresValidGrants(t *testing.T) {
 		want   string
 	}{
 		{"no grants", nil, "at least one grant"},
-		{"no bucket", []stateread.Grant{{Prefix: "stacks/prod/"}}, `grant bucket "" is not a valid S3 bucket name`},
-		{"invalid bucket", []stateread.Grant{{Bucket: "acme-state"}, {Bucket: "Acme_State"}}, `grant bucket "Acme_State" is not a valid S3 bucket name`},
+		{"no bucket", []stateread.Grant{{Repository: producer, Prefix: "stacks/prod/"}}, `grant acme/infra=/stacks/prod/: "" is not a valid S3 bucket name`},
+		{
+			"invalid bucket", []stateread.Grant{{Repository: producer, Bucket: "acme-state"}, {Repository: producer, Bucket: "Acme_State"}},
+			`grant acme/infra=Acme_State: "Acme_State" is not a valid S3 bucket name`,
+		},
+		{"no repository", []stateread.Grant{{Bucket: "acme-state"}}, `grant =acme-state: repository "" is neither owner/repo nor *`},
+		{"a wildcard owner", []stateread.Grant{{Repository: "*/infra", Bucket: "acme-state"}}, `repository "*/infra" is neither owner/repo nor *`},
+		{"a dot segment in the prefix", []stateread.Grant{{Repository: producer, Bucket: "acme-state", Prefix: "stacks/../"}}, "a prefix with a . or .. segment"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -99,7 +107,7 @@ func TestNewRequiresValidGrants(t *testing.T) {
 
 func TestReadDecodesTheObject(t *testing.T) {
 	s3 := newFakeS3(t, serveState(fixture(t, "terraform.tfstate")))
-	st, err := newReader(t, s3.URL).Read(t.Context(), acme)
+	st, err := newReader(t, s3.URL).Read(t.Context(), producer, acme)
 	require.NoError(t, err)
 	assert.Equal(t, "1.14.4", st.TerraformVersion)
 	assert.Len(t, st.Outputs, len(fixtureOutputs()))
@@ -110,25 +118,38 @@ func TestReadDecodesTheObject(t *testing.T) {
 
 func TestReadRefusesBeforeCallingS3(t *testing.T) {
 	s3 := newFakeS3(t, serveState(fixture(t, "terraform.tfstate")))
-	r := newReader(t, s3.URL, stateread.Grant{Bucket: "acme-state", Prefix: "stacks/prod/"})
+	r := newReader(t, s3.URL,
+		stateread.Grant{Repository: producer, Bucket: "acme-state", Prefix: "stacks/prod"},
+		stateread.Grant{Repository: "acme/network", Bucket: "acme-state", Prefix: "stacks/network/"})
 	tests := []struct {
 		name string
+		repo string
 		loc  stateread.Location
 		want error
 	}{
-		{"another bucket", stateread.Location{Bucket: "acme-other", Key: acme.Key}, stateread.ErrNotAllowed},
-		{"outside the prefix", stateread.Location{Bucket: "acme-state", Key: "stacks/dev/vpc/terraform.tfstate"}, stateread.ErrNotAllowed},
-		{"dot segment", stateread.Location{Bucket: "acme-state", Key: "stacks/prod/../dev/terraform.tfstate"}, stateread.ErrNotAllowed},
-		{"no key", stateread.Location{Bucket: "acme-state"}, stateread.ErrNotAllowed},
-		{"no bucket", stateread.Location{Key: acme.Key}, stateread.ErrNotAllowed},
-		{"invalid region", stateread.Location{Bucket: "acme-state", Key: acme.Key, Region: "eu-west-1.evil.example"}, stateread.ErrUnreadable},
+		{"another bucket", producer, stateread.Location{Bucket: "acme-other", Key: acme.Key}, stateread.ErrNotAllowed},
+		{"outside the prefix", producer, stateread.Location{Bucket: "acme-state", Key: "stacks/dev/vpc/terraform.tfstate"}, stateread.ErrNotAllowed},
+		{"a sibling of the prefix", producer, stateread.Location{Bucket: "acme-state", Key: "stacks/production/vpc/terraform.tfstate"}, stateread.ErrNotAllowed},
+		{"another repository's prefix", producer, stateread.Location{Bucket: "acme-state", Key: "stacks/network/vpc/terraform.tfstate"}, stateread.ErrNotAllowed},
+		{"for another repository", "acme/network", acme, stateread.ErrNotAllowed},
+		{"for a repository without grants", "globex/infra", acme, stateread.ErrNotAllowed},
+		{"for no repository", "", acme, stateread.ErrNotAllowed},
+		{"dot segment", producer, stateread.Location{Bucket: "acme-state", Key: "stacks/prod/../dev/terraform.tfstate"}, stateread.ErrNotAllowed},
+		{"no key", producer, stateread.Location{Bucket: "acme-state"}, stateread.ErrNotAllowed},
+		{"no bucket", producer, stateread.Location{Key: acme.Key}, stateread.ErrNotAllowed},
+		{"invalid region", producer, stateread.Location{Bucket: "acme-state", Key: acme.Key, Region: "eu-west-1.evil.example"}, stateread.ErrUnreadable},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := r.Read(t.Context(), tt.loc)
+			_, err := r.Read(t.Context(), tt.repo, tt.loc)
 			require.ErrorIs(t, err, tt.want)
+			if tt.want == stateread.ErrNotAllowed {
+				assert.False(t, r.Allows(tt.repo, tt.loc), "Allows agrees with Read")
+			}
 		})
 	}
+	assert.True(t, r.Allows(producer, acme))
+	assert.True(t, r.Allows("ACME/infra", acme), "repository names ignore case")
 	regions, _ := s3.requests()
 	assert.Empty(t, regions, "no request reached S3")
 }
@@ -157,7 +178,7 @@ func TestReadMapsS3Errors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s3 := newFakeS3(t, func(w http.ResponseWriter, _ *http.Request, _ string) { s3Error(w, tt.status, tt.code) })
-			_, err := newReader(t, s3.URL).Read(t.Context(), acme)
+			_, err := newReader(t, s3.URL).Read(t.Context(), producer, acme)
 			require.Error(t, err)
 			if tt.want != nil {
 				require.ErrorIs(t, err, tt.want)
@@ -183,7 +204,7 @@ func TestReadMapsStateErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s3 := newFakeS3(t, serveState([]byte(tt.state)))
-			_, err := newReader(t, s3.URL).Read(t.Context(), acme)
+			_, err := newReader(t, s3.URL).Read(t.Context(), producer, acme)
 			require.ErrorIs(t, err, tt.want)
 			assert.Contains(t, err.Error(), "s3://acme-state/stacks/prod/vpc/terraform.tfstate")
 		})
@@ -220,7 +241,7 @@ func TestReadFollowsTheBucketRegionOnce(t *testing.T) {
 			s3 := newFakeS3(t, tt.serve)
 			loc := acme
 			loc.Region = tt.region
-			st, err := newReader(t, s3.URL).Read(t.Context(), loc)
+			st, err := newReader(t, s3.URL).Read(t.Context(), producer, loc)
 			if tt.want == nil {
 				require.NoError(t, err)
 				assert.Equal(t, "1.12.6", st.TerraformVersion)
@@ -250,7 +271,7 @@ func TestReadStopsAtTheContextDeadline(t *testing.T) {
 	t.Cleanup(release)
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
-	_, err := newReader(t, s3.URL).Read(ctx, acme)
+	_, err := newReader(t, s3.URL).Read(ctx, producer, acme)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	for _, sentinel := range sentinels {
 		assert.NotErrorIs(t, err, sentinel)
@@ -273,7 +294,7 @@ func TestReadAppliesItsTimeout(t *testing.T) {
 		}
 		return http.DefaultTransport.RoundTrip(req)
 	})}
-	r, err := stateread.New(t.Context(), []stateread.Grant{{Bucket: "acme-state"}},
+	r, err := stateread.New(t.Context(), []stateread.Grant{{Repository: producer, Bucket: "acme-state"}},
 		stateread.WithEndpoint(s3.URL), stateread.WithRegion("us-east-1"),
 		stateread.WithStaticCredentials("AKIDEXAMPLE", "secret"), stateread.WithHTTPClient(client))
 	require.NoError(t, err)
@@ -281,7 +302,7 @@ func TestReadAppliesItsTimeout(t *testing.T) {
 	require.False(t, callerDeadline, "the caller's context has no deadline")
 
 	start := time.Now()
-	_, err = r.Read(t.Context(), acme)
+	_, err = r.Read(t.Context(), producer, acme)
 	end := time.Now()
 	require.NoError(t, err)
 	require.Len(t, deadlines, 1, "the request carries a deadline")
@@ -311,7 +332,7 @@ func TestReadRunsAtMostMaxConcurrentReads(t *testing.T) {
 	errs := make(chan error, reads)
 	for range reads {
 		go func() {
-			_, err := r.Read(t.Context(), acme)
+			_, err := r.Read(t.Context(), producer, acme)
 			errs <- err
 		}()
 	}
@@ -342,14 +363,14 @@ func TestReadWaitsForASlotWithinTheContext(t *testing.T) {
 	for range stateread.MaxConcurrent {
 		go func() {
 			defer func() { done <- struct{}{} }()
-			_, _ = r.Read(t.Context(), acme)
+			_, _ = r.Read(t.Context(), producer, acme)
 		}()
 	}
 	require.Eventually(t, func() bool { return inFlight.Load() == stateread.MaxConcurrent }, 10*time.Second, 5*time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
-	_, err := r.Read(ctx, acme)
+	_, err := r.Read(ctx, producer, acme)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.ErrorContains(t, err, "wait to read")
 	release()
@@ -398,13 +419,13 @@ func TestEndpointOptionsRouteTheRoleAssumption(t *testing.T) {
 			t.Setenv("AWS_IGNORE_CONFIGURED_ENDPOINT_URLS", "")
 			t.Setenv("AWS_ENDPOINT_URL", "")
 			t.Setenv("AWS_ENDPOINT_URL_STS", sts.URL)
-			r, err := stateread.New(t.Context(), []stateread.Grant{{Bucket: "acme-state"}},
+			r, err := stateread.New(t.Context(), []stateread.Grant{{Repository: producer, Bucket: "acme-state"}},
 				tt.endpoint(s3.URL+"/"), stateread.WithRegion("us-east-1"),
 				stateread.WithStaticCredentials("AKIDEXAMPLE", "secret"),
 				stateread.WithRoleARN("arn:aws:iam::123456789012:role/acme-state-reader"))
 			require.NoError(t, err)
 
-			_, err = r.Read(t.Context(), acme)
+			_, err = r.Read(t.Context(), producer, acme)
 			require.NoError(t, err)
 			_, s3Paths := s3.requests()
 			_, stsPaths := sts.requests()

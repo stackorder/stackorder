@@ -32,7 +32,7 @@ In scope:
 - The Terraform deployment module in `deploy/terraform`.
 - The workflows and actions in [`stackorder/actions`](https://github.com/stackorder/actions).
 
-A good report shows one of these doing something the [security model](https://docs.stackorder.io/reference/security-model) says it cannot, for example a compromised server writing Terraform state, reading it without shared outputs on, or assuming the AWS role of a job; the server reading a state object outside `STACKORDER_STATE_BUCKETS`, or answering a read of outputs that [Who may read](https://docs.stackorder.io/configuration/outputs#who-may-read) says it refuses; a runner token accepted for a run it does not belong to; or a secret that the CLI should have redacted reaching the server.
+A good report shows one of these doing something the [security model](https://docs.stackorder.io/reference/security-model) says it cannot, for example a compromised server writing Terraform state, reading it without shared outputs on, or assuming the AWS role of a job; the server reading a state object outside the entries of `STACKORDER_STATE_BUCKETS` granted to the stack's repository, or answering a read of outputs that [Who may read](https://docs.stackorder.io/configuration/outputs#who-may-read) says it refuses; a runner token accepted for a run it does not belong to; or a secret that the CLI should have redacted reaching the server.
 
 Out of scope:
 

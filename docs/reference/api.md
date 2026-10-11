@@ -380,7 +380,7 @@ Reports a plan, apply or drift outcome for one stack and answers with the stack'
 
 `status` is `success`, `failure` (the tool or a hook failed, or the CLI refused) or `error`. `exit_code` is the tool's exit code, `2` for a plan with changes. Other fields: `truncated` when the plan text was cut at 256 KB, `error_text`, and `unconfirmed`, which records the stack as `unconfirmed`. The summary can also count `imports`, `moves` and `output_changes`, and list `destroyed` and `replaced` addresses. Plan text of a stack whose default-branch `plan_output` is `summary` is never stored.
 
-`backend` is the backend `init` recorded. `state` is the S3 object that held the stack's state after `init` and workspace selection: `bucket`, `key` with the workspace prefix (`env:/production/stacks/prod/vpc/terraform.tfstate` in the workspace `production`), and `region` unless the backend takes it from the environment. The CLI leaves it out for a backend other than `s3`, or without a bucket or a key. The server records it as the stack's state location from an accepted apply or drift result, manual runs included and whatever the outcome; never from a plan result, a repeated or refused result, or a result of a run older than the one that recorded the current location. [Shared outputs](/configuration/outputs#state-location) read the state from there.
+`backend` is the backend `init` recorded. `state` is the S3 object that held the stack's state after `init` and workspace selection: `bucket`, `key` with the workspace prefix (`env:/production/stacks/prod/vpc/terraform.tfstate` in the workspace `production`), and `region` unless the backend takes it from the environment. The CLI leaves it out for a backend other than `s3`, or without a bucket or a key. The server records it as the stack's state location from an accepted apply or drift result, manual runs included and whatever the outcome; never from a plan result, a repeated or refused result, or a result of a run older than the one that recorded the current location, and, with shared outputs on, never an object that no entry of `STACKORDER_STATE_BUCKETS` grants the stack's repository: such a result clears the recorded location instead, under the same order, and the server logs the object. [Shared outputs](/configuration/outputs#state-location) read the state from there.
 
 ```json
 {
@@ -545,8 +545,8 @@ Beyond `401 unauthorized`, `400 invalid`, `403 forbidden`, `409 conflict` and `4
 | 404 | `outputs_disabled` | The server reads no state: `STACKORDER_STATE_BUCKETS` is unset. |
 | 403 | `outputs_not_shared` | The reader is a stack of the producer's repository, and the producer's default-branch `outputs.readers` does not list it, or the producer's `outputs` configuration does not parse or render. The message names the files to edit. |
 | 404 | `not_found` | The repository does not exist, is suspended or, for a runner, belongs to another installation; the key is not a stack of it, or not one of its default-branch graph. For a reader in another repository, also a producer that does not list it or whose configuration does not resolve. One message covers every cause. |
-| 409 | `state_location_unknown` | The producer has had no apply or drift job on a CLI that reports its state object, so the server does not know where its state is. |
-| 403 | `state_bucket_not_allowed` | The state object lies outside the entries of `STACKORDER_STATE_BUCKETS`. Nothing was requested from S3. |
+| 409 | `state_location_unknown` | The producer has had no apply or drift job on a CLI that reports its state object, or its last one reported an object outside every entry of `STACKORDER_STATE_BUCKETS` granted to its repository, so the server does not know where its state is. |
+| 403 | `state_bucket_not_allowed` | The state object lies outside the entries of `STACKORDER_STATE_BUCKETS` granted to the producer's repository or to `*`. Nothing was requested from S3. |
 | 403 | `state_access_denied` | S3, or KMS through S3, denied the server access to the state object, or STS refused to let the server assume `STACKORDER_STATE_ROLE_ARN`. Without `s3:ListBucket`, S3 also answers so for a missing object. |
 | 404 | `state_not_found` | The state object, or its bucket, does not exist. |
 | 422 | `state_encrypted` | OpenTofu encrypted the state. The server never decrypts state. |
@@ -557,7 +557,7 @@ Beyond `401 unauthorized`, `400 invalid`, `403 forbidden`, `409 conflict` and `4
 
 A read never answers the generic `422 unprocessable`: each of its 422s carries one of the codes above.
 
-Refusals answered with `invalid`, `forbidden`, `not_found`, `conflict`, `superseded`, `outputs_not_shared` or `state_location_unknown` are audited as `outputs_refused`, with the code as `details.reason`. `outputs_disabled` is not audited, and neither is a failure of the state read itself: `state_bucket_not_allowed`, `state_access_denied`, `state_not_found`, `state_encrypted`, `state_unsupported`, `state_too_large`, `state_unreadable` and `unavailable`. [Troubleshooting](/operations/troubleshooting#shared-outputs) says what to do about each code.
+Refusals answered with `invalid`, `forbidden`, `not_found`, `conflict`, `superseded`, `outputs_not_shared`, `state_location_unknown` or `state_bucket_not_allowed` are audited as `outputs_refused`, with the code as `details.reason`. `outputs_disabled` is not audited, and neither is a failure of the state read itself: `state_access_denied`, `state_not_found`, `state_encrypted`, `state_unsupported`, `state_too_large`, `state_unreadable` and `unavailable`. [Troubleshooting](/operations/troubleshooting#shared-outputs) says what to do about each code.
 
 ## Human and automation endpoints {#human}
 

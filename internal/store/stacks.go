@@ -29,12 +29,13 @@ type Stack struct {
 	LastSeenAt  time.Time       `db:"last_seen_at"`
 	RemovedAt   *time.Time      `db:"removed_at"`
 	// StateObject is where an apply or drift job of the newest run that
-	// reported one found the stack's state; nil until then. Saving a graph
-	// never changes it, unlike Backend.
+	// reported one found the stack's state; nil until then, and nil when
+	// that run's report was cleared with ClearStackStateObject. Saving a
+	// graph never changes it, unlike Backend.
 	StateObject *v1.StateObject `db:"state_object"`
 	// StateObjectRunID is the run of that job, nil once the run is deleted.
 	StateObjectRunID *uuid.UUID `db:"state_object_run_id"`
-	// StateObjectAt is when StateObject was recorded.
+	// StateObjectAt is when StateObject was recorded or cleared.
 	StateObjectAt *time.Time `db:"state_object_at"`
 }
 
@@ -139,6 +140,21 @@ func (s *Store) SetStackStateObject(ctx context.Context, stackID uuid.UUID, obj 
 	if obj.Bucket == "" || obj.Key == "" {
 		return invalid(op, "state object with a bucket and key is required")
 	}
+	return s.reportStateObject(ctx, op, stackID, &obj, runID)
+}
+
+// ClearStackStateObject forgets the stack's state object because an apply
+// or drift job of run reported one that may not be recorded, and records
+// run as the report, under the order of SetStackStateObject: a run created
+// before the run already recorded changes nothing, and a late report of an
+// older run cannot bring the cleared location back. It returns ErrInvalid
+// when the run may not report for the stack, and ErrNotFound when the stack
+// or the run does not exist.
+func (s *Store) ClearStackStateObject(ctx context.Context, stackID, runID uuid.UUID) error {
+	return s.reportStateObject(ctx, "clear stack state object", stackID, nil, runID)
+}
+
+func (s *Store) reportStateObject(ctx context.Context, op string, stackID uuid.UUID, obj *v1.StateObject, runID uuid.UUID) error {
 	var allowed bool
 	err := s.db.QueryRow(ctx, `
 		WITH report AS (

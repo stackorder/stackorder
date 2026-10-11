@@ -132,7 +132,7 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 		EnvArtifactBucket:      "acme-stackorder-artifacts",
 		EnvArtifactPrefix:      "plans/",
 		EnvArtifactEndpoint:    "http://localstack:4566",
-		EnvStateBuckets:        "acme-state/stacks/prod/",
+		EnvStateBuckets:        "acme/infra=acme-state/stacks/prod/",
 		EnvStateRoleARN:        "arn:aws:iam::123456789012:role/stackorder-state-reader",
 		EnvSessionKey:          " " + sessionKey + "\n",
 		EnvMetricsToken:        "metrics-token",
@@ -169,7 +169,7 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 	assert.Equal(t, "acme-stackorder-artifacts", cfg.ArtifactBucket)
 	assert.Equal(t, "plans/", cfg.ArtifactPrefix)
 	assert.Equal(t, "http://localstack:4566", cfg.ArtifactEndpoint)
-	assert.Equal(t, []stateread.Grant{{Bucket: "acme-state", Prefix: "stacks/prod/"}}, cfg.StateGrants)
+	assert.Equal(t, []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state", Prefix: "stacks/prod/"}}, cfg.StateGrants)
 	assert.Equal(t, "arn:aws:iam::123456789012:role/stackorder-state-reader", cfg.StateRoleARN)
 	assert.Equal(t, wantKey, cfg.SessionKey, "surrounding white space is trimmed")
 	assert.False(t, cfg.SessionKeyGenerated)
@@ -295,6 +295,9 @@ func TestLoadConfigStateBuckets(t *testing.T) {
 	const (
 		role     = "arn:aws:iam::123456789012:role/stackorder-state-reader"
 		endpoint = "http://localstack:4566"
+		format   = EnvStateBuckets + " is not a valid list of state grants"
+		forms    = "; write owner/repo=bucket or owner/repo=bucket/prefix, or *=bucket[/prefix] for every repository"
+		infra    = "acme/infra=acme-state"
 	)
 	tests := []struct {
 		name     string
@@ -309,35 +312,40 @@ func TestLoadConfigStateBuckets(t *testing.T) {
 			env:  minimalEnv(),
 		},
 		{
-			name:   "one bucket",
-			env:    with(minimalEnv(), EnvStateBuckets, "acme-state"),
-			grants: []stateread.Grant{{Bucket: "acme-state"}},
+			name:   "one bucket for one repository",
+			env:    with(minimalEnv(), EnvStateBuckets, infra),
+			grants: []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state"}},
 		},
 		{
 			name: "several entries with prefixes, spaces trimmed",
-			env:  with(minimalEnv(), EnvStateBuckets, " acme-state/stacks/prod/ ,acme-shared , acme-legacy/env/eu-west-1/\n"),
+			env:  with(minimalEnv(), EnvStateBuckets, " acme/infra=acme-state/stacks/prod/ ,acme/network = acme-shared , acme/legacy=acme-legacy/env/eu-west-1/\n"),
 			grants: []stateread.Grant{
-				{Bucket: "acme-state", Prefix: "stacks/prod/"},
-				{Bucket: "acme-shared"},
-				{Bucket: "acme-legacy", Prefix: "env/eu-west-1/"},
+				{Repository: "acme/infra", Bucket: "acme-state", Prefix: "stacks/prod/"},
+				{Repository: "acme/network", Bucket: "acme-shared"},
+				{Repository: "acme/legacy", Bucket: "acme-legacy", Prefix: "env/eu-west-1/"},
 			},
 		},
 		{
+			name:   "every repository",
+			env:    with(minimalEnv(), EnvStateBuckets, "*=acme-state/shared/"),
+			grants: []stateread.Grant{{Repository: "*", Bucket: "acme-state", Prefix: "shared/"}},
+		},
+		{
 			name:   "a role",
-			env:    with(minimalEnv(), EnvStateBuckets, "acme-state", EnvStateRoleARN, " "+role+"\n"),
-			grants: []stateread.Grant{{Bucket: "acme-state"}},
+			env:    with(minimalEnv(), EnvStateBuckets, infra, EnvStateRoleARN, " "+role+"\n"),
+			grants: []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state"}},
 			role:   role,
 		},
 		{
 			name:   "a role on a path in another partition",
-			env:    with(minimalEnv(), EnvStateBuckets, "acme-state", EnvStateRoleARN, "arn:aws-us-gov:iam::123456789012:role/stackorder/state-reader"),
-			grants: []stateread.Grant{{Bucket: "acme-state"}},
+			env:    with(minimalEnv(), EnvStateBuckets, infra, EnvStateRoleARN, "arn:aws-us-gov:iam::123456789012:role/stackorder/state-reader"),
+			grants: []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state"}},
 			role:   "arn:aws-us-gov:iam::123456789012:role/stackorder/state-reader",
 		},
 		{
 			name:     "the endpoint applies with state buckets alone",
-			env:      with(minimalEnv(), EnvStateBuckets, "acme-state", EnvArtifactEndpoint, endpoint+"/"),
-			grants:   []stateread.Grant{{Bucket: "acme-state"}},
+			env:      with(minimalEnv(), EnvStateBuckets, infra, EnvArtifactEndpoint, endpoint+"/"),
+			grants:   []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state"}},
 			endpoint: endpoint,
 		},
 		{
@@ -345,19 +353,39 @@ func TestLoadConfigStateBuckets(t *testing.T) {
 			env:  with(minimalEnv(), EnvArtifactEndpoint, "localstack:4566"),
 		},
 		{
+			name: "a bucket without a repository",
+			env:  with(minimalEnv(), EnvStateBuckets, "acme-state/stacks/prod/"),
+			err:  format + `: stateread: grant "acme-state/stacks/prod/" names no repository` + forms,
+		},
+		{
 			name: "a URL instead of a bucket",
-			env:  with(minimalEnv(), EnvStateBuckets, "s3://acme-state"),
-			err:  EnvStateBuckets + " must be comma-separated bucket or bucket/prefix entries",
+			env:  with(minimalEnv(), EnvStateBuckets, "acme/infra=s3://acme-state"),
+			err:  format,
+		},
+		{
+			name: "an owner instead of a repository",
+			env:  with(minimalEnv(), EnvStateBuckets, "acme=acme-state"),
+			err:  format + `: stateread: grant "acme=acme-state": repository "acme" is neither owner/repo nor *` + forms,
+		},
+		{
+			name: "a wildcard inside a repository",
+			env:  with(minimalEnv(), EnvStateBuckets, "acme/*=acme-state"),
+			err:  format,
 		},
 		{
 			name: "an invalid bucket name",
-			env:  with(minimalEnv(), EnvStateBuckets, "acme-state,Acme_Shared/stacks"),
-			err:  EnvStateBuckets + " must be comma-separated bucket or bucket/prefix entries",
+			env:  with(minimalEnv(), EnvStateBuckets, "acme/infra=acme-state,acme/network=Acme_Shared/stacks"),
+			err:  format,
+		},
+		{
+			name: "a dot segment in a prefix",
+			env:  with(minimalEnv(), EnvStateBuckets, "acme/infra=acme-state/stacks/../"),
+			err:  format,
 		},
 		{
 			name: "an empty entry",
-			env:  with(minimalEnv(), EnvStateBuckets, "acme-state,,acme-shared"),
-			err:  EnvStateBuckets + " must be comma-separated bucket or bucket/prefix entries",
+			env:  with(minimalEnv(), EnvStateBuckets, "acme/infra=acme-state,,acme/network=acme-shared"),
+			err:  format,
 		},
 		{
 			name: "a role without buckets",
@@ -366,17 +394,17 @@ func TestLoadConfigStateBuckets(t *testing.T) {
 		},
 		{
 			name: "a role name instead of an ARN",
-			env:  with(minimalEnv(), EnvStateBuckets, "acme-state", EnvStateRoleARN, "stackorder-state-reader"),
+			env:  with(minimalEnv(), EnvStateBuckets, infra, EnvStateRoleARN, "stackorder-state-reader"),
 			err:  EnvStateRoleARN + " must be the ARN of one IAM role",
 		},
 		{
 			name: "a wildcard role",
-			env:  with(minimalEnv(), EnvStateBuckets, "acme-state", EnvStateRoleARN, "arn:aws:iam::123456789012:role/*"),
+			env:  with(minimalEnv(), EnvStateBuckets, infra, EnvStateRoleARN, "arn:aws:iam::123456789012:role/*"),
 			err:  EnvStateRoleARN + " must be the ARN of one IAM role",
 		},
 		{
 			name: "a relative endpoint with state buckets",
-			env:  with(minimalEnv(), EnvStateBuckets, "acme-state", EnvArtifactEndpoint, "localstack:4566"),
+			env:  with(minimalEnv(), EnvStateBuckets, infra, EnvArtifactEndpoint, "localstack:4566"),
 			err:  EnvArtifactEndpoint + " must be an absolute",
 		},
 	}
@@ -386,6 +414,7 @@ func TestLoadConfigStateBuckets(t *testing.T) {
 			if tt.err != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.err)
+				assert.LessOrEqual(t, strings.Count(err.Error(), forms), 1, "the accepted forms are shown once")
 				assert.Equal(t, Config{}, cfg)
 				return
 			}

@@ -779,10 +779,15 @@ variable "alarm_thresholds" {
 }
 
 variable "shared_outputs_state" {
-  description = "S3 buckets holding the state objects whose root outputs the server may serve to the readers a stack lists, each with an optional key prefix and the KMS key of its objects (STACKORDER_STATE_BUCKETS). Unless shared_outputs_role_arn is set, the task role gets read-only access to the objects under each prefix and kms:Decrypt through S3 with each kms_key_arn. Empty turns shared outputs off."
-  type        = list(object({ bucket = string, prefix = optional(string, ""), kms_key_arn = optional(string) }))
+  description = "State objects whose root outputs the server may serve to the readers a stack lists (STACKORDER_STATE_BUCKETS): each entry grants one repository, owner/repo, or every repository with *, the objects of an S3 bucket under an optional key prefix, with the KMS key of those objects. The server reads a stack's state only under an entry of the stack's own repository, and a prefix covers a key only at a path segment boundary. Unless shared_outputs_role_arn is set, the task role gets read-only access to the objects under each prefix, for every repository at once, and kms:Decrypt through S3 with each kms_key_arn. Empty turns shared outputs off."
+  type        = list(object({ repository = string, bucket = string, prefix = optional(string, ""), kms_key_arn = optional(string) }))
   default     = []
   nullable    = false
+
+  validation {
+    condition     = alltrue([for s in var.shared_outputs_state : s.repository == "*" || can(regex("^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$", s.repository))])
+    error_message = "Each shared_outputs_state repository must be owner/repo, the repository whose stacks keep their state under the entry, or * alone to grant the entry to every repository the server knows; no other wildcard is allowed."
+  }
 
   validation {
     condition = alltrue([
@@ -813,6 +818,11 @@ variable "shared_outputs_state" {
   validation {
     condition     = alltrue([for s in var.shared_outputs_state : !can(regex("[,*?$]", s.prefix))])
     error_message = "shared_outputs_state prefixes must not contain a comma, which separates the entries of STACKORDER_STATE_BUCKETS, or *, ? or $, which IAM policies would read as wildcards or variables."
+  }
+
+  validation {
+    condition     = alltrue([for s in var.shared_outputs_state : !anytrue([for seg in split("/", s.prefix) : contains([".", ".."], seg)])])
+    error_message = "shared_outputs_state prefixes must not have a . or .. segment: the server never reads a key with one, so such a prefix would grant the task role access the server cannot use."
   }
 
   validation {

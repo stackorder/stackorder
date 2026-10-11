@@ -15,7 +15,7 @@ Shared outputs are off until an operator [turns them on](#server); until then ev
 
 1. The consumer's job runs Terraform with the [`stackorder` provider](#consumer). A `stackorder_outputs` block names the producer, and the provider calls [`GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs`](/reference/api#stack-outputs) with the job's OIDC token, the run id and the consumer's stack key.
 2. The server checks that the job runs the consumer in that run ([Who may read](#who-may-read)), reads the producer's `outputs` configuration from the producer's default branch, and checks that it lists the consumer.
-3. It reads the state object that the producer's last apply or drift job reported ([Where the state is read from](#state-location)), provided the object is in a bucket the operator allows.
+3. It reads the state object that the producer's last apply or drift job reported ([Where the state is read from](#state-location)), provided the operator granted that location to the producer's repository.
 4. It returns the outputs, without the sensitive ones unless the producer shares them, and records the read in the [audit log](#audit) with counts only.
 
 ## Sharing a stack's outputs {#producer}
@@ -132,9 +132,11 @@ The server reads the S3 object that the producer's last apply or drift job found
 
 - Until the producer has had an apply or drift job on a CLI that reports the state object, reads answer `409 state_location_unknown`. A [scheduled drift check](./drift) records it without changing anything.
 - Only a producer whose backend `init` recorded as `s3`, with a bucket and a key, can share its outputs. For any other backend the CLI reports no state object, and reads answer `409 state_location_unknown` however many jobs run.
-- The object must fall under an entry of `STACKORDER_STATE_BUCKETS`, or the read answers `403 state_bucket_not_allowed`.
+- The object must fall under an entry of `STACKORDER_STATE_BUCKETS` that the operator granted to the producer's repository, or to every repository with `*`. A result whose object no such entry covers does not record it: it clears the location the server had for the stack, unless a newer run recorded that location, and the server logs it at warn level. Reads then answer `409 state_location_unknown` instead of serving the outputs of the object the producer left, until an apply or drift job reports an object that an entry covers. A read of a recorded location that no such entry covers, such as one recorded before the entries changed, answers `403 state_bucket_not_allowed` without a request to S3.
 - The server reads state format version 4, which Terraform and OpenTofu write. State that OpenTofu encrypted is refused with `state_encrypted`; the server never decrypts state.
 - A read returns the outputs the producer's state holds now. A pull request that changes both stacks plans the consumer against the outputs of the producer's last apply, as `terraform_remote_state` does.
+
+Between repositories the grant is a hard boundary, unless the operator grants an entry to `*` or lets the entries of two repositories overlap: a repository's jobs can make the server read only what the operator granted that repository. An entry whose location covers another repository's, such as `acme/infra=acme-tfstate/stacks/` beside `acme/network=acme-tfstate/stacks/network/`, grants its repository that state too, and the server logs a warning at start-up for each such pair. Within one repository the grant is not a boundary between stacks. An apply or drift job reports the object its own code initialised, and the apply of a pull request in the default [`before_merge`](./stackorder-yaml#apply) mode runs the pull request's code, so a pull request of the producer's repository can point one stack at another stack's state under the same grant, and the readers of the first stack then get the second stack's outputs. That is why `readers` is set per stack and why the apply that reports the location is a step to review like the plan. Grant a repository only the prefixes that hold the state of its stacks that share outputs, so that the state of a stack that shares nothing lies outside every grant and no stack can be pointed at it.
 
 ## Reading outputs in Terraform {#consumer}
 
@@ -181,12 +183,15 @@ An operator turns shared outputs on in the [server configuration](/reference/ser
 
 | Variable | Meaning |
 | --- | --- |
-| `STACKORDER_STATE_BUCKETS` | Comma-separated `bucket` or `bucket/prefix` entries: the state objects the server may read. Setting it turns shared outputs on; unset, every read answers `404 outputs_disabled`. |
+| `STACKORDER_STATE_BUCKETS` | Comma-separated `owner/repo=bucket` or `owner/repo=bucket/prefix` entries: the state objects the server may read for the stacks of each repository. `*=bucket` or `*=bucket/prefix` grants an entry to every repository. Setting it turns shared outputs on; unset, every read answers `404 outputs_disabled`. |
 | `STACKORDER_STATE_ROLE_ARN` | An IAM role the server assumes to read them, such as a role in the account of the state buckets. Optional; it requires `STACKORDER_STATE_BUCKETS`. |
 
-- A prefix is compared with the object key as a plain string, as IAM compares resource ARNs: `acme-tfstate/stacks/prod` also allows `stacks/production/…`, so end a prefix with `/`. A key with a `.` or `..` segment is never allowed.
+- Each entry belongs to one repository, compared without regard to case, and the server records and reads a stack's state object only under an entry of the stack's own repository. A repository therefore cannot point its stacks at another repository's state to serve that state's outputs to the stacks it lists, as long as no entry of its own, or of `*`, covers that state too. Keep the prefixes of different repositories apart: at start-up the server logs a warning for each pair of entries of different repositories where one's location lies under the other's.
+- `*` in place of the repository is an explicit opt-in to exposure across repositories: every repository the server knows may then point its stacks at any object under that entry and serve its outputs. Use it only for state that every repository may expose; `*` is accepted only as the whole repository.
+- A prefix covers a key only at a path segment boundary: the key is the prefix, the prefix ends with `/`, or the key goes on with `/` after it. `acme/infra=acme-tfstate/stacks/prod` allows `stacks/prod/vpc.tfstate` but not `stacks/production/vpc.tfstate`. A key with a `.` or `..` segment is never allowed, and an entry whose prefix has one stops the server at start.
+- An entry without a repository, such as a bare `acme-tfstate/stacks/prod/`, stops the server at start with a message that shows these forms.
 - The [Terraform module](/operations/deploy-aws#shared-outputs) sets both variables from its `shared_outputs_state` and `shared_outputs_role_arn` inputs. Without a role it grants the task role the reads: `s3:GetObject` on the objects under each prefix, `s3:ListBucket` limited to the same prefixes, so that a missing object answers `state_not_found` rather than `state_access_denied`, and `kms:Decrypt` through S3 only. With a role it grants only `sts:AssumeRole` on it, and the role's own policies grant the reads; its trust policy must admit the task role, or every read answers `403 state_access_denied`. Nothing grants write access.
-- List the narrowest prefixes that hold the state of the stacks that share outputs, not whole buckets: the server has read access to whole state objects, secrets included.
+- List the narrowest prefixes that hold the state of the stacks that share outputs, one per repository, not whole buckets: the server has read access to whole state objects, secrets included. IAM grants the server's role every entry's prefix at once; the per-repository check is the server's.
 - The server reads each object in the region the producer's backend names, else in its own default region, and asks once more in the region S3 names when the bucket is elsewhere.
 
 | Limit | Value | Beyond it |
@@ -200,7 +205,7 @@ The server decodes only the `outputs` block and stops reading once it has it. No
 
 ## Audit {#audit}
 
-Every read is recorded in the [audit log](/reference/api#audit) as `outputs_read`, with the number of outputs served, of sensitive outputs served and of outputs withheld. A refusal of the caller, the run, the producer or the producer's policy is recorded as `outputs_refused`, with the error code as `reason`, `state_location_unknown` included. `outputs_disabled` is not recorded, and neither is any code of the state read itself, `state_bucket_not_allowed` included, nor a read that fails at S3 or while decoding the state. Neither row holds a value.
+Every read is recorded in the [audit log](/reference/api#audit) as `outputs_read`, with the number of outputs served, of sensitive outputs served and of outputs withheld. A refusal of the caller, the run, the producer or the producer's policy is recorded as `outputs_refused`, with the error code as `reason`, `state_location_unknown` included, and so is a location that no entry of `STACKORDER_STATE_BUCKETS` grants the producer's repository, with `state_bucket_not_allowed`; the server also logs that refusal at warn level with the repository, the stack, the bucket and the key. `outputs_disabled` is not recorded, and neither is any other code of the state read itself, nor a read that fails at S3 or while decoding the state. Neither row holds a value.
 
 ```json
 {

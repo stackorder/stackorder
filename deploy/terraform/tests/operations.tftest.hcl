@@ -187,16 +187,25 @@ run "shared_outputs" {
   variables {
     shared_outputs_state = [
       {
+        repository  = "acme/infra"
         bucket      = "acme-tfstate"
         prefix      = "stacks/prod/"
         kms_key_arn = "arn:aws:kms:eu-west-1:123456789012:key/11111111-1111-1111-1111-111111111111"
       },
       {
+        repository  = "acme/network"
         bucket      = "acme-tfstate"
         prefix      = "stacks/shared/"
         kms_key_arn = "arn:aws:kms:eu-west-1:123456789012:key/11111111-1111-1111-1111-111111111111"
       },
       {
+        repository  = "Acme/Platform.tf"
+        bucket      = "acme-tfstate"
+        prefix      = "stacks/shared/"
+        kms_key_arn = "arn:aws:kms:eu-west-1:123456789012:key/11111111-1111-1111-1111-111111111111"
+      },
+      {
+        repository  = "*"
         bucket      = "acme-tfstate-us"
         kms_key_arn = "arn:aws:kms:us-east-1:210987654321:key/mrk-22222222222222222222222222222222"
       },
@@ -208,9 +217,9 @@ run "shared_outputs" {
       for e in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].environment : e.name => e.value
       if startswith(e.name, "STACKORDER_STATE_")
       } == {
-      STACKORDER_STATE_BUCKETS = "acme-tfstate/stacks/prod/,acme-tfstate/stacks/shared/,acme-tfstate-us"
+      STACKORDER_STATE_BUCKETS = "acme/infra=acme-tfstate/stacks/prod/,acme/network=acme-tfstate/stacks/shared/,Acme/Platform.tf=acme-tfstate/stacks/shared/,*=acme-tfstate-us"
     }
-    error_message = "STACKORDER_STATE_BUCKETS must list every entry as bucket/prefix, or bucket alone without a prefix, and STACKORDER_STATE_ROLE_ARN must stay unset without a role."
+    error_message = "STACKORDER_STATE_BUCKETS must list every entry as repository=bucket/prefix, or repository=bucket without a prefix, and STACKORDER_STATE_ROLE_ARN must stay unset without a role."
   }
 
   assert {
@@ -246,7 +255,7 @@ run "shared_outputs" {
         Condition = { StringEquals = { "kms:ViaService" = ["s3.eu-west-1.amazonaws.com", "s3.us-east-1.amazonaws.com"] } }
       },
     ]
-    error_message = "The task role must get s3:GetObject under each prefix, s3:ListBucket limited to the prefixes of each bucket, and kms:Decrypt on each key through S3 in the key's region."
+    error_message = "The task role must get s3:GetObject under each prefix once, however many repositories it is granted to, s3:ListBucket limited to the prefixes of each bucket, and kms:Decrypt on each key through S3 in the key's region."
   }
 
   assert {
@@ -262,7 +271,7 @@ run "shared_outputs_whole_bucket" {
   command = plan
 
   variables {
-    shared_outputs_state = [{ bucket = "acme-tfstate" }]
+    shared_outputs_state = [{ repository = "acme/infra", bucket = "acme-tfstate" }]
   }
 
   assert {
@@ -270,9 +279,9 @@ run "shared_outputs_whole_bucket" {
       for e in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].environment : e.name => e.value
       if startswith(e.name, "STACKORDER_STATE_")
       } == {
-      STACKORDER_STATE_BUCKETS = "acme-tfstate"
+      STACKORDER_STATE_BUCKETS = "acme/infra=acme-tfstate"
     }
-    error_message = "An entry without a prefix must reach STACKORDER_STATE_BUCKETS as the bucket name alone."
+    error_message = "An entry without a prefix must reach STACKORDER_STATE_BUCKETS as its repository and the bucket name alone."
   }
 
   assert {
@@ -299,7 +308,7 @@ run "shared_outputs_through_role" {
   command = plan
 
   variables {
-    shared_outputs_state    = [{ bucket = "acme-tfstate", prefix = "stacks/prod/" }]
+    shared_outputs_state    = [{ repository = "acme/infra", bucket = "acme-tfstate", prefix = "stacks/prod/" }]
     shared_outputs_role_arn = "arn:aws:iam::210987654321:role/stackorder/state-reader"
   }
 
@@ -308,7 +317,7 @@ run "shared_outputs_through_role" {
       for e in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].environment : e.name => e.value
       if startswith(e.name, "STACKORDER_STATE_")
       } == {
-      STACKORDER_STATE_BUCKETS  = "acme-tfstate/stacks/prod/"
+      STACKORDER_STATE_BUCKETS  = "acme/infra=acme-tfstate/stacks/prod/"
       STACKORDER_STATE_ROLE_ARN = "arn:aws:iam::210987654321:role/stackorder/state-reader"
     }
     error_message = "The role must reach the server as STACKORDER_STATE_ROLE_ARN beside the buckets."

@@ -48,14 +48,18 @@ type fakeState struct {
 	state *stateread.State
 	err   error
 	locs  []stateread.Location
+	repos []string
 }
 
 func newFakeState() *fakeState { return &fakeState{state: canaryState()} }
 
-func (f *fakeState) Read(_ context.Context, loc stateread.Location) (*stateread.State, error) {
+func (f *fakeState) Allows(string, stateread.Location) bool { return true }
+
+func (f *fakeState) Read(_ context.Context, repo string, loc stateread.Location) (*stateread.State, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.locs = append(f.locs, loc)
+	f.repos = append(f.repos, repo)
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -72,6 +76,12 @@ func (f *fakeState) reads() []stateread.Location {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]stateread.Location(nil), f.locs...)
+}
+
+func (f *fakeState) readsFor() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.repos...)
 }
 
 func output(value string, sensitive bool) stateread.Output {
@@ -691,6 +701,7 @@ func TestOutputsAcrossRepositories(t *testing.T) {
 				assert.Equal(t, networkRepo, got.Repo)
 				assert.Equal(t, tt.key, got.Stack)
 				assert.Equal(t, locationOf(stateAt(networkRepo+"/"+tt.key)), state.reads()[before])
+				assert.Equal(t, networkRepo, state.readsFor()[before], "the state is read for the producer's repository")
 				return
 			}
 			message := requireCoded(t, err, principal.ErrNotFound, "not_found")
@@ -1090,7 +1101,6 @@ func TestOutputsStateErrorsAreCoded(t *testing.T) {
 		kind error
 		code string
 	}{
-		{name: "bucket not granted", err: stateread.ErrNotAllowed, kind: principal.ErrForbidden, code: v1.ErrCodeStateBucketNotAllowed},
 		{name: "object missing", err: stateread.ErrNotFound, kind: principal.ErrNotFound, code: v1.ErrCodeStateNotFound},
 		{name: "access denied", err: stateread.ErrAccessDenied, kind: principal.ErrForbidden, code: v1.ErrCodeStateAccessDenied},
 		{name: "encrypted", err: stateread.ErrEncrypted, kind: principal.ErrUnprocessable, code: v1.ErrCodeStateEncrypted},

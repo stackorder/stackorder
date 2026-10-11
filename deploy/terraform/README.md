@@ -188,7 +188,7 @@ repository where only its operators can push branches, and see
 | `STACKORDER_OIDC_AUDIENCE` | `oidc_audience`, or the base URL |
 | `STACKORDER_REQUIRED_WORKFLOW_REF` | `required_workflow_ref`, when set |
 | `STACKORDER_ARTIFACT_BUCKET` | the artifact bucket, when `artifact_bucket_enabled` |
-| `STACKORDER_STATE_BUCKETS` | `shared_outputs_state` as comma-separated `bucket/prefix` entries, or `bucket` alone without a prefix, when not empty |
+| `STACKORDER_STATE_BUCKETS` | `shared_outputs_state` as comma-separated `repository=bucket/prefix` entries, or `repository=bucket` without a prefix, when not empty |
 | `STACKORDER_STATE_ROLE_ARN` | `shared_outputs_role_arn`, when set |
 | `STACKORDER_LOG_LEVEL` | `log_level` |
 | `DATABASE_URL` | database secret, `postgres://stackorder:<password>@<endpoint>:5432/stackorder?sslmode=require` |
@@ -411,23 +411,39 @@ from the metrics token secret. A generated session key changes too, unless
 Shared outputs let a stack read another stack's root outputs through the
 server, so its own role needs no access to the other stack's state. The
 server then reads the producer's state object with its own credentials,
-which the module grants only when `shared_outputs_state` lists where that
-state lives:
+which the module grants only when `shared_outputs_state` lists where the
+state of each repository lives:
 
 ```hcl
 shared_outputs_state = [
   {
+    repository  = "acme/infra"
     bucket      = "acme-tfstate"
-    prefix      = "stacks/prod/"
+    prefix      = "acme/infra/"
+    kms_key_arn = "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000"
+  },
+  {
+    repository  = "acme/platform"
+    bucket      = "acme-tfstate"
+    prefix      = "acme/platform/"
     kms_key_arn = "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000"
   },
 ]
 ```
 
 The list reaches the server as `STACKORDER_STATE_BUCKETS`
-(`acme-tfstate/stacks/prod/`), which both turns the feature on and bounds
-it: the server refuses any state object outside it. The task role gets an
-inline `shared-outputs` policy with:
+(`acme/infra=acme-tfstate/acme/infra/,acme/platform=acme-tfstate/acme/platform/`),
+which both turns the feature on and bounds it. Each entry belongs to one
+repository: the location an apply or drift job of a repository reports
+for a stack is recorded and read only when an entry of that repository
+covers it, so one repository cannot point a stack at another one's state
+as long as the entries of different repositories do not overlap; the
+server warns at start-up about each pair whose prefixes nest.
+`repository = "*"` grants an entry to every repository the server knows;
+use it only for state that every repository may expose. A prefix covers
+a key only at a path segment boundary, so `stacks/prod` covers
+`stacks/prod/vpc.tfstate` but not `stacks/production/vpc.tfstate`. The
+task role gets an inline `shared-outputs` policy with:
 
 - `s3:GetObject` on `arn:aws:s3:::<bucket>/<prefix>*` for each entry;
 - `s3:ListBucket` on each bucket, with a `StringLike` condition that limits
@@ -439,10 +455,14 @@ Nothing grants write or delete access. Without `s3:ListBucket`, S3 answers
 a request for a missing object with access denied rather than not found;
 the prefix-limited grant is there so that a missing state object can show
 as missing, but treat an access-denied read as either a missing object or
-a missing grant. The server reads whole state objects, secrets included,
-even though it returns only outputs, so list the narrowest prefixes that
-hold the state of the stacks that share outputs rather than whole buckets,
-and turn on CloudTrail data events for those buckets to audit the reads.
+a missing grant. IAM cannot tell repositories apart: the policy covers
+every entry's prefix for the server as a whole, and the server's own check
+of the producer's repository is what keeps each repository to its entries.
+The server reads whole state objects, secrets included, even though it
+returns only outputs, so list the narrowest prefixes that hold the state of
+the stacks that share outputs rather than whole buckets, one per
+repository, and turn on CloudTrail data events for those buckets to audit
+the reads.
 
 To keep these reads apart from the task role, or to read buckets in
 another account, create a dedicated role that has only those read
@@ -800,7 +820,7 @@ No modules.
 | <a name="input_alarms_enabled"></a> [alarms\_enabled](#input\_alarms\_enabled) | Create CloudWatch alarms for target 5xx responses, unhealthy targets and service CPU, plus database free storage (RDS) or ACU utilization (Aurora, whose storage grows on its own). | `bool` | `false` | no |
 | <a name="input_alarm_sns_topic_arn"></a> [alarm\_sns\_topic\_arn](#input\_alarm\_sns\_topic\_arn) | SNS topic notified when an alarm changes state. Required when alarms\_enabled is true. | `string` | `null` | no |
 | <a name="input_alarm_thresholds"></a> [alarm\_thresholds](#input\_alarm\_thresholds) | Alarm thresholds: target 5xx responses per 5 minutes, average service CPU percent, RDS free storage in bytes, and Aurora ACU utilization percent. | `object({ target_5xx_count = optional(number, 10) cpu_percent = optional(number, 80) db_free_storage_bytes = optional(number, 1073741824) db_acu_utilization_percent = optional(number, 90) })` | `{}` | no |
-| <a name="input_shared_outputs_state"></a> [shared\_outputs\_state](#input\_shared\_outputs\_state) | S3 buckets holding the state objects whose root outputs the server may serve to the readers a stack lists, each with an optional key prefix and the KMS key of its objects (STACKORDER\_STATE\_BUCKETS). Unless shared\_outputs\_role\_arn is set, the task role gets read-only access to the objects under each prefix and kms:Decrypt through S3 with each kms\_key\_arn. Empty turns shared outputs off. | `list(object({ bucket = string, prefix = optional(string, ""), kms_key_arn = optional(string) }))` | `[]` | no |
+| <a name="input_shared_outputs_state"></a> [shared\_outputs\_state](#input\_shared\_outputs\_state) | State objects whose root outputs the server may serve to the readers a stack lists (STACKORDER\_STATE\_BUCKETS): each entry grants one repository, owner/repo, or every repository with \*, the objects of an S3 bucket under an optional key prefix, with the KMS key of those objects. The server reads a stack's state only under an entry of the stack's own repository, and a prefix covers a key only at a path segment boundary. Unless shared\_outputs\_role\_arn is set, the task role gets read-only access to the objects under each prefix, for every repository at once, and kms:Decrypt through S3 with each kms\_key\_arn. Empty turns shared outputs off. | `list(object({ repository = string, bucket = string, prefix = optional(string, ""), kms_key_arn = optional(string) }))` | `[]` | no |
 | <a name="input_shared_outputs_role_arn"></a> [shared\_outputs\_role\_arn](#input\_shared\_outputs\_role\_arn) | IAM role the server assumes to read the state objects of shared\_outputs\_state (STACKORDER\_STATE\_ROLE\_ARN), such as a role in the account of the state buckets. The task role then gets only sts:AssumeRole on it, and the role's own policies must grant the reads and kms:Decrypt, so shared\_outputs\_state takes no kms\_key\_arn. Null reads with the task role. Requires shared\_outputs\_state. | `string` | `null` | no |
 
 ## Outputs

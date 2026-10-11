@@ -120,6 +120,57 @@ func TestSetStackStateObject(t *testing.T) {
 		"the state object outlives the run that reported it")
 }
 
+func TestClearStackStateObject(t *testing.T) {
+	f := newFixture(t)
+	_, ids := f.saveGraph(f.repo.ID, sampleGraph(f.repo.FullName, "sha1"))
+	vpcID := ids["stacks/prod/vpc"]
+	obj := v1.StateObject{Bucket: "acme-state", Key: "prod/vpc.tfstate", Region: "eu-west-1"}
+
+	older := f.run(store.CreateRunParams{Mode: v1.ModeApply, Trigger: v1.TriggerPush})
+	f.exec(`UPDATE runs SET created_at = now() - interval '2 hours' WHERE id = $1`, older.ID)
+	apply := f.run(store.CreateRunParams{Mode: v1.ModeApply, Trigger: v1.TriggerPush})
+	f.exec(`UPDATE runs SET created_at = now() - interval '1 hour' WHERE id = $1`, apply.ID)
+	require.NoError(t, f.s.SetStackStateObject(f.ctx, vpcID, obj, apply.ID))
+	recordedAt := f.requireStateObject(vpcID, &obj, &apply.ID)
+
+	require.NoError(t, f.s.ClearStackStateObject(f.ctx, vpcID, older.ID))
+	assert.True(t, f.requireStateObject(vpcID, &obj, &apply.ID).Equal(recordedAt),
+		"a late report of an older run leaves the newer run's state object alone")
+
+	drift := f.run(store.CreateRunParams{Mode: v1.ModeDrift, Trigger: v1.TriggerSchedule})
+	require.NoError(t, f.s.ClearStackStateObject(f.ctx, vpcID, drift.ID))
+	clearedAt := f.requireStateObject(vpcID, nil, &drift.ID)
+	assert.False(t, clearedAt.Before(recordedAt), "a newer run's report clears the state object and is recorded as the report")
+
+	require.NoError(t, f.s.SetStackStateObject(f.ctx, vpcID, obj, apply.ID))
+	assert.True(t, f.requireStateObject(vpcID, nil, &drift.ID).Equal(clearedAt),
+		"a late report of an older run does not bring the cleared state object back")
+
+	require.NoError(t, f.s.SetStackStateObject(f.ctx, vpcID, obj, drift.ID))
+	assert.False(t, f.requireStateObject(vpcID, &obj, &drift.ID).Before(clearedAt), "the same run may report again")
+
+	plan := f.run(store.CreateRunParams{Mode: v1.ModePlan})
+	other := f.addRepo(1, 101, "acme", "acme/network")
+	foreign := f.run(store.CreateRunParams{RepoID: other.ID, Mode: v1.ModeApply, Trigger: v1.TriggerPush})
+	cases := []struct {
+		name    string
+		stackID uuid.UUID
+		runID   uuid.UUID
+		want    error
+	}{
+		{"unknown stack", uuid.New(), drift.ID, store.ErrNotFound},
+		{"unknown run", vpcID, uuid.New(), store.ErrNotFound},
+		{"plan run", vpcID, plan.ID, store.ErrInvalid},
+		{"apply run of another repository", vpcID, foreign.ID, store.ErrInvalid},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.ErrorIs(t, f.s.ClearStackStateObject(f.ctx, tc.stackID, tc.runID), tc.want)
+		})
+	}
+	f.requireStateObject(vpcID, &obj, &drift.ID)
+}
+
 func TestDefaultGraphHasStack(t *testing.T) {
 	f := newFixture(t)
 	f.stacks("stacks/prod/tgw", "stacks/prod/dns")

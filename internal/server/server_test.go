@@ -317,6 +317,57 @@ func fakeAWS(t *testing.T, serve func(w http.ResponseWriter, r *http.Request) st
 	}
 }
 
+func TestWarnOverlappingGrants(t *testing.T) {
+	tests := []struct {
+		name   string
+		grants string
+		want   [][2]string
+	}{
+		{
+			name:   "disjoint prefixes of one bucket",
+			grants: "acme/a=acme-state/stacks/a/, acme/b=acme-state/stacks/b/, acme/c=acme-state/stacks/a-legacy/",
+		},
+		{
+			name:   "one repository's entries may overlap, whatever the case",
+			grants: "acme/a=acme-state/stacks/, Acme/A=acme-state/stacks/a/, *=acme-shared, *=acme-shared/c/",
+		},
+		{
+			name:   "a prefix under another repository's",
+			grants: "acme/a=acme-state/stacks/, acme/b=acme-state/stacks/b/",
+			want:   [][2]string{{"acme/a=acme-state/stacks/", "acme/b=acme-state/stacks/b/"}},
+		},
+		{
+			name:   "a wildcard over a repository's prefix, and a whole bucket",
+			grants: "acme/c=acme-shared/c/, *=acme-shared, acme/d=acme-state, acme/e=acme-state/stacks/e",
+			want: [][2]string{
+				{"acme/c=acme-shared/c/", "*=acme-shared"},
+				{"acme/d=acme-state", "acme/e=acme-state/stacks/e"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			grants, err := stateread.ParseGrants(tt.grants)
+			require.NoError(t, err)
+			var out bytes.Buffer
+			s := &Server{cfg: Config{StateGrants: grants}, log: NewLogger(&out, slog.LevelInfo, LogFormatJSON)}
+			s.warnOverlappingGrants(t.Context())
+			var got [][2]string
+			for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
+				if line == "" {
+					continue
+				}
+				var m map[string]any
+				require.NoError(t, json.Unmarshal([]byte(line), &m))
+				assert.Equal(t, "WARN", m["level"])
+				assert.Contains(t, m["msg"], "overlap")
+				got = append(got, [2]string{m["grant"].(string), m["overlaps"].(string)})
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestStateReaderReadsAtTheS3EndpointAsTheRole(t *testing.T) {
 	const (
 		baseKey = "AKIDACMEBASE"
@@ -382,7 +433,7 @@ func TestStateReaderReadsAtTheS3EndpointAsTheRole(t *testing.T) {
 			}
 			s := &Server{
 				cfg: Config{
-					StateGrants:      []stateread.Grant{{Bucket: "acme-state", Prefix: "stacks/prod/"}},
+					StateGrants:      []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state", Prefix: "stacks/prod/"}},
 					StateRoleARN:     tt.role,
 					ArtifactEndpoint: s3URL,
 				},
@@ -396,7 +447,7 @@ func TestStateReaderReadsAtTheS3EndpointAsTheRole(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			st, err := reader.Read(t.Context(), stateread.Location{Bucket: "acme-state", Key: "stacks/prod/vpc/terraform.tfstate"})
+			st, err := reader.Read(t.Context(), "acme/infra", stateread.Location{Bucket: "acme-state", Key: "stacks/prod/vpc/terraform.tfstate"})
 			require.NoError(t, err)
 			assert.Contains(t, st.Outputs, "vpc_id")
 			assert.Equal(t, tt.s3, s3Calls(), "S3 is read path-style at AWS_ENDPOINT_URL_S3")

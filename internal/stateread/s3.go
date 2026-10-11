@@ -28,8 +28,9 @@ const (
 
 var validRegion = regexp.MustCompile(`^[a-z0-9-]{1,32}$`).MatchString
 
-// Reader reads the outputs of the state objects its grants allow. It is
-// safe for concurrent use and runs at most MaxConcurrent reads at a time.
+// Reader reads the outputs of the state objects its grants allow each
+// repository. It is safe for concurrent use and runs at most MaxConcurrent
+// reads at a time.
 type Reader struct {
 	client *s3.Client
 	region string
@@ -96,15 +97,15 @@ func WithHTTPClient(c *http.Client) Option {
 // New returns a Reader for the objects grants allow. Credentials and the
 // default region come from the SDK's default chain (the ECS task role in
 // the Fargate deployment) unless an option sets them. It fails without
-// grants or for a grant whose bucket is not a valid S3 bucket name, and it
-// does not contact AWS.
+// grants or for a grant ParseGrants would refuse, and it does not contact
+// AWS.
 func New(ctx context.Context, grants []Grant, opts ...Option) (*Reader, error) {
 	if len(grants) == 0 {
 		return nil, errors.New("stateread: at least one grant is required")
 	}
 	for _, g := range grants {
-		if !validBucket(g.Bucket) {
-			return nil, fmt.Errorf("stateread: grant bucket %q is not a valid S3 bucket name", g.Bucket)
+		if err := g.check(); err != nil {
+			return nil, fmt.Errorf("stateread: grant %s: %w", g, err)
 		}
 	}
 	var o options
@@ -157,8 +158,15 @@ func New(ctx context.Context, grants []Grant, opts ...Option) (*Reader, error) {
 	}, nil
 }
 
-// Read returns the outputs of the state object at loc. A location no grant
-// allows fails with ErrNotAllowed before any request is made. The object is
+// Allows reports whether a grant of the Reader lets the stacks of repo
+// have loc read, as Read checks before it makes any request.
+func (r *Reader) Allows(repo string, loc Location) bool {
+	return Allowed(r.grants, repo, loc)
+}
+
+// Read returns the outputs of the state object at loc for a stack of repo,
+// the producer whose outputs are served. A location no grant allows repo
+// fails with ErrNotAllowed before any request is made. The object is
 // requested in loc.Region, or the Reader's region when it is empty, and
 // once more in the region S3 names when it answers that the bucket is
 // elsewhere. A missing object fails with ErrNotFound, refused credentials
@@ -166,9 +174,9 @@ func New(ctx context.Context, grants []Grant, opts ...Option) (*Reader, error) {
 // throttling, server errors and timeouts are returned wrapped as they are.
 // Decoding errors are those of Decode. The body is read only as far as the
 // outputs and is never kept.
-func (r *Reader) Read(ctx context.Context, loc Location) (*State, error) {
-	if !slices.ContainsFunc(r.grants, func(g Grant) bool { return g.Allows(loc) }) {
-		return nil, fmt.Errorf("%w: %s", ErrNotAllowed, loc.url())
+func (r *Reader) Read(ctx context.Context, repo string, loc Location) (*State, error) {
+	if !r.Allows(repo, loc) {
+		return nil, fmt.Errorf("%w: %s for %s", ErrNotAllowed, loc.url(), repo)
 	}
 	region := loc.Region
 	if region == "" {
