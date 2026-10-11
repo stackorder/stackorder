@@ -220,6 +220,8 @@ Each hook runs with `bash`, from the repository root, with the job's environment
 | `STACKORDER_STACK_PATH` | The stack directory, such as `infra/network`. |
 | `STACKORDER_INSTANCE` | The instance name, such as `production`; empty for a stack with no instances. |
 | `STACKORDER_RUN_ID` | The Stackorder run id; empty when there is none, such as a local plan. |
+| `STACKORDER_SERVER_URL` | The server URL the CLI was given with `--server` or `STACKORDER_SERVER_URL`; empty in local mode. |
+| `STACKORDER_REPOSITORY` | The repository as `owner/repo`, from `GITHUB_REPOSITORY`, the event payload or the `origin` remote; empty when none of them tells it. |
 | `STACKORDER_PLAN_FILE` | The path of the binary plan file; empty for `pre-plan`. |
 | `STACKORDER_PLAN_JSON` | The path of the plan as JSON, from `show -json`; empty for `pre-plan`. |
 

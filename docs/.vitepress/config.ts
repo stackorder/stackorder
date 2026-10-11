@@ -34,6 +34,7 @@ const configuration: DefaultTheme.SidebarItem[] = [
       { text: 'Workflows', link: '/configuration/workflows' },
       { text: 'Environments and authorization', link: '/configuration/environments-and-authorization' },
       { text: 'Cross-repo dependencies', link: '/configuration/cross-repo' },
+      { text: 'Shared outputs', link: '/configuration/outputs' },
       { text: 'Drift detection', link: '/configuration/drift' },
     ],
   },

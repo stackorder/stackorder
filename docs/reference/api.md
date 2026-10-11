@@ -81,9 +81,12 @@ Every error response has the same body. `details` is present only for the codes 
 | 409 | `refused` | The apply gate refused. `details.failures` lists each failure as `{"layer", "name", "reason", "stacks"}`. |
 | 409 | `superseded` | A newer commit replaced the run. |
 | 413 | `invalid` | The body is larger than the route allows: 8 MB for a graph upload, 1 MB for every other `POST` under `/v1` and `/auth`. |
+| 422 | `unprocessable` | The server understood the request but cannot carry it out on what it read. |
 | 423 | `locked` | A stack is locked by another pull request or run. `details.conflicts` lists the locks. |
 | 500 | `internal` | An unexpected server error; the message is generic and the details are in the server log. |
-| 503 | `unavailable` | GitHub's signing keys, GitHub itself or the database cannot be reached, or the server is in [setup mode](/reference/server-configuration#setup-mode). |
+| 503 | `unavailable` | GitHub's signing keys, GitHub itself, the database or a state object cannot be reached, or the server is in [setup mode](/reference/server-configuration#setup-mode). |
+
+A read of a stack's outputs answers codes of its own as well; see [its errors](#stack-outputs-errors).
 
 The CLI maps these to [exit codes](/reference/exit-codes#server-answers).
 
@@ -96,6 +99,7 @@ The CLI maps these to [exit codes](/reference/exit-codes#server-answers).
 | [`POST /v1/runs/{id}/stacks/{key}/result`](#stack-result) | Runner; API key for manual runs | `StackResult` | `RunStack` |
 | [`POST /v1/runs/{id}/stacks/{key}/checks/{name}`](#check-verdict) | Runner; API key for manual runs | `CheckVerdict` | `Check` |
 | [`GET /v1/runs/{id}`](#get-run) | Runner, person, API key | | `Run` |
+| [`GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs`](#stack-outputs) | Runner, API key | `?run=&reader=` | `StackOutputs` |
 | [`GET /v1/runs/{id}/stacks/{key}/plan`](#plan-text) | Person, API key | | `text/plain`, the full plan text |
 | [`POST /v1/runs/{id}/rerun`](#rerun) | Person with push permission, API key | | `201` or `200`, `CreateRunResponse` |
 | [`POST /v1/unlock`](#unlock-by-key) | Person with push permission, API key | `UnlockRequest` | `UnlockResponse` |
@@ -271,7 +275,7 @@ Uploads the scanned graph and the changed paths, and answers with the affected s
 }
 ```
 
-The request may also carry a `stacks` list that restricts the run, as a `stackorder plan stacks/a stacks/b` comment does. Edges point from the dependent to what it depends on. An inferred edge has `inferred: true`; `meta` carries `ref` and `source` on `uses_module` edges, and the matched `bucket` and `key` on `reads_state` edges. A cross-repository `depends_on` target appears as a stack with `external: true`, `repo` set and `key` qualified as `owner/repo//key`. A stack that is an [instance](/configuration/instances) of its directory has the key `path:instance` and carries `instance`; `workspace` is set only when the stack selects a Terraform workspace; and `watch_paths` lists the repository-relative files outside the stack directory that it reads at `init` or `plan`, its backend configuration files and var files. `backend` is the effective backend, after the stack's `backend_config`. A node from a CLI older than instances has `workspace` and no `instance`; the server takes the workspace as the instance.
+The request may also carry a `stacks` list that restricts the run, as a `stackorder plan stacks/a stacks/b` comment does. Edges point from the dependent to what it depends on. An inferred edge has `inferred: true`; `meta` carries `ref` and `source` on `uses_module` edges, the matched `bucket` and `key` on `reads_state` edges inferred from `terraform_remote_state`, and `source` `stackorder_outputs` on those inferred from a [`stackorder_outputs`](/configuration/outputs#ordering) block. A cross-repository `depends_on` target, or a stack of another repository that a `stackorder_outputs` block reads, appears as a stack with `external: true`, `repo` set and `key` qualified as `owner/repo//key`. A stack that is an [instance](/configuration/instances) of its directory has the key `path:instance` and carries `instance`; `workspace` is set only when the stack selects a Terraform workspace; and `watch_paths` lists the repository-relative files outside the stack directory that it reads at `init` or `plan`, its backend configuration files and var files. `backend` is the effective backend, after the stack's `backend_config`. A node from a CLI older than instances has `workspace` and no `instance`; the server takes the workspace as the instance.
 
 The uploaded `config`, the pull request's own `stackorder.yaml` after defaults and validation, decides the affected set of the plan, but cannot shrink it: when it differs from the default branch's configuration, the graph is resolved under both and the affected sets are united. Stacks of the default-branch graph (before the first merge, the latest graph) that only the default branch's configuration discovers are added to the commit's graph when it finds them affected, and `warnings` names the keys that differ and the stacks planned because of them. Such a stack whose directory the pull request deletes is not added; `warnings` names it as removed. Policy does not come from it either: a default-branch `plan_output: summary` always wins over it, and the apply gate, `allowed_teams` and the environment an apply runs under are read from the default branch when the apply starts.
 
@@ -365,11 +369,18 @@ Reports a plan, apply or drift outcome for one stack and answers with the stack'
     "key": "stacks/prod/vpc/terraform.tfstate",
     "region": "us-east-1",
     "use_lockfile": true
+  },
+  "state": {
+    "bucket": "acme-terraform-state",
+    "key": "stacks/prod/vpc/terraform.tfstate",
+    "region": "us-east-1"
   }
 }
 ```
 
 `status` is `success`, `failure` (the tool or a hook failed, or the CLI refused) or `error`. `exit_code` is the tool's exit code, `2` for a plan with changes. Other fields: `truncated` when the plan text was cut at 256 KB, `error_text`, and `unconfirmed`, which records the stack as `unconfirmed`. The summary can also count `imports`, `moves` and `output_changes`, and list `destroyed` and `replaced` addresses. Plan text of a stack whose default-branch `plan_output` is `summary` is never stored.
+
+`backend` is the backend `init` recorded. `state` is the S3 object that held the stack's state after `init` and workspace selection: `bucket`, `key` with the workspace prefix (`env:/production/stacks/prod/vpc/terraform.tfstate` in the workspace `production`), and `region` unless the backend takes it from the environment. The CLI leaves it out for a backend other than `s3`, or without a bucket or a key. The server records it as the stack's state location from an accepted apply or drift result, manual runs included and whatever the outcome; never from a plan result, a repeated or refused result, or a result of a run older than the one that recorded the current location. [Shared outputs](/configuration/outputs#state-location) read the state from there.
 
 ```json
 {
@@ -473,6 +484,80 @@ The run with its per-stack rows. A `pull_request` token may read only its own pu
 ```
 
 `html_url` links to the run's page in the web UI; `warnings` lists anything the server wants people to see, such as a dispatch GitHub refused. Run `status` is `pending`, `planning`, `planned`, `applying`, `applied`, `failed`, `unconfirmed` or `superseded`. Stack `status` adds `blocked`, `noop`, `unknown` and `skipped`. See [Run states](/guide/how-it-works#run-states).
+
+### `GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs` {#stack-outputs}
+
+The root-module outputs of stack `{key}` of `{owner}/{repo}`, the producer, read from its state for a stack that the producer's default branch lists under `outputs.readers`. The [`stackorder` provider](/configuration/outputs#consumer) calls it from a stack's job; [Shared outputs](/configuration/outputs) has the whole feature. The server answers only when its operator has set [`STACKORDER_STATE_BUCKETS`](/reference/server-configuration#shared-outputs), and `404 outputs_disabled` otherwise.
+
+The caller is a runner or an API key, never a person: a session cookie is `401 unauthorized`, and the web UI shows no outputs.
+
+```text
+GET /v1/repos/acme/infra/stacks/stacks%2Fprod%2Fvpc/outputs?run=7c9e6679-7425-40de-944b-e07fc1f90ae7&reader=stacks%2Fprod%2Feks
+```
+
+| Parameter | Meaning |
+| --- | --- |
+| `run` | The id of the run the calling job belongs to. Required with a runner token. Optional with an API key, which only has its form checked: `400 invalid` with `details.field` `run_id` when it is not a UUID. |
+| `reader` | The key of the reading stack. Required with a runner token. Optional with an API key, which only has its form checked: `400 invalid` with `details.field` `reader` when it is not a stack key. |
+
+A runner token must name a run of its own repository and a stack of that run whose job has not reported yet: `pending`, `planning` or `unknown` in a plan or drift run, and `pending`, `planned`, `applying` or `unknown` in an apply run. The run must not be superseded (`409 superseded`) or finished, nor, for a `pull_request` token, `planned` (`409 conflict`). A `workflow_dispatch` token's reader must have been dispatched, and the job binds to its dispatch as for a [result](#oidc-binding). A missing run or reader, a run that does not exist and a stack that is not one of the run's are `403 forbidden`. The producer must belong to the reader's installation, and the producer's `outputs.readers` must match the reader. An API key is an administrator: it reads the outputs of any stack, whatever its `readers`, and every read is audited.
+
+The producer's repository is matched without regard to case. Its key must be a stack of its repository's default-branch graph, once the repository has one. Its policy comes from the default branch only: `repos.config` and the stack's `.stackorder.yaml` at the commit that configuration was read at.
+
+```json
+{
+  "repo": "acme/infra",
+  "stack": "stacks/prod/vpc",
+  "serial": 42,
+  "lineage": "8d3f6c1e-2b7a-4e9d-9c51-0f4a6b2d7e13",
+  "terraform_version": "1.9.8",
+  "outputs": {
+    "private_subnet_ids": {
+      "value": ["subnet-0a1b2c3d4e5f6a7b8", "subnet-0b2c3d4e5f6a7b8c9"],
+      "type": ["list", "string"],
+      "sensitive": false
+    },
+    "vpc_id": {
+      "value": "vpc-0a1b2c3d4e5f67890",
+      "type": "string",
+      "sensitive": false
+    }
+  },
+  "withheld": ["vpn_preshared_key"]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `repo`, `stack` | The producer, as `owner/repo`, and its key |
+| `serial`, `lineage`, `terraform_version` | Those of the state the outputs were read from |
+| `outputs` | Every output served, by name: its `value` and its `type`, the cty type as the state writes it, such as `"string"` or `["list", "string"]`, both as JSON, and `sensitive`. Always an object, `{}` when there is nothing to serve |
+| `withheld` | The names of the sensitive outputs left out, sorted, when the producer's `outputs.sensitive` is `withhold`; absent when there are none |
+
+The response carries `Cache-Control: no-store`. Nothing read from the state is stored, cached or logged by the server. Reads are recorded in the [audit log](#audit) as `outputs_read`, and refusals of the caller, the run, the producer or its policy as `outputs_refused`, with counts and never values. [Errors](#stack-outputs-errors) says which refusals are not recorded.
+
+#### Errors {#stack-outputs-errors}
+
+Beyond `401 unauthorized`, `400 invalid`, `403 forbidden`, `409 conflict` and `409 superseded` for the caller and the run, a read answers:
+
+| Status | Code | When |
+| --- | --- | --- |
+| 404 | `outputs_disabled` | The server reads no state: `STACKORDER_STATE_BUCKETS` is unset. |
+| 403 | `outputs_not_shared` | The reader is a stack of the producer's repository, and the producer's default-branch `outputs.readers` does not list it, or the producer's `outputs` configuration does not parse or render. The message names the files to edit. |
+| 404 | `not_found` | The repository does not exist, is suspended or, for a runner, belongs to another installation; the key is not a stack of it, or not one of its default-branch graph. For a reader in another repository, also a producer that does not list it or whose configuration does not resolve. One message covers every cause. |
+| 409 | `state_location_unknown` | The producer has had no apply or drift job on a CLI that reports its state object, so the server does not know where its state is. |
+| 403 | `state_bucket_not_allowed` | The state object lies outside the entries of `STACKORDER_STATE_BUCKETS`. Nothing was requested from S3. |
+| 403 | `state_access_denied` | S3, or KMS through S3, denied the server access to the state object, or STS refused to let the server assume `STACKORDER_STATE_ROLE_ARN`. Without `s3:ListBucket`, S3 also answers so for a missing object. |
+| 404 | `state_not_found` | The state object, or its bucket, does not exist. |
+| 422 | `state_encrypted` | OpenTofu encrypted the state. The server never decrypts state. |
+| 422 | `state_unsupported` | The state's format version is not 4. |
+| 422 | `state_too_large` | More than 256 MiB of the object precede its outputs, or the outputs, or a single value before them, exceed 8 MiB. |
+| 422 | `state_unreadable` | The object is not valid state JSON, its location is unusable, such as an invalid region, or S3 refused the request for another reason. |
+| 503 | `unavailable` | The read failed for now: S3 throttled it, answered with a server error or did not answer within 30 s. Retry. |
+
+A read never answers the generic `422 unprocessable`: each of its 422s carries one of the codes above.
+
+Refusals answered with `invalid`, `forbidden`, `not_found`, `conflict`, `superseded`, `outputs_not_shared` or `state_location_unknown` are audited as `outputs_refused`, with the code as `details.reason`. `outputs_disabled` is not audited, and neither is a failure of the state read itself: `state_bucket_not_allowed`, `state_access_denied`, `state_not_found`, `state_encrypted`, `state_unsupported`, `state_too_large`, `state_unreadable` and `unavailable`. [Troubleshooting](/operations/troubleshooting#shared-outputs) says what to do about each code.
 
 ## Human and automation endpoints {#human}
 
@@ -824,7 +909,7 @@ One module with its released versions and its consumers across repositories. `la
 
 ### `GET /v1/audit` {#audit}
 
-A page of audited actions, newest first: unlocks (`unlock`), re-runs (`rerun`), manual applies (`manual_apply`), comment commands (`command`, `command_ignored`, `command_rate_limited`), lock warnings and reminders, cross-repository plans and invalid configuration notices.
+A page of audited actions, newest first: unlocks (`unlock`), re-runs (`rerun`), manual applies (`manual_apply`), comment commands (`command`, `command_ignored`, `command_rate_limited`), reads of a stack's outputs (`outputs_read`, `outputs_refused`), lock warnings and reminders, cross-repository plans and invalid configuration notices.
 
 ```json
 {
@@ -849,7 +934,7 @@ A page of audited actions, newest first: unlocks (`unlock`), re-runs (`rerun`), 
 }
 ```
 
-Unlocks target the qualified stack key `owner/repo//key` and keep the stack's id in `details.stack_id`; re-runs and comment commands target `owner/repo` and keep the pull request in `details.pr`. Every one of them carries `details.repo`. A person sees the entries they made and those whose `details.repo`, or whose `target` (`owner/repo…` or `kind:owner/repo…`), names a repository they see.
+Unlocks target the qualified stack key `owner/repo//key` and keep the stack's id in `details.stack_id`; re-runs and comment commands target `owner/repo` and keep the pull request in `details.pr`. Reads of a stack's outputs target the producer's qualified key and keep `details.stack`, `details.reader_repo`, `details.reader` and `details.run_id`; `outputs_read` adds the counts `details.outputs`, `details.sensitive` and `details.withheld`, and `outputs_refused` the error code as `details.reason`. Their `details.repo` is the producer, or the runner's own repository when a runner was refused before the producer was found. Every one of them carries `details.repo`. A person sees the entries they made and those whose `details.repo`, or whose `target` (`owner/repo…` or `kind:owner/repo…`), names a repository they see.
 
 ## Sign-in {#sign-in}
 
@@ -926,7 +1011,7 @@ Then the run service binds the token to the run, according to how the job starte
 | Job | Claims | Binding |
 | --- | --- | --- |
 | Pull request plan job | `event_name` is `pull_request`, `ref` is `refs/pull/<n>/merge` | `<n>` is the run's pull request, the run is a plan run started by a pull request, and, when the run is created, the pull request's head SHA read from GitHub equals the SHA the CLI sent. Such a token can reach only plan runs registered by a pull request resolve job. |
-| Server-dispatched job | `event_name` is `workflow_dispatch`, `ref` is `refs/heads/<default branch>` | `run_id` is the workflow run of the dispatch that carries the stack, bound on first contact; `run_attempt` is recorded; `environment` equals the stack's environment for an apply, and `default` for a plan or drift dispatch. A workflow run whose dispatch is already bound to another workflow run is refused. |
+| Server-dispatched job | `event_name` is `workflow_dispatch`, `ref` is `refs/heads/<default branch>` | `run_id` is the workflow run of the dispatch that carries the stack, bound on first contact; `run_attempt` is recorded; `environment` equals the stack's environment for an apply, and `default` for a plan or drift dispatch. In an apply, a stack that no dispatch carries yet binds only to a dispatch of its own wave and environment, and a `skipped` stack to none, so a job never acts for a stack of another wave or one the apply skips. A [read of a stack's outputs](#stack-outputs) binds a workflow run no dispatch holds yet only when the workflow run's jobs name a stack of the reader's dispatch. A workflow run whose dispatch is already bound to another workflow run is refused. |
 
 A failed binding is `403 forbidden`. `actor` is recorded as `requested_by`. Results for a finished stack are `409 conflict`, and for a superseded run `409 superseded`. A `pull_request` token's plan run is final once it is `planned` or finished: its results, verdicts and reads are `409 conflict`, except a repeat of the recorded result or verdict.
 

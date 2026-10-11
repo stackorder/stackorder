@@ -46,6 +46,7 @@ The job assumes an AWS role with its GitHub OIDC token, so there are no long-liv
 The workflow above names one stack directory. With several stacks, and modules and remote state shared between them, these jobs are left to you:
 
 - **Find the affected stacks.** A change to a local module affects every stack that uses it, and a stack that reads another stack's state through `terraform_remote_state` is affected when that stack changes. A path filter sees the directories that changed, not the stacks that depend on them.
+- **Share values without sharing state.** `terraform_remote_state` gives the reading stack's role read access to the other stack's whole state object, secrets included, to get a few outputs.
 - **Order applies across stacks.** A VPC has to apply before the cluster that uses it. Hard-coded `needs:` between jobs fix one order in the file, whatever the change touches.
 - **Lock stacks across pull requests.** Terraform's state lock covers one command, not the time between a plan and its apply, so two open pull requests can both plan the same stack.
 - **Check fresh plans and approvals before apply.** An apply that re-plans at merge time can apply something other than the plan the reviewer read.
@@ -81,12 +82,13 @@ jobs:
 The run workflow, `stackorder-run.yml`, runs only when the server dispatches it; [Workflows](/configuration/workflows#run) has the file. Each gap above maps to one thing Stackorder does:
 
 - **Affected stacks.** The `resolve` job scans the repository, uploads the graph and gets back the affected stacks as a job matrix: stacks changed directly, stacks that use a changed local module, stacks that read a changed stack's state, and their dependents. One plan job runs per stack, under the plan role, with one `stackorder/plan: <key>` check each and one sticky pull request comment. See [The affected set](./concepts#affected-set).
+- **Shared outputs.** A stack reads another stack's root-module outputs through the server with a `stackorder_outputs` data source, once the other stack lists it under `outputs.readers` on its default branch, so its role needs no access to the other stack's state. The read is inferred as a dependency. It is off unless the operator turns it on and lets the server read the state buckets it lists. See [Shared outputs](/configuration/outputs).
 - **Order.** A `stackorder apply` comment, or the merge in `on_merge` mode, applies the affected stacks in [waves](./concepts#waves). The server dispatches `stackorder-run.yml` one wave at a time, and a failed stack blocks its dependents.
 - **Locks.** Before the first wave, the server locks every affected stack, all or nothing, and releases the locks on merge or when the run completes. See [Locks](./concepts#locks).
 - **Fresh plans and approvals.** The [apply gate](./how-it-works#apply-gate) checks who asked, the pull request's approvals, fresh plans on the head commit, named policy checks and locks, and reports every failure in one comment. Each apply job runs under the stack's GitHub environment and assumes that environment's apply role through OIDC, so environment reviewers and the role's trust policy remain the hard gates.
 - **Drift.** On a `drift.schedule`, every stack runs `plan -detailed-exitcode`, and `open_issue` keeps one GitHub issue per drifted stack. It never applies to fix drift. See [Drift detection](/configuration/drift).
 
-The server never runs Terraform and holds no cloud credentials or state. State stays in your S3 bucket, and Stackorder adds under 10 s to what Terraform itself needs in each job. [Getting started](./getting-started) sets up one repository, and the [local demo](./local-demo) runs everything on one machine with no GitHub App and no AWS account.
+The server never runs Terraform, holds no credentials for your infrastructure and stores no state; with shared outputs on, its AWS role can read the state objects the operator lists, and it keeps nothing it reads. State stays in your S3 bucket, and Stackorder adds under 10 s to what Terraform itself needs in each job. [Getting started](./getting-started) sets up one repository, and the [local demo](./local-demo) runs everything on one machine with no GitHub App and no AWS account.
 
 ## FAQ {#faq}
 
@@ -96,11 +98,15 @@ Trigger a workflow on `pull_request`, assume a read-only AWS role with `aws-acti
 
 ### How do I apply Terraform in dependency order across multiple stacks?
 
-Declare the dependencies and let a tool order them. In Stackorder, `depends_on` in a stack's `.stackorder.yaml` orders the run, and a `terraform_remote_state` read of another stack's state is inferred as an ordering edge too. Module sources decide which stacks are affected, not their order. Affected stacks are layered into waves by the longest path through the graph, and a cycle fails `stackorder/resolve` with the cycle spelled out. Edges to stacks in other repositories appear in the graph and can trigger plan-only runs there, but each run applies one repository.
+Declare the dependencies and let a tool order them. In Stackorder, `depends_on` in a stack's `.stackorder.yaml` orders the run, and a `terraform_remote_state` read of another stack's state, or a `stackorder_outputs` read of its outputs, is inferred as an ordering edge too. Module sources decide which stacks are affected, not their order. Affected stacks are layered into waves by the longest path through the graph, and a cycle fails `stackorder/resolve` with the cycle spelled out. Edges to stacks in other repositories appear in the graph and can trigger plan-only runs there, but each run applies one repository.
 
 ### How do I pass a provider API token to Terraform in GitHub Actions?
 
 Store it as a secret and export it to the job's environment, where the provider reads it, such as `CLOUDFLARE_API_TOKEN` for Cloudflare. With Stackorder, pass the reusable workflows an `env` secret of `KEY=VALUE` lines, `env: ${{ secrets.STACKORDER_ENV }}` under `secrets:`, since `secrets: inherit` passes nothing to a workflow in another organization. The job masks every value and exports it before Terraform runs. Keep plan tokens read-only, put write tokens in the `ENV` secret of the environments that gate applies, and declare a token passed as a `TF_VAR_` variable `ephemeral`, so the saved plan does not store it. See [Provider credentials](/configuration/workflows#env).
+
+### How do I read another stack's outputs without access to its state?
+
+With `terraform_remote_state`, the reading stack's role needs read access to the other stack's whole state object. With Stackorder's [shared outputs](/configuration/outputs), the reading stack uses a `stackorder_outputs` data source or ephemeral resource instead, and the Stackorder server returns only the other stack's root-module outputs. The producing stack lists its readers under `outputs.readers` on its default branch, sensitive outputs are withheld unless it shares them, and the reading stack's role needs no access to the producer's state. The server reads the state objects for it, so an operator has to turn the feature on and grant the server read access to the state buckets it lists.
 
 ### Does it work with OpenTofu (setup-opentofu)?
 

@@ -4,9 +4,9 @@ description: 'The Postgres schema behind the Stackorder server: graph, run, queu
 
 # Data model
 
-Postgres is the server's only stateful dependency. It holds the graphs, the run history, the locks, the audit log and the work queue. Nothing in it is needed to operate Terraform: wiping the database loses history and locks, never state.
+Postgres is the server's only stateful dependency. It holds the graphs, the run history, the locks, the audit log and the work queue. Nothing in it is needed to operate Terraform: wiping the database loses history and locks, never state. It also loses where each stack's state lives, so [shared outputs](/configuration/outputs) answer `state_location_unknown` for a stack until its next apply or drift job.
 
-All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.id`, `modules.id`, `graphs.id`, `dispatches.id`) are UUIDs; `installations.id` and `repos.id` are GitHub's numeric ids. The schema is created by the migrations in `migrations/`, `0001_graph` to `0007_run_comment`.
+All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.id`, `modules.id`, `graphs.id`, `dispatches.id`) are UUIDs; `installations.id` and `repos.id` are GitHub's numeric ids. The schema is created by the migrations in `migrations/`, `0001_graph` to `0008_stack_state_object`.
 
 ## Tables {#tables}
 
@@ -17,11 +17,11 @@ All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.i
 | `installations` | `id`, `account`, `account_type`, `suspended_at` | One per GitHub App installation |
 | `repos` | `id`, `installation_id`, `full_name` (unique), `default_branch`, `config` (jsonb), `config_sha`, `private`, `default_graph_id` | `config` is the parsed `stackorder.yaml` of the default branch at `config_sha`; `default_graph_id` is the graph of the last merged pull request |
 | `graphs` | `id`, `repo_id`, `sha`, `tree_hash`, `warnings`, `external_stacks`, `created_at` | One row per repository and commit (`UNIQUE (repo_id, sha)`); `tree_hash` enables cache hits |
-| `stacks` | `id`, `repo_id`, `key`, `path`, `workspace`, `backend` (jsonb), `environment`, `tool`, `config` (jsonb), `first_seen_at`, `last_seen_at`, `removed_at` | Stable identity per repository and key (`UNIQUE (repo_id, key)`), so history survives commits. `key` is `path` or `path:instance`, so each [instance](/configuration/instances) of a directory has its own row, and the instance is split off the key rather than stored in a column; `workspace` is the Terraform workspace the CLI selects, empty for none. `backend` holds the effective S3 bucket, key, region and lock settings, after `backend_config` |
+| `stacks` | `id`, `repo_id`, `key`, `path`, `workspace`, `backend` (jsonb), `environment`, `tool`, `config` (jsonb), `state_object` (jsonb), `state_object_run_id`, `state_object_at`, `first_seen_at`, `last_seen_at`, `removed_at` | Stable identity per repository and key (`UNIQUE (repo_id, key)`), so history survives commits. `key` is `path` or `path:instance`, so each [instance](/configuration/instances) of a directory has its own row, and the instance is split off the key rather than stored in a column; `workspace` is the Terraform workspace the CLI selects, empty for none. `backend` holds the effective S3 bucket, key, region and lock settings, after `backend_config`. `state_object` is the bucket, key and region where the newest apply or drift job that reported one found the stack's state, with that job's run and the time it was recorded; [shared outputs](/configuration/outputs#state-location) read the state from there. Saving a graph rewrites `backend` and `config` but never `state_object` |
 | `graph_stacks` | `graph_id`, `stack_id`, `node` (jsonb) | Which stacks a graph has, with the stack node as scanned, including its `instance` and `watch_paths` |
 | `modules` | `id`, `source_key` (unique), `base_key`, `kind` (`local`, `git`, `registry`), `source`, `path`, `ref` | One row per pinned module (`key@ref`) and one ref-less family row per `base_key`, which versions attach to |
 | `graph_modules` | `graph_id`, `module_id`, `node` (jsonb) | Which modules a graph has |
-| `edges` | `graph_id`, `from_kind`, `from_key`, `to_kind`, `to_key`, `type`, `inferred`, `meta` (jsonb) | Keys rather than ids, so an edge can point at a stack in another repository; `meta` holds `ref` and `source` for module edges, `bucket` and `key` for `reads_state` |
+| `edges` | `graph_id`, `from_kind`, `from_key`, `to_kind`, `to_key`, `type`, `inferred`, `meta` (jsonb) | Keys rather than ids, so an edge can point at a stack in another repository; `meta` holds `ref` and `source` for module edges, `bucket` and `key` for a `reads_state` edge inferred from `terraform_remote_state`, and `source` `stackorder_outputs` for one inferred from a `stackorder_outputs` block |
 | `module_versions` | `module_id`, `version`, `sha`, `tagged_at` | Semver tags pushed to module repositories |
 
 ### Runs {#run-tables}
@@ -44,7 +44,7 @@ All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.i
 | `oidc_jtis` | `jti`, `expires_at` | Runner token ids already accepted, so a token is used once |
 | `sessions` | `id`, `login`, `user_id`, `avatar_url`, `orgs`, `created_at`, `expires_at` | `id` is the SHA-256 of the session token |
 | `api_keys` | `id`, `name`, `key_hash` (unique), `prefix`, `created_by`, `created_at`, `last_used_at`, `revoked_at` | `key_hash` is the SHA-256 of the key, `prefix` its first 10 characters |
-| `audit` | `id`, `at`, `actor`, `action`, `target`, `details` (jsonb) | Unlocks, re-runs, manual applies, commands and other audited actions |
+| `audit` | `id`, `at`, `actor`, `action`, `target`, `details` (jsonb) | Unlocks, re-runs, manual applies, commands, reads of a stack's outputs (`outputs_read`, `outputs_refused`, with counts and never values) and other audited actions |
 
 `golang-migrate` adds its own `schema_migrations` table.
 
@@ -67,6 +67,7 @@ erDiagram
   stacks ||--o| locks : "held on"
   runs ||--o{ locks : takes
   stacks ||--o{ drift : "checked in"
+  runs |o--o{ stacks : "located the state of"
   modules ||--o{ module_versions : releases
 ```
 

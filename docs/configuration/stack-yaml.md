@@ -18,6 +18,8 @@ apply:
   allowed_teams: [platform-prod]          # replaces the root list for this stack
 plan_output: summary                      # this stack's plans hold secrets
 ignore_inferred: [stacks/legacy/dns]      # suppress a remote_state edge
+outputs:
+  readers: [stacks/prod/eks]              # stacks that may read this stack's outputs
 ```
 
 A stack with instances:
@@ -52,8 +54,9 @@ instances:
 | `apply.allowed_teams` | list of teams | root `apply.allowed_teams` | Who may request an apply that touches this stack, in the same form as the root key. A non-empty list replaces the root list. The server reads it from the default branch. |
 | `plan_output` | `full` or `summary` | root `plan_output` | How much of this stack's plan reaches the server and the PR comment. A `summary` on the default branch wins over a pull request's `full`. |
 | `ignore_inferred` | list of stack keys | `[]` | Inferred `reads_state` edges to suppress. Each suppressed edge is reported as a warning by the scan. Entries may be templates. |
+| `outputs` | `readers` and `sensitive` | root `outputs` | The stacks that may read this stack's root-module outputs through the server, and whether sensitive outputs are served. `readers` set here, `[]` included, replaces the root list. The server reads it from the default branch. See [Shared outputs](./outputs). |
 
-An entry of the `instances` map may set `environment`, `workspace`, `backend_config`, `var_files`, `env`, `plan_output`, `apply.allowed_teams`, `depends_on` and `ignore_inferred` for that instance.
+An entry of the `instances` map may set `environment`, `workspace`, `backend_config`, `var_files`, `env`, `plan_output`, `apply.allowed_teams`, `depends_on`, `ignore_inferred` and `outputs` for that instance.
 
 ## `depends_on` entries {#depends-on}
 
@@ -87,12 +90,20 @@ For each stack, and for each instance of a stack with instances, the effective s
 | `var_files` | The root list, the stack's, the instance's `from_var_files` file, then the instance's list. |
 | `env` | Per variable name, the instance's value, else the stack's, else the root's. |
 | `depends_on`, `ignore_inferred` | The stack's list followed by the instance's; the root file has no equivalent. |
+| `outputs.readers` | The list of the most specific level that sets one, `[]` included: the instance's, else the stack's, else the root list. Unset everywhere, the outputs are not shared. |
+| `outputs.sensitive` | The instance's value, else the stack's, else the root value, else `withhold`. |
 
 A run that touches several stacks requires the commenter to satisfy **every** affected stack's `allowed_teams`. To apply a subset, name it: `stackorder apply stacks/staging/vpc`. For a directory with [instances](./instances), name each instance, as in `stackorder apply infra/kyc:production`: a bare directory path names no stack, and the apply is refused.
 
 ## Inferred edges {#inferred}
 
-When a stack reads another stack's state through `terraform_remote_state` with a matching S3 bucket and key, Stackorder infers a `reads_state` edge. The backend compared is the stack's effective backend, after its `backend_config`, so instances with a partial `backend "s3" {}` block take part. You can:
+When a stack reads another stack's state through `terraform_remote_state` with a matching S3 bucket and key, Stackorder infers a `reads_state` edge. The backend compared is the stack's effective backend, after its `backend_config`, so instances with a partial `backend "s3" {}` block take part.
+
+A `data` or `ephemeral` `stackorder_outputs` block whose `stack` is a literal string infers the same edge to the stack it names, which must be a stack key of this repository exactly or `owner/repo//key` for another repository. A `stack` that is not a literal infers nothing and warns; list the stack in `depends_on`. See [Shared outputs](./outputs#ordering).
+
+Only the blocks in the stack's own directory are read, never those in the modules it calls.
+
+For each inferred edge, you can:
 
 - **keep it**, and let it order applies softly and propagate change;
 - **promote it**, by listing the other stack in `depends_on`;
@@ -102,12 +113,13 @@ When a stack reads another stack's state through `terraform_remote_state` with a
 
 The file is parsed strictly. It is rejected when it has:
 
-- unknown keys, or a `tool` or `plan_output` outside its allowed values;
+- unknown keys, or a `tool`, `plan_output` or `outputs.sensitive` outside its allowed values;
 - an invalid `depends_on` entry, or an empty `ignore_inferred` entry;
 - a `workspace` containing `/`, `:`, a space or a tab, or, on a stack without instances, one that renders to an invalid instance name;
 - an instance name that is not a letter or digit followed by letters, digits, `.`, `_` and `-`, is longer than 64 characters, or is `default` in any letter case, a null item in the `instances` list, or an instance listed twice;
 - a `backend_config` entry that is empty, has no name before `=`, or is an absolute file;
 - a `var_files` entry that is empty or absolute;
+- an `outputs` or `outputs.readers` key with no value, here or in an instance, an empty `outputs.readers` item, or a reader that is not a valid glob, is not spelled as a stack key, or names a repository other than a literal `owner/repo`;
 - an `env` name that is not a valid variable name or is reserved in any letter case, a null `env` value, an `env` object with a key other than `plan`, `apply` and `drift`, or one with none of them;
 - a template that does not parse, uses an action or builtin outside the [allowed set](./instances#templates), fails to render, or renders more than 4096 bytes.
 

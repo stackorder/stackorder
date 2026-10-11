@@ -1,5 +1,5 @@
 ---
-description: 'Every environment variable that configures stackorder-server: base URL, database, GitHub App, OIDC, artifact bucket, retention, metrics token and logs.'
+description: 'Every environment variable that configures stackorder-server: base URL, database, GitHub App, OIDC, artifact and state buckets, retention, metrics and logs.'
 ---
 
 # Server configuration
@@ -27,7 +27,9 @@ Values are trimmed of surrounding white space, and an empty value counts as unse
 | `STACKORDER_REQUIRED_WORKFLOW_REF` | unset | A glob that every runner token's `job_workflow_ref` must match, validated at start-up. See [below](#required-workflow-ref). |
 | `STACKORDER_ARTIFACT_BUCKET` | unset | S3 bucket name, not a URL, for full plan text. See [below](#artifact-bucket). |
 | `STACKORDER_ARTIFACT_PREFIX` | empty | Key prefix inside the bucket. Setting it without a bucket is an error. |
-| `AWS_ENDPOINT_URL_S3` | unset | Only read with a bucket: an S3-compatible endpoint, used with path-style addressing, such as LocalStack. |
+| `AWS_ENDPOINT_URL_S3` | unset | Only read with an artifact bucket or state buckets: an S3-compatible endpoint, used with path-style addressing, such as LocalStack. It applies to S3 requests only. The STS requests that assume `STACKORDER_STATE_ROLE_ARN` keep the AWS SDK's own endpoint resolution, which reads `AWS_ENDPOINT_URL_STS`. |
+| `STACKORDER_STATE_BUCKETS` | unset | Comma-separated `bucket` or `bucket/prefix` entries whose state objects the server may read to serve [shared outputs](/configuration/outputs). Unset turns shared outputs off. Each entry must start with a valid S3 bucket name. See [below](#shared-outputs). |
+| `STACKORDER_STATE_ROLE_ARN` | unset | The ARN of one IAM role, such as `arn:aws:iam::123456789012:role/stackorder-state-reader`, that the server assumes to read those state objects. Setting it without `STACKORDER_STATE_BUCKETS` is an error. |
 | `STACKORDER_SESSION_KEY` | generated | 32 bytes, hex encoded (64 characters), that sign session, sign-in and setup cookies. When unset the server generates one at each start and logs a warning, so sessions end at every restart and are not shared between instances. |
 | `STACKORDER_METRICS_TOKEN` | unset | When set, `GET /metrics` requires `Authorization: Bearer <token>`. |
 | `STACKORDER_PLAN_TEXT_RETENTION` | `720h` | How long stored plan text is kept (30 days). |
@@ -133,7 +135,25 @@ Pair it with a `job_workflow_ref` condition in the AWS role trust policy. See [S
 
 The CLI sends at most 256 KB of redacted plan text per stack, and without a bucket the server keeps it in Postgres. With `STACKORDER_ARTIFACT_BUCKET` set, the server writes that text to `<prefix>runs/<run id>/<slug>/plan.txt` in the bucket, and the plan summary to `plan.json` next to it (the slug is the key with `/` and `:` replaced by `-`, then `-` and the first 8 hex characters of the key's SHA-256, as in the [plan artifact name](/reference/cli#plan)), keeps only the first 8 KB in Postgres, and links the object from the run's stack row as `plan_url` (`s3://bucket/key`). [`GET /v1/runs/{id}/stacks/{key}/plan`](/reference/api#plan-text) reads the full text back from the bucket, and the run page of the web UI shows it in place of the stored beginning, so the server's role needs `s3:GetObject` as well as `s3:PutObject` on the prefix, and `s3:ListBucket` on the bucket: without it S3 answers a read of an expired object with `403` instead of `404`, and the endpoint answers `500` instead of `404`. The [Terraform module](/operations/deploy-aws) grants all three. When the upload fails it falls back to Postgres. Stacks with `plan_output: summary` store no text anywhere.
 
-The server's AWS credentials come from the standard SDK chain, such as the ECS task role. It is the only AWS access the server ever has, and it is for Stackorder's own artifacts, never for Terraform state. Give the bucket a lifecycle expiry; the [Terraform module](/operations/deploy-aws) does. That expiry, not `STACKORDER_PLAN_TEXT_RETENTION`, bounds how long the full text is served: the endpoint keeps answering after the retention cleared the beginning kept in Postgres, until the object expires. It reads under the current bucket and prefix, so after either changes, the plans stored before answer `404`.
+The server's AWS credentials come from the standard SDK chain, such as the ECS task role. Unless [state buckets](#shared-outputs) are set, the artifact bucket is the only AWS access the server needs, and it holds Stackorder's own artifacts, never Terraform state. Give the bucket a lifecycle expiry; the [Terraform module](/operations/deploy-aws) does. That expiry, not `STACKORDER_PLAN_TEXT_RETENTION`, bounds how long the full text is served: the endpoint keeps answering after the retention cleared the beginning kept in Postgres, until the object expires. It reads under the current bucket and prefix, so after either changes, the plans stored before answer `404`.
+
+## Shared outputs {#shared-outputs}
+
+`STACKORDER_STATE_BUCKETS` turns [shared outputs](/configuration/outputs) on and bounds them: a stack's job can then read another stack's root-module outputs through the server, and the server reads the producer's state object with its own AWS credentials. Without it the server reads no state, and every read answers `404 outputs_disabled`.
+
+```sh
+STACKORDER_STATE_BUCKETS=acme-tfstate/stacks/prod/,acme-platform-tfstate
+STACKORDER_STATE_ROLE_ARN=arn:aws:iam::123456789012:role/stackorder-state-reader
+```
+
+- Each entry is a bucket, or a bucket, `/` and a key prefix. Spaces around entries are ignored. The server reads an object only when an entry names its bucket and the object's key starts with the entry's prefix, compared as plain strings, as IAM compares resource ARNs: end a prefix with `/`, or `stacks/prod` also covers `stacks/production/`. A key with a `.` or `..` segment is never read.
+- The object is the one the stack's last apply or drift job reported, never one a pull request names. Anything outside the entries answers `403 state_bucket_not_allowed` before any request to S3.
+- With `STACKORDER_STATE_ROLE_ARN`, the server assumes that role through STS with its own credentials for these reads, and renews it before it expires. Without it, it reads with its own credentials, such as the ECS task role.
+- The credentials that read need `s3:GetObject` on the objects under each entry, `s3:ListBucket` on each bucket limited to the same prefixes, so that a missing object answers `404 state_not_found` rather than `403 state_access_denied`, and `kms:Decrypt` for objects encrypted with a KMS key. The [Terraform module](/operations/deploy-aws#shared-outputs) grants these from `shared_outputs_state`, or only `sts:AssumeRole` with `shared_outputs_role_arn`.
+- The server has read access to whole state objects, secrets included, though it returns only the outputs and stores, caches and logs nothing it reads. List the narrowest prefixes that hold the state of the stacks that share outputs.
+- At start-up the server logs once, at `info` level, that shared outputs are on, with the number of entries, the entries and the role.
+
+The limits on a read, 256 MiB of state scanned, 8 MiB of outputs, 30 s and 16 reads at a time per instance, are on the [Shared outputs](/configuration/outputs#server) page.
 
 ## GitHub Enterprise Server {#ghes}
 
@@ -159,7 +179,8 @@ The server listens on plain HTTP on `STACKORDER_LISTEN`; terminate TLS in front 
 | Outbound | `GITHUB_API_URL` | Installation tokens, checks, comments, dispatches |
 | Outbound | `GITHUB_OIDC_JWKS_URL` | Runner token signing keys, cached for an hour |
 | Outbound | Postgres | Everything else |
-| Outbound, optional | S3 | The artifact bucket |
+| Outbound, optional | S3 | The artifact bucket, and the state buckets of [shared outputs](#shared-outputs) |
+| Outbound, optional | STS | Assuming `STACKORDER_STATE_ROLE_ARN` |
 | Outbound, optional | `OTEL_EXPORTER_OTLP_ENDPOINT` | Traces |
 
 It makes no other outbound calls.
