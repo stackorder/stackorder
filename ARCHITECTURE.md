@@ -426,13 +426,22 @@ JSON always uses the map form (`v1.StackConfig.Instances`, custom
   `terraform.tfstate` in the tool's data directory, so `-backend-config`
   files and `STACKORDER_BACKEND_CONFIG` are already merged in, and, for an
   `s3` backend with a bucket and a key, `StackResult.State`, whose key is
-  `config.StateObjectKey` of the backend's `workspace_key_prefix`, the
+  the one the S3 backend of both tools writes
+  (`config.ResolvedStateObjectKey`): the backend key as written in the
+  default workspace, else `path.Join` of the `workspace_key_prefix`, the
   workspace the tool uses and the backend key. That workspace is found as
   the tool finds it: a non-empty `TF_WORKSPACE` in the tool's environment
   (`EnvFor(mode)` over the process environment), else the `environment`
   file in the data directory, which workspace selection writes and an
   earlier run may have left, else `default`. `State` is left out when
-  workspace selection fails.
+  workspace selection fails. The prefix is `env:` only when it is unset
+  (null in `terraform.tfstate`); an empty string is no prefix.
+  `v1.Backend` cannot tell the two apart, so keys computed from it (the
+  scanner, the drift report, the UI) read an empty prefix as `env:`. The
+  scanner and the drift report clean the key as `State` does, but the UI's
+  `stateObjectKey` (`ui/src/format.ts`) joins the parts without cleaning
+  them, so in a named workspace a key or prefix with dot segments or
+  doubled slashes gives a state link to a different object than `State`.
 - `plan`, the re-plan inside `apply` and `drift` pass one `-var-file` per
   `Effective.VarFiles`; each must exist, and the error names it.
   `apply <planfile>` passes none. Plan-time values of non-ephemeral variables are

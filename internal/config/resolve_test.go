@@ -16,18 +16,44 @@ func ptr(s string) *string { return &s }
 
 func TestStateObjectKey(t *testing.T) {
 	tests := []struct {
+		name                   string
 		prefix, workspace, key string
 		want                   string
 	}{
-		{key: "vpc.tfstate", want: "vpc.tfstate"},
-		{workspace: "default", key: "vpc.tfstate", want: "vpc.tfstate"},
-		{workspace: "blue", key: "vpc.tfstate", want: "env:/blue/vpc.tfstate"},
-		{prefix: "ws", workspace: "blue", key: "vpc.tfstate", want: "ws/blue/vpc.tfstate"},
-		{prefix: "ws", key: "vpc.tfstate", want: "vpc.tfstate"},
+		{name: "no workspace", key: "vpc.tfstate", want: "vpc.tfstate"},
+		{name: "default workspace", workspace: "default", key: "vpc.tfstate", want: "vpc.tfstate"},
+		{name: "unset prefix", workspace: "blue", key: "vpc.tfstate", want: "env:/blue/vpc.tfstate"},
+		{name: "custom prefix", prefix: "ws", workspace: "blue", key: "vpc.tfstate", want: "ws/blue/vpc.tfstate"},
+		{name: "custom prefix in the default workspace", prefix: "ws", key: "vpc.tfstate", want: "vpc.tfstate"},
+		{name: "unset prefix and a dot segment", workspace: "blue", key: "./a/e.tfstate", want: "env:/blue/a/e.tfstate"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, StateObjectKey(tt.prefix, tt.workspace, tt.key))
+		})
+	}
+}
+
+func TestResolvedStateObjectKey(t *testing.T) {
+	tests := []struct {
+		name                   string
+		prefix, workspace, key string
+		want                   string
+	}{
+		{name: "default prefix", prefix: "env:", workspace: "blue", key: "a/c.tfstate", want: "env:/blue/a/c.tfstate"},
+		{name: "empty prefix", workspace: "blue", key: "a/c.tfstate", want: "blue/a/c.tfstate"},
+		{name: "empty prefix in the default workspace", workspace: "default", key: "a/c.tfstate", want: "a/c.tfstate"},
+		{name: "empty prefix and no workspace", key: "a/c.tfstate", want: "a/c.tfstate"},
+		{name: "dot segment in the key", prefix: "env:", workspace: "blue", key: "a/./f.tfstate", want: "env:/blue/a/f.tfstate"},
+		{name: "dot segment in the prefix", prefix: "x/./y", workspace: "blue", key: "g.tfstate", want: "x/y/blue/g.tfstate"},
+		{name: "doubled slash in the key", prefix: "env:", workspace: "blue", key: "a//j.tfstate", want: "env:/blue/a/j.tfstate"},
+		{name: "prefix with a trailing slash", prefix: "ws/", workspace: "blue", key: "a.tfstate", want: "ws/blue/a.tfstate"},
+		{name: "key with a leading slash", prefix: "ws", workspace: "blue", key: "/a.tfstate", want: "ws/blue/a.tfstate"},
+		{name: "key kept as written in the default workspace", prefix: "env:", workspace: "default", key: "./a//e.tfstate", want: "./a//e.tfstate"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ResolvedStateObjectKey(tt.prefix, tt.workspace, tt.key))
 		})
 	}
 }

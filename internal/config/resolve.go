@@ -78,15 +78,28 @@ func InstanceOf(instance, workspace string) string {
 	return workspace
 }
 
-// StateObjectKey returns the S3 object key of a stack's state: key in the
-// default workspace (workspace empty or "default"), else
-// prefix/workspace/key, where an empty prefix is the S3 backend's default
-// workspace_key_prefix "env:".
+// DefaultWorkspaceKeyPrefix is the workspace_key_prefix of an S3 backend
+// that does not set one.
+const DefaultWorkspaceKeyPrefix = "env:"
+
+// StateObjectKey returns the S3 object key of a stack's state for the
+// workspace_key_prefix of a v1.Backend, where an empty prefix stands for an
+// unset one, DefaultWorkspaceKeyPrefix. A caller that knows the backend set
+// the prefix, even to "", uses ResolvedStateObjectKey.
 func StateObjectKey(prefix, workspace, key string) string {
+	return ResolvedStateObjectKey(cmp.Or(prefix, DefaultWorkspaceKeyPrefix), workspace, key)
+}
+
+// ResolvedStateObjectKey returns the S3 object key that the S3 backend of
+// Terraform and OpenTofu keeps a workspace's state in, given the backend's
+// workspace_key_prefix after defaulting: key in the default workspace
+// (workspace empty or "default"), else path.Join(prefix, workspace, key),
+// which drops an empty prefix and cleans the result.
+func ResolvedStateObjectKey(prefix, workspace, key string) string {
 	if workspace == "" || workspace == "default" {
 		return key
 	}
-	return cmp.Or(prefix, "env:") + "/" + workspace + "/" + key
+	return path.Join(prefix, workspace, key)
 }
 
 // VarFileInstance names the instance a from_var_files match stands for: the
