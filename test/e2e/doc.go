@@ -23,7 +23,9 @@
 //
 // TestEndToEnd tells one story per tool, terraform and tofu, selected by
 // the repository's tool setting: adopting the repository, bootstrapping
-// the stacks under stacks/ with apply --local, planning and applying a
+// the stacks under stacks/ with apply --local, reading a stack's outputs
+// through the server with the API key and with the token of a plan job
+// whose stack the default branch lists as a reader, planning and applying a
 // pull request wave by wave, refusing an apply behind another pull
 // request's locks and releasing them with unlock, re-planning for an
 // expired plan artifact and refusing a plan that no longer matches,
@@ -50,4 +52,6 @@
 // resolves to the loopback address, so that the backend and the
 // terraform_remote_state reads both use it, and through
 // STACKORDER_BACKEND_CONFIG for the settings only the backend accepts.
+// The server lists the state bucket in STACKORDER_STATE_BUCKETS and reads
+// it through LocalStack's own endpoint with path-style requests.
 package e2e

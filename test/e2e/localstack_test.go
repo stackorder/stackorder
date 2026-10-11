@@ -187,9 +187,10 @@ func (ls *localStack) get(t *testing.T, bucket, key string) ([]byte, bool) {
 }
 
 type tfState struct {
-	Serial  int    `json:"serial"`
-	Lineage string `json:"lineage"`
-	Outputs map[string]struct {
+	Serial           int    `json:"serial"`
+	Lineage          string `json:"lineage"`
+	TerraformVersion string `json:"terraform_version"`
+	Outputs          map[string]struct {
 		Value any `json:"value"`
 	} `json:"outputs"`
 	Resources []struct {

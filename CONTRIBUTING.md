@@ -42,8 +42,9 @@ separate process for every job. GitHub is played by the in-memory fake of
 server it can reach from the internet. The suite runs once with Terraform
 and once with OpenTofu, and skips a tool whose binary is not on `PATH`;
 each takes one to two minutes. Each run is one story: bootstrap the stacks
-under `stacks/` with `apply --local`, plan a `modules/vpc` change, apply it
-wave by wave from a `stackorder apply` comment, refuse an apply behind
+under `stacks/` with `apply --local`, read a stack's outputs through the
+server with the API key and a plan job's token, plan a `modules/vpc` change,
+apply it wave by wave from a `stackorder apply` comment, refuse an apply behind
 another pull request's locks and release them with `stackorder unlock`,
 re-plan for an expired plan artifact and refuse one that no longer matches,
 open and close a drift issue, apply a stack in a non-default workspace,

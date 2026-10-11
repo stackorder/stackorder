@@ -20,9 +20,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stackorder/stackorder/internal/gh"
+	"github.com/stackorder/stackorder/internal/oidc"
 	"github.com/stackorder/stackorder/internal/server"
 	"github.com/stackorder/stackorder/internal/store"
 	"github.com/stackorder/stackorder/internal/testutil/ghfake"
@@ -85,6 +87,7 @@ func startControlPlane(t *testing.T, ls *localStack, prepare func(*ghfake.Server
 		server.EnvSessionKey:        strings.Repeat("e2", server.SessionKeySize),
 		server.EnvArtifactBucket:    artifactBucket,
 		server.EnvArtifactEndpoint:  ls.endpoint,
+		server.EnvStateBuckets:      stateBucket,
 		server.EnvWorkers:           "4",
 		server.EnvLogLevel:          "info",
 		server.EnvLogFormat:         server.LogFormatText,
@@ -142,7 +145,23 @@ func (cp *controlPlane) syncClock() {
 	}
 }
 
+type response struct {
+	status int
+	header http.Header
+	body   []byte
+}
+
 func (cp *controlPlane) do(t *testing.T, method, path string, body any, auth bool) (int, []byte) {
+	t.Helper()
+	token := ""
+	if auth {
+		token = cp.apiKey
+	}
+	res := cp.send(t, method, path, body, token)
+	return res.status, res.body
+}
+
+func (cp *controlPlane) send(t *testing.T, method, path string, body any, token string) response {
 	t.Helper()
 	var r io.Reader
 	if body != nil {
@@ -155,17 +174,23 @@ func (cp *controlPlane) do(t *testing.T, method, path string, body any, auth boo
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if auth {
-		req.Header.Set("Authorization", "Bearer "+cp.apiKey)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := cp.client.Do(req)
 	if err != nil {
-		return 0, []byte(err.Error())
+		return response{body: []byte(err.Error())}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	return resp.StatusCode, data
+	return response{status: resp.StatusCode, header: resp.Header, body: data}
+}
+
+func (cp *controlPlane) runnerToken(claims oidc.Claims) string {
+	cp.syncClock()
+	claims.Audience = jwt.ClaimStrings{cp.baseURL}
+	return cp.oidc.Token(claims)
 }
 
 func (cp *controlPlane) getJSON(t *testing.T, path string, out any) {
