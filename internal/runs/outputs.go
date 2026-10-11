@@ -7,7 +7,9 @@ import (
 	"maps"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
@@ -37,7 +39,9 @@ type outputsRead struct {
 // StackOutputs serves the root module outputs of stack key of repo to a
 // reader its default-branch configuration lists, reading the stack's state
 // object with the server's AWS credentials. Nothing read is stored or
-// logged.
+// logged. A repository, key, run id or reader that is not valid UTF-8 or
+// holds a control character is a *principal.InvalidError, refused before
+// anything is looked up.
 //
 // A runner job names the run it belongs to and the stack it runs as reader;
 // that stack must be one whose job in the run has not reported yet, in the
@@ -62,6 +66,11 @@ type outputsRead struct {
 // wrap the principal sentinels; reads, refusals before the state is read
 // and locations no grant covers are audited with counts and names cut to a
 // bounded length, never values.
+//
+// A runner that names a run of another repository is refused with the
+// message of a run that does not exist. Outputs are returned only once
+// their read is audited: a read whose audit row cannot be written fails
+// with principal.ErrUnavailable.
 func (s *Service) StackOutputs(ctx context.Context, p principal.Principal, repo, key, runID, reader string) (*v1.StackOutputs, error) {
 	if s.state == nil {
 		return nil, &principal.CodedError{Kind: principal.ErrNotFound, Code: v1.ErrCodeOutputsDisabled,
@@ -88,11 +97,16 @@ func (s *Service) StackOutputs(ctx context.Context, p principal.Principal, repo,
 	out, sensitive := servedOutputs(r.producer.FullName, key, st, eff.OutputSensitive == v1.OutputsShare)
 	details := r.details()
 	details["outputs"], details["sensitive"], details["withheld"] = len(out.Outputs), sensitive, len(out.Withheld)
-	s.audit(ctx, p.Actor(), "outputs_read", r.target(), details)
+	if err := s.auditOutputs(ctx, r, "outputs_read", details); err != nil {
+		return nil, principal.Wrap(principal.ErrUnavailable, "the read of the outputs of %s could not be audited, so nothing is served; try again", key)
+	}
 	return out, nil
 }
 
 func (s *Service) authorizeOutputs(ctx context.Context, r *outputsRead) (config.Effective, stateread.Location, error) {
+	if err := r.malformed(); err != nil {
+		return config.Effective{}, stateread.Location{}, err
+	}
 	if err := s.bindReader(ctx, r); err != nil {
 		return config.Effective{}, stateread.Location{}, err
 	}
@@ -150,13 +164,17 @@ func (s *Service) bindReader(ctx context.Context, r *outputsRead) error {
 	}
 	run, repo, err := s.loadRun(ctx, r.runID)
 	if errors.Is(err, principal.ErrInvalid) || errors.Is(err, principal.ErrNotFound) {
-		return principal.Wrap(principal.ErrForbidden, "%q is not a run; reading stack outputs needs the id of the run the job belongs to", r.runID)
+		return r.notARun()
 	}
 	if err != nil {
 		return err
 	}
 	if err := checkRepoClaims(c, repo); err != nil {
-		return err
+		if c.RepositoryID == strconv.FormatInt(repo.ID, 10) {
+			return err
+		}
+		s.log.WarnContext(ctx, "refuse stack outputs for a run of another repository", "run", run.ID, "error", err)
+		return r.notARun()
 	}
 	r.readerRepo = repo
 	switch {
@@ -330,6 +348,21 @@ func (r *outputsRead) notFound() error {
 		Message: fmt.Sprintf("%s has no stack %s whose outputs this caller may read", r.repo, r.key)}
 }
 
+func (r *outputsRead) notARun() error {
+	return principal.Wrap(principal.ErrForbidden, "%q is not a run; reading stack outputs needs the id of the run the job belongs to", r.runID)
+}
+
+func (r *outputsRead) malformed() error {
+	for _, f := range []struct{ field, value string }{
+		{"repo", r.repo}, {"stack_key", r.key}, {"run_id", r.runID}, {"reader", r.reader},
+	} {
+		if !utf8.ValidString(f.value) || strings.ContainsFunc(f.value, unicode.IsControl) {
+			return &principal.InvalidError{Field: f.field, Reason: "holds a control character or is not valid UTF-8"}
+		}
+	}
+	return nil
+}
+
 func validStackKey(key string) bool {
 	return key != "" && !strings.Contains(key, "//") && config.NormalizePath(key) == key &&
 		key != ".." && !strings.HasPrefix(key, "../")
@@ -394,7 +427,15 @@ func (s *Service) auditOutputsRefused(ctx context.Context, r *outputsRead, err e
 	}
 	details := r.details()
 	details["reason"] = reason
-	s.audit(ctx, r.p.Actor(), "outputs_refused", r.target(), details)
+	_ = s.auditOutputs(ctx, r, "outputs_refused", details)
+}
+
+func (s *Service) auditOutputs(ctx context.Context, r *outputsRead, action string, details map[string]any) error {
+	err := s.recordAudit(ctx, r.p.Actor(), action, r.target(), details)
+	if err != nil {
+		s.log.ErrorContext(ctx, "record audit", "action", action, "actor", r.p.Actor(), "target", r.target(), "error", err)
+	}
+	return err
 }
 
 func refusalReason(err error) string {
@@ -448,6 +489,7 @@ func (r *outputsRead) details() map[string]any {
 }
 
 func auditField(v string) string {
+	v = strings.Map(printable, v)
 	if len(v) <= maxAuditField {
 		return v
 	}
@@ -456,4 +498,11 @@ func auditField(v string) string {
 		cut--
 	}
 	return v[:cut] + "…"
+}
+
+func printable(r rune) rune {
+	if unicode.IsControl(r) {
+		return utf8.RuneError
+	}
+	return r
 }
