@@ -40,7 +40,7 @@ Stackorder plans every stack a pull request affects and applies them in dependen
 
 Stackorder is a GitHub App plus a small control-plane server that decides **which** stacks to run and **in what order**, then lets GitHub Actions do all of the running. Execution, credentials, state and modules stay inside your GitHub organization or personal account and your AWS account; the server receives metadata and redacted, size-capped plan text, never cloud credentials. It stores no Terraform state, and reads none unless an operator turns on [shared outputs](docs/configuration/outputs.md), which let its AWS role read the state objects the operator lists.
 
-The server has two jobs:
+By default the server has two jobs:
 
 - **Dependency resolution.** It holds the graph of stacks, shared modules and the edges between them. From that graph it computes the affected set for a change, orders applies into waves, and serializes conflicting work with stack-level locks.
 - **Observability.** It records every plan and apply per stack and per commit, surfaces drift, and shows the dependency graph and which stacks consume each module at which version. All of this is exposed through a small web UI, a JSON API and Prometheus metrics.
