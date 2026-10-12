@@ -92,6 +92,7 @@ The runner authenticates to the server with its GitHub OIDC token, bound to the 
 | --- | --- |
 | `stackorder/stackorder` (this repo) | Go module for the server and the CLI, the embedded UI, migrations, the docs site, and the Terraform module that deploys the server |
 | [`stackorder/actions`](https://github.com/stackorder/actions) | The `setup` JavaScript action, the `resolve`, `plan`, `apply` and `drift` composite actions, and the reusable `plan.yml` and `run.yml` workflows |
+| [`stackorder/terraform-provider-stackorder`](https://github.com/stackorder/terraform-provider-stackorder) | The `stackorder/stackorder` provider on the [Terraform Registry](https://registry.terraform.io/providers/stackorder/stackorder/latest) and the [OpenTofu Registry](https://search.opentofu.org/provider/stackorder/stackorder/latest), which reads [shared outputs](docs/configuration/outputs.md) |
 | [`stackorder/example-infra`](https://github.com/stackorder/example-infra) | Demo monorepo used by the end-to-end tests |
 
 ## Quick start
