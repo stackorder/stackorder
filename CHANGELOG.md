@@ -12,6 +12,10 @@ All notable changes to this repository are documented here. The format follows [
 
 - The live variant of the end-to-end suite: `TestLiveGitHub`, the package `test/e2e/live`, the `live` job of `e2e.yml` and the `STACKORDER_E2E_GITHUB_TOKEN`, `STACKORDER_E2E_ORG`, `STACKORDER_E2E_SERVER_URL`, `STACKORDER_E2E_PLAN_ROLE_ARN`, `STACKORDER_E2E_GITHUB_API_URL`, `STACKORDER_E2E_GITHUB_URL` and `STACKORDER_E2E_KEEP_REPO` settings. It ran `stackorder/example-infra` against a real GitHub organisation and server. The example now runs only against LocalStack, in the end-to-end suite, with the in-process server and the fake GitHub, and in the [local demo](docs/guide/local-demo.md).
 
+### Fixed
+
+- `SECURITY.md` no longer says only the 0.2.x releases receive security fixes; the latest release does. The [security model](docs/reference/security-model.md) and the [App's permissions](docs/reference/github-app.md#permissions) say that `Contents: Read` lets the server, and anyone who compromises it, read every file of an installed repository, not only the Stackorder configuration.
+
 ## [0.4.0] - 2026-10-11
 
 ### Added
