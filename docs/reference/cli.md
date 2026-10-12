@@ -133,7 +133,7 @@ WAVE  STACK                REASONS      ENVIRONMENT
 0     stacks/prod/vpc      module       production
 0     stacks/staging/vpc   module       staging
 1     stacks/prod/apps     reads_state  production
-1     stacks/prod/eks      dependent    production
+1     stacks/prod/eks      reads_state  production
 1     stacks/staging/apps  dependent    staging
 ```
 
@@ -336,7 +336,7 @@ stacks/prod/apps
   reads_state  stacks/prod/vpc (inferred)
 
 stacks/prod/eks
-  depends_on   stacks/prod/vpc
+  reads_state  stacks/prod/vpc (inferred)
   uses_module  stackorder/example-infra//modules/eks
 
 stackorder/example-infra//modules/eks (local module)
