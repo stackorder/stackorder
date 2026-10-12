@@ -153,7 +153,7 @@ A repo needs a root `stackorder.yaml`, an optional `.stackorder.yaml` in any sta
 version: 1
 ```
 
-These are the two workflow files of [`stackorder/example-infra`](https://github.com/stackorder/example-infra), which read the server URL and the role ARNs from repository variables. The calling jobs must grant the permissions, because a called workflow can lower them but never raise them.
+These are the two workflow files of [`stackorder/example-infra`](https://github.com/stackorder/example-infra), without the `if:` line that skips their jobs in that repository. They read the server URL and the role ARNs from repository variables. The calling jobs must grant the permissions, because a called workflow can lower them but never raise them.
 
 `.github/workflows/stackorder-plan.yml`:
 
