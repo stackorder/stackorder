@@ -21,7 +21,7 @@ A small Terraform monorepo wired for [Stackorder](https://github.com/stackorder/
 
 It serves two purposes. The Stackorder end-to-end tests run the real CLI, server and Terraform against it, and it is the example to read when you want to see how a repository is wired for Stackorder.
 
-This repository runs against no live infrastructure. It has no Stackorder server, AWS account or GitHub environments behind it. `stackorder-plan.yml` and `stackorder-run.yml` are wiring to copy: their jobs skip themselves here through `if: github.repository != 'stackorder/example-infra'` and run unchanged in a copy. The stacks are exercised only by the [end-to-end suite](#how-the-end-to-end-tests-use-this-repository) in `stackorder/stackorder`, against LocalStack, an in-process server and a fake GitHub.
+This repository runs against no live infrastructure. It has no Stackorder server, AWS account or GitHub environments behind it. `stackorder-plan.yml` and `stackorder-run.yml` are wiring to copy: their jobs skip themselves here through `if: github.repository != 'stackorder/example-infra'` and run unchanged in a copy. The stacks are exercised only by the [end-to-end suite](#how-the-end-to-end-tests-use-this-repository) in `stackorder/stackorder`, against LocalStack, an in-process server and a fake GitHub, and by its [local demo](https://docs.stackorder.io/guide/local-demo), against LocalStack and a local server.
 
 Nothing here creates cloud resources. Every resource is a `terraform_data`, and the only provider is `stackorder/stackorder`, which `stacks/prod/eks` uses to read the outputs of `stacks/prod/vpc`, so `init` downloads that one provider for that stack and nothing elsewhere. A plan also talks to the S3 state bucket and to STS, which the S3 backend and `terraform_remote_state` call to validate credentials, and a plan of `stacks/prod/eks` needs a Stackorder server that serves the VPC outputs. The end-to-end suite provides all three, with LocalStack for S3 and STS. VPC, subnet and cluster ids are fake values derived from names, so they are the same on every apply.
 
@@ -33,10 +33,11 @@ This repository was tested with:
 | --- | --- |
 | [`stackorder/stackorder`](https://github.com/stackorder/stackorder) (server and CLI) | v0.4.0 |
 | [`stackorder/terraform-provider-stackorder`](https://github.com/stackorder/terraform-provider-stackorder) (provider `stackorder/stackorder` on the Terraform and OpenTofu registries) | v0.1.0 |
-| [`stackorder/actions`](https://github.com/stackorder/actions) (`plan.yml`, `run.yml`) | v1.0.0, called as `@v1` |
 | Terraform | 1.14.4 |
 | OpenTofu | 1.12.6 |
 | LocalStack (S3 and STS, for the end-to-end tests) | 4.0 |
+
+`stackorder-plan.yml` and `stackorder-run.yml` call `plan.yml` and `run.yml` of [`stackorder/actions`](https://github.com/stackorder/actions) at `@v1`. No test runs those workflows against this repository, so the table lists no version of them.
 
 The stacks need Terraform or OpenTofu 1.10 or later for `use_lockfile`, and the `infra/` stacks need Terraform 1.10 or OpenTofu 1.11 or later for their `ephemeral` variable. `validate.yml` pins the same Terraform and OpenTofu versions, and the Stackorder end-to-end suite runs against this repository with both tools. No `.terraform.lock.hcl` is committed, because Terraform records the provider under `registry.terraform.io` and OpenTofu under `registry.opentofu.org`, and each tool drops the other's entry when it initialises, so one lock file cannot serve both.
 
@@ -266,7 +267,7 @@ make test               # terraform test in every module that has tests
 make test TF=tofu       # the same with OpenTofu
 ```
 
-`make validate` downloads `stackorder/stackorder` for `stacks/prod/eks`, from the Terraform Registry or the OpenTofu Registry depending on the tool, and needs no server. A plan of any stack needs the state bucket, and a plan of `stacks/prod/eks` also needs a Stackorder server, so plans run only in the end-to-end suite or in a copy with its own server and bucket. Outside a Stackorder job, the provider reads the server URL from `STACKORDER_SERVER_URL`, an API key from `STACKORDER_API_KEY` and the repository as `owner/repo` from `STACKORDER_REPOSITORY`. The module tests use `command = plan` only, so they need no backend and no network. A change under `modules/vpc/tests/` is a change under `modules/vpc`, so a pull request that edits it plans the same stacks as the first scenario above.
+`make validate` downloads `stackorder/stackorder` for `stacks/prod/eks`, from the Terraform Registry or the OpenTofu Registry depending on the tool, and needs no server. A plan of any stack needs the state bucket, and a plan of `stacks/prod/eks` also needs a Stackorder server, so plans run only against LocalStack, in the end-to-end suite or the local demo, or in a copy with its own server and bucket. Outside a Stackorder job, the provider reads the server URL from `STACKORDER_SERVER_URL`, an API key from `STACKORDER_API_KEY` and the repository as `owner/repo` from `STACKORDER_REPOSITORY`. The module tests use `command = plan` only, so they need no backend and no network. A change under `modules/vpc/tests/` is a change under `modules/vpc`, so a pull request that edits it plans the same stacks as the first scenario above.
 
 ## Hooks
 
