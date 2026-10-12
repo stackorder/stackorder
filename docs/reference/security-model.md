@@ -45,7 +45,7 @@ Rotating anything means rotating the App's private key, which runners never see.
 
 | Boundary | What crosses it |
 | --- | --- |
-| GitHub to server | Webhook payloads (HMAC-signed); from runners, JSON manifests and result summaries. No repository contents beyond file paths and parsed dependency edges. |
+| GitHub to server | Webhook payloads (HMAC-signed); from runners, JSON manifests and result summaries. From the GitHub API, the contents of `stackorder.yaml`, `.stackorder.yaml` files and `CODEOWNERS`; no other repository contents beyond file paths and parsed dependency edges. |
 | Server to GitHub | App installation tokens, scoped to one installation and valid for an hour, used for `workflow_dispatch`, check runs and comments. |
 | Runner to AWS | Your role, assumed with `aws-actions/configure-aws-credentials` and a trust policy pinned to the repository and environment. State, lock and plan files never leave this zone, except the state objects the server reads for [shared outputs](#shared-outputs). |
 | Server to your state buckets | Only with [shared outputs](#shared-outputs) on: `s3:GetObject` on the state objects under `STACKORDER_STATE_BUCKETS`, each entry granted to one repository, with the server's own role or the role `STACKORDER_STATE_ROLE_ARN` names, assumed through STS. The server keeps the `outputs` block in memory and returns the outputs the producer shares, with the state's serial, lineage and Terraform version, to the reading job or API key; nothing else of the object leaves the server, and nothing is written back. |
