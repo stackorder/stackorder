@@ -51,7 +51,7 @@ stackorder.yaml                 repository policy: discovery, environments, appl
 .stackorder/hooks/post-plan.sh  example hook: resource count from the plan JSON
 modules/
   common/                       tagging helper (locals and outputs only)
-  vpc/                          fake VPC and three subnets; tests/ pins the ids the stacks rely on
+  vpc/                          fake VPC and three subnets; tests/ pins the prod ids and the staging id stacks/staging/apps relies on
   eks/                          fake cluster; tags through ../common; tests/ checks tags and inputs
 stacks/
   prod/vpc/                     modules/vpc, state prod/vpc.tfstate, outputs.readers: stacks/prod/eks
@@ -264,7 +264,7 @@ make test               # terraform test in every module that has tests
 make test TF=tofu       # the same with OpenTofu
 ```
 
-`make validate` downloads `stackorder/stackorder` for `stacks/prod/eks`, from the Terraform Registry or the OpenTofu Registry depending on the tool, and needs no server. A plan of `stacks/prod/eks` outside a Stackorder job needs the server URL in `STACKORDER_SERVER_URL` and an API key in `STACKORDER_API_KEY`. The module tests use `command = plan` only, so they need no backend and no network. A change under `modules/vpc/tests/` is a change under `modules/vpc`, so a pull request that edits it plans the same stacks as the first scenario above.
+`make validate` downloads `stackorder/stackorder` for `stacks/prod/eks`, from the Terraform Registry or the OpenTofu Registry depending on the tool, and needs no server. A plan of `stacks/prod/eks` outside a Stackorder job needs the server URL in `STACKORDER_SERVER_URL`, an API key in `STACKORDER_API_KEY` and the repository as `owner/repo` in `STACKORDER_REPOSITORY`. The module tests use `command = plan` only, so they need no backend and no network. A change under `modules/vpc/tests/` is a change under `modules/vpc`, so a pull request that edits it plans the same stacks as the first scenario above.
 
 ## Hooks
 
