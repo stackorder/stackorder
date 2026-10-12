@@ -944,6 +944,12 @@ func (s *story) drift(t *testing.T) {
 	require.Len(t, issues, 1)
 	assert.Equal(t, gh.IssueClosed, issues[0].State, "the drift issue is closed once the stack matches again")
 	assert.NotEmpty(t, s.cp.gh.Comments(repoName, issues[0].Number), "the issue says why it was closed")
+
+	job, eks := s.driftCheck(t, prodEKS, 1)
+	assert.Equal(t, 0, job.result.code, "the drift job of %s reads the outputs of %s and finds no drift: %s", prodEKS, prodVPC, job.result)
+	assert.Equal(t, "false", job.result.outputs["drifted"])
+	assert.Equal(t, []outputsRow{{applier, actionRead, prodVPC, prodEKS, eks.ID, ""}}, s.outputsRows(t, eks.ID),
+		"the drift job of %s read the outputs of %s once, with the token of its dispatch", prodEKS, prodVPC)
 	s.noLockObjects(t)
 }
 
