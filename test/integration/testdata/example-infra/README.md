@@ -299,4 +299,4 @@ Role ARNs are not secrets, so they are variables. `stackorder-run.yml` picks the
 - An apply or drift job of `stacks/prod/vpc` on Stackorder CLI 0.4.0 or later before the first plan of `stacks/prod/eks`, so that the server knows where the VPC state lives; a scheduled drift check is enough. The reusable workflows install the latest CLI unless `stackorder-version` pins one, and they grant the `id-token: write` the provider needs.
 - Its own teams in `.github/CODEOWNERS`. Here `@stackorder/platform-prod` owns `stacks/prod/**`, and `@stackorder/platform-eng` owns `stacks/staging/**`, `modules/**` and `infra/**`.
 
-`validate.yml` needs no settings, and it is the one workflow that runs in this repository.
+`validate.yml` needs no settings, and it is the only workflow whose jobs run in this repository.
