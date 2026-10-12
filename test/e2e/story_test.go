@@ -176,6 +176,7 @@ type story struct {
 	serials    map[string]int
 	pulls      map[int]*pullRequest
 	vpcOutputs map[string]toolOutput
+	manualRuns map[string]string
 }
 
 func newStory(t *testing.T, tool v1.Tool, ls *localStack, cliBin, src string) *story {
@@ -194,7 +195,7 @@ func newStory(t *testing.T, tool v1.Tool, ls *localStack, cliBin, src string) *s
 	})
 	s := &story{
 		tool: tool, ls: ls, cp: cp, repo: repo, main: base,
-		serials: map[string]int{}, pulls: map[int]*pullRequest{},
+		serials: map[string]int{}, pulls: map[int]*pullRequest{}, manualRuns: map[string]string{},
 		rn: &runner{
 			cli: cliBin, ls: ls, cp: cp, repo: repo, store: t.TempDir(),
 			artifacts: map[string]string{}, handled: map[int64]bool{},
@@ -423,6 +424,11 @@ func (s *story) adopt(t *testing.T) {
 func (s *story) bootstrap(t *testing.T) {
 	ws := s.repo.checkout(t, s.main)
 	for _, key := range bootstrapOrder {
+		if key == prodEKS {
+			vpc, err := s.cp.store.GetStackByKey(t.Context(), repoID, prodVPC)
+			require.NoError(t, err)
+			require.NotNil(t, vpc.StateObject, "the apply of %s told the server where its state is before %s reads its outputs", prodVPC, prodEKS)
+		}
 		res := s.rn.local(t, ws, "apply", "--stack", key, "--local")
 		require.Equal(t, 0, res.code, "apply --local %s: %s", key, res)
 		assert.Contains(t, res.stdout, key+": applied:", "apply --local reports the apply")
@@ -442,6 +448,9 @@ func (s *story) bootstrap(t *testing.T) {
 	s.vpcOutputs = s.toolOutputs(t, ws, prodVPC)
 	apps := s.ls.requireState(t, stateKeys[prodApps])
 	assert.Equal(t, "vpc-6754af9632a2745e8", apps.input("terraform_data.app")["vpc_id"], "prod/apps read the vpc id from prod/vpc's state")
+	cluster := s.ls.requireState(t, stateKeys[prodEKS]).input("module.eks.terraform_data.cluster")
+	assert.Equal(t, "vpc-6754af9632a2745e8", cluster["vpc_id"], "prod/eks read the vpc id from prod/vpc's outputs through the server")
+	assert.Equal(t, s.vpcOutputs["subnet_ids"].Value, cluster["subnet_ids"], "prod/eks read the subnet ids from prod/vpc's outputs through the server")
 
 	var page v1.Page[v1.Run]
 	s.cp.getJSON(t, "/v1/repos/"+repoName+"/runs?mode=apply&limit=50", &page)
@@ -450,7 +459,11 @@ func (s *story) bootstrap(t *testing.T) {
 		assert.Equal(t, v1.TriggerManual, r.Trigger)
 		assert.Equal(t, v1.RunApplied, r.Status, "manual run %s", r.ID)
 		assert.Equal(t, "apikey:e2e", r.RequestedBy)
+		require.Len(t, r.StackKeys, 1, "manual run %s applies one stack", r.ID)
+		s.manualRuns[r.StackKeys[0]] = r.ID
 	}
+	assert.Equal(t, []outputsRow{{"apikey:e2e", actionRead, prodVPC, prodEKS, s.manualRuns[prodEKS], ""}}, s.outputsRows(t, s.manualRuns[prodEKS]),
+		"outside GitHub Actions the provider reads the outputs of %s with the API key, for the manual run of %s", prodVPC, prodEKS)
 	assert.Empty(t, s.locks(t), "manual runs release their locks when their results arrive")
 	s.noLockObjects(t)
 }
@@ -518,10 +531,10 @@ func (s *story) prPlan(t *testing.T) {
 	assert.Equal(t, 1, apps.Summary.Changes, "prod/apps read prod/vpc's remote state and plans its replica change")
 	assert.Equal(t, []string{"terraform_data.app"}, apps.Summary.Changed)
 	assert.Contains(t, apps.Reasons, v1.ReasonReadsState)
-	for _, key := range []string{prodEKS, stagingApps} {
+	for key, reason := range map[string]v1.Reason{prodEKS: v1.ReasonReadsState, stagingApps: v1.ReasonDependent} {
 		rs := runStack(t, run, key)
 		assert.True(t, rs.Summary.Empty(), "%s plans clean: %+v", key, rs.Summary)
-		assert.Equal(t, []v1.Reason{v1.ReasonDependent}, rs.Reasons, key)
+		assert.Equal(t, []v1.Reason{reason}, rs.Reasons, key)
 	}
 
 	assert.True(t, vpc.Truncated, "the plan text of prod/vpc exceeds the cap")

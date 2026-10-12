@@ -45,13 +45,13 @@ func readersYAML(readers ...string) string {
 	return "outputs:\n  readers:\n    - " + strings.Join(readers, "\n    - ") + "\n"
 }
 
-func (s *story) toolOutputs(t *testing.T, workspace, key string) map[string]toolOutput {
+func (s *story) toolJSON(t *testing.T, workspace, key string, out any, args ...string) {
 	t.Helper()
 	bin, err := tf.Detect(s.tool)
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(t.Context(), commandTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "output", "-json", "-no-color")
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = filepath.Join(workspace, filepath.FromSlash(key))
 	cmd.Env = jobEnviron()
 	for k, v := range s.rn.baseEnv() {
@@ -61,9 +61,14 @@ func (s *story) toolOutputs(t *testing.T, workspace, key string) map[string]tool
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	require.NoError(t, cmd.Run(), "%s output -json in %s: %s", s.tool, key, stderr.String())
+	require.NoError(t, cmd.Run(), "%s %s in %s: %s", s.tool, strings.Join(args, " "), key, stderr.String())
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), out), "decode %s %s of %s", s.tool, args[0], key)
+}
+
+func (s *story) toolOutputs(t *testing.T, workspace, key string) map[string]toolOutput {
+	t.Helper()
 	out := map[string]toolOutput{}
-	require.NoError(t, json.Unmarshal(stdout.Bytes(), &out), "decode %s output -json of %s", s.tool, key)
+	s.toolJSON(t, workspace, key, &out, "output", "-json", "-no-color")
 	return out
 }
 
@@ -157,9 +162,8 @@ func (s *story) sharedOutputs(t *testing.T) {
 
 func (s *story) runnerReads(t *testing.T, want map[string]toolOutput) *pullRequest {
 	t.Helper()
-	policy := s.repo.commit(t, "main", s.main, "feat(vpc): share the VPC outputs with the EKS stack",
-		writeFile(vpcStackFile, readersYAML(prodEKS)))
-	s.pushMain(t, policy, []string{vpcStackFile})
+	require.Equal(t, readersYAML(prodEKS), s.repo.show(t, s.main, vpcStackFile),
+		"the default branch of the example shares the outputs of %s with %s", prodVPC, prodEKS)
 
 	head := s.repo.commit(t, "vpc-readers", s.main, "feat(vpc): share the VPC outputs with the apps stack too",
 		writeFile(vpcStackFile, readersYAML(prodEKS, prodApps)))
@@ -180,10 +184,58 @@ func (s *story) runnerReads(t *testing.T, want map[string]toolOutput) *pullReque
 	assert.Equal(t, v1.ErrCodeOutputsNotShared, notShared.Code,
 		"the pull request lists %s, but the readers come from the default branch", prodApps)
 
-	s.rn.plan(t, pr)
+	plans := s.rn.plan(t, pr)
+	assert.Equal(t, "false", plans[prodEKS].outputs["has-changes"],
+		"the plan job of %s reads the outputs of %s with its own token and plans clean against them", prodEKS, prodVPC)
 	assert.Equal(t, http.StatusConflict, read(prodEKS).status, "a token of a finished plan run reads no outputs")
 	s.closePull(t, pr)
 	return pr
+}
+
+type outputsRow struct {
+	actor, action, stack, reader, runID, reason string
+}
+
+func outputsRowOf(e v1.AuditEntry) outputsRow {
+	detail := func(name string) string {
+		v, _ := e.Details[name].(string)
+		return v
+	}
+	return outputsRow{e.Actor, e.Action, detail("stack"), detail("reader"), detail("run_id"), detail("reason")}
+}
+
+func (s *story) outputsEntries(t *testing.T) []v1.AuditEntry {
+	t.Helper()
+	var out []v1.AuditEntry
+	for cursor := ""; ; {
+		path := "/v1/audit?limit=100"
+		if cursor != "" {
+			path += "&cursor=" + url.QueryEscape(cursor)
+		}
+		var page v1.Page[v1.AuditEntry]
+		s.cp.getJSON(t, path, &page)
+		for _, e := range page.Items {
+			if e.Action == actionRead || e.Action == actionRefused {
+				out = append(out, e)
+			}
+		}
+		if page.NextCursor == "" {
+			return out
+		}
+		cursor = page.NextCursor
+	}
+}
+
+func (s *story) outputsRows(t *testing.T, runID string) []outputsRow {
+	t.Helper()
+	require.NotEmpty(t, runID)
+	var out []outputsRow
+	for _, e := range s.outputsEntries(t) {
+		if r := outputsRowOf(e); r.runID == runID {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func (s *story) outputsAudit(t *testing.T, pr *pullRequest, want map[string]toolOutput, withheld []string) {
@@ -199,23 +251,13 @@ func (s *story) outputsAudit(t *testing.T, pr *pullRequest, want map[string]tool
 		}
 	}
 
-	type entry struct {
-		actor, action, stack, reader, runID, reason string
-	}
-	var audit v1.Page[v1.AuditEntry]
-	s.cp.getJSON(t, "/v1/audit?limit=100", &audit)
-	var got []entry
-	for _, e := range audit.Items {
-		if e.Action != actionRead && e.Action != actionRefused {
-			continue
-		}
-		detail := func(name string) string {
-			v, _ := e.Details[name].(string)
-			return v
-		}
-		got = append(got, entry{e.Actor, e.Action, detail("stack"), detail("reader"), detail("run_id"), detail("reason")})
-		assert.Equal(t, repoName, e.Details["repo"], "%s %s names the producer's repository", e.Action, detail("stack"))
-		assert.Equal(t, v1.QualifiedStackKey(repoName, detail("stack")), e.Target)
+	entries := s.outputsEntries(t)
+	got := make([]outputsRow, 0, len(entries))
+	for _, e := range entries {
+		r := outputsRowOf(e)
+		got = append(got, r)
+		assert.Equal(t, repoName, e.Details["repo"], "%s %s names the producer's repository", e.Action, r.stack)
+		assert.Equal(t, v1.QualifiedStackKey(repoName, r.stack), e.Target)
 		if e.Action == actionRead {
 			assert.InDelta(t, len(want), e.Details["outputs"], 0, "the read is audited with the number of outputs served")
 			assert.InDelta(t, 0, e.Details["sensitive"], 0)
@@ -227,11 +269,13 @@ func (s *story) outputsAudit(t *testing.T, pr *pullRequest, want map[string]tool
 			assert.NotContains(t, string(details), canary, "the audit holds counts, never output values")
 		}
 	}
-	assert.ElementsMatch(t, []entry{
+	assert.ElementsMatch(t, []outputsRow{
+		{"apikey:e2e", actionRead, prodVPC, prodEKS, s.manualRuns[prodEKS], ""},
 		{"apikey:e2e", actionRead, prodVPC, "", "", ""},
 		{"apikey:e2e", actionRefused, kycProduction, "", "", v1.ErrCodeStateLocationUnknown},
 		{author, actionRead, prodVPC, prodEKS, pr.runID, ""},
 		{author, actionRefused, prodVPC, prodApps, pr.runID, v1.ErrCodeOutputsNotShared},
+		{author, actionRead, prodVPC, prodEKS, pr.runID, ""},
 		{author, actionRefused, prodVPC, prodEKS, pr.runID, "conflict"},
-	}, got, "every read and refusal of the story is audited")
+	}, got, "every read and refusal of the story is audited: the provider's in the apply --local of %s and in the plan job of %s in #%d, and this step's own", prodEKS, prodEKS, pr.number)
 }

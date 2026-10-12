@@ -242,12 +242,17 @@ func (r *gitRepo) checkout(t *testing.T, sha string) string {
 	return dir
 }
 
+func (r *gitRepo) show(t *testing.T, sha, path string) string {
+	t.Helper()
+	return r.git(t, "show", sha+":"+path)
+}
+
 func (r *gitRepo) mirror(t *testing.T, fake *ghfake.Server, repo, sha string) {
 	t.Helper()
 	for _, f := range strings.Split(r.git(t, "ls-tree", "-r", "-z", "--name-only", sha), "\x00") {
 		if f == "" {
 			continue
 		}
-		fake.SetContents(repo, sha, f, []byte(r.git(t, "show", sha+":"+f)))
+		fake.SetContents(repo, sha, f, []byte(r.show(t, sha, f)))
 	}
 }
