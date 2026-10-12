@@ -1,7 +1,8 @@
 # Architecture
 
 This file is the contract between the packages of this repository and the
-`stackorder/actions` and `stackorder/example-infra` repositories. The
+`stackorder/actions`, `stackorder/terraform-provider-stackorder` and
+`stackorder/example-infra` repositories. The
 [design document](https://docs.stackorder.io/design/) is the
 source of truth for behaviour; this file pins the shapes, names and library
 choices that let packages be built independently and still fit together,
@@ -14,6 +15,7 @@ Change it in the same commit as the code it describes.
 | --- | --- |
 | `stackorder/stackorder` | Go module `github.com/stackorder/stackorder`: server, CLI, embedded UI, migrations, docs site, Terraform deployment module |
 | `stackorder/actions` | `setup` JavaScript action, `resolve` / `plan` / `apply` / `drift` composite actions, reusable `plan.yml` and `run.yml` |
+| `stackorder/terraform-provider-stackorder` | Terraform and OpenTofu provider `stackorder/stackorder`: the `stackorder_outputs` data source and ephemeral resource; imports `api/v1` |
 | `stackorder/example-infra` | Demo monorepo used by the end-to-end tests |
 
 ## Layout of this repository
