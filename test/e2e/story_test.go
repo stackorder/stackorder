@@ -108,6 +108,15 @@ output "route_table_id" {
 }
 `
 
+const clusterSecurityGroupHCL = `
+resource "terraform_data" "cluster_security_group" {
+  input = {
+    name   = "${var.cluster_name}-cluster"
+    vpc_id = data.stackorder_outputs.vpc.nonsensitive_values.vpc_id
+  }
+}
+`
+
 const natGatewayHCL = `
 resource "terraform_data" "nat_gateway" {
   input = {
@@ -473,7 +482,8 @@ func (s *story) prPlan(t *testing.T) {
 		appendFile("modules/vpc/main.tf", routeTableHCL),
 		appendFile("modules/vpc/outputs.tf", routeTableOutputHCL),
 		appendFile("stacks/prod/vpc/outputs.tf", stackRouteTableOutputHCL),
-		replaceIn("stacks/prod/apps/variables.tf", "default     = 3", "default     = 4"))
+		replaceIn("stacks/prod/apps/variables.tf", "default     = 3", "default     = 4"),
+		appendFile("stacks/prod/eks/main.tf", clusterSecurityGroupHCL))
 	pr := s.openAndPlan(t, 2, "vpc-route-table", s.main, head, "feat(vpc): add a route table")
 
 	laptop := s.rn.local(t, s.repo.checkout(t, head), "resolve", "--base", "origin/main")
@@ -496,7 +506,7 @@ func (s *story) prPlan(t *testing.T) {
 	}, envs)
 
 	for key, res := range pr.plans {
-		want := key == prodVPC || key == stagingVPC || key == prodApps
+		want := key != stagingApps
 		assert.Equal(t, fmt.Sprint(want), res.outputs["has-changes"], "has-changes of %s", key)
 		assert.Equal(t, v1.PlanArtifactName(key, head), res.outputs["artifact"], "artifact of %s", key)
 		assert.Equal(t, "false", res.outputs["unconfirmed"], "the server confirmed the plan of %s", key)
@@ -531,11 +541,11 @@ func (s *story) prPlan(t *testing.T) {
 	assert.Equal(t, 1, apps.Summary.Changes, "prod/apps read prod/vpc's remote state and plans its replica change")
 	assert.Equal(t, []string{"terraform_data.app"}, apps.Summary.Changed)
 	assert.Contains(t, apps.Reasons, v1.ReasonReadsState)
-	for key, reason := range map[string]v1.Reason{prodEKS: v1.ReasonReadsState, stagingApps: v1.ReasonDependent} {
-		rs := runStack(t, run, key)
-		assert.True(t, rs.Summary.Empty(), "%s plans clean: %+v", key, rs.Summary)
-		assert.Equal(t, []v1.Reason{reason}, rs.Reasons, key)
-	}
+	eks := runStack(t, run, prodEKS)
+	assert.Equal(t, []string{"terraform_data.cluster_security_group"}, eks.Summary.Added, "prod/eks adds a security group in the VPC whose outputs it reads")
+	assert.Equal(t, []v1.Reason{v1.ReasonChanged, v1.ReasonReadsState}, eks.Reasons)
+	assert.True(t, runStack(t, run, stagingApps).Summary.Empty(), "staging/apps plans clean")
+	assert.Equal(t, []v1.Reason{v1.ReasonDependent}, runStack(t, run, stagingApps).Reasons)
 
 	assert.True(t, vpc.Truncated, "the plan text of prod/vpc exceeds the cap")
 	assert.Equal(t, fmt.Sprintf("s3://%s/runs/%s/stacks-prod-vpc-69df0ef0/plan.txt", artifactBucket, run.ID), vpc.PlanURL)
@@ -638,6 +648,7 @@ func (s *story) apply(t *testing.T) {
 	var impostor cliResult
 	jobs := s.rn.drive(t, runID, func(t *testing.T, j *dispatchJob) {
 		t.Helper()
+		j.skipDownload = j.entry.Key == prodEKS
 		if j.entry.Key == prodVPC {
 			impostor = s.rn.applyAs(t, j, v1.DefaultEnvironment)
 			assert.Equal(t, s.serials[prodVPC], s.ls.requireState(t, stateKeys[prodVPC]).Serial, "the refused job applied nothing")
@@ -656,7 +667,11 @@ func (s *story) apply(t *testing.T) {
 	seen := map[int64]bool{}
 	for _, j := range jobs {
 		assert.Equal(t, 0, j.result.code, "apply of %s: %s", j.entry.Key, j.result)
-		assert.NotContains(t, j.result.stderr, "planning again", "%s applies the saved plan", j.entry.Key)
+		if j.entry.Key == prodEKS {
+			assert.Contains(t, j.result.stderr, "planning again", "the artifact of %s expired, so its apply job plans again and reads the outputs of %s", prodEKS, prodVPC)
+		} else {
+			assert.NotContains(t, j.result.stderr, "planning again", "%s applies the saved plan", j.entry.Key)
+		}
 		assert.Equal(t, "main", j.dispatch.Ref, "%s is dispatched on the default branch", j.entry.Key)
 		assert.Equal(t, pr.head, j.dispatch.Inputs["sha"], "%s applies the head commit of #2 before it merges", j.entry.Key)
 		if !seen[j.dispatch.RunID] {
@@ -667,14 +682,14 @@ func (s *story) apply(t *testing.T) {
 	assert.ElementsMatch(t, []dispatched{
 		{0, "0", "production", []string{prodVPC}},
 		{0, "0", "staging", []string{stagingVPC}},
-		{1, "1", "production", []string{prodApps}},
+		{1, "1", "production", []string{prodApps, prodEKS}},
 	}, got, "one dispatch per wave and environment, wave 1 only after wave 0 finished; propagated no-op stacks are skipped")
 
 	run := s.runJSON(t, runID)
 	assert.Equal(t, v1.RunApplied, run.Status)
 	assert.Equal(t, map[string]v1.StackStatus{
-		prodVPC: v1.StackApplied, stagingVPC: v1.StackApplied, prodApps: v1.StackApplied,
-		prodEKS: v1.StackNoop, stagingApps: v1.StackNoop,
+		prodVPC: v1.StackApplied, stagingVPC: v1.StackApplied, prodApps: v1.StackApplied, prodEKS: v1.StackApplied,
+		stagingApps: v1.StackNoop,
 	}, statuses(run))
 	assert.Equal(t, gh.ConclusionSuccess, s.checkRun(t, report.CheckApply, pr.head).Conclusion)
 	stickies := s.stickies(pr.number)
@@ -688,12 +703,12 @@ func (s *story) apply(t *testing.T) {
 	require.GreaterOrEqual(t, len(applyHeading), 2, "the apply comment has a heading after its marker: %s", applies[0])
 	assert.Contains(t, applyHeading[1], string(v1.RunApplied), "the apply comment shows the applied run")
 
-	for _, key := range []string{prodVPC, stagingVPC, prodApps} {
+	for _, key := range []string{prodVPC, stagingVPC, prodApps, prodEKS} {
 		st := s.ls.requireState(t, stateKeys[key])
 		assert.Greater(t, st.Serial, s.serials[key], "%s has a new state serial", key)
 		s.serials[key] = st.Serial
 	}
-	for _, key := range []string{prodEKS, stagingApps, legacyDNS} {
+	for _, key := range []string{stagingApps, legacyDNS} {
 		assert.Equal(t, s.serials[key], s.ls.requireState(t, stateKeys[key]).Serial, "%s was not applied", key)
 	}
 	vpc := s.ls.requireState(t, stateKeys[prodVPC])
@@ -702,6 +717,10 @@ func (s *story) apply(t *testing.T) {
 	assert.Equal(t, "vpc-6754af9632a2745e8", vpc.Outputs["vpc_id"].Value)
 	apps := s.ls.requireState(t, stateKeys[prodApps])
 	assert.InDelta(t, 4, apps.input("terraform_data.app")["replicas"], 0)
+	sg := s.ls.requireState(t, stateKeys[prodEKS]).input("terraform_data.cluster_security_group")
+	assert.Equal(t, vpc.Outputs["vpc_id"].Value, sg["vpc_id"], "prod/eks applied the security group with the vpc id it read in wave 1")
+	assert.Equal(t, []outputsRow{{applier, actionRead, prodVPC, prodEKS, runID, ""}}, s.outputsRows(t, runID),
+		"the wave-1 apply job of %s read the outputs of %s once, with the token of the dispatch of its chunk", prodEKS, prodVPC)
 
 	locks := s.locks(t)
 	for _, key := range vpcChange {

@@ -130,6 +130,10 @@ func (s *story) eksPlannedFromOutputs(t *testing.T, pr *pullRequest) {
 	_, nodes, ok := plan.planned("module.eks.terraform_data.node_group")
 	require.True(t, ok, "the plan of %s covers the node group", prodEKS)
 	assert.Equal(t, values["subnet_ids"], nodes["subnet_ids"])
+	actions, sg, ok := plan.planned("terraform_data.cluster_security_group")
+	require.True(t, ok, "the plan of %s adds the security group", prodEKS)
+	assert.Equal(t, []string{"create"}, actions)
+	assert.Equal(t, values["vpc_id"], sg["vpc_id"], "the new security group is planned in the VPC whose outputs the plan read")
 	assert.Contains(t, plan.references("eks", "vpc_id"), vpcOutputsData+".nonsensitive_values.vpc_id",
 		"the cluster's vpc_id comes from %s, not from a literal", vpcOutputsData)
 	assert.Contains(t, plan.references("eks", "subnet_ids"), vpcOutputsData+".nonsensitive_values.subnet_ids",
