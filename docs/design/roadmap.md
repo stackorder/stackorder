@@ -46,7 +46,7 @@ End-to-end tests run the real Terraform and OpenTofu binaries against a LocalSta
 | --- | --- | --- |
 | Unit | none | Nothing: no Docker, no network, no Postgres |
 | Integration | `integration` | Docker, for Postgres; a fake GitHub API |
-| End-to-end | `e2e` | Docker, for LocalStack and Postgres; real Terraform or OpenTofu; `example-infra`; optionally a GitHub organization with the App installed |
+| End-to-end | `e2e` | Docker, for LocalStack and Postgres; real Terraform or OpenTofu; `example-infra`; the Terraform and OpenTofu registries, for the `stackorder` provider; optionally a GitHub organization with the App installed |
 
 ## Open questions {#open-questions}
 
