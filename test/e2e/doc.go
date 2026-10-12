@@ -36,6 +36,15 @@
 // through a shared backend config file, and failing a run whose job ended
 // without reporting. A tool whose binary is missing is skipped.
 //
+// The example's stacks/prod/eks reads the outputs of stacks/prod/vpc with
+// the stackorder provider, which each tool installs from its own registry.
+// The story checks the provider's reads with the API key in the bootstrap,
+// with the token of a pull request's plan job, with the token of the
+// dispatch of a wave-1 apply job that plans again for an expired artifact,
+// and with the token of a drift job: the values each job plans or applies,
+// the outputs_read row each read leaves in the audit log, and the
+// reads_state edge the scanner infers from the stackorder_outputs block.
+//
 // Environment:
 //
 //   - STACKORDER_E2E_EXAMPLE_INFRA_DIR points at a checkout of
@@ -54,5 +63,7 @@
 // STACKORDER_BACKEND_CONFIG for the settings only the backend accepts.
 // The server grants the state bucket to the example repository in
 // STACKORDER_STATE_BUCKETS and reads it through LocalStack's own endpoint
-// with path-style requests.
+// with path-style requests. Every job of stacks/prod/eks downloads the
+// stackorder provider, so the suite needs to reach registry.terraform.io
+// and registry.opentofu.org.
 package e2e

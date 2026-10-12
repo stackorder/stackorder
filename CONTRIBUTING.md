@@ -52,10 +52,17 @@ plan, apply and drift-check the `infra/` stack instances, each with its own
 var file, per-mode env, GitHub environment and state object, plan them one
 after another in a single checkout, affect them all through their shared
 backend config file, and fail a run whose apply job ends without reporting.
+The example's `stacks/prod/eks` reads the outputs of `stacks/prod/vpc` with
+the `stackorder` provider, so the story also checks the provider's reads:
+with the API key in the bootstrap, with a plan job's token, with the token
+of a wave-1 apply job that plans again for an expired artifact, and with a
+drift job's token.
 
 It needs Docker for `localstack/localstack:4.0` and Postgres, git 2.38 or
-later, and DNS that resolves `s3.localhost.localstack.cloud` to the loopback
-address (public DNS does). It looks for an `example-infra` checkout next to
+later, DNS that resolves `s3.localhost.localstack.cloud` to the loopback
+address (public DNS does), and access to `registry.terraform.io` and
+`registry.opentofu.org`, from which `terraform` and `tofu` download the
+`stackorder` provider. It looks for an `example-infra` checkout next to
 this repository; point it elsewhere with one of:
 
 ```sh
