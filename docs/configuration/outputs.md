@@ -141,13 +141,14 @@ Between repositories the grant is a hard boundary, unless the operator grants an
 
 ## Reading outputs in Terraform {#consumer}
 
-A consumer reads outputs with the `stackorder` Terraform provider, from [stackorder/terraform-provider-stackorder](https://github.com/stackorder/terraform-provider-stackorder). Its publication to the Terraform and OpenTofu registries is pending; the provider repository has the usage documentation.
+A consumer reads outputs with the `stackorder` provider, `stackorder/stackorder` on the [Terraform Registry](https://registry.terraform.io/providers/stackorder/stackorder/latest) and the [OpenTofu Registry](https://search.opentofu.org/provider/stackorder/stackorder/latest), built from [stackorder/terraform-provider-stackorder](https://github.com/stackorder/terraform-provider-stackorder). The registry pages have its documentation.
 
 ```hcl
 terraform {
   required_providers {
     stackorder = {
-      source = "stackorder/stackorder"
+      source  = "stackorder/stackorder"
+      version = "~> 0.1.0"
     }
   }
 }
@@ -168,6 +169,8 @@ resource "aws_security_group" "cluster" {
 - `stack` is the producer's key: `path` or `path:instance` for a stack of the consumer's repository, `owner/repo//key` for a stack of another repository.
 - `values` holds every output served and is sensitive as a whole; `nonsensitive_values` leaves out the outputs marked sensitive.
 - `ephemeral "stackorder_outputs"` takes the same `stack` and returns the same values, but Terraform keeps them out of the saved plan and the state. Use it for sensitive outputs. Ephemeral resources need Terraform 1.10 or later, or OpenTofu 1.11 or later.
+
+The [example repository](https://github.com/stackorder/example-infra) has both sides: [`stacks/prod/vpc/.stackorder.yaml`](https://github.com/stackorder/example-infra/blob/main/stacks/prod/vpc/.stackorder.yaml) lists `stacks/prod/eks` under `outputs.readers`, and [`stacks/prod/eks/main.tf`](https://github.com/stackorder/example-infra/blob/main/stacks/prod/eks/main.tf) passes the VPC id and subnets it reads to its module.
 
 ## Ordering {#ordering}
 
