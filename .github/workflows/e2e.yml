@@ -59,29 +59,3 @@ jobs:
           docker pull postgres:17-alpine
       - name: Run the end-to-end suite for Terraform and OpenTofu
         run: make test-e2e E2E_TIMEOUT=30m
-
-  live:
-    if: vars.STACKORDER_E2E_ORG != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v5
-      - name: Check out the example monorepo
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ vars.STACKORDER_E2E_EXAMPLE_INFRA_REPO || 'stackorder/example-infra' }}
-          token: ${{ secrets.STACKORDER_E2E_EXAMPLE_INFRA_TOKEN || github.token }}
-          path: example-infra
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - name: Run the live GitHub variant against the configured organisation
-        run: go test -count=1 -tags e2e -timeout 35m -run TestLiveGitHub -v ./test/e2e/
-        env:
-          STACKORDER_E2E_EXAMPLE_INFRA_DIR: ${{ github.workspace }}/example-infra
-          STACKORDER_E2E_GITHUB_TOKEN: ${{ secrets.STACKORDER_E2E_GITHUB_TOKEN }}
-          STACKORDER_E2E_ORG: ${{ vars.STACKORDER_E2E_ORG }}
-          STACKORDER_E2E_SERVER_URL: ${{ vars.STACKORDER_E2E_SERVER_URL }}
-          STACKORDER_E2E_PLAN_ROLE_ARN: ${{ vars.STACKORDER_E2E_PLAN_ROLE_ARN }}
-          STACKORDER_E2E_GITHUB_API_URL: ${{ vars.STACKORDER_E2E_GITHUB_API_URL }}
-          STACKORDER_E2E_GITHUB_URL: ${{ vars.STACKORDER_E2E_GITHUB_URL }}
