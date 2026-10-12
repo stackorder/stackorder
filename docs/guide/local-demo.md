@@ -112,7 +112,7 @@ stacks/prod/apps
   reads_state  stacks/prod/vpc (inferred)
 
 stacks/prod/eks
-  depends_on   stacks/prod/vpc
+  reads_state  stacks/prod/vpc (inferred)
   uses_module  stackorder/example-infra//modules/eks
 
 stacks/prod/vpc
@@ -134,7 +134,7 @@ stackorder/example-infra//modules/vpc (local module)
 warning: stacks/legacy/dns: inferred reads_state edge to stacks/prod/vpc suppressed by ignore_inferred
 ```
 
-Module keys start with `owner/repo`, taken from the `origin` remote. `stacks/prod/apps` has no `.stackorder.yaml`: its edge exists only because its `terraform_remote_state` block reads `prod/vpc.tfstate` in `stackorder-example-state`, the backend of `stacks/prod/vpc`. `stacks/legacy/dns` reads the same state but suppresses the edge with `ignore_inferred`, which the scan logs as a warning on standard error and `graph` repeats after the graph. The `infra/` stacks are [instances](/configuration/instances): `infra/kyc` once per var file, `infra/registry` once as `shared`.
+Module keys start with `owner/repo`, taken from the `origin` remote. `stacks/prod/apps` has no `.stackorder.yaml`: its edge exists only because its `terraform_remote_state` block reads `prod/vpc.tfstate` in `stackorder-example-state`, the backend of `stacks/prod/vpc`. `stacks/prod/eks` has none either: its edge comes from a `stackorder_outputs` data source that names `stacks/prod/vpc`, so its plan reads the VPC's [shared outputs](/configuration/outputs) through the server rather than its state. `stacks/legacy/dns` reads the same state but suppresses the edge with `ignore_inferred`, which the scan logs as a warning on standard error and `graph` repeats after the graph. The `infra/` stacks are [instances](/configuration/instances): `infra/kyc` once per var file, `infra/registry` once as `shared`.
 
 ```sh
 stackorder graph --format dot | dot -Tsvg > graph.svg
@@ -159,7 +159,7 @@ WAVE  STACK                REASONS      ENVIRONMENT
 0     stacks/prod/vpc      module       production
 0     stacks/staging/vpc   module       staging
 1     stacks/prod/apps     reads_state  production
-1     stacks/prod/eks      dependent    production
+1     stacks/prod/eks      reads_state  production
 1     stacks/staging/apps  dependent    staging
 exit 2
 ```
@@ -261,14 +261,14 @@ To build the image from the checkout and run it under Compose, add `--build` to 
 
 ## The example repository {#example-infra}
 
-`stackorder/example-infra` is a small Terraform monorepo wired for Stackorder. Every resource is a `terraform_data` and no configuration needs a provider, so `init` downloads nothing and the only network traffic is to the state bucket and STS.
+`stackorder/example-infra` is a small Terraform monorepo wired for Stackorder. Every resource is a `terraform_data`. The only provider is `stackorder/stackorder`, which `stacks/prod/eks` uses to read the outputs of `stacks/prod/vpc`, so `init` downloads that provider for that stack and nothing elsewhere, and the other network traffic is to the state bucket and STS. This demo does not plan `stacks/prod/eks`: its plan reads the VPC outputs from a server with [shared outputs](/configuration/outputs#server) turned on, which a server in setup mode does not serve.
 
 | Path | What it shows |
 | --- | --- |
 | `stackorder.yaml` | `tool: terraform`, stacks discovered under `stacks/**` and `infra/**` with an instance per `workspaces/*.tfvars.json`, `env` setting `TF_VAR_environment` and `TF_VAR_role`, environments `stacks/prod/` → `production` and `stacks/staging/` → `staging`, `before_merge` with one approval, `propagate.cross_repo: plan`, a weekday drift schedule with issues |
 | `modules/vpc`, `modules/eks`, `modules/common` | Local modules; `modules/eks` calls `../common`, so a change to `common` reaches `stacks/prod/eks` through two `uses_module` edges |
-| `stacks/prod/vpc`, `stacks/staging/vpc` | Use `modules/vpc` |
-| `stacks/prod/eks` | Uses `modules/eks` and `depends_on: [stacks/prod/vpc]` |
+| `stacks/prod/vpc`, `stacks/staging/vpc` | Use `modules/vpc`; `stacks/prod/vpc` lists `stacks/prod/eks` under `outputs.readers` |
+| `stacks/prod/eks` | Uses `modules/eks` and reads the outputs of `stacks/prod/vpc` with a `stackorder_outputs` data source, an inferred `reads_state` edge |
 | `stacks/prod/apps` | Reads `prod/vpc.tfstate`, an inferred `reads_state` edge |
 | `stacks/staging/apps` | `depends_on: [stacks/staging/vpc]` and `plan_output: summary` |
 | `stacks/legacy/dns` | Reads the same state, with `ignore_inferred`; matches no environment prefix, so it applies under `default` |
@@ -284,7 +284,7 @@ Every stack has an S3 backend in `stackorder-example-state`, region `us-east-1`,
 
 | Change | Wave 0 | Wave 1 |
 | --- | --- | --- |
-| `modules/vpc` | `stacks/prod/vpc`, `stacks/staging/vpc` (`module`) | `stacks/prod/apps` (`reads_state`), `stacks/prod/eks` (`dependent`), `stacks/staging/apps` (`dependent`) |
+| `modules/vpc` | `stacks/prod/vpc`, `stacks/staging/vpc` (`module`) | `stacks/prod/apps` (`reads_state`), `stacks/prod/eks` (`reads_state`), `stacks/staging/apps` (`dependent`) |
 | `stacks/prod/eks` only | `stacks/prod/eks` (`changed`) | |
 | `modules/eks` or `modules/common` | `stacks/prod/eks` (`module`) | |
 | `infra/kyc` or one of its var files | `infra/kyc:production`, `infra/kyc:staging` (`changed`) | `infra/registry:shared` (`dependent`) |
