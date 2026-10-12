@@ -141,7 +141,7 @@ Between repositories the grant is a hard boundary, unless the operator grants an
 
 ## Reading outputs in Terraform {#consumer}
 
-A consumer reads outputs with the `stackorder` provider, `stackorder/stackorder` on the [Terraform Registry](https://registry.terraform.io/providers/stackorder/stackorder/latest) and the [OpenTofu Registry](https://search.opentofu.org/provider/stackorder/stackorder/latest), built from [stackorder/terraform-provider-stackorder](https://github.com/stackorder/terraform-provider-stackorder). The registry pages have its documentation.
+A consumer reads outputs with the `stackorder` provider, `stackorder/stackorder` on the [Terraform Registry](https://registry.terraform.io/providers/stackorder/stackorder/latest) and the [OpenTofu Registry](https://search.opentofu.org/provider/stackorder/stackorder/latest), built from [stackorder/terraform-provider-stackorder](https://github.com/stackorder/terraform-provider-stackorder). The Terraform Registry and the repository's [`docs/`](https://github.com/stackorder/terraform-provider-stackorder/tree/main/docs) have its documentation. The OpenTofu Registry lists no ephemeral resources, so its page leaves out `ephemeral "stackorder_outputs"`.
 
 ```hcl
 terraform {
