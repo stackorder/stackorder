@@ -40,13 +40,13 @@ Phase 1 alone is already a usable Atlantis-style tool. Phase 2 adds the module a
 
 ## How the gates are demonstrated {#testing}
 
-End-to-end tests run the real Terraform and OpenTofu binaries against a LocalStack S3 bucket and the `stackorder/example-infra` demo monorepo, with the server in-process and the CLI as a separate process for every job. GitHub and its Actions token service are in-memory fakes, because a real organization only delivers webhooks to a server it can reach. Teams that run such a server can also run a smaller live variant, which opens a pull request in a throwaway repository of a real organization and waits for the server's resolve and plan checks. Unit tests cover the `graph` package exhaustively, since that is where the correctness risk sits.
+End-to-end tests run the real Terraform and OpenTofu binaries against a LocalStack S3 bucket and the `stackorder/example-infra` demo monorepo, with the server in-process and the CLI as a separate process for every job. GitHub and its Actions token service are in-memory fakes, because a real organization only delivers webhooks to a server it can reach. Unit tests cover the `graph` package exhaustively, since that is where the correctness risk sits.
 
 | Test level | Build tag | Needs |
 | --- | --- | --- |
 | Unit | none | Nothing: no Docker, no network, no Postgres |
 | Integration | `integration` | Docker, for Postgres; a fake GitHub API |
-| End-to-end | `e2e` | Docker, for LocalStack and Postgres; real Terraform or OpenTofu; `example-infra`; the Terraform and OpenTofu registries, for the `stackorder` provider; optionally a GitHub organization with the App installed |
+| End-to-end | `e2e` | Docker, for LocalStack and Postgres; real Terraform or OpenTofu; `example-infra`; the Terraform and OpenTofu registries, for the `stackorder` provider |
 
 ## Open questions {#open-questions}
 

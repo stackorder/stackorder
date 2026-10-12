@@ -8,6 +8,10 @@ All notable changes to this repository are documented here. The format follows [
 
 - [Reading outputs in Terraform](docs/configuration/outputs.md#consumer) links the `stackorder/stackorder` provider on the Terraform Registry and the OpenTofu Registry, where v0.1.0 is published, pins it with `version = "~> 0.1.0"`, and points at `stackorder/example-infra`, whose `stacks/prod/eks` reads the outputs of `stacks/prod/vpc` with it. The [local demo](docs/guide/local-demo.md) and the [CLI reference](docs/reference/cli.md#graph) show that stack's inferred `reads_state` edge in place of its `depends_on`, and the README and `ARCHITECTURE.md` list the provider's repository.
 
+### Removed
+
+- The live variant of the end-to-end suite: `TestLiveGitHub`, the package `test/e2e/live`, the `live` job of `e2e.yml` and the `STACKORDER_E2E_GITHUB_TOKEN`, `STACKORDER_E2E_ORG`, `STACKORDER_E2E_SERVER_URL` and `STACKORDER_E2E_PLAN_ROLE_ARN` settings. It ran `stackorder/example-infra` against a real GitHub organisation and server. The example now runs only in the end-to-end suite, against LocalStack, the in-process server and the fake GitHub.
+
 ## [0.4.0] - 2026-10-11
 
 ### Added

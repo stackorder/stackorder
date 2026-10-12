@@ -9,17 +9,12 @@
 //
 // The design runs these tests against a throwaway GitHub organisation. A
 // real organisation delivers webhooks only to a publicly reachable server
-// and mints runner tokens only inside its own Actions jobs, so a suite that
-// runs on a laptop or a pull request build stands GitHub in with
-// internal/testutil/ghfake and the Actions token service with
-// internal/testutil/oidcfake, and plays the runner itself: it performs the
-// checkouts, uploads and downloads plan artifacts, and delivers the
-// webhooks GitHub would send. Teams that do run such a server can set
-// STACKORDER_E2E_GITHUB_TOKEN, STACKORDER_E2E_ORG and
-// STACKORDER_E2E_SERVER_URL: TestEndToEnd is then skipped and
-// TestLiveGitHub pushes the example to a throwaway repository of that
-// organisation, opens a pull request and waits for the server's checks
-// (see package live). Without them TestLiveGitHub is skipped.
+// and mints runner tokens only inside its own Actions jobs, so the suite
+// stands GitHub in with internal/testutil/ghfake and the Actions token
+// service with internal/testutil/oidcfake, and plays the runner itself: it
+// performs the checkouts, uploads and downloads plan artifacts, and
+// delivers the webhooks GitHub would send. The example never runs against
+// a real GitHub organisation, a deployed server or an AWS account.
 //
 // TestEndToEnd tells one story per tool, terraform and tofu, selected by
 // the repository's tool setting: adopting the repository, bootstrapping
