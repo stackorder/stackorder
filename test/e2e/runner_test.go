@@ -201,18 +201,19 @@ func (rn *runner) jobEnv(t *testing.T, claims oidc.Claims, workspace string, eve
 }
 
 type pullRequest struct {
-	number   int
-	branch   string
-	base     string
-	head     string
-	merge    string
-	pull     gh.PullRequest
-	workflow gh.WorkflowRun
-	runID    string
-	matrix   v1.Matrix
-	waves    [][]string
-	affected []string
-	plans    map[string]cliResult
+	number     int
+	branch     string
+	base       string
+	head       string
+	merge      string
+	pull       gh.PullRequest
+	workflow   gh.WorkflowRun
+	runID      string
+	matrix     v1.Matrix
+	waves      [][]string
+	affected   []string
+	plans      map[string]cliResult
+	workspaces map[string]string
 }
 
 func (rn *runner) openPull(t *testing.T, number int, branch, base, head, title string) *pullRequest {
@@ -262,9 +263,11 @@ func (rn *runner) plan(t *testing.T, pr *pullRequest) map[string]cliResult {
 	t.Helper()
 	event := rn.pullEvent(pr)
 	results := make([]cliResult, len(pr.matrix.Include))
+	pr.workspaces = map[string]string{}
 	var wg sync.WaitGroup
 	for i, entry := range pr.matrix.Include {
 		ws := rn.repo.checkout(t, entry.SHA)
+		pr.workspaces[entry.Key] = ws
 		env := rn.jobEnv(t, rn.planClaims(pr), ws, event)
 		env[cli.EnvRunID] = pr.runID
 		env[cli.EnvTool] = string(entry.Tool)

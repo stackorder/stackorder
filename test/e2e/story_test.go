@@ -595,6 +595,7 @@ func (s *story) prPlan(t *testing.T) {
 	assert.NotContains(t, stickies[0], plaintextSecret)
 	assert.LessOrEqual(t, len(stickies[0]), commentLimit)
 	s.noLockObjects(t)
+	t.Run("eks_reads_vpc_outputs", func(t *testing.T) { s.eksPlannedFromOutputs(t, pr) })
 }
 
 func (s *story) storedPlanText(t *testing.T, runID string) map[string]string {
