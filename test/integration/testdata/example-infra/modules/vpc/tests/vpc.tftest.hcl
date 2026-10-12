@@ -1,4 +1,4 @@
-run "prod_ids_match_the_stack_defaults" {
+run "prod_ids_are_stable" {
   command = plan
 
   variables {
@@ -8,12 +8,12 @@ run "prod_ids_match_the_stack_defaults" {
 
   assert {
     condition     = output.vpc_id == "vpc-6754af9632a2745e8"
-    error_message = "The prod vpc_id changed; update the vpc_id default of stacks/prod/eks."
+    error_message = "The prod vpc_id changed; it must be the same on every apply."
   }
 
   assert {
     condition     = output.subnet_ids == ["subnet-62dfd2129d1b5508a", "subnet-c01aaf2ff6132fd08", "subnet-ca9a32e3583c00b2e"]
-    error_message = "The prod subnet_ids changed; update the subnet_ids default of stacks/prod/eks."
+    error_message = "The prod subnet_ids changed; they must be the same on every apply."
   }
 }
 
