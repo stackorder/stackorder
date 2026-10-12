@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -53,10 +54,13 @@ func TestLiveGitHub(t *testing.T) {
 		})
 	}
 
+	eksPlan := report.StackCheckName(report.CheckPlan, prodEKS)
 	checks := []string{
 		report.CheckResolve,
+		report.CheckPlan,
 		report.StackCheckName(report.CheckPlan, prodVPC),
 		report.StackCheckName(report.CheckPlan, stagingVPC),
+		eksPlan,
 	}
 	res, err := r.Run(t.Context(), live.Plan(cfg, live.Change{
 		BaseSHA: base, HeadSHA: head, Branch: liveBranch, Title: "feat(vpc): add a route table", Checks: checks,
@@ -69,8 +73,16 @@ func TestLiveGitHub(t *testing.T) {
 		t.Logf("e2e: %s is unset, so the plan jobs cannot read state and only the resolve check must succeed", live.EnvPlanRoleARN)
 		return
 	}
+	failing := []string{report.CheckPlan, eksPlan}
 	for _, name := range checks {
 		c := res.Checks[name]
-		assert.Equal(t, gh.ConclusionSuccess, c.Conclusion, "%s: %s", name, c.HTMLURL)
+		want := gh.ConclusionSuccess
+		if slices.Contains(failing, name) {
+			want = gh.ConclusionFailure
+		}
+		assert.Equal(t, want, c.Conclusion, "%s: %s", name, c.HTMLURL)
 	}
+	eks := res.Checks[eksPlan]
+	assert.True(t, strings.HasPrefix(eks.Output.Title, "Plan failed"),
+		"the plan of %s ran and failed reading the outputs of %s, which nothing applied in the throwaway repository: %q, %s", prodEKS, prodVPC, eks.Output.Title, eks.HTMLURL)
 }
