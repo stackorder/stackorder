@@ -4,6 +4,10 @@ All notable changes to this repository are documented here. The format follows [
 
 ## [Unreleased]
 
+### Changed
+
+- [Reading outputs in Terraform](docs/configuration/outputs.md#consumer) links the `stackorder/stackorder` provider on the Terraform Registry and the OpenTofu Registry, where v0.1.0 is published, pins it with `version = "~> 0.1.0"`, and points at `stackorder/example-infra`, whose `stacks/prod/eks` reads the outputs of `stacks/prod/vpc` with it. The [local demo](docs/guide/local-demo.md) and the [CLI reference](docs/reference/cli.md#graph) show that stack's inferred `reads_state` edge in place of its `depends_on`, and the README and `ARCHITECTURE.md` list the provider's repository.
+
 ## [0.4.0] - 2026-10-11
 
 ### Added
