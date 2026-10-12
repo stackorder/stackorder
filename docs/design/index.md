@@ -787,6 +787,9 @@ stackorder/actions                 Actions and reusable workflows, tagged v1, v1
   .github/workflows/plan.yml       reusable
   .github/workflows/run.yml        reusable
 
+stackorder/terraform-provider-stackorder
+                                   Provider stackorder/stackorder: stackorder_outputs reads shared outputs
+
 stackorder/example-infra           Demo monorepo used by end-to-end tests
 ```
 
