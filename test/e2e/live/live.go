@@ -224,10 +224,16 @@ func Cleanup(cfg Config) Step {
 
 // CheckRun is the state of one check run the plan waited for.
 type CheckRun struct {
-	Name       string `json:"name"`
-	Status     string `json:"status"`
-	Conclusion string `json:"conclusion"`
-	HTMLURL    string `json:"html_url"`
+	Name       string      `json:"name"`
+	Status     string      `json:"status"`
+	Conclusion string      `json:"conclusion"`
+	HTMLURL    string      `json:"html_url"`
+	Output     CheckOutput `json:"output"`
+}
+
+// CheckOutput is the part of a check run's output the plan reads.
+type CheckOutput struct {
+	Title string `json:"title"`
 }
 
 // Result is what a run observed.
