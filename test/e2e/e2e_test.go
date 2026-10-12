@@ -16,9 +16,6 @@ const (
 
 func TestEndToEnd(t *testing.T) {
 	t.Setenv(canaryVariable, canaryValue)
-	if cfg, ok := liveConfig(t); ok {
-		t.Skipf("the live GitHub variant is configured for %s, so TestLiveGitHub runs instead of the fake GitHub", cfg.Org)
-	}
 	tools := []v1.Tool{v1.ToolTerraform, v1.ToolTofu}
 	missing := map[v1.Tool]error{}
 	for _, tool := range tools {
