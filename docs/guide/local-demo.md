@@ -276,7 +276,7 @@ To build the image from the checkout and run it under Compose, add `--build` to 
 | `infra/registry` | One declared instance, `infra/registry:shared`, with `depends_on: ["infra/kyc:production"]` |
 | `infra/state.s3.tfbackend` | The bucket, region and locking of the `infra/` backends, passed to `init` with each instance's state key |
 | `.stackorder/hooks/post-plan.sh` | Prints the resource count from `STACKORDER_PLAN_JSON` |
-| `.github/workflows/stackorder-plan.yml`, `stackorder-run.yml` | The two wrappers, reading the repository variables below |
+| `.github/workflows/stackorder-plan.yml`, `stackorder-run.yml` | The two wrappers. They skip themselves in `stackorder/example-infra` and read the repository variables below in a copy |
 
 Every stack has an S3 backend in `stackorder-example-state`, region `us-east-1`, with `use_lockfile = true`; the state key of a `stacks/` stack is its path without `stacks/`, such as `prod/vpc.tfstate`, and that of an `infra/` instance is its directory without `infra/` and its instance, such as `kyc/production.tfstate`.
 
@@ -293,9 +293,9 @@ Every stack has an S3 backend in `stackorder-example-state`, region `us-east-1`,
 
 `stacks/legacy/dns` is never affected by `modules/vpc`, because its edge is suppressed. An apply of the first scenario is four dispatches: wave 0 for `production` and for `staging`, then wave 1 for each.
 
-### Repository settings for its workflows {#example-settings}
+### Repository settings for a copy of its workflows {#example-settings}
 
-To run the example against a real server, its workflows read these Actions variables:
+`stackorder/example-infra` runs against no live infrastructure: both jobs of its workflows skip themselves there through `if: github.repository != 'stackorder/example-infra'`. A repository that copies the example's workflows and runs them against a real server reads these Actions variables:
 
 | Variable | Used by | Value |
 | --- | --- | --- |
@@ -305,4 +305,4 @@ To run the example against a real server, its workflows read these Actions varia
 | `STACKORDER_APPLY_ROLE_ARN_STAGING` | run | Apply role for `stacks/staging/` and the `:staging` instances, trusted for `environment:staging` |
 | `STACKORDER_APPLY_ROLE_ARN_DEFAULT` | run | Apply role for `stacks/legacy/` and the `:shared` instances, trusted for `environment:default` and `environment:shared` |
 
-The last role shares its subject with the plan and drift jobs; see the warning in [Security hardening](/operations/security-hardening#trust-policies) before copying that layout. The repository also needs the environments `production`, `staging` and `shared`, branch protection requiring `stackorder/plan` and `stackorder/apply`, and the teams its `CODEOWNERS` names.
+The last role shares its subject with the plan and drift jobs; see the warning in [Security hardening](/operations/security-hardening#trust-policies) before copying that layout. The copy also needs the environments `production`, `staging` and `shared`, branch protection requiring `stackorder/plan` and `stackorder/apply`, and the teams its `CODEOWNERS` names.
