@@ -17,11 +17,11 @@
 
 # Stackorder example infrastructure
 
-A small Terraform monorepo wired for [Stackorder](https://github.com/stackorder/stackorder). Its dependency graph has two local modules consumed by stacks, a module that calls another module, explicit `depends_on` edges, an inferred `terraform_remote_state` edge, a suppressed one, a stack that falls back to the `default` environment, and a directory deployed once per environment as [stack instances](#stack-instances).
+A small Terraform monorepo wired for [Stackorder](https://github.com/stackorder/stackorder). Its dependency graph has two local modules consumed by stacks, a module that calls another module, explicit `depends_on` edges, an inferred `terraform_remote_state` edge, a suppressed one, an edge inferred from a stack that reads another stack's outputs through the Stackorder server, a stack that falls back to the `default` environment, and a directory deployed once per environment as [stack instances](#stack-instances).
 
 It serves two purposes. The Stackorder end-to-end tests run the real CLI, server and Terraform against it, and it is the example to read when you want to see how a repository is wired for Stackorder.
 
-Nothing here creates cloud resources. Every resource is a `terraform_data`, and no configuration requires a provider, so `init` downloads nothing and the only network traffic is to the S3 state bucket and to STS, which the S3 backend and `terraform_remote_state` call to validate credentials. VPC, subnet and cluster ids are fake values derived from names, so they are the same on every apply.
+Nothing here creates cloud resources. Every resource is a `terraform_data`, and the only provider is `stackorder/stackorder`, which `stacks/prod/eks` uses to read the outputs of `stacks/prod/vpc`, so `init` downloads that one provider for that stack and nothing elsewhere. The other network traffic is to the S3 state bucket and to STS, which the S3 backend and `terraform_remote_state` call to validate credentials, and a plan of `stacks/prod/eks` also needs a Stackorder server that serves the VPC outputs. VPC, subnet and cluster ids are fake values derived from names, so they are the same on every apply.
 
 ## Tested versions
 
@@ -29,13 +29,14 @@ This repository was tested with:
 
 | Component | Version |
 | --- | --- |
-| [`stackorder/stackorder`](https://github.com/stackorder/stackorder) (server and CLI) | v0.2.0 |
+| [`stackorder/stackorder`](https://github.com/stackorder/stackorder) (server and CLI) | v0.4.0 |
+| [`stackorder/terraform-provider-stackorder`](https://github.com/stackorder/terraform-provider-stackorder) (provider `stackorder/stackorder` on the Terraform and OpenTofu registries) | v0.1.0 |
 | [`stackorder/actions`](https://github.com/stackorder/actions) (`plan.yml`, `run.yml`) | v1.0.0, called as `@v1` |
 | Terraform | 1.14.4 |
 | OpenTofu | 1.12.6 |
 | LocalStack (S3 and STS, for the end-to-end tests) | 4.0 |
 
-The stacks need Terraform or OpenTofu 1.10 or later for `use_lockfile`, and the `infra/` stacks need Terraform 1.10 or OpenTofu 1.11 or later for their `ephemeral` variable. `validate.yml` pins the same Terraform and OpenTofu versions, and the Stackorder end-to-end suite runs against this repository with both tools.
+The stacks need Terraform or OpenTofu 1.10 or later for `use_lockfile`, and the `infra/` stacks need Terraform 1.10 or OpenTofu 1.11 or later for their `ephemeral` variable. `validate.yml` pins the same Terraform and OpenTofu versions, and the Stackorder end-to-end suite runs against this repository with both tools. No `.terraform.lock.hcl` is committed, because Terraform records the provider under `registry.terraform.io` and OpenTofu under `registry.opentofu.org`, and each tool drops the other's entry when it initialises, so one lock file cannot serve both.
 
 ## Layout
 
@@ -53,8 +54,8 @@ modules/
   vpc/                          fake VPC and three subnets; tests/ pins the ids the stacks rely on
   eks/                          fake cluster; tags through ../common; tests/ checks tags and inputs
 stacks/
-  prod/vpc/                     modules/vpc, state prod/vpc.tfstate
-  prod/eks/                     modules/eks, depends_on stacks/prod/vpc
+  prod/vpc/                     modules/vpc, state prod/vpc.tfstate, outputs.readers: stacks/prod/eks
+  prod/eks/                     modules/eks, reads the stacks/prod/vpc outputs with stackorder_outputs
   prod/apps/                    reads prod/vpc.tfstate with terraform_remote_state
   staging/vpc/                  modules/vpc, state staging/vpc.tfstate
   staging/apps/                 depends_on stacks/staging/vpc, plan_output: summary
@@ -96,10 +97,10 @@ flowchart LR
     mod_common{{"modules/common"}}
   end
 
-  prod_eks -->|depends_on| prod_vpc
   staging_apps -->|depends_on| staging_vpc
   registry_shared -->|depends_on| kyc_production
   prod_apps -.->|reads_state, inferred| prod_vpc
+  prod_eks -.->|reads_state, inferred| prod_vpc
   legacy_dns -.-x|reads_state, suppressed| prod_vpc
   prod_vpc ==>|uses_module| mod_vpc
   staging_vpc ==>|uses_module| mod_vpc
@@ -113,13 +114,14 @@ Arrows point from the dependent to what it depends on, as in the Stackorder API 
 | --- | --- | --- | --- | --- |
 | Solid | `depends_on` | `depends_on` in the stack's `.stackorder.yaml` | Yes | Yes |
 | Thick | `uses_module` | A `module` block with a relative `source`, followed through nested modules | No | Yes |
-| Dotted | `reads_state` | Inferred: a `terraform_remote_state` whose S3 bucket and key match another stack's backend | Yes | Yes |
+| Dotted | `reads_state` | Inferred: a `terraform_remote_state` whose S3 bucket and key match another stack's backend, or a `stackorder_outputs` block whose literal `stack` names another stack | Yes | Yes |
 | Dotted, crossed | suppressed `reads_state` | `ignore_inferred` in the reading stack's `.stackorder.yaml` | No | No |
 
 Things worth noticing:
 
 - `stacks/prod/apps` has no `.stackorder.yaml`. Its edge to `stacks/prod/vpc` exists only because its `terraform_remote_state` block names `prod/vpc.tfstate` in `stackorder-example-state`, which is that stack's backend.
-- `stacks/prod/eks` takes the VPC id and subnets as variables with defaults, so nothing can be inferred; the order comes from its explicit `depends_on`.
+- `stacks/prod/eks` has no `.stackorder.yaml` either. Its `stackorder_outputs` data source names `stacks/prod/vpc` as a literal `stack`, so the scan infers a `reads_state` edge (`source: stackorder_outputs` in `stackorder graph --format json`), and its plan reads the VPC id and subnets through the Stackorder server, without access to the VPC state.
+- `stacks/prod/vpc` lists `stacks/prod/eks` under `outputs.readers` in its `.stackorder.yaml`. The server reads that list from the default branch only, so a pull request cannot widen it. The VPC outputs are not sensitive, so `outputs.sensitive` keeps its default, `withhold`.
 - `stacks/legacy/dns` reads the same state as `stacks/prod/apps`, but lists `stacks/prod/vpc` under `ignore_inferred`, so the edge is dropped and the scan reports a warning saying so.
 - `modules/eks` calls `../common`, so a change to `modules/common` reaches `stacks/prod/eks` through two `uses_module` edges.
 - `stacks/legacy/` matches no prefix in `environments`, so that stack runs under the GitHub environment `default`.
@@ -137,7 +139,7 @@ Waves are numbered from 0. A wave starts only when the previous one has finished
 | 0 | `stacks/prod/vpc` | production | `module`: uses `modules/vpc` |
 | 0 | `stacks/staging/vpc` | staging | `module`: uses `modules/vpc` |
 | 1 | `stacks/prod/apps` | production | `reads_state`: reads `stacks/prod/vpc` (inferred) |
-| 1 | `stacks/prod/eks` | production | `dependent`: depends on `stacks/prod/vpc` |
+| 1 | `stacks/prod/eks` | production | `reads_state`: reads `stacks/prod/vpc` (inferred) |
 | 1 | `stacks/staging/apps` | staging | `dependent`: depends on `stacks/staging/vpc` |
 
 `stacks/legacy/dns` is not affected because its edge is suppressed. `modules/eks` and `modules/common` are in the graph but not touched. An apply is four dispatches: wave 0 for production and for staging, then wave 1 for production and for staging.
@@ -215,6 +217,8 @@ The configuration keys it exercises:
 
 The e2e suite in `stackorder/stackorder` (`test/e2e`, build tag `e2e`) runs a local server, the `stackorder` CLI and real Terraform against a checkout of this repository, with an S3 emulator standing in for AWS. It creates the bucket `stackorder-example-state` in `us-east-1` before the first `init`.
 
+The tests start the server with `STACKORDER_STATE_BUCKETS` set to an entry that grants the repository under test that bucket, such as `acme/example-infra=stackorder-example-state`, and with its own `AWS_ENDPOINT_URL_S3` pointing at the emulator. The `stackorder/stackorder` provider of `stacks/prod/eks` never touches the bucket: it asks the server for the outputs of `stacks/prod/vpc`, and the server reads `prod/vpc.tfstate` and returns only its outputs.
+
 The backend and the `terraform_remote_state` reads are configured the same way as on AWS; nothing in the HCL points at the emulator. The tests redirect them from the environment:
 
 | Variable | Example value | Used by |
@@ -225,11 +229,12 @@ The backend and the `terraform_remote_state` reads are configured the same way a
 | `AWS_ENDPOINT_URL_STS` | `http://localhost:4566` | Remote state reads, which call `sts:GetCallerIdentity` |
 | `STACKORDER_BACKEND_CONFIG` | `use_path_style=true,skip_credentials_validation=true,skip_requesting_account_id=true` | Backend only; the CLI passes each item to `init` as `-backend-config` |
 
-Three details matter:
+Four details matter:
 
 - `STACKORDER_BACKEND_CONFIG` reaches the backend but not the `config` block of a `terraform_remote_state`. The remote state reads therefore validate credentials against STS, so the emulator must serve STS as well as S3 (for LocalStack, `SERVICES=s3,sts`).
 - Without `use_path_style`, the remote state reads use virtual-hosted addressing (`http://stackorder-example-state.<endpoint host>/prod/vpc.tfstate`). LocalStack recognises that form under `s3.localhost.localstack.cloud`, whose public DNS resolves to 127.0.0.1. Emulators that take the bucket from the first label of the host, such as moto, also work with `http://localhost:<port>`, wherever `*.localhost` resolves to loopback.
 - `stacks/prod/apps` and `stacks/legacy/dns` fail to plan with `Unable to find remote state` until `prod/vpc.tfstate` exists. The tests apply `stacks/prod/vpc` (or upload a state object at that key) before they plan either stack.
+- `stacks/prod/eks` fails to plan until `stacks/prod/vpc` has been applied through Stackorder. The server records where a stack's state lives only from the result of an apply or drift job, so an uploaded state object is not enough, and until then the read answers `409 state_location_unknown`.
 
 ## Trying it locally
 
@@ -259,7 +264,7 @@ make test               # terraform test in every module that has tests
 make test TF=tofu       # the same with OpenTofu
 ```
 
-The module tests use `command = plan` only, so they need no backend and no network. A change under `modules/vpc/tests/` is a change under `modules/vpc`, so a pull request that edits it plans the same stacks as the first scenario above.
+`make validate` downloads `stackorder/stackorder` for `stacks/prod/eks`, from the Terraform Registry or the OpenTofu Registry depending on the tool, and needs no server. A plan of `stacks/prod/eks` outside a Stackorder job needs the server URL in `STACKORDER_SERVER_URL` and an API key in `STACKORDER_API_KEY`. The module tests use `command = plan` only, so they need no backend and no network. A change under `modules/vpc/tests/` is a change under `modules/vpc`, so a pull request that edits it plans the same stacks as the first scenario above.
 
 ## Hooks
 
@@ -287,6 +292,8 @@ Role ARNs are not secrets, so they are variables. `stackorder-run.yml` picks the
 
 - GitHub environments `production`, `staging` and `shared`, with required reviewers where your plan allows it. `default` is created on first use, without protection rules.
 - Branch protection on `main` requiring the `stackorder/plan` and `stackorder/apply` checks, one approval (matching `apply.require_approvals`) and code-owner review. Applies run before merge here, so add `apply.require_codeowner_review: true` to `stackorder.yaml` if the apply gate should also insist on a code-owner approval.
+- Shared outputs on the Stackorder server, for `stacks/prod/eks`. The operator sets `STACKORDER_STATE_BUCKETS` to an entry that grants this repository the state bucket, such as `stackorder/example-infra=stackorder-example-state`, and gives the server read access to it. Unset, every plan of `stacks/prod/eks` fails with `outputs_disabled`.
+- An apply or drift job of `stacks/prod/vpc` on Stackorder CLI 0.4.0 or later before the first plan of `stacks/prod/eks`, so that the server knows where the VPC state lives; a scheduled drift check is enough. The reusable workflows install the latest CLI unless `stackorder-version` pins one, and they grant the `id-token: write` the provider needs.
 - The teams named in `.github/CODEOWNERS`: `@stackorder/platform-prod` owns `stacks/prod/**`; `@stackorder/platform-eng` owns `stacks/staging/**`, `modules/**` and `infra/**`.
 
 `validate.yml` needs no settings.

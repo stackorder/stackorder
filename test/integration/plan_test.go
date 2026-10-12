@@ -124,7 +124,7 @@ func TestPullRequestPlanFlow(t *testing.T) {
 		assert.Equal(t, planChanges[key], *rs.Summary, key)
 	}
 	assert.Equal(t, []v1.Reason{v1.ReasonModule}, stacks[prodVPC].Reasons)
-	assert.Equal(t, []v1.Reason{v1.ReasonDependent}, stacks[prodEKS].Reasons)
+	assert.Equal(t, []v1.Reason{v1.ReasonReadsState}, stacks[prodEKS].Reasons, "stacks/prod/eks reads the outputs of stacks/prod/vpc with stackorder_outputs")
 	assert.Equal(t, string(v1.PlanOutputSummary), stacks[stagingApps].PlanOutput, "stacks/staging/apps sets plan_output: summary")
 
 	checks := f.checks(f.co.head)
