@@ -76,16 +76,20 @@ all repositories of an organisation, can run `TestLiveGitHub` instead. It
 creates a throwaway private repository from the example, sets the
 `STACKORDER_SERVER_URL` repository variable, pushes `main` and a branch
 that changes `modules/vpc`, opens a pull request, waits for the server's
-`stackorder/resolve` and `stackorder/plan` check runs and the plan checks
-of both VPC stacks, and deletes the repository afterwards. It installs
-nothing and needs neither Docker nor Terraform locally.
+`stackorder/resolve` check run and the plan checks of both VPC stacks, and
+deletes the repository afterwards. It installs nothing and needs neither
+Docker nor Terraform locally. The pull request also affects
+`stacks/prod/eks`, whose plan reads the outputs of `stacks/prod/vpc`
+through the server. Nothing applies the throwaway repository's VPC stack,
+so the server knows no state location for it and that plan fails; neither
+its check nor the `stackorder/plan` roll-up is waited for.
 
 | Variable | Meaning |
 | --- | --- |
 | `STACKORDER_E2E_GITHUB_TOKEN` | Token that may create and delete repositories in the organisation, push workflow files (the `workflow` scope, or Workflows: write) and set their Actions variables |
 | `STACKORDER_E2E_ORG` | The organisation |
 | `STACKORDER_E2E_SERVER_URL` | The server's public `https` base URL |
-| `STACKORDER_E2E_PLAN_ROLE_ARN` | Optional plan role, set as `STACKORDER_PLAN_ROLE_ARN`; with it every plan check must succeed |
+| `STACKORDER_E2E_PLAN_ROLE_ARN` | Optional plan role, set as `STACKORDER_PLAN_ROLE_ARN`; with it the plan checks of both VPC stacks must succeed |
 | `STACKORDER_E2E_GITHUB_API_URL`, `STACKORDER_E2E_GITHUB_URL` | Optional GitHub Enterprise Server URLs |
 | `STACKORDER_E2E_KEEP_REPO` | `true` keeps the repository for inspection |
 
