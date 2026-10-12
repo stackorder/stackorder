@@ -10,7 +10,7 @@ All notable changes to this repository are documented here. The format follows [
 
 ### Removed
 
-- The live variant of the end-to-end suite: `TestLiveGitHub`, the package `test/e2e/live`, the `live` job of `e2e.yml` and the `STACKORDER_E2E_GITHUB_TOKEN`, `STACKORDER_E2E_ORG`, `STACKORDER_E2E_SERVER_URL` and `STACKORDER_E2E_PLAN_ROLE_ARN` settings. It ran `stackorder/example-infra` against a real GitHub organisation and server. The example now runs only in the end-to-end suite, against LocalStack, the in-process server and the fake GitHub.
+- The live variant of the end-to-end suite: `TestLiveGitHub`, the package `test/e2e/live`, the `live` job of `e2e.yml` and the `STACKORDER_E2E_GITHUB_TOKEN`, `STACKORDER_E2E_ORG`, `STACKORDER_E2E_SERVER_URL` and `STACKORDER_E2E_PLAN_ROLE_ARN` settings. It ran `stackorder/example-infra` against a real GitHub organisation and server. The example now runs only against LocalStack, in the end-to-end suite, with the in-process server and the fake GitHub, and in the [local demo](docs/guide/local-demo.md).
 
 ## [0.4.0] - 2026-10-11
 
