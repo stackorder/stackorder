@@ -161,7 +161,7 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.polls++
 		plan := CheckRun{Name: "stackorder/plan", Status: "in_progress"}
 		if f.polls > 1 {
-			plan = CheckRun{Name: "stackorder/plan", Status: "completed", Conclusion: "success"}
+			plan = CheckRun{Name: "stackorder/plan", Status: "completed", Conclusion: "success", Output: CheckOutput{Title: "2 stacks planned"}}
 		}
 		runs := []CheckRun{
 			{Name: "stackorder/resolve", Status: "completed", Conclusion: "success"},
@@ -197,7 +197,7 @@ func TestRunnerRunsThePlan(t *testing.T) {
 	assert.Equal(t, 7, res.PullNumber)
 	assert.Equal(t, map[string]CheckRun{
 		"stackorder/resolve": {Name: "stackorder/resolve", Status: "completed", Conclusion: "success"},
-		"stackorder/plan":    {Name: "stackorder/plan", Status: "completed", Conclusion: "success"},
+		"stackorder/plan":    {Name: "stackorder/plan", Status: "completed", Conclusion: "success", Output: CheckOutput{Title: "2 stacks planned"}},
 	}, res.Checks)
 	assert.Equal(t, 2, fake.polls, "the runner polls until every named check completed")
 	assert.Equal(t, []string{
