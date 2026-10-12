@@ -74,7 +74,8 @@ STACKORDER_E2E_EXAMPLE_INFRA_URL=https://github.com/stackorder/example-infra.git
 of `docker compose up localstack` instead of starting a container, and
 `STACKORDER_TERRAFORM_BIN` or `STACKORDER_TOFU_BIN` pick other binaries.
 `.github/workflows/e2e.yml` runs the suite on every push to `main` and
-nightly. The example's stacks plan and apply only in this suite, never
+nightly. The example's stacks plan and apply only against LocalStack,
+in this suite and the [local demo](docs/guide/local-demo.md), never
 against a real GitHub organisation, a deployed server or an AWS account.
 
 ## Layout and contracts
