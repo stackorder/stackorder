@@ -21,7 +21,9 @@ A small Terraform monorepo wired for [Stackorder](https://github.com/stackorder/
 
 It serves two purposes. The Stackorder end-to-end tests run the real CLI, server and Terraform against it, and it is the example to read when you want to see how a repository is wired for Stackorder.
 
-Nothing here creates cloud resources. Every resource is a `terraform_data`, and the only provider is `stackorder/stackorder`, which `stacks/prod/eks` uses to read the outputs of `stacks/prod/vpc`, so `init` downloads that one provider for that stack and nothing elsewhere. The other network traffic is to the S3 state bucket and to STS, which the S3 backend and `terraform_remote_state` call to validate credentials, and a plan of `stacks/prod/eks` also needs a Stackorder server that serves the VPC outputs. VPC, subnet and cluster ids are fake values derived from names, so they are the same on every apply.
+This repository runs against no live infrastructure. It has no Stackorder server, AWS account or GitHub environments behind it. `stackorder-plan.yml` and `stackorder-run.yml` are wiring to copy: their jobs skip themselves here through `if: github.repository != 'stackorder/example-infra'` and run unchanged in a copy. The stacks are exercised only by the [end-to-end suite](#how-the-end-to-end-tests-use-this-repository) in `stackorder/stackorder`, against LocalStack, an in-process server and a fake GitHub.
+
+Nothing here creates cloud resources. Every resource is a `terraform_data`, and the only provider is `stackorder/stackorder`, which `stacks/prod/eks` uses to read the outputs of `stacks/prod/vpc`, so `init` downloads that one provider for that stack and nothing elsewhere. A plan also talks to the S3 state bucket and to STS, which the S3 backend and `terraform_remote_state` call to validate credentials, and a plan of `stacks/prod/eks` needs a Stackorder server that serves the VPC outputs. The end-to-end suite provides all three, with LocalStack for S3 and STS. VPC, subnet and cluster ids are fake values derived from names, so they are the same on every apply.
 
 ## Tested versions
 
@@ -45,9 +47,9 @@ stackorder.yaml                 repository policy: discovery, environments, appl
 .github/CODEOWNERS              owning teams per path
 .github/assets/                 README logos and the repository social preview image
 .github/workflows/
-  stackorder-plan.yml           PR plans through stackorder/actions plan.yml
-  stackorder-run.yml            server-dispatched plan, apply and drift through run.yml
-  validate.yml                  fmt check, validate and test for Terraform and OpenTofu
+  stackorder-plan.yml           PR plans through stackorder/actions plan.yml; skipped in this repository
+  stackorder-run.yml            server-dispatched plan, apply and drift through run.yml; skipped in this repository
+  validate.yml                  fmt check, validate and test for Terraform and OpenTofu; no backend
 .stackorder/hooks/post-plan.sh  example hook: resource count from the plan JSON
 modules/
   common/                       tagging helper (locals and outputs only)
@@ -125,7 +127,7 @@ Things worth noticing:
 - `stacks/legacy/dns` reads the same state as `stacks/prod/apps`, but lists `stacks/prod/vpc` under `ignore_inferred`, so the edge is dropped and the scan reports a warning saying so.
 - `modules/eks` calls `../common`, so a change to `modules/common` reaches `stacks/prod/eks` through two `uses_module` edges.
 - `stacks/legacy/` matches no prefix in `environments`, so that stack runs under the GitHub environment `default`.
-- `infra/kyc:production` and `infra/kyc:staging` are two stacks from one directory. Neither `environments` prefix matches `infra/`, so each runs under the GitHub environment of its own instance name, which happens to be the existing `production` and `staging`.
+- `infra/kyc:production` and `infra/kyc:staging` are two stacks from one directory. Neither `environments` prefix matches `infra/`, so each runs under the GitHub environment of its own instance name, which happens to match the `production` and `staging` environments of the `stacks/` stacks.
 - `infra/registry:shared` depends on one instance only. A change to `infra/kyc` still reaches it, because a change to a directory affects every instance of that directory.
 
 ## What a change affects
@@ -215,11 +217,11 @@ The configuration keys it exercises:
 
 ## How the end-to-end tests use this repository
 
-The e2e suite in `stackorder/stackorder` (`test/e2e`, build tag `e2e`) runs a local server, the `stackorder` CLI and real Terraform against a checkout of this repository, with an S3 emulator standing in for AWS. It creates the bucket `stackorder-example-state` in `us-east-1` before the first `init`.
+The e2e suite in `stackorder/stackorder` (`test/e2e`, build tag `e2e`) runs the server in process, the `stackorder` CLI and real Terraform against a checkout of this repository, with LocalStack standing in for AWS and a fake GitHub standing in for GitHub. It creates the bucket `stackorder-example-state` in `us-east-1` before the first `init`.
 
 The tests start the server with `STACKORDER_STATE_BUCKETS` set to an entry that grants the repository under test that bucket, such as `acme/example-infra=stackorder-example-state`, and with its own `AWS_ENDPOINT_URL_S3` pointing at the emulator. The `stackorder/stackorder` provider of `stacks/prod/eks` never touches the bucket: it asks the server for the outputs of `stacks/prod/vpc`, and the server reads `prod/vpc.tfstate` and returns only its outputs.
 
-The backend and the `terraform_remote_state` reads are configured the same way as on AWS; nothing in the HCL points at the emulator. The tests redirect them from the environment:
+The backend and the `terraform_remote_state` reads are configured as they would be for AWS; nothing in the HCL points at the emulator. The tests redirect them from the environment:
 
 | Variable | Example value | Used by |
 | --- | --- | --- |
@@ -264,7 +266,7 @@ make test               # terraform test in every module that has tests
 make test TF=tofu       # the same with OpenTofu
 ```
 
-`make validate` downloads `stackorder/stackorder` for `stacks/prod/eks`, from the Terraform Registry or the OpenTofu Registry depending on the tool, and needs no server. A plan of `stacks/prod/eks` outside a Stackorder job needs the server URL in `STACKORDER_SERVER_URL`, an API key in `STACKORDER_API_KEY` and the repository as `owner/repo` in `STACKORDER_REPOSITORY`. The module tests use `command = plan` only, so they need no backend and no network. A change under `modules/vpc/tests/` is a change under `modules/vpc`, so a pull request that edits it plans the same stacks as the first scenario above.
+`make validate` downloads `stackorder/stackorder` for `stacks/prod/eks`, from the Terraform Registry or the OpenTofu Registry depending on the tool, and needs no server. A plan of any stack needs the state bucket, and a plan of `stacks/prod/eks` also needs a Stackorder server, so plans run only in the end-to-end suite or in a copy with its own server and bucket. Outside a Stackorder job, the provider reads the server URL from `STACKORDER_SERVER_URL`, an API key from `STACKORDER_API_KEY` and the repository as `owner/repo` from `STACKORDER_REPOSITORY`. The module tests use `command = plan` only, so they need no backend and no network. A change under `modules/vpc/tests/` is a change under `modules/vpc`, so a pull request that edits it plans the same stacks as the first scenario above.
 
 ## Hooks
 
@@ -276,24 +278,24 @@ post-plan: stacks/prod/vpc: 4 resources in plan, 0 with changes
 
 It needs `jq` and prints a notice instead when `jq` is missing. Replace it with OPA, Checkov or Infracost and report the verdict with `stackorder check`.
 
-## Repository settings the workflows need
+## Settings for a repository that copies the workflows
 
-`stackorder-plan.yml` and `stackorder-run.yml` call the reusable workflows in `stackorder/actions` at `v1` and read these repository variables (Settings, Secrets and variables, Actions, Variables):
+This repository sets none of these, because its Stackorder workflows never run here. A repository that copies `stackorder-plan.yml` and `stackorder-run.yml` calls the reusable workflows in `stackorder/actions` at `v1` and must set these repository variables (Settings, Secrets and variables, Actions, Variables):
 
 | Variable | Used by | Value |
 | --- | --- | --- |
 | `STACKORDER_SERVER_URL` | plan, run | Base URL of the Stackorder server, for example `https://stackorder.example.com` |
-| `STACKORDER_PLAN_ROLE_ARN` | plan, run | Read-only IAM role for plans and drift checks, trusted for this repository's `pull_request` tokens and for `environment:default` (server-dispatched plan and drift jobs) |
+| `STACKORDER_PLAN_ROLE_ARN` | plan, run | Read-only IAM role for plans and drift checks, trusted for the repository's `pull_request` tokens and for `environment:default` (server-dispatched plan and drift jobs) |
 | `STACKORDER_APPLY_ROLE_ARN_PROD` | run | Apply role for `stacks/prod/` and the `:production` instances, trust policy pinned to environment `production` |
 | `STACKORDER_APPLY_ROLE_ARN_STAGING` | run | Apply role for `stacks/staging/` and the `:staging` instances, trust policy pinned to environment `staging` |
 | `STACKORDER_APPLY_ROLE_ARN_DEFAULT` | run | Apply role for `stacks/legacy/` and the `:shared` instances, trust policy pinned to environments `default` and `shared` |
 
-Role ARNs are not secrets, so they are variables. `stackorder-run.yml` picks the apply role from `aws-role-arn-map`: an exact `path:instance` key first, then a `:instance` key, then the longest path prefix. The `stacks/` stacks match a prefix; the `infra/` instances match `:production`, `:staging` and `:shared`. Also set up:
+Role ARNs are not secrets, so they are variables. `stackorder-run.yml` picks the apply role from `aws-role-arn-map`: an exact `path:instance` key first, then a `:instance` key, then the longest path prefix. The `stacks/` stacks match a prefix; the `infra/` instances match `:production`, `:staging` and `:shared`. The copy also needs:
 
 - GitHub environments `production`, `staging` and `shared`, with required reviewers where your plan allows it. `default` is created on first use, without protection rules.
-- Branch protection on `main` requiring the `stackorder/plan` and `stackorder/apply` checks, one approval (matching `apply.require_approvals`) and code-owner review. Applies run before merge here, so add `apply.require_codeowner_review: true` to `stackorder.yaml` if the apply gate should also insist on a code-owner approval.
-- Shared outputs on the Stackorder server, for `stacks/prod/eks`. The operator sets `STACKORDER_STATE_BUCKETS` to an entry that grants this repository the state bucket, such as `stackorder/example-infra=stackorder-example-state`, and gives the server read access to it. Unset, every plan of `stacks/prod/eks` fails with `outputs_disabled`.
+- Branch protection on `main` requiring the `stackorder/plan` and `stackorder/apply` checks, one approval (matching `apply.require_approvals`) and code-owner review. Applies run before merge under this `stackorder.yaml`, so add `apply.require_codeowner_review: true` to `stackorder.yaml` if the apply gate should also insist on a code-owner approval.
+- Shared outputs on the Stackorder server, for `stacks/prod/eks`. The operator sets `STACKORDER_STATE_BUCKETS` to an entry that grants the copy its state bucket, such as `acme/example-infra=stackorder-example-state`, and gives the server read access to it. Unset, every plan of `stacks/prod/eks` fails with `outputs_disabled`.
 - An apply or drift job of `stacks/prod/vpc` on Stackorder CLI 0.4.0 or later before the first plan of `stacks/prod/eks`, so that the server knows where the VPC state lives; a scheduled drift check is enough. The reusable workflows install the latest CLI unless `stackorder-version` pins one, and they grant the `id-token: write` the provider needs.
-- The teams named in `.github/CODEOWNERS`: `@stackorder/platform-prod` owns `stacks/prod/**`; `@stackorder/platform-eng` owns `stacks/staging/**`, `modules/**` and `infra/**`.
+- Its own teams in `.github/CODEOWNERS`. Here `@stackorder/platform-prod` owns `stacks/prod/**`, and `@stackorder/platform-eng` owns `stacks/staging/**`, `modules/**` and `infra/**`.
 
-`validate.yml` needs no settings.
+`validate.yml` needs no settings, and it is the one workflow that runs in this repository.
