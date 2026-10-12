@@ -13,7 +13,7 @@ The manifest the server generates, in `internal/gh/manifest.go`, requests these 
 | Permission | Level | Why | Needed when |
 | --- | --- | --- | --- |
 | Metadata | Read | Required for any App | Always |
-| Contents | Read | Read `stackorder.yaml`, `.stackorder.yaml` files and `CODEOWNERS` at the default branch, and branch heads | Always |
+| Contents | Read | Read `stackorder.yaml`, `.stackorder.yaml` files and `CODEOWNERS` at the default branch, and branch heads. GitHub grants it on every file of an installed repository, not only these | Always |
 | Pull requests | Write | The sticky comment, the comment of each apply, refusal comments, reactions to commands, reviews, mergeability and head commits | Always |
 | Checks | Write | One check run per stack per phase, the roll-ups, named checks | Always |
 | Actions | Write | `workflow_dispatch` of `stackorder-run.yml`; reading workflow runs and jobs to reconcile | Always |
