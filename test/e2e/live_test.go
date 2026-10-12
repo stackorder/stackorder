@@ -55,7 +55,6 @@ func TestLiveGitHub(t *testing.T) {
 
 	checks := []string{
 		report.CheckResolve,
-		report.CheckPlan,
 		report.StackCheckName(report.CheckPlan, prodVPC),
 		report.StackCheckName(report.CheckPlan, stagingVPC),
 	}
