@@ -15,6 +15,11 @@
   <a href="https://github.com/stackorder/stackorder">stackorder/stackorder</a>
 </p>
 
+<p align="center">
+  <a href="LICENSE"><img alt="Licence: Apache-2.0" src="https://img.shields.io/badge/licence-Apache--2.0-blue"></a>
+  <a href="https://github.com/stackorder/example-infra/actions/workflows/validate.yml"><img alt="Validate" src="https://github.com/stackorder/example-infra/actions/workflows/validate.yml/badge.svg"></a>
+</p>
+
 # Stackorder example infrastructure
 
 A small Terraform monorepo wired for [Stackorder](https://github.com/stackorder/stackorder). Its dependency graph has two local modules consumed by stacks, a module that calls another module, explicit `depends_on` edges, an inferred `terraform_remote_state` edge, a suppressed one, an edge inferred from a stack that reads another stack's outputs through the Stackorder server, a stack that falls back to the `default` environment, and a directory deployed once per environment as [stack instances](#stack-instances).
@@ -300,3 +305,7 @@ Role ARNs are not secrets, so they are variables. `stackorder-run.yml` picks the
 - Its own teams in `.github/CODEOWNERS`. Here `@stackorder/platform-prod` owns `stacks/prod/**`, and `@stackorder/platform-eng` owns `stacks/staging/**`, `modules/**` and `infra/**`.
 
 `validate.yml` needs no settings, and it is the only workflow whose jobs run in this repository.
+
+## License
+
+[Apache License 2.0](LICENSE)
