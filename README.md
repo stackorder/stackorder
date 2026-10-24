@@ -296,7 +296,7 @@ make sync-example     # refresh the vendored copy of example-infra used by the i
 - **The UI** has Vitest and Playwright tests.
 - **The Terraform module** has `terraform test` suites and is validated, with its examples, on Terraform 1.11 and 1.14.
 
-Not covered by any suite: a real GitHub organisation, real AWS, and GitHub Enterprise Server, which is supported through configuration but has not been run against.
+GitHub Enterprise Server is supported through configuration but has not been run against.
 
 ## Documentation
 

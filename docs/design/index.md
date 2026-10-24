@@ -793,11 +793,7 @@ stackorder/terraform-provider-stackorder
 stackorder/example-infra           Demo monorepo used by end-to-end tests
 ```
 
-End-to-end tests run against a throwaway GitHub org and a LocalStack S3 bucket; unit tests cover the graph package exhaustively since that is where the correctness risk sits.
-
-::: info Implementation note
-The end-to-end tests use no real GitHub organization. GitHub and its Actions token service are in-memory fakes, and the server runs in-process, because a real organization only delivers webhooks to a server it can reach. `stackorder/example-infra` never runs against live infrastructure. See [How the gates are demonstrated](./roadmap#testing).
-:::
+End-to-end tests run the real Terraform and OpenTofu binaries against a LocalStack S3 bucket, with an in-process server and in-memory fakes for GitHub and its Actions token service. Unit tests cover the graph package exhaustively since that is where the correctness risk sits. See [How the gates are demonstrated](./roadmap#testing).
 
 ### Open questions {#open-questions}
 
