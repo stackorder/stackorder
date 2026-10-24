@@ -7,14 +7,10 @@
 // as a separate process for every job, with the environment, event payload
 // and OIDC token endpoint an Actions runner gives it.
 //
-// The design runs these tests against a throwaway GitHub organisation. A
-// real organisation delivers webhooks only to a publicly reachable server
-// and mints runner tokens only inside its own Actions jobs, so the suite
-// stands GitHub in with internal/testutil/ghfake and the Actions token
-// service with internal/testutil/oidcfake, and plays the runner itself: it
+// The suite stands GitHub in with internal/testutil/ghfake and the Actions
+// token service with internal/testutil/oidcfake, and plays the runner itself: it
 // performs the checkouts, uploads and downloads plan artifacts, and
-// delivers the webhooks GitHub would send. The example never runs against
-// a real GitHub organisation, a deployed server or an AWS account.
+// delivers the webhooks GitHub would send.
 //
 // TestEndToEnd tells one story per tool, terraform and tofu, selected by
 // the repository's tool setting: adopting the repository, bootstrapping
