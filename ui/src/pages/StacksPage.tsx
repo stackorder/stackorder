@@ -16,7 +16,7 @@ import { usePageTitle } from '../usePageTitle';
 export function matchesStack(s: Pick<StackDetail, 'key' | 'repo' | 'path' | 'environment'>, filter: string): boolean {
   const q = filter.trim().toLowerCase();
   if (!q) return true;
-  return [s.key, s.repo, s.path, s.environment ?? ''].some((v) => v.toLowerCase().includes(q));
+  return [s.key, s.repo, s.path, s.environment ?? 'default'].some((v) => v.toLowerCase().includes(q));
 }
 
 function LastApply({ stack }: { stack: StackDetail }) {
@@ -81,7 +81,7 @@ export function StacksPage() {
         columns={[
           { key: 'key', header: 'Stack', render: (s) => <a href={`/stacks/${encodeURIComponent(s.id)}`}>{s.key}</a> },
           { key: 'repo', header: 'Repository', render: (s) => <a href={repoPath(s.repo)}>{s.repo}</a> },
-          { key: 'environment', header: 'Environment', render: (s) => s.environment ?? <span class="muted">—</span> },
+          { key: 'environment', header: 'Environment', render: (s) => s.environment ?? 'default' },
           { key: 'apply', header: 'Last apply', render: (s) => <LastApply stack={s} /> },
           {
             key: 'drift',

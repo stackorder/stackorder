@@ -19,12 +19,17 @@ describe('matchesStack', () => {
     ['  eks ', true],
     ['staging', false],
     ['network', false],
+    ['default', false],
   ])('filter %j matches: %s', (q, want) => {
     expect(matchesStack(stack, q)).toBe(want);
   });
 
   it('does not match an environment the stack does not have', () => {
     expect(matchesStack({ key: 'stacks/shared/iam', repo: 'acme/platform-infra', path: 'stacks/shared/iam' }, 'prod')).toBe(false);
+  });
+
+  it('matches a stack without an environment as default', () => {
+    expect(matchesStack({ key: 'stacks/shared/iam', repo: 'acme/platform-infra', path: 'stacks/shared/iam' }, 'Default')).toBe(true);
   });
 });
 
@@ -63,7 +68,7 @@ describe('StacksPage', () => {
     expect(cells(apps).slice(3)).toEqual(['—', 'in sync', 'locked']);
 
     const iam = nth(rows, 13);
-    expect(cells(iam)).toEqual(['stacks/shared/iam', 'acme/platform-infra', '—', '—', '—', '—']);
+    expect(cells(iam)).toEqual(['stacks/shared/iam', 'acme/platform-infra', 'default', '—', '—', '—']);
     expect(within(iam).getByRole('link', { name: 'acme/platform-infra' })).toHaveAttribute('href', '/repos/acme/platform-infra');
 
     const dns = within(table).getByRole('link', { name: 'stacks/edge/dns' }).closest('tr');
@@ -116,6 +121,16 @@ describe('StacksPage', () => {
         .getAllByRole('link', { name: /^stacks\// })
         .map((a) => a.textContent),
     ).toEqual(['stacks/staging/eks', 'stacks/staging/vpc', 'stacks/transit/staging']);
+
+    fireEvent.input(screen.getByLabelText('Filter'), { target: { value: 'default' } });
+    await waitFor(() => {
+      expect(
+        within(screen.getByRole('table', { name: 'Stacks' }))
+          .getAllByRole('link', { name: /^stacks\// })
+          .map((a) => a.textContent),
+      ).toEqual(['stacks/transit/hub', 'stacks/shared/eks', 'stacks/shared/iam']);
+    });
+    expect(screen.getByText('3 of 14')).toBeInTheDocument();
 
     fireEvent.input(screen.getByLabelText('Filter'), { target: { value: 'nothing-matches' } });
     expect(await screen.findByText('No stack matches the filter.')).toBeInTheDocument();
