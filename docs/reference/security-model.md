@@ -10,8 +10,8 @@ No single compromise reaches infrastructure while [shared outputs](#shared-outpu
 
 | Compromised | Can | Cannot |
 | --- | --- | --- |
-| Stackorder server | Dispatch `stackorder-run.yml` in installed repos, post checks and comments, read `stackorder.yaml`, read plan summaries and capped plan text, answer its own deployment protection rule where one is configured; with [shared outputs](#shared-outputs) on, read the whole state objects its role may read, secrets included, and answer reads of outputs with values of its choosing, which the reading stacks' plans and applies use | Write Terraform state; read any without shared outputs, or beyond the objects its role may read with them; assume any AWS role other than the state role of shared outputs; change workflow files, read repo secrets, approve pull requests, pass an environment's required reviewers |
-| A PR author with write access | Trigger plans on their PR, comment `stackorder apply` if policy allows; add a stack or instance that nothing on the default branch maps, so that an instance applies under an unprotected environment of its own name and a stack without instances under `default`, which has no reviewers; only an [IAM trust policy pinned to the environment](/configuration/environments-and-authorization#instances) stops such an apply | Bypass required approvals, branch protection or GitHub environment reviewers; skip policy checks recorded on the stack |
+| Stackorder server | Dispatch `stackorder-run.yml` in installed repos, post checks and comments, read `stackorder.yaml`, read plan summaries, capped plan text and each stack's [resource list](#resource-lists), answer its own deployment protection rule where one is configured; with [shared outputs](#shared-outputs) on, read the whole state objects its role may read, secrets included, and answer reads of outputs with values of its choosing, which the reading stacks' plans and applies use | Write Terraform state; read any without shared outputs, or beyond the objects its role may read with them; assume any AWS role other than the state role of shared outputs; change workflow files, read repo secrets, approve pull requests, pass an environment's required reviewers |
+| A PR author with write access | Trigger plans on their PR, comment `stackorder apply` if policy allows; in `before_merge` mode, have the apply of their code report any [resource list](#resource-lists) for its stacks; add a stack or instance that nothing on the default branch maps, so that an instance applies under an unprotected environment of its own name and a stack without instances under `default`, which has no reviewers; only an [IAM trust policy pinned to the environment](/configuration/environments-and-authorization#instances) stops such an apply | Bypass required approvals, branch protection or GitHub environment reviewers; skip policy checks recorded on the stack |
 | A modified workflow in a PR | Change what runs in the plan job on that PR | Post results the server accepts, when `STACKORDER_REQUIRED_WORKFLOW_REF` pins the reusable workflow; assume the AWS role, when the role's trust policy pins `job_workflow_ref` or the environment |
 | A leaked App private key | Everything the server can, except reading state for shared outputs, which takes the server's AWS role | Everything the server cannot; rotate in the App settings and redeploy |
 
@@ -45,7 +45,7 @@ Rotating anything means rotating the App's private key, which runners never see.
 
 | Boundary | What crosses it |
 | --- | --- |
-| GitHub to server | Webhook payloads (HMAC-signed); from runners, JSON manifests and result summaries. No repository contents beyond file paths and parsed dependency edges. |
+| GitHub to server | Webhook payloads (HMAC-signed); from runners, JSON manifests and result summaries, and from apply and drift jobs each stack's [resource list](#resource-lists), with no values. No repository contents beyond file paths and parsed dependency edges. |
 | Server to GitHub | App installation tokens, scoped to one installation and valid for an hour, used for `workflow_dispatch`, check runs and comments. |
 | Runner to AWS | Your role, assumed with `aws-actions/configure-aws-credentials` and a trust policy pinned to the repository and environment. State, lock and plan files never leave this zone, except the state objects the server reads for [shared outputs](#shared-outputs). |
 | Server to your state buckets | Only with [shared outputs](#shared-outputs) on: `s3:GetObject` on the state objects under `STACKORDER_STATE_BUCKETS`, each entry granted to one repository, with the server's own role or the role `STACKORDER_STATE_ROLE_ARN` names, assumed through STS. The server keeps the `outputs` block in memory and returns the outputs the producer shares, with the state's serial, lineage and Terraform version, to the reading job or API key; nothing else of the object leaves the server, and nothing is written back. |
@@ -89,16 +89,24 @@ It still cannot write state while its role grants only reads, nor assume the rol
 ## Secrets in plan output {#plan-secrets}
 
 - Terraform and OpenTofu already mask values marked `sensitive`.
-- The CLI redacts everything it sends to the server, the step summary or a fallback check: private keys, tokens, password assignments and the values of secret-named environment variables. In Actions it also registers those values with `::add-mask::`. See [CLI secrets](/reference/cli#secrets).
+- The CLI redacts the text it sends to the server, the step summary or a fallback check: private keys, tokens, password assignments and the values of secret-named environment variables. In Actions it also registers those values with `::add-mask::`. See [CLI secrets](/reference/cli#secrets).
 - Plan text sent to the server is truncated at 256 KB.
 - The API returns that redacted text, from Postgres or from the [artifact bucket](/reference/server-configuration#artifact-bucket), only to people who can see the repository, to API keys and to the jobs of the run itself.
-- `plan_output: summary`, per repository or per stack, sends only resource counts and addresses to the server and the PR comment.
+- `plan_output: summary`, per repository or per stack, sends no plan text: only resource counts and the addresses of changes go to the server and the PR comment. Apply and drift jobs still send the server the stack's [resource list](#resource-lists).
 
 The full plan lives only in the job log and the plan artifact, both governed by the repository's own access rules and artifact retention.
 
+## Resource lists {#resource-lists}
+
+Apply and drift jobs read the stack's state on the runner and send the server its [resource list](/guide/concepts#resources): the address, type, module address and provider of each managed resource, and whether it is tainted or has a deposed object. Attribute values, outputs, identity and dependencies never leave the runner, and neither do data sources. The CLI captures the state without printing it to the job log or writing it to disk; see the [CLI reference](/reference/cli#plan).
+
+- **It is self-reported.** The list is what the job says the state holds. An apply or drift job runs the repository's code, and in the default `before_merge` mode an apply runs a pull request's code, which can post any list for its stack with the job's OIDC token. Treat the list as a view of the state, not proof of what exists.
+- **Addresses can carry data.** `for_each` keys come from configuration and appear in addresses. The CLI redacts secret-shaped strings and secret-named environment values in the list; the addresses in plan summaries are not redacted.
+- **Who reads it.** `GET /v1/stacks/{id}/resources` and the stack page serve it to people who can see the repository and to API keys, never to runner tokens.
+
 ## Data retention {#retention}
 
-Plan text is kept 30 days by default, summaries and run history indefinitely, queue events 7 days and drift history 90 days. The periods are set with `STACKORDER_PLAN_TEXT_RETENTION`, `STACKORDER_EVENT_RETENTION` and `STACKORDER_DRIFT_RETENTION`. See [Data model](/reference/data-model#retention).
+Plan text is kept 30 days by default, summaries and run history indefinitely, each stack's latest resource list until a newer one replaces it, queue events 7 days and drift history 90 days. The periods are set with `STACKORDER_PLAN_TEXT_RETENTION`, `STACKORDER_EVENT_RETENTION` and `STACKORDER_DRIFT_RETENTION`. See [Data model](/reference/data-model#retention).
 
 ## Availability {#availability}
 
