@@ -5,6 +5,7 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -233,6 +234,7 @@ func (s *story) run(t *testing.T) {
 		{"shared_checkout", s.sharedCheckout},
 		{"watch_path", s.watchPath},
 		{"vanished_job", s.vanishedJob},
+		{"resources", s.resources},
 	}
 	for _, step := range steps {
 		if !t.Run(step.name, step.fn) {
@@ -1214,4 +1216,105 @@ func (s *story) vanishedJob(t *testing.T) {
 		assert.Equal(t, 6, locks[key], "#6 keeps the lock on %s after its apply failed", key)
 	}
 	s.noLockObjects(t)
+}
+
+func (s *story) resources(t *testing.T) {
+	objects := map[string]string{sandboxBlue: "env:/blue/sandbox/blue.tfstate", prodQueue: "prod/queue.tfstate"}
+	for key, object := range stateKeys {
+		objects[key] = object
+	}
+	keys := append(slices.Collect(maps.Keys(objects)), stagingQueue)
+	bodies := make([]string, 0, len(keys))
+	lists := map[string]v1.StackResources{}
+	for _, key := range keys {
+		stack, err := s.cp.store.GetStackByKey(t.Context(), repoID, key)
+		require.NoError(t, err, key)
+		status, body := s.cp.do(t, http.MethodGet, "/v1/stacks/"+stack.ID.String()+"/resources", nil, true)
+		require.Equal(t, http.StatusOK, status, "GET the resources of %s: %s", key, body)
+		bodies = append(bodies, string(body))
+		var list v1.StackResources
+		require.NoError(t, json.Unmarshal(body, &list), key)
+		require.NotNil(t, list.Items, "%s: items is never null", key)
+		lists[key] = list
+	}
+
+	changes := map[string]map[string]v1.ResourceChange{}
+	for key, object := range objects {
+		list := lists[key]
+		require.NotEmpty(t, list.RunID, "a job of %s reported its list", key)
+		assert.Contains(t, []v1.RunMode{v1.ModeApply, v1.ModeDrift}, list.Mode, key)
+		assert.NotNil(t, list.ReportedAt, key)
+		want := s.ls.requireState(t, object).resources()
+		require.NotEmpty(t, want, "%s state holds managed resources", key)
+		got := make([]v1.StackResource, len(list.Items))
+		changes[key] = map[string]v1.ResourceChange{}
+		for i, it := range list.Items {
+			if it.LastChange != nil {
+				changes[key][it.Address] = *it.LastChange
+			}
+			it.LastChange = nil
+			got[i] = it
+		}
+		assert.Equal(t, want, got, "the list of %s is the managed resources of %s in LocalStack", key, object)
+		assert.Equal(t, len(want), list.Total, key)
+		assert.False(t, list.Truncated, key)
+	}
+	assert.Empty(t, lists[stagingQueue].RunID, "the vanished job of %s never reported a list", stagingQueue)
+	assert.Zero(t, lists[stagingQueue].Total)
+	assert.Empty(t, lists[stagingQueue].Items)
+
+	for _, it := range lists[prodApps].Items {
+		assert.NotContains(t, []string{"data.terraform_remote_state.vpc", "terraform_remote_state.vpc"}, it.Address, "a data source is never listed")
+	}
+	assert.Equal(t, []string{"terraform_data.app"}, s.ls.requireState(t, stateKeys[prodApps]).addresses(), "the state's data source is not a resource")
+
+	legacy := lists[legacyDNS]
+	assert.Equal(t, s.manualRuns[legacyDNS], legacy.RunID, "%s still has the list of its bootstrap apply --local", legacyDNS)
+	assert.Equal(t, v1.ModeApply, legacy.Mode)
+	for _, key := range []string{stagingApps, prodEKS, kycStaging, registryShared} {
+		assert.Equal(t, v1.ModeDrift, lists[key].Mode, "the drift check of %s reported the latest list", key)
+	}
+	for _, key := range []string{prodVPC, kycProduction, sandboxBlue, prodQueue} {
+		assert.Equal(t, v1.ModeApply, lists[key].Mode, "the last apply of %s reported the latest list", key)
+	}
+
+	vpc := changes[prodVPC]
+	routeTable := vpc["module.vpc.terraform_data.route_table"]
+	assert.Equal(t, v1.ResourceAction("create"), routeTable.Action)
+	assert.Equal(t, 2, routeTable.PRNumber, "#2 created the route table")
+	assert.NotNil(t, routeTable.FinishedAt)
+	dhcp := vpc["module.vpc.terraform_data.dhcp_options"]
+	assert.Equal(t, v1.ResourceAction("create"), dhcp.Action)
+	assert.Equal(t, 4, dhcp.PRNumber, "#4 created the DHCP options in the run whose staging apply failed")
+	assert.Equal(t, lists[prodVPC].RunID, dhcp.RunID, "the last apply of prod/vpc reported its list")
+	bootstrapped := vpc["module.vpc.terraform_data.vpc"]
+	assert.Equal(t, v1.ResourceAction("create"), bootstrapped.Action)
+	assert.Equal(t, s.manualRuns[prodVPC], bootstrapped.RunID, "the bootstrap apply --local created the VPC")
+	assert.Zero(t, bootstrapped.PRNumber, "a manual run has no pull request")
+	app := changes[prodApps]["terraform_data.app"]
+	assert.Equal(t, v1.ResourceAction("update"), app.Action)
+	assert.Equal(t, 2, app.PRNumber, "#2 last changed the app; #4 never reached it")
+
+	const redactionMarker = "***"
+	for i, body := range bodies {
+		assert.NotContains(t, body, plaintextSecret, "resources response %d", i)
+		assert.NotContains(t, body, redactionMarker, "resources response %d", i)
+	}
+	rows, err := s.cp.store.Pool().Query(t.Context(), `
+		SELECT s.key, to_jsonb(sr)::text FROM stack_resources sr JOIN stacks s ON s.id = sr.stack_id WHERE s.repo_id = $1`, repoID)
+	require.NoError(t, err)
+	stored := map[string]string{}
+	for rows.Next() {
+		var key, row string
+		require.NoError(t, rows.Scan(&key, &row))
+		stored[key] = row
+	}
+	require.NoError(t, rows.Err())
+	rows.Close()
+	assert.ElementsMatch(t, slices.Collect(maps.Keys(objects)), slices.Collect(maps.Keys(stored)), "one stack_resources row per stack a job reported for")
+	for key, row := range stored {
+		assert.NotContains(t, row, plaintextSecret, key)
+		assert.NotContains(t, row, redactionMarker, key)
+	}
+	assert.Contains(t, stored[prodVPC], "module.vpc.terraform_data.route_table", "the row holds the list")
 }

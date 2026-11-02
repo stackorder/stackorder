@@ -24,8 +24,10 @@
 // planning, applying and drift-checking the instances of one directory,
 // each with its own var file, per-mode env, environment and state object,
 // planning them one after another in a single checkout, affecting them
-// through a shared backend config file, and failing a run whose job ended
-// without reporting. A tool whose binary is missing is skipped.
+// through a shared backend config file, failing a run whose job ended
+// without reporting, and reading every stack's resource list, which must
+// equal the managed resources of its state in LocalStack and carry no
+// secret. A tool whose binary is missing is skipped.
 //
 // The example's stacks/prod/eks reads the outputs of stacks/prod/vpc with
 // the stackorder provider, which each tool installs from its own registry.
