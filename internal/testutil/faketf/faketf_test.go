@@ -153,6 +153,24 @@ func TestShow(t *testing.T) {
 	assert.Equal(t, 1, r.code)
 }
 
+func TestShowState(t *testing.T) {
+	const state = `{"format_version":"1.0","values":{"root_module":{"resources":[{"address":"terraform_data.vpc","mode":"managed","type":"terraform_data"}]}}}`
+	f := newFixture(t)
+	f.cfg.Stacks["stacks/prod/apps"] = Behavior{StateJSON: state}
+
+	r := f.run("stacks/prod/apps", "show", "-json", "-no-color")
+	require.Equal(t, 0, r.code, r.stderr)
+	assert.JSONEq(t, state, r.stdout)
+
+	r = f.run("other", "show", "-json", "-no-color")
+	require.Equal(t, 0, r.code, r.stderr)
+	assert.JSONEq(t, EmptyState, r.stdout)
+
+	r = f.run("stacks/prod/apps", "show", "-json", "-no-color", filepath.Join(t.TempDir(), "missing"))
+	assert.Equal(t, 1, r.code)
+	assert.Contains(t, r.stderr, "Failed to read the given file")
+}
+
 func TestApply(t *testing.T) {
 	f := newFixture(t)
 	plan := filepath.Join(t.TempDir(), "p.tfplan")
