@@ -417,6 +417,8 @@ The App is the server's only identity towards GitHub and the only way GitHub rea
 
 ::: info Implementation note
 The manifest `/setup` generates requests the Issues, Members and Deployments permissions too, so turning those features on needs no change to the App; on GitHub Enterprise Server it leaves out Deployments. See [GitHub App](/reference/github-app#permissions).
+
+The server also reads `.stackorder.yaml` files and `CODEOWNERS` with `Contents: Read`, and GitHub grants that permission on every file of an installed repository, not only the files the server reads.
 :::
 
 No `Secrets`, `Administration`, `Environments` or `Workflows` permission: the App cannot change workflow files, secrets, environments or protection rules, which keeps a compromised server from widening its own access. An App also cannot be a required reviewer on an environment, so even the optional Deployments permission never lets the server approve a human gate; it only lets the server answer for its own protection rule.
@@ -582,6 +584,8 @@ The design goal is that no single compromise reaches infrastructure: the server 
 
 ::: info Implementation note
 With [shared outputs](/configuration/outputs) on, the server is no longer without cloud access: its role can read the whole state objects under the buckets and prefixes of `STACKORDER_STATE_BUCKETS`, and so can whoever compromises it, along with any secret in them and whatever those secrets open. It can also answer reads of outputs with values of its choosing, which the reading stacks' plans and applies use; an ephemeral read is made again at apply time, so a reviewed plan does not show the values its apply uses. With the feature on, the design goal that no single compromise reaches infrastructure no longer holds. It still cannot write state while its role grants only reads, nor assume the roles the jobs use. A leaked App private key does not reach the state, which takes the server's AWS role. The trade, and the narrow grant, CloudTrail data events and other controls that bound it, are on [Security model](/reference/security-model#shared-outputs).
+
+Through `Contents: Read`, a compromised server, or whoever holds a leaked App private key, can also read every file of the installed repositories, not only `stackorder.yaml`. See [Security model](/reference/security-model#compromise).
 :::
 
 **Controls that belong to GitHub, not to Stackorder**
