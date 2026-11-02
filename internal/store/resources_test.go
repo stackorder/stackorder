@@ -186,7 +186,7 @@ func TestStackResourceChanges(t *testing.T) {
 		SHA      string
 		PRNumber int
 	}
-	var compact []change
+	compact := make([]change, 0, len(got))
 	for _, c := range got {
 		compact = append(compact, change{c.Address, c.Action, c.RunID, c.SHA, c.PRNumber})
 	}
