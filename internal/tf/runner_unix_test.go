@@ -212,6 +212,30 @@ func TestShowJSON(t *testing.T) {
 	assert.Empty(t, stdout.String(), "plan JSON must not be streamed to the log")
 }
 
+func TestShowStateJSON(t *testing.T) {
+	const state = `{"format_version":"1.0","values":{"root_module":{"resources":[{"address":"terraform_data.x","mode":"managed","type":"terraform_data","values":{"input":"hunter2hunter2"}}]}}}`
+	f := newFakeTF(t, "terraform")
+	var stdout bytes.Buffer
+	r := f.runner(f.stdoutFile(state))
+	r.Stdout = &stdout
+	raw, err := r.ShowStateJSONRaw(f.ctx())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"show", "-json", "-no-color"}, f.lastCall().Args)
+	assert.JSONEq(t, state, string(raw))
+	assert.Empty(t, stdout.String(), "state JSON must not be streamed to the log")
+	assert.NotContains(t, f.output.String(), "hunter2hunter2")
+}
+
+func TestShowStateJSONFailure(t *testing.T) {
+	f := newFakeTF(t, "terraform")
+	r := f.runner(f.stdoutFile(`{"format_version":"1.0","values":{"outputs":{"x":{"value":"hunter2hunter2"`), "FAKE_TF_EXIT=1", "FAKE_TF_STDERR=Error: No state file was found!")
+	raw, err := r.ShowStateJSONRaw(f.ctx())
+	require.Error(t, err)
+	assert.Nil(t, raw)
+	assert.Equal(t, "terraform show exited with code 1: Error: No state file was found!", err.Error())
+	assert.NotContains(t, f.output.String(), "hunter2hunter2")
+}
+
 func TestShowJSONErrors(t *testing.T) {
 	tests := []struct {
 		name    string
