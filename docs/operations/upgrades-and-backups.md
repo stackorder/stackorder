@@ -41,7 +41,7 @@ To go back, deploy the previous image. The server never runs down migrations, so
 
 ## Backups {#backups}
 
-Postgres holds the graphs, the run history, the locks, drift results, sessions, API keys, the work queue, where each stack's state object lives and each stack's resource list, with no values. Terraform state itself is never there.
+Postgres holds the graphs, the run history, the locks, drift results, sessions, API keys, the work queue, where each stack's state object lives and each stack's resource list, with no attribute values. Terraform state itself is never there.
 
 - **RDS or Aurora:** turn on automated backups with point-in-time recovery.
 - **Elsewhere:** use your platform's snapshots or `pg_dump` on a schedule.

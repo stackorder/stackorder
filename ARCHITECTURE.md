@@ -589,7 +589,7 @@ a store error is logged at warn level without failing the result.
 `v1.StackResult.Resources` is a `v1.ResourceList` (`total`, `truncated`,
 `items` of `v1.StackResource`: `address`, `type`, `module`, `provider`,
 `tainted`, `deposed`), the managed resources of the stack's persisted
-state, never a value. The CLI reads it with `tf.Runner.ShowStateJSONRaw`
+state, never an attribute value. The CLI reads it with `tf.Runner.ShowStateJSONRaw`
 (`show -json -no-color` with no file, through `capture`, so nothing is
 streamed or written) in apply jobs whenever the tool ran, failed applies
 included, after the post-apply hook, and in drift jobs after the plan
