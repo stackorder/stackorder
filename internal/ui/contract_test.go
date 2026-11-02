@@ -216,8 +216,9 @@ func TestTypesMirrorAPI(t *testing.T) {
 		"AffectedStack", "ApiErrorBody", "AuditEntry", "Backend", "Check", "CreateRunResponse", "DriftStatus",
 		"Edge", "Graph", "GraphView", "LockInfo", "Matrix", "MatrixEntry", "Module", "ModuleConsume",
 		"ModuleConsumer", "ModuleDetail", "ModuleVersion", "NodeRef", "Overview", "Page", "PlanSummary",
-		"RepoSummary", "Run", "RunStack", "RunStackRef", "Stack", "StackApplyConfig", "StackConfig",
-		"StackDetail", "UnlockRequest", "UnlockResponse", "Whoami",
+		"RepoSummary", "ResourceChange", "Run", "RunStack", "RunStackRef", "Stack", "StackApplyConfig",
+		"StackConfig", "StackDetail", "StackResource", "StackResources", "UnlockRequest", "UnlockResponse",
+		"Whoami",
 	}
 	for _, name := range required {
 		if _, ok := interfaces[name]; !ok {
@@ -316,18 +317,19 @@ func checkEnums(t *testing.T, enums map[string][]string, where string, v reflect
 func TestFixturesAreAPIResponses(t *testing.T) {
 	enums := parseGoAPI(t).enums
 	decoders := map[string]func() any{
-		"me.json":          func() any { return new(v1.Whoami) },
-		"overview.json":    func() any { return new(v1.Overview) },
-		"repos.json":       func() any { return new(v1.Page[v1.RepoSummary]) },
-		"graph.json":       func() any { return new(v1.GraphView) },
-		"graph-run.json":   func() any { return new(v1.GraphView) },
-		"runs.json":        func() any { return new(v1.Page[v1.Run]) },
-		"run.json":         func() any { return new(v1.Run) },
-		"stack.json":       func() any { return new(v1.StackDetail) },
-		"stack-runs.json":  func() any { return new(v1.Page[v1.RunStackRef]) },
-		"repo-stacks.json": func() any { return new(v1.Page[v1.StackDetail]) },
-		"modules.json":     func() any { return new(v1.Page[v1.ModuleDetail]) },
-		"module.json":      func() any { return new(v1.ModuleDetail) },
+		"me.json":              func() any { return new(v1.Whoami) },
+		"overview.json":        func() any { return new(v1.Overview) },
+		"repos.json":           func() any { return new(v1.Page[v1.RepoSummary]) },
+		"graph.json":           func() any { return new(v1.GraphView) },
+		"graph-run.json":       func() any { return new(v1.GraphView) },
+		"runs.json":            func() any { return new(v1.Page[v1.Run]) },
+		"run.json":             func() any { return new(v1.Run) },
+		"stack.json":           func() any { return new(v1.StackDetail) },
+		"stack-runs.json":      func() any { return new(v1.Page[v1.RunStackRef]) },
+		"stack-resources.json": func() any { return new(v1.StackResources) },
+		"repo-stacks.json":     func() any { return new(v1.Page[v1.StackDetail]) },
+		"modules.json":         func() any { return new(v1.Page[v1.ModuleDetail]) },
+		"module.json":          func() any { return new(v1.ModuleDetail) },
 	}
 	files, err := filepath.Glob(filepath.Join(fixturesDir, "*.json"))
 	if err != nil {

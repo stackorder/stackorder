@@ -34,6 +34,7 @@ describe('ApiClient requests', () => {
     ['repoRuns', (a: ApiClient) => a.repoRuns('acme', 'infra'), '/v1/repos/acme/infra/runs'],
     ['stack', (a: ApiClient) => a.stack(id), `/v1/stacks/${id}`],
     ['stackRuns', (a: ApiClient) => a.stackRuns(id), `/v1/stacks/${id}/runs`],
+    ['stackResources', (a: ApiClient) => a.stackResources(id), `/v1/stacks/${id}/resources`],
     ['module', (a: ApiClient) => a.module(id), `/v1/modules/${id}`],
     ['run', (a: ApiClient) => a.run(id), `/v1/runs/${id}`],
     ['encoded segment', (a: ApiClient) => a.run('a/b c'), '/v1/runs/a%2Fb%20c'],

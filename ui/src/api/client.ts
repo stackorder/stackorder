@@ -9,6 +9,7 @@ import type {
   Run,
   RunStackRef,
   StackDetail,
+  StackResources,
   UnlockRequest,
   UnlockResponse,
   Whoami,
@@ -156,6 +157,11 @@ export class ApiClient {
   /** GET /v1/stacks/{id}/runs: the stack's history, newest first. */
   stackRuns(id: string, opts?: RequestOptions): Promise<Page<RunStackRef>> {
     return this.get(`/v1/stacks/${segment(id)}/runs`, opts);
+  }
+
+  /** GET /v1/stacks/{id}/resources: the resources in the stack's state as its last apply or drift job reported them. */
+  stackResources(id: string, opts?: RequestOptions): Promise<StackResources> {
+    return this.get(`/v1/stacks/${segment(id)}/resources`, opts);
   }
 
   /** GET /v1/modules, every page: every module the server tracks. */

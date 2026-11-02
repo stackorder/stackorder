@@ -1,0 +1,89 @@
+{
+  "run_id": "d2f4a6c8-e0b2-4d4f-96a8-cae0b2d4f699",
+  "mode": "drift",
+  "sha": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+  "reported_at": "2026-09-28T06:05:44Z",
+  "changed_at": "2026-09-21T14:12:03Z",
+  "total": 11,
+  "items": [
+    {
+      "address": "aws_security_group_rule.cluster_ingress_vpn",
+      "type": "aws_security_group_rule",
+      "provider": "registry.opentofu.org/hashicorp/aws"
+    },
+    {
+      "address": "module.eks.aws_eks_addon.coredns",
+      "type": "aws_eks_addon",
+      "module": "module.eks",
+      "provider": "registry.opentofu.org/hashicorp/aws",
+      "last_change": {
+        "action": "create",
+        "run_id": "9e1a3c5e-7b9d-4f1a-a3c5-e7b9d1f3a588",
+        "sha": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+        "pr_number": 38,
+        "finished_at": "2026-09-21T14:12:03Z"
+      }
+    },
+    {
+      "address": "module.eks.aws_eks_addon.kube_proxy",
+      "type": "aws_eks_addon",
+      "module": "module.eks",
+      "provider": "registry.opentofu.org/hashicorp/aws",
+      "last_change": {
+        "action": "create",
+        "run_id": "9e1a3c5e-7b9d-4f1a-a3c5-e7b9d1f3a588",
+        "sha": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+        "pr_number": 38,
+        "finished_at": "2026-09-21T14:12:03Z"
+      }
+    },
+    {
+      "address": "module.eks.aws_eks_cluster.this",
+      "type": "aws_eks_cluster",
+      "module": "module.eks",
+      "provider": "registry.opentofu.org/hashicorp/aws"
+    },
+    {
+      "address": "module.eks.aws_eks_node_group.default",
+      "type": "aws_eks_node_group",
+      "module": "module.eks",
+      "provider": "registry.opentofu.org/hashicorp/aws"
+    },
+    {
+      "address": "module.eks.aws_iam_role.cluster",
+      "type": "aws_iam_role",
+      "module": "module.eks",
+      "provider": "registry.opentofu.org/hashicorp/aws"
+    },
+    {
+      "address": "module.eks.aws_iam_role.nodes",
+      "type": "aws_iam_role",
+      "module": "module.eks",
+      "provider": "registry.opentofu.org/hashicorp/aws"
+    },
+    {
+      "address": "module.eks.aws_launch_template.nodes",
+      "type": "aws_launch_template",
+      "module": "module.eks",
+      "provider": "registry.opentofu.org/hashicorp/aws",
+      "tainted": true
+    },
+    {
+      "address": "module.eks.module.addons.helm_release.this[\"aws-load-balancer-controller\"]",
+      "type": "helm_release",
+      "module": "module.eks.module.addons",
+      "provider": "registry.opentofu.org/hashicorp/helm"
+    },
+    {
+      "address": "module.eks.module.addons.helm_release.this[\"metrics-server\"]",
+      "type": "helm_release",
+      "module": "module.eks.module.addons",
+      "provider": "registry.opentofu.org/hashicorp/helm"
+    },
+    {
+      "address": "random_id.cluster_suffix",
+      "type": "random_id",
+      "provider": "registry.opentofu.org/hashicorp/random"
+    }
+  ]
+}
