@@ -149,6 +149,11 @@ export class ApiClient {
     return this.all(`/v1/repos/${segment(owner)}/${segment(repo)}/stacks`, opts);
   }
 
+  /** GET /v1/stacks, every page: the stacks of every repository the user can see. */
+  stacks(opts?: RequestOptions): Promise<Page<StackDetail>> {
+    return this.all('/v1/stacks', opts);
+  }
+
   /** GET /v1/stacks/{id}: stack detail. */
   stack(id: string, opts?: RequestOptions): Promise<StackDetail> {
     return this.get(`/v1/stacks/${segment(id)}`, opts);

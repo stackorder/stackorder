@@ -52,6 +52,7 @@ describe('ApiClient requests', () => {
   it.each([
     ['repos', (a: ApiClient) => a.repos(), '/v1/repos'],
     ['repoStacks', (a: ApiClient) => a.repoStacks('acme', 'acme.github.io'), '/v1/repos/acme/acme.github.io/stacks'],
+    ['stacks', (a: ApiClient) => a.stacks(), '/v1/stacks'],
     ['modules', (a: ApiClient) => a.modules(), '/v1/modules'],
   ])('%s follows next_cursor through every page', async (_name, call, path) => {
     const pages = [{ items: [1, 2], next_cursor: 'c 1', total: 3 }, { items: [], next_cursor: 'c2' }, { items: [3] }];
