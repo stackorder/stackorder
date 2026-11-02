@@ -157,6 +157,7 @@ type dataStore interface {
 
 	GetRepo(ctx context.Context, id int64) (store.Repo, error)
 	GetRepoByName(ctx context.Context, fullName string) (store.Repo, error)
+	ListRepos(ctx context.Context, accounts ...string) ([]store.Repo, error)
 	Overview(ctx context.Context, accounts ...string) (v1.Overview, error)
 	RepoSummaries(ctx context.Context, accounts ...string) ([]v1.RepoSummary, error)
 
