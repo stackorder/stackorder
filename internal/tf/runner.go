@@ -43,8 +43,8 @@ type Runner struct {
 	// environment and the automation defaults.
 	Env []string
 	// Stdout and Stderr receive the command's streams as they are produced,
-	// for job logs. Nil discards them. ShowJSON, ShowText and Output never
-	// stream stdout, because it holds unredacted values.
+	// for job logs. Nil discards them. ShowJSON, ShowStateJSONRaw, ShowText
+	// and Output never stream stdout, because it holds unredacted values.
 	Stdout, Stderr io.Writer
 	// Workspace is the workspace SelectWorkspace selects; empty means
 	// "default".
