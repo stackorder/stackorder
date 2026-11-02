@@ -28,6 +28,11 @@ resource "terraform_data" "app" {
   input = "password = \"${var.db_password}\""
 }
 
+resource "terraform_data" "keyed" {
+  for_each = toset(["y.z/w"])
+  input    = var.db_password
+}
+
 output "value" {
   value = terraform_data.app.output
 }
@@ -61,7 +66,8 @@ func TestRealToolPlanApplyAndDrift(t *testing.T) {
 			assert.NotEmpty(t, planned.ToolVersion)
 			assert.Equal(t, &v1.Backend{Type: "local"}, planned.Backend)
 			require.NotNil(t, planned.Summary)
-			assert.Equal(t, []string{"terraform_data.app"}, planned.Summary.Added)
+			assert.Equal(t, []string{"terraform_data.app", `terraform_data.keyed["y.z/w"]`}, planned.Summary.Added)
+			assert.Nil(t, planned.Resources)
 			assert.Contains(t, planned.PlanText, "terraform_data.app will be created")
 			assert.NotContains(t, planned.PlanText, "hunter2hunter2")
 			assert.Contains(t, r.stdout, "::add-mask::hunter2hunter2")
@@ -84,6 +90,14 @@ func TestRealToolPlanApplyAndDrift(t *testing.T) {
 			assert.NotContains(t, r.stderr, "not available", "the saved plan must be applied, not a new one")
 			assert.Contains(t, r.stdout, "Apply complete!")
 			assert.FileExists(t, filepath.Join(h.root, "stacks", "app", "terraform.tfstate"))
+			builtin := "terraform.io/builtin/terraform"
+			want := &v1.ResourceList{Total: 2, Items: []v1.StackResource{
+				{Address: "terraform_data.app", Type: "terraform_data", Provider: builtin},
+				{Address: `terraform_data.keyed["y.z/w"]`, Type: "terraform_data", Provider: builtin},
+			}}
+			assert.Equal(t, want, applied.Resources)
+			assert.NotContains(t, stripMaskCommands(r.stdout), "hunter2hunter2")
+			assert.NotContains(t, r.stderr, "hunter2hunter2")
 
 			r = h.run("drift", "--stack", "stacks/app", "--run-id", "run-2")
 			require.Equal(t, 0, r.code, r.stdout+r.stderr)
@@ -92,6 +106,14 @@ func TestRealToolPlanApplyAndDrift(t *testing.T) {
 			assert.Equal(t, v1.ModeDrift, drift.Result.Mode)
 			assert.False(t, drift.Result.HasChanges)
 			assert.Equal(t, "false", h.outputs()["drifted"])
+			assert.Equal(t, want, drift.Result.Resources)
+			assert.NotContains(t, stripMaskCommands(r.stdout), "hunter2hunter2")
+			assert.NotContains(t, r.stderr, "hunter2hunter2")
+			bodies := fs.requestBodies("result")
+			require.Len(t, bodies, 3)
+			for _, body := range bodies[1:] {
+				assert.NotContains(t, string(body), "hunter2hunter2")
+			}
 		})
 	}
 }

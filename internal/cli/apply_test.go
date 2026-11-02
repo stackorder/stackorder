@@ -44,9 +44,10 @@ func TestApplySavedPlan(t *testing.T) {
 	r := h.run("apply", "--stack", "stacks/app")
 	require.Equal(t, 0, r.code, r.stderr)
 
-	assert.Equal(t, []string{"version", "init", "show", "apply"}, h.tfCommands())
+	assert.Equal(t, []string{"version", "init", "show", "apply", "show"}, h.tfCommands())
 	calls := h.tfCalls()
 	assert.Equal(t, []string{"apply", "-input=false", "-no-color", planFile}, calls[3])
+	assert.Equal(t, []string{"show", "-json", "-no-color"}, calls[4])
 	assert.Equal(t, []string{"Bearer oidc-token"}, fs.auth["run"])
 
 	posted := fs.lastResult()
@@ -60,6 +61,7 @@ func TestApplySavedPlan(t *testing.T) {
 	assert.Equal(t, v1.PlanArtifactName("stacks/app", h.sha), got.Artifact)
 	assert.Equal(t, "https://github.example/acme/infra/actions/runs/4242", got.JobURL)
 	assert.Empty(t, got.ErrorText)
+	assert.Equal(t, &v1.ResourceList{Items: []v1.StackResource{}}, got.Resources)
 	assert.Contains(t, h.outputs()["summary"], `"added":["aws_s3_bucket.logs"]`)
 	assert.Contains(t, r.stdout, "Apply complete!")
 	assert.Contains(t, r.stdout, "stacks/app: applied: 1 to add")
@@ -302,7 +304,7 @@ func TestApplyFromPlanDisabledIgnoresTheDownloadedPlan(t *testing.T) {
 				assert.Equal(t, ExitRefused, fs.lastResult().Result.ExitCode)
 				return
 			}
-			assert.Equal(t, []string{"version", "init", "plan", "show", "apply"}, cmds)
+			assert.Equal(t, []string{"version", "init", "plan", "show", "apply", "show"}, cmds)
 			assert.Equal(t, v1.ResultSuccess, fs.lastResult().Result.Status)
 		})
 	}
@@ -327,7 +329,7 @@ func TestApplyFailures(t *testing.T) {
 		planFile := filepath.Join(t.TempDir(), "not-downloaded", "stackorder-plan.tfplan")
 		r := h.run("apply", "--stack", "stacks/app", "--plan-file", planFile)
 		require.Equal(t, 0, r.code, r.stderr)
-		assert.Equal(t, []string{"version", "init", "plan", "show", "apply"}, h.tfCommands())
+		assert.Equal(t, []string{"version", "init", "plan", "show", "apply", "show"}, h.tfCommands())
 		calls := h.tfCalls()
 		assert.Contains(t, calls[2], "-out="+planFile)
 		assert.Equal(t, []string{"apply", "-input=false", "-no-color", planFile}, calls[4])
@@ -391,7 +393,7 @@ func TestApplyLocal(t *testing.T) {
 		assert.Equal(t, v1.CreateRunRequest{Repo: "acme/infra", SHA: sha, Mode: v1.ModeApply, Trigger: v1.TriggerManual, Stacks: []string{"stacks/app"}}, fs.creates[0])
 		assert.Equal(t, []string{"Bearer sk_live_key"}, fs.auth["create"])
 		assert.Equal(t, []string{"Bearer sk_live_key"}, fs.auth["result"])
-		assert.Equal(t, []string{"version", "init", "plan", "show", "apply"}, h.tfCommands())
+		assert.Equal(t, []string{"version", "init", "plan", "show", "apply", "show"}, h.tfCommands())
 		posted := fs.lastResult()
 		assert.Equal(t, "run-local", posted.RunID)
 		assert.Equal(t, v1.ResultSuccess, posted.Result.Status)

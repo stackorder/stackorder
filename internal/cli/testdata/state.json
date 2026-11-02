@@ -1,0 +1,87 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.14.4",
+  "values": {
+    "outputs": {
+      "bucket_arn": {"sensitive": false, "value": "arn:aws:s3:::outputs-leak-0b5e", "type": "string"},
+      "db_password": {"sensitive": true, "value": "outputs-leak-0b5e-password", "type": "string"}
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_s3_bucket.logs",
+          "mode": "managed",
+          "type": "aws_s3_bucket",
+          "name": "logs",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {"bucket": "acme-logs", "tags": {"owner": "values-leak-0b5e"}},
+          "sensitive_values": {"sensitive-leak-0b5e": true},
+          "identity_schema_version": 0,
+          "identity": {"bucket": "identity-leak-0b5e", "account_id": "123456789012"}
+        },
+        {
+          "address": "aws_instance.web",
+          "mode": "managed",
+          "type": "aws_instance",
+          "name": "web",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {"ami": "ami-1", "user_data": "values-leak-0b5e-user-data"},
+          "sensitive_values": {"user_data": true},
+          "tainted": true
+        },
+        {
+          "address": "aws_iam_role.app",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "app",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {"name": "app"},
+          "sensitive_values": {},
+          "depends_on": ["aws_s3_bucket.logs"]
+        },
+        {
+          "address": "aws_iam_role.app",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "app",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "deposed_key": "4d2a9f1c",
+          "values": {"name": "app-old"},
+          "sensitive_values": {}
+        },
+        {
+          "address": "data.aws_caller_identity.current",
+          "mode": "data",
+          "type": "aws_caller_identity",
+          "name": "current",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {"account_id": "values-leak-0b5e-account"},
+          "sensitive_values": {}
+        }
+      ],
+      "child_modules": [
+        {
+          "address": "module.vpc",
+          "resources": [
+            {
+              "address": "module.vpc.aws_subnet.private[\"eu-west-1a/10.0.1.0\"]",
+              "mode": "managed",
+              "type": "aws_subnet",
+              "name": "private",
+              "index": "eu-west-1a/10.0.1.0",
+              "provider_name": "registry.terraform.io/hashicorp/aws",
+              "schema_version": 1,
+              "values": {"cidr_block": "10.0.1.0/24"},
+              "sensitive_values": {}
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
