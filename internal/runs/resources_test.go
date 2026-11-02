@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
+	"github.com/stackorder/stackorder/internal/store"
 )
 
 func TestCleanResources(t *testing.T) {
@@ -144,6 +145,31 @@ func TestInvalidResource(t *testing.T) {
 			field, reason := invalidResource(r)
 			assert.Equal(t, tt.field, field)
 			assert.Equal(t, tt.reason, reason)
+		})
+	}
+}
+
+func TestResourceObservation(t *testing.T) {
+	confirmed := v1.StackResult{Status: v1.ResultSuccess}
+	unconfirmed := v1.StackResult{Status: v1.ResultSuccess, Unconfirmed: true}
+	tests := []struct {
+		name     string
+		mode     v1.RunMode
+		res      v1.StackResult
+		repeated bool
+		want     store.ResourceObservation
+	}{
+		{"first confirmed apply", v1.ModeApply, confirmed, false, store.ObservedNow},
+		{"failed apply", v1.ModeApply, v1.StackResult{Status: v1.ResultFailure}, false, store.ObservedNow},
+		{"repeated confirmed apply", v1.ModeApply, confirmed, true, store.ObservedAtStackFinish},
+		{"unconfirmed apply", v1.ModeApply, unconfirmed, false, store.ObservedAtRunCreation},
+		{"repeated unconfirmed apply", v1.ModeApply, unconfirmed, true, store.ObservedAtRunCreation},
+		{"drift", v1.ModeDrift, confirmed, false, store.ObservedAtRunCreation},
+		{"repeated drift", v1.ModeDrift, confirmed, true, store.ObservedAtRunCreation},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, resourceObservation(tt.mode, tt.res, tt.repeated))
 		})
 	}
 }

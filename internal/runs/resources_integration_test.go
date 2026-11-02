@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -59,7 +60,7 @@ func (e *env) refuseResourceLists(refuse bool) {
 	e.t.Helper()
 	sql := `ALTER TABLE stack_resources DROP CONSTRAINT refuse_lists`
 	if refuse {
-		sql = `ALTER TABLE stack_resources ADD CONSTRAINT refuse_lists CHECK (total < 0)`
+		sql = `ALTER TABLE stack_resources ADD CONSTRAINT refuse_lists CHECK (total < 0) NOT VALID`
 	}
 	_, err := e.st.Pool().Exec(e.ctx, sql)
 	require.NoError(e.t, err)
@@ -71,6 +72,18 @@ func (e *env) startApply() (v1.Run, principal.Principal) {
 	e.comment(7, applier, "stackorder apply")
 	apply := e.applyRun(7)
 	return apply, e.dispatchJob(e.newestDispatchOf(vpc).RunID, "production")
+}
+
+func (e *env) stackFinishedAt(runID, key string) time.Time {
+	e.t.Helper()
+	rs, err := e.st.GetRunStack(e.ctx, uuid.MustParse(runID), e.stack(key).ID)
+	require.NoError(e.t, err)
+	require.NotNil(e.t, rs.FinishedAt, "%s finished in run %s", key, runID)
+	return *rs.FinishedAt
+}
+
+func driftResult() v1.StackResult {
+	return v1.StackResult{Mode: v1.ModeDrift, Status: v1.ResultSuccess, Summary: &v1.PlanSummary{}}
 }
 
 func (e *env) startDrift() (string, principal.Principal) {
@@ -130,13 +143,19 @@ func TestDuplicateResultRecordsTheResourceList(t *testing.T) {
 	logs := &logRecorder{}
 	e := newEnv(t, baseConfig(), withLogger(logs.logger()))
 	apply, prod := e.startApply()
+	e.setDefaultGraph()
+	driftID, driftJob := e.startDrift()
+	drifted := listOf("aws_subnet.a")
+	_, err := e.svc.RecordResult(e.ctx, driftJob, driftID, vpc, withResources(driftResult(), drifted))
+	require.NoError(t, err)
+	e.requireResources(vpc, driftID, drifted)
 	list := listOf("aws_vpc.main")
 
 	e.refuseResourceLists(true)
 	row, err := e.svc.RecordResult(e.ctx, prod, apply.ID, vpc, withResources(applyResult(true), list))
 	require.NoError(t, err, "a list the store refuses never fails the result")
 	assert.Equal(t, v1.StackApplied, row.Status)
-	e.requireNoResources(vpc)
+	e.requireResources(vpc, driftID, drifted)
 	warned := logs.records(t, "record resources")
 	require.Len(t, warned, 1)
 	assert.Equal(t, apply.ID, warned[0]["run_id"])
@@ -147,7 +166,9 @@ func TestDuplicateResultRecordsTheResourceList(t *testing.T) {
 	row, err = e.svc.RecordResult(e.ctx, prod, apply.ID, vpc, withResources(applyResult(true), list))
 	require.NoError(t, err)
 	assert.Equal(t, v1.StackApplied, row.Status)
-	e.requireResources(vpc, apply.ID, list)
+	recorded := e.requireResources(vpc, apply.ID, list)
+	assert.True(t, recorded.ObservedAt.Equal(e.stackFinishedAt(apply.ID, vpc)),
+		"the retry is dated when the stack finished, after the drift run of its approval wait was created")
 	assert.Len(t, logs.records(t, "record resources"), 1, "the retry records the list")
 
 	_, err = e.svc.RecordResult(e.ctx, prod, apply.ID, vpc, applyResult(true))
@@ -199,7 +220,7 @@ func TestApplyListBeatsADriftCreatedDuringItsWait(t *testing.T) {
 	require.False(t, e.storedRun(driftID).CreatedAt.Before(e.storedRun(apply.ID).CreatedAt), "the drift run is the newer run")
 
 	before := listOf("aws_vpc.main")
-	_, err := e.svc.RecordResult(e.ctx, driftJob, driftID, vpc, withResources(v1.StackResult{Mode: v1.ModeDrift, Status: v1.ResultSuccess, Summary: &v1.PlanSummary{}}, before))
+	_, err := e.svc.RecordResult(e.ctx, driftJob, driftID, vpc, withResources(driftResult(), before))
 	require.NoError(t, err)
 	e.requireResources(vpc, driftID, before)
 
@@ -207,6 +228,33 @@ func TestApplyListBeatsADriftCreatedDuringItsWait(t *testing.T) {
 	_, err = e.svc.RecordResult(e.ctx, prod, apply.ID, vpc, withResources(applyResult(true), after))
 	require.NoError(t, err)
 	e.requireResources(vpc, apply.ID, after)
+}
+
+func TestRepeatedApplyResultKeepsANewerList(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.planned(7, headSHA)
+	created, err := e.svc.CreateRun(e.ctx, apiKey(), v1.CreateRunRequest{
+		Repo: repoName, SHA: mainSHA, Mode: v1.ModeApply, Trigger: v1.TriggerManual, Stacks: []string{vpc},
+	})
+	require.NoError(t, err)
+	applied := listOf("aws_vpc.main")
+	_, err = e.svc.RecordResult(e.ctx, apiKey(), created.RunID, vpc, withResources(applyResult(true), applied))
+	require.NoError(t, err)
+	first := e.requireResources(vpc, created.RunID, applied)
+	assert.False(t, first.ObservedAt.Before(e.stackFinishedAt(created.RunID, vpc)), "a first apply result is dated when it is recorded")
+
+	e.setDefaultGraph()
+	driftID, driftJob := e.startDrift()
+	drifted := listOf("aws_subnet.a", "aws_vpc.main")
+	_, err = e.svc.RecordResult(e.ctx, driftJob, driftID, vpc, withResources(driftResult(), drifted))
+	require.NoError(t, err)
+	newer := e.requireResources(vpc, driftID, drifted)
+
+	row, err := e.svc.RecordResult(e.ctx, apiKey(), created.RunID, vpc, withResources(applyResult(true), applied))
+	require.NoError(t, err, "the replay is accepted")
+	assert.Equal(t, v1.StackApplied, row.Status)
+	assert.Equal(t, newer, e.requireResources(vpc, driftID, drifted),
+		"a repeated apply result posted after a newer drift list was recorded does not replace it")
 }
 
 func TestManualApplyRecordsTheResourceList(t *testing.T) {

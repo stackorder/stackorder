@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,8 +23,9 @@ type StackResources struct {
 	RunMode v1.RunMode `db:"run_mode"`
 	SHA     string     `db:"sha"`
 	// ObservedAt is when the job read the state, or a lower bound of it:
-	// the time a confirmed apply result was recorded, otherwise the time
-	// its run was created.
+	// the time a confirmed apply result was first recorded, which for a
+	// repeated one is when its run's row for the stack finished, otherwise
+	// the time its run was created.
 	ObservedAt time.Time `db:"observed_at"`
 	// ReportedAt is when the list was last recorded.
 	ReportedAt time.Time `db:"reported_at"`
@@ -59,18 +61,47 @@ type resourceDigest struct {
 	Items     json.RawMessage `json:"items"`
 }
 
+// ResourceObservation is the rule SetStackResources dates a resource list
+// by: the time the state it was read from is taken to have been read, which
+// decides whether it replaces the recorded list. Every time is read from the
+// database clock.
+type ResourceObservation string
+
+const (
+	// ObservedAtRunCreation dates the list when its run was created. It
+	// suits a drift result and an unconfirmed apply result, whose job may
+	// have read the state at any time since.
+	ObservedAtRunCreation ResourceObservation = "run_created"
+	// ObservedNow dates the list now. It suits a confirmed apply result
+	// recorded for the first time, read after the apply finished.
+	ObservedNow ResourceObservation = "now"
+	// ObservedAtStackFinish dates the list when the run's row for the stack
+	// finished, which the first accepted result of the stack stamps, or when
+	// its run was created if the row has not finished. It suits a confirmed
+	// apply result that repeats one already recorded, so a late replay never
+	// counts as newer than a list recorded since.
+	ObservedAtStackFinish ResourceObservation = "stack_finished"
+)
+
 // SetStackResources records the resource list an apply or drift job of run
 // reported for the stack, sorted by address and without any last change.
 // The run must be an apply or drift run of the stack's repository. The
 // list replaces the recorded one only when the state it was read from is
-// not older: a confirmed apply result counts as read now, a drift result
-// or an unconfirmed apply result as read when its run was created, so a
-// drift run created before an apply's list was recorded never replaces
-// it, and the same run may report again. A list equal to the recorded one
-// keeps its changed_at. It returns ErrInvalid when the run may not report
-// for the stack, and ErrNotFound when the stack or the run does not exist.
-func (s *Store) SetStackResources(ctx context.Context, stackID, runID uuid.UUID, list v1.ResourceList, unconfirmed bool) error {
+// not older, dated by obs; a drift run's list is always dated by its run's
+// creation, whatever obs says. So a drift run created before an apply's
+// list was recorded never replaces it, a repeated apply result never
+// replaces a list dated after its stack finished, and the same run may
+// report again. A list equal to the recorded one keeps its changed_at. It
+// returns ErrInvalid when obs is not one of the rules above or the run may
+// not report for the stack, and ErrNotFound when the stack or the run does
+// not exist.
+func (s *Store) SetStackResources(ctx context.Context, stackID, runID uuid.UUID, list v1.ResourceList, obs ResourceObservation) error {
 	const op = "set stack resources"
+	switch obs {
+	case ObservedAtRunCreation, ObservedNow, ObservedAtStackFinish:
+	default:
+		return invalid(op, "unknown observation rule "+strconv.Quote(string(obs)))
+	}
 	items := make([]v1.StackResource, len(list.Items))
 	for i, it := range list.Items {
 		it.LastChange = nil
@@ -90,9 +121,14 @@ func (s *Store) SetStackResources(ctx context.Context, stackID, runID uuid.UUID,
 	err = s.db.QueryRow(ctx, `
 		WITH report AS (
 			SELECT s.id AS stack_id, r.id AS run_id, r.mode, r.sha,
-			       CASE WHEN r.mode = 'apply' AND NOT $6::boolean THEN now() ELSE r.created_at END AS observed_at,
+			       CASE
+			           WHEN r.mode <> 'apply' THEN r.created_at
+			           WHEN $6::text = 'now' THEN now()
+			           WHEN $6::text = 'stack_finished' THEN COALESCE(rs.finished_at, r.created_at)
+			           ELSE r.created_at END AS observed_at,
 			       s.repo_id = r.repo_id AND r.mode IN ('apply', 'drift') AS allowed
 			FROM stacks s CROSS JOIN runs r
+			LEFT JOIN run_stacks rs ON rs.run_id = r.id AND rs.stack_id = s.id
 			WHERE s.id = $1 AND r.id = $2
 		), recorded AS (
 			INSERT INTO stack_resources AS sr (stack_id, run_id, run_mode, sha, observed_at, total, truncated, digest, resources)
@@ -113,7 +149,7 @@ func (s *Store) SetStackResources(ctx context.Context, stackID, runID uuid.UUID,
 			WHERE EXCLUDED.observed_at >= sr.observed_at
 		)
 		SELECT allowed FROM report`,
-		stackID, runID, list.Total, list.Truncated, digest[:], unconfirmed, body).Scan(&allowed)
+		stackID, runID, list.Total, list.Truncated, digest[:], string(obs), body).Scan(&allowed)
 	if err != nil {
 		return wrap(op, err)
 	}

@@ -33,7 +33,11 @@ const stateObjectTimeout = 10 * time.Second
 // The resource list an accepted apply or drift result carries, whatever
 // its outcome and even when the result repeats one already recorded,
 // becomes the stack's list unless the recorded one was read from newer
-// state; invalid items are dropped and the list is marked truncated, and
+// state: a confirmed apply result counts as read when it is first
+// recorded, and when it repeats one as read when its stack finished, so a
+// late replay never replaces a list recorded since; a drift or
+// unconfirmed result counts as read when its run was created. Invalid
+// items are dropped and the list is marked truncated, and
 // a list that cannot be recorded never fails the result. A plan result's
 // list and a refused result's are ignored. Otherwise posting the same
 // result twice changes nothing.
@@ -70,7 +74,7 @@ func (s *Service) RecordResult(ctx context.Context, p principal.Principal, runID
 		return nil, finishedPlanError(run)
 	}
 	if duplicateResult(row, target, res) {
-		s.recordResources(ctx, run, stack, res)
+		s.recordResources(ctx, run, stack, res, true)
 		if err := s.advance(ctx, run.ID); err != nil {
 			return nil, err
 		}
@@ -87,7 +91,7 @@ func (s *Service) RecordResult(ctx context.Context, p principal.Principal, runID
 	if errors.Is(err, store.ErrConflict) {
 		current, gerr := s.st.GetRunStack(ctx, run.ID, stack.ID)
 		if gerr == nil && duplicateResult(current, target, res) {
-			s.recordResources(ctx, run, stack, res)
+			s.recordResources(ctx, run, stack, res, true)
 			return s.runStackView(ctx, run.ID, stack.ID)
 		}
 		return nil, principal.Wrap(principal.ErrConflict, "stack %s changed while its result was recorded", stackKey)
@@ -96,7 +100,7 @@ func (s *Service) RecordResult(ctx context.Context, p principal.Principal, runID
 		return nil, storeErr(err, "record result of %s", stackKey)
 	}
 	s.recordStateObject(ctx, run, repo, stack, res.State)
-	s.recordResources(ctx, run, stack, res)
+	s.recordResources(ctx, run, stack, res, false)
 	s.m.StackFinished(run.Mode, updated.Status, stackDuration(updated, res))
 	changed := []uuid.UUID{stack.ID}
 	if run.Mode == v1.ModeApply && updated.Status != v1.StackApplied {
