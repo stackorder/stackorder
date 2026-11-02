@@ -25,6 +25,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/testutil/pgtest"
 )
 
@@ -195,44 +196,75 @@ type tfState struct {
 	} `json:"outputs"`
 	Resources []struct {
 		Module    string `json:"module"`
+		Mode      string `json:"mode"`
 		Type      string `json:"type"`
 		Name      string `json:"name"`
+		Provider  string `json:"provider"`
 		Instances []struct {
 			IndexKey   any            `json:"index_key"`
+			Status     string         `json:"status"`
+			Deposed    string         `json:"deposed"`
 			Attributes map[string]any `json:"attributes"`
 		} `json:"instances"`
 	} `json:"resources"`
 }
 
+func instanceAddress(module, typ, name string, key any) string {
+	addr := typ + "." + name
+	if module != "" {
+		addr = module + "." + addr
+	}
+	switch k := key.(type) {
+	case nil:
+		return addr
+	case string:
+		return fmt.Sprintf("%s[%q]", addr, k)
+	default:
+		return fmt.Sprintf("%s[%v]", addr, k)
+	}
+}
+
 func (s tfState) addresses() []string {
-	var out []string
+	resources := s.resources()
+	out := make([]string, 0, len(resources))
+	for _, r := range resources {
+		out = append(out, r.Address)
+	}
+	return out
+}
+
+func (s tfState) resources() []v1.StackResource {
+	byAddress := map[string]*v1.StackResource{}
 	for _, r := range s.Resources {
-		addr := r.Type + "." + r.Name
-		if r.Module != "" {
-			addr = r.Module + "." + addr
+		if r.Mode != "managed" {
+			continue
+		}
+		provider := r.Provider
+		if _, quoted, ok := strings.Cut(provider, `provider["`); ok {
+			provider, _, _ = strings.Cut(quoted, `"]`)
 		}
 		for _, in := range r.Instances {
-			switch k := in.IndexKey.(type) {
-			case nil:
-				out = append(out, addr)
-			case string:
-				out = append(out, fmt.Sprintf("%s[%q]", addr, k))
-			default:
-				out = append(out, fmt.Sprintf("%s[%v]", addr, k))
+			addr := instanceAddress(r.Module, r.Type, r.Name, in.IndexKey)
+			it, ok := byAddress[addr]
+			if !ok {
+				it = &v1.StackResource{Address: addr, Type: r.Type, Module: r.Module, Provider: provider}
+				byAddress[addr] = it
 			}
+			it.Tainted = it.Tainted || in.Status == "tainted"
+			it.Deposed = it.Deposed || in.Deposed != ""
 		}
 	}
-	sort.Strings(out)
+	out := make([]v1.StackResource, 0, len(byAddress))
+	for _, it := range byAddress {
+		out = append(out, *it)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Address < out[j].Address })
 	return out
 }
 
 func (s tfState) input(address string) map[string]any {
 	for _, r := range s.Resources {
-		addr := r.Type + "." + r.Name
-		if r.Module != "" {
-			addr = r.Module + "." + addr
-		}
-		if addr != address || len(r.Instances) == 0 {
+		if r.Mode != "managed" || instanceAddress(r.Module, r.Type, r.Name, nil) != address || len(r.Instances) == 0 {
 			continue
 		}
 		in, _ := r.Instances[0].Attributes["input"].(map[string]any)
