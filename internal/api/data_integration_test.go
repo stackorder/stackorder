@@ -468,6 +468,16 @@ func TestStacks(t *testing.T) {
 	require.NoError(t, err)
 	_, _, err = w.st.SaveGraph(ctx, dotfiles.ID, &v1.Graph{Repo: "octocat/dotfiles", SHA: "d1", Stacks: []v1.Stack{{Key: "stacks/home", Path: "stacks/home"}}})
 	require.NoError(t, err)
+	infraLive, err := w.st.UpsertRepo(ctx, store.RepoParams{ID: 102, InstallationID: 1, FullName: "acme/infra-live", DefaultBranch: "main"})
+	require.NoError(t, err)
+	eks := v1.Module{Key: "acme/modules//eks@v1.4.1", Kind: v1.ModuleGit, Ref: "v1.4.1", Source: "git::https://github.com/acme/modules.git//eks?ref=v1.4.1"}
+	_, _, err = w.st.SaveGraph(ctx, infraLive.ID, &v1.Graph{
+		Repo: "acme/infra-live", SHA: "l1",
+		Stacks:  []v1.Stack{{Key: "stacks/live/eks", Path: "stacks/live/eks"}},
+		Modules: []v1.Module{eks},
+		Edges:   []v1.Edge{{From: v1.StackRef("stacks/live/eks"), To: v1.ModuleRef(eks.Key), Type: v1.EdgeUsesModule, Meta: map[string]string{"ref": "v1.4.1"}}},
+	})
+	require.NoError(t, err)
 	keysOf := func(items []v1.StackDetail) []string {
 		out := make([]string, len(items))
 		for i, d := range items {
@@ -479,22 +489,36 @@ func TestStacks(t *testing.T) {
 	page := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks", true))
 	assert.Equal(t, []string{
 		"acme/infra stacks/prod/apps:blue", "acme/infra stacks/prod/eks", "acme/infra stacks/prod/new", "acme/infra stacks/prod/vpc",
+		"acme/infra-live stacks/live/eks",
 		"octocat/dotfiles stacks/home",
-	}, keysOf(page.Items), "a person sees the stacks of their own account and their organisations, not globex's")
-	assert.Equal(t, 5, page.Total)
+	}, keysOf(page.Items), "a person sees the stacks of their own account and their organisations, not globex's, and a repository sorts before one its name prefixes")
+	assert.Equal(t, 6, page.Total)
 	assert.Empty(t, page.NextCursor)
 	infra := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/repos/acme/infra/stacks", true))
 	assert.Equal(t, infra.Items, page.Items[:4], "items equal what the repository's stack list returns")
+	live := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/repos/acme/infra-live/stacks", true))
+	assert.Equal(t, live.Items, page.Items[4:5])
+	assert.Equal(t, []v1.ModuleConsume{{ModuleKey: "acme/modules//eks", Ref: "v1.2.0", Latest: "v1.4.1", Behind: 2}}, page.Items[1].Modules)
+	assert.Equal(t, []v1.ModuleConsume{{ModuleKey: "acme/modules//eks", Ref: "v1.4.1", Latest: "v1.4.1"}}, page.Items[4].Modules,
+		"stacks of several repositories share one module family")
+
+	mineFirst := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks?limit=4", true))
+	assert.Equal(t, keysOf(page.Items[:4]), keysOf(mineFirst.Items))
+	require.NotEmpty(t, mineFirst.NextCursor)
+	mineNext := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks?limit=4&cursor="+mineFirst.NextCursor, true))
+	assert.Equal(t, keysOf(page.Items[4:]), keysOf(mineNext.Items))
+	assert.Empty(t, mineNext.NextCursor)
 
 	all := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks", false))
-	assert.Equal(t, 6, all.Total, "API keys see every repository")
-	assert.Equal(t, "globex/platform stacks/app", keysOf(all.Items)[4])
+	assert.Equal(t, 7, all.Total, "API keys see every repository")
+	assert.Equal(t, "globex/platform stacks/app", keysOf(all.Items)[5])
 
-	first := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks?limit=3", false))
+	first := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks?limit=4", false))
+	assert.Equal(t, keysOf(page.Items[:4]), keysOf(first.Items), "the page ends on the last acme/infra stack")
 	require.NotEmpty(t, first.NextCursor)
-	assert.Equal(t, 6, first.Total)
+	assert.Equal(t, 7, first.Total)
 	second := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks?limit=2&cursor="+first.NextCursor, false))
-	assert.Equal(t, []string{"acme/infra stacks/prod/vpc", "globex/platform stacks/app"}, keysOf(second.Items))
+	assert.Equal(t, []string{"acme/infra-live stacks/live/eks", "globex/platform stacks/app"}, keysOf(second.Items))
 	require.NotEmpty(t, second.NextCursor)
 	last := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks?limit=2&cursor="+second.NextCursor, false))
 	assert.Equal(t, []string{"octocat/dotfiles stacks/home"}, keysOf(last.Items))
@@ -506,7 +530,7 @@ func TestStacks(t *testing.T) {
 	require.NoError(t, err)
 	page = decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks", true))
 	assert.NotContains(t, keysOf(page.Items), "acme/infra stacks/prod/new", "removed stacks are not listed")
-	assert.Equal(t, 4, page.Total)
+	assert.Equal(t, 5, page.Total)
 
 	token, _, err := w.st.CreateSession(ctx, store.NewSession{Login: "hubot", UserID: 2, TTL: time.Hour})
 	require.NoError(t, err)
