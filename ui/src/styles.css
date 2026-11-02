@@ -239,6 +239,7 @@ code {
 
 .app-nav ul {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.25rem;
   margin: 0;
   padding: 0;
@@ -296,6 +297,10 @@ main:focus {
 
   .app-header {
     padding: 0.6rem 1rem;
+  }
+
+  .app-nav a {
+    padding: 0.35rem 0.4rem;
   }
 }
 
