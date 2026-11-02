@@ -29,7 +29,7 @@ internal/scan/             HCL scanning: discover stacks, parse backends, module
 internal/graph/            pure resolution algorithm: affected set, propagation, waves, cycles, DOT output
 internal/report/           pure rendering of check-run output, the sticky PR comment, refusals, drift issues
 internal/command/          parsing of `stackorder …` PR comment commands
-internal/tf/               terraform / tofu process wrapper, plan JSON summary, redaction, hooks
+internal/tf/               terraform / tofu process wrapper, plan JSON summary, metadata-only resource list from state, redaction, hooks
 internal/client/           HTTP client for the server API used by the CLI, incl. runner OIDC token fetch
 internal/cli/              cobra commands: resolve, plan, apply, drift, check, graph, affected, unlock, version
 internal/store/            pgx queries; migrations embedded from /migrations (package `migrations`, `migrations.FS`)
@@ -37,7 +37,7 @@ internal/gh/               GitHub App client: JWT, installation tokens, checks, 
 internal/gh/codeowners/    CODEOWNERS parsing with GitHub's matching semantics
 internal/oidc/             verification of GitHub Actions OIDC tokens and claim binding
 internal/principal/        caller identity and the error vocabulary shared by runs and api
-internal/runs/             run state machine, apply gate, locks, wave dispatch, superseding, drift, reconciliation, shared outputs
+internal/runs/             run state machine, apply gate, locks, wave dispatch, superseding, drift, reconciliation, shared outputs, resource lists
 internal/webhook/          HMAC verification, delivery dedup, event persistence
 internal/worker/           queue: claim events and jobs with SKIP LOCKED, retries, idempotent handlers
 internal/sched/            cron scheduler for drift and housekeeping; leader by advisory lock
@@ -586,6 +586,44 @@ repository's state unless grants of different repositories overlap. An
 object without a bucket or key, one no grant of the repository covers, or
 a store error is logged at warn level without failing the result.
 
+`v1.StackResult.Resources` is a `v1.ResourceList` (`total`, `truncated`,
+`items` of `v1.StackResource`: `address`, `type`, `module`, `provider`,
+`tainted`, `deposed`), the managed resources of the stack's persisted
+state, never a value. The CLI reads it with `tf.Runner.ShowStateJSONRaw`
+(`show -json -no-color` with no file, through `capture`, so nothing is
+streamed or written) in apply jobs whenever the tool ran, failed applies
+included, after the post-apply hook, and in drift jobs after the plan
+whatever its outcome once init succeeded, each read under its own 5 minute
+timeout; plan jobs never set it. `tf.Resources` walks the modules without
+parsing addresses, `tf.RedactResources` redacts the four strings and merges
+addresses that collide, and `finalize` cuts the list with `tf.FitResources`
+to `v1.MaxResultBytes` minus the result without the list minus 64 KiB. Any
+failure warns and leaves it nil without changing the exit code;
+`session.post` posts once more without the list on a 413, or on a 400
+`invalid` whose `details.field` starts with `resources`. `runs.RecordResult`
+records it for apply and drift runs, from an accepted result whatever the
+outcome, manual runs and both duplicate-result branches included, so a
+retry after a failed write records it; a refused result records nothing.
+`cleanResources` rebuilds each item from the whitelisted fields, dropping
+`last_change`, drops an item with an empty address or type, invalid UTF-8,
+a control or Unicode format character, an address or module over 2048
+bytes or a type or provider over 512, sorts, merges duplicates by OR-ing
+their flags, clamps `total` between the item count and 10,000,000, and sets
+`truncated` when anything was dropped or left out. It warns once with
+counts and the first dropped item's index, field and reason, never an item's
+content. The write uses a detached 10 s context, and a failure is logged at
+warn level without failing the result. Unlike `state_object`, which follows
+run order, a list replaces the recorded one only when its `observed_at` is
+not older, computed on the database clock: `now()` for a confirmed apply
+result, whose job reads state after the apply and its hooks, right before
+posting, and the run's `created_at` for a drift or unconfirmed apply
+result, a lower bound on when its job read state. Run order would let a
+drift run created while an apply waited for approval, which may read state
+before the apply changes it, replace the apply's list; this rule rejects
+it, and any drift run created before an apply's list was recorded, even
+when it posts later. The cost is discarding a drift list equal to the
+apply's.
+
 `v1.StackOutputs` carries the root-module outputs of a stack: `repo`,
 `stack`, the state's `serial`, `lineage` and `terraform_version`,
 `outputs` mapping each name to a `v1.StackOutput` (`value` and `type`, the
@@ -616,9 +654,11 @@ with its own code, message and details and the status of its `Kind`:
 `ErrUnprocessable` 422, `ErrUnavailable` 503, any other 500. The CLI exits 3 on
 `forbidden`, `conflict`, `refused`, `locked` and `superseded`,
 and on its own fail-closed decisions (an unreachable server during apply). `invalid` carries `details.field` and `details.reason` when a
-field is at fault. A body over its route's limit (8 MB for graph uploads,
-1 MB for every other POST under `/v1` and `/auth`) is 413 with code
-`invalid`; `POST /webhooks/github` has no API limit, `internal/webhook`
+field is at fault, a JSON type error in a body included, whose field is
+Go's path with array indexes, such as `resources.items.0.tainted`. A body
+over its route's limit (8 MB for graph uploads, `v1.MaxResultBytes`, 1 MiB,
+for results, 1 MB for every other POST under `/v1` and `/auth`) is 413 with
+code `invalid`; `POST /webhooks/github` has no API limit, `internal/webhook`
 bounds it.
 
 ## Human and automation endpoints
@@ -636,6 +676,7 @@ with `next_cursor`.
 | `GET /v1/repos/{owner}/{repo}/stacks` | `v1.Page[v1.StackDetail]` |
 | `GET /v1/stacks/{id}` | `v1.StackDetail` |
 | `GET /v1/stacks/{id}/runs` | `v1.Page[v1.RunStackRef]`, newest first |
+| `GET /v1/stacks/{id}/resources` | `v1.StackResources`: the recorded list with each item's `last_change` from `store.StackResourceChanges`; 200 with `items: []`, `total` 0 and no run fields when nothing is recorded; a removed stack keeps its last list; 404 through `visibleStack`; not paged, since a result body bounds the list |
 | `GET /v1/modules?q=` | `v1.Page[v1.ModuleDetail]` |
 | `GET /v1/modules/{id}` | `v1.ModuleDetail` |
 | `GET /v1/runs/{id}` | `v1.Run` |
@@ -1061,7 +1102,23 @@ stack's state; only `store.SetStackStateObject` writes it, and
 `store.ClearStackStateObject` clears it for a report the run service may not
 record, both for apply and drift runs of the stack's repository, ignoring a
 late report from an older run. Saving a graph, which rewrites the PR-writable
-`stacks.backend` and `stacks.config`, leaves it alone.
+`stacks.backend` and `stacks.config`, leaves it alone. `stack_resources`
+holds one row per stack with its latest resource list as jsonb; `run_id` is
+`ON DELETE SET NULL`, so the list outlives its run. Only
+`store.SetStackResources` writes it, for apply and drift runs of the stack's
+repository (`ErrInvalid` otherwise, `ErrNotFound` for an unknown stack or
+run), under the `observed_at` rule of the runner endpoints. `digest` is the
+SHA-256 of the canonical JSON of `total`, `truncated` and the sorted items;
+on an unchanged digest the old `resources` datum and `changed_at` are kept
+and the other columns updated. `store.StackResourceChanges` derives each
+item's last change in one query, storing nothing: `DISTINCT ON (address)`
+over the stack's `run_stacks` rows with `mode = 'apply' AND status =
+'applied'` (partial index `run_stacks_applied_idx`), expanding the
+summary's `added`, `changed`, `replaced` and `destroyed`, newest run first
+(`runs.created_at DESC, runs.id DESC`), with create, update and replace
+before destroy within a run; an address whose winner is a destroy gets no
+entry. This relies on summaries never being pruned: the prune job clears
+plan text and keeps them.
 
 ## CLI environment
 
