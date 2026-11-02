@@ -441,9 +441,79 @@ type StackResult struct {
 	// State is the S3 object the job found the stack's state in, when it
 	// knows one.
 	State *StateObject `json:"state,omitempty"`
+	// Resources lists the managed resources an apply or drift job found in
+	// the stack's state; nil when the job read none.
+	Resources *ResourceList `json:"resources,omitempty"`
 	// Unconfirmed is set when the CLI could not reach the server during the
 	// run and is reporting late.
 	Unconfirmed bool `json:"unconfirmed,omitempty"`
+}
+
+// MaxResultBytes is the largest StackResult body the server accepts.
+const MaxResultBytes = 1 << 20
+
+// ResourceList is the managed resources a job found in a stack's state,
+// sorted by address, without any of their values.
+type ResourceList struct {
+	// Total counts every resource in the state; Items may hold fewer.
+	Total     int             `json:"total"`
+	Truncated bool            `json:"truncated,omitempty"`
+	Items     []StackResource `json:"items"`
+}
+
+// StackResource is one managed resource of a stack: where it sits and what
+// it is, never what it holds.
+type StackResource struct {
+	Address string `json:"address"`
+	Type    string `json:"type"`
+	// Module is the address of the module that holds the resource, empty
+	// in the root module.
+	Module string `json:"module,omitempty"`
+	// Provider is the provider's source address, such as
+	// registry.terraform.io/hashicorp/aws.
+	Provider string `json:"provider,omitempty"`
+	Tainted  bool   `json:"tainted,omitempty"`
+	// Deposed is set when the state also holds a deposed object at the
+	// address.
+	Deposed bool `json:"deposed,omitempty"`
+	// LastChange is set by the server, never by a job.
+	LastChange *ResourceChange `json:"last_change,omitempty"`
+}
+
+// ResourceAction is how an applied plan changed a resource.
+type ResourceAction string
+
+const (
+	ResourceCreate  ResourceAction = "create"
+	ResourceUpdate  ResourceAction = "update"
+	ResourceReplace ResourceAction = "replace"
+)
+
+// ResourceChange is the applied run whose plan last created, updated or
+// replaced a resource.
+type ResourceChange struct {
+	Action     ResourceAction `json:"action"`
+	RunID      string         `json:"run_id"`
+	SHA        string         `json:"sha"`
+	PRNumber   int            `json:"pr_number,omitempty"`
+	FinishedAt *time.Time     `json:"finished_at,omitempty"`
+}
+
+// StackResources is the body of GET /v1/stacks/{id}/resources.
+type StackResources struct {
+	// RunID, Mode and SHA name the apply or drift run whose job reported
+	// the list; they are empty when no job has.
+	RunID      string     `json:"run_id,omitempty"`
+	Mode       RunMode    `json:"mode,omitempty"`
+	SHA        string     `json:"sha,omitempty"`
+	ReportedAt *time.Time `json:"reported_at,omitempty"`
+	// ChangedAt is when the recorded list last differed from the one
+	// before it.
+	ChangedAt *time.Time `json:"changed_at,omitempty"`
+	Total     int        `json:"total"`
+	Truncated bool       `json:"truncated,omitempty"`
+	// Items is never null: it is empty when no job has reported a list.
+	Items []StackResource `json:"items"`
 }
 
 // StateObject is the S3 object that holds a stack's state after init and

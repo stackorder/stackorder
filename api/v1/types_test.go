@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
@@ -140,6 +142,37 @@ func TestStackResultStateIsOptional(t *testing.T) {
 				`"state":{"bucket":"acme-terraform-state","key":"env:/blue/stacks/prod/vpc/terraform.tfstate","region":"eu-west-1"}}`,
 		},
 		{
+			name: "with an empty resource list",
+			result: v1.StackResult{
+				Mode:      v1.ModeDrift,
+				Status:    v1.ResultSuccess,
+				Resources: &v1.ResourceList{Items: []v1.StackResource{}},
+			},
+			want: `{"mode":"drift","status":"success","exit_code":0,"has_changes":false,` +
+				`"resources":{"total":0,"items":[]}}`,
+		},
+		{
+			name: "with a truncated resource list",
+			result: v1.StackResult{
+				Mode:   v1.ModeApply,
+				Status: v1.ResultFailure,
+				Resources: &v1.ResourceList{
+					Total:     2,
+					Truncated: true,
+					Items: []v1.StackResource{{
+						Address:  `module.vpc.aws_subnet.private["eu-west-1a"]`,
+						Type:     "aws_subnet",
+						Module:   "module.vpc",
+						Provider: "registry.terraform.io/hashicorp/aws",
+						Tainted:  true,
+					}},
+				},
+			},
+			want: `{"mode":"apply","status":"failure","exit_code":0,"has_changes":false,` +
+				`"resources":{"total":2,"truncated":true,"items":[{"address":"module.vpc.aws_subnet.private[\"eu-west-1a\"]",` +
+				`"type":"aws_subnet","module":"module.vpc","provider":"registry.terraform.io/hashicorp/aws","tainted":true}]}}`,
+		},
+		{
 			name: "with state in the environment's region",
 			result: v1.StackResult{
 				Mode:   v1.ModeDrift,
@@ -163,4 +196,89 @@ func TestStackResultStateIsOptional(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStackResourcesWireFormat(t *testing.T) {
+	reported := time.Date(2026, 10, 30, 14, 5, 0, 0, time.UTC)
+	changed := time.Date(2026, 10, 28, 9, 41, 0, 0, time.UTC)
+	finished := time.Date(2026, 10, 28, 9, 40, 12, 0, time.UTC)
+	tests := []struct {
+		name      string
+		golden    string
+		resources v1.StackResources
+	}{
+		{
+			name:   "reported by an apply",
+			golden: "stack_resources.json",
+			resources: v1.StackResources{
+				RunID:      "9e1a3c5e-4b6d-4f2a-8c7e-1d2f3a4b5c6d",
+				Mode:       v1.ModeApply,
+				SHA:        "4f9c2b7e8a1d3c5b6e7f8a9b0c1d2e3f4a5b6c7d",
+				ReportedAt: &reported,
+				ChangedAt:  &changed,
+				Total:      3,
+				Items: []v1.StackResource{
+					{
+						Address:  "aws_iam_role.nodes",
+						Type:     "aws_iam_role",
+						Provider: "registry.terraform.io/hashicorp/aws",
+					},
+					{
+						Address:  `module.eks.aws_eks_addon.this["coredns"]`,
+						Type:     "aws_eks_addon",
+						Module:   "module.eks",
+						Provider: "registry.terraform.io/hashicorp/aws",
+						LastChange: &v1.ResourceChange{
+							Action:     v1.ResourceCreate,
+							RunID:      "9e1a3c5e-4b6d-4f2a-8c7e-1d2f3a4b5c6d",
+							SHA:        "4f9c2b7e8a1d3c5b6e7f8a9b0c1d2e3f4a5b6c7d",
+							PRNumber:   42,
+							FinishedAt: &finished,
+						},
+					},
+					{
+						Address:  "module.eks.aws_launch_template.nodes",
+						Type:     "aws_launch_template",
+						Module:   "module.eks",
+						Provider: "registry.terraform.io/hashicorp/aws",
+						Tainted:  true,
+						Deposed:  true,
+					},
+				},
+			},
+		},
+		{
+			name:      "never reported",
+			golden:    "stack_resources_empty.json",
+			resources: v1.StackResources{Items: []v1.StackResource{}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			golden, err := os.ReadFile(filepath.Join("testdata", tt.golden))
+			require.NoError(t, err)
+
+			got, err := json.MarshalIndent(tt.resources, "", "  ")
+			require.NoError(t, err)
+			if diff := cmp.Diff(string(golden), string(got)+"\n"); diff != "" {
+				t.Errorf("wire format differs from testdata/%s (-want +got):\n%s", tt.golden, diff)
+			}
+
+			var decoded v1.StackResources
+			require.NoError(t, json.Unmarshal(golden, &decoded))
+			if diff := cmp.Diff(tt.resources, decoded); diff != "" {
+				t.Errorf("round trip mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestStackResourceCarriesNoValues(t *testing.T) {
+	var fields []string
+	typ := reflect.TypeFor[v1.StackResource]()
+	for i := range typ.NumField() {
+		fields = append(fields, typ.Field(i).Name)
+	}
+	assert.Equal(t, []string{"Address", "Type", "Module", "Provider", "Tainted", "Deposed", "LastChange"}, fields,
+		"a resource is metadata only; a new field must not carry anything read from an attribute or output")
 }

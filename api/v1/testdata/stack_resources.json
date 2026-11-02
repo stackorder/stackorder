@@ -1,0 +1,36 @@
+{
+  "run_id": "9e1a3c5e-4b6d-4f2a-8c7e-1d2f3a4b5c6d",
+  "mode": "apply",
+  "sha": "4f9c2b7e8a1d3c5b6e7f8a9b0c1d2e3f4a5b6c7d",
+  "reported_at": "2026-10-30T14:05:00Z",
+  "changed_at": "2026-10-28T09:41:00Z",
+  "total": 3,
+  "items": [
+    {
+      "address": "aws_iam_role.nodes",
+      "type": "aws_iam_role",
+      "provider": "registry.terraform.io/hashicorp/aws"
+    },
+    {
+      "address": "module.eks.aws_eks_addon.this[\"coredns\"]",
+      "type": "aws_eks_addon",
+      "module": "module.eks",
+      "provider": "registry.terraform.io/hashicorp/aws",
+      "last_change": {
+        "action": "create",
+        "run_id": "9e1a3c5e-4b6d-4f2a-8c7e-1d2f3a4b5c6d",
+        "sha": "4f9c2b7e8a1d3c5b6e7f8a9b0c1d2e3f4a5b6c7d",
+        "pr_number": 42,
+        "finished_at": "2026-10-28T09:40:12Z"
+      }
+    },
+    {
+      "address": "module.eks.aws_launch_template.nodes",
+      "type": "aws_launch_template",
+      "module": "module.eks",
+      "provider": "registry.terraform.io/hashicorp/aws",
+      "tainted": true,
+      "deposed": true
+    }
+  ]
+}
