@@ -562,6 +562,18 @@ describe('StackPage resources', () => {
     }
   });
 
+  it('keeps a recorded list whose run was deleted', async () => {
+    const list = { ...clone(stackResources) };
+    delete list.run_id;
+    renderWithApp(page, { url, handler: withResources(list) });
+    await screen.findByRole('heading', { level: 1 });
+    await waitFor(() => {
+      expect(resources().getByText(/the state/)).toHaveTextContent(/^From the state at drift check, [^,]+\.$/);
+    });
+    expect(resources().queryByRole('link', { name: /^d2f4a6c8/ })).not.toBeInTheDocument();
+    expect(resources().getByText('11 of 11')).toBeInTheDocument();
+  });
+
   it('says only that no list has been reported yet', async () => {
     renderWithApp(page, { url, handler: withResources({ total: 0, items: [] }) });
     expect(await (await findResources()).findByText('No resource list yet.')).toHaveClass('empty');
