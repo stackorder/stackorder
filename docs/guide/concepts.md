@@ -168,7 +168,7 @@ A stack's resource list is the managed resources its state holds: the address, t
 - **Stored state, not refreshed state.** The list is the state as stored, not as a plan refreshes it, so a resource deleted outside Terraform stays listed until an apply removes it, and the drift check marks it drifted, since its plan would create it again.
 - **A report, not proof.** The jobs that send the list run the repository's code, a pull request's code for an apply before merge, so it shows what they reported. See [Security model](/reference/security-model#resource-lists).
 - **Size.** The list fits in one result of at most 1 MB. For a larger state, the CLI keeps the first resources by address and the page says how many of the total it shows.
-- **When it starts.** CLI releases after v0.4.0 report the list. Until a stack's first apply or drift job on such a release, its page says there is no resource list yet; a [scheduled drift check](/configuration/drift) fills it in without changing anything.
+- **When it starts.** CLI v0.5.0 and later report the list. Until a stack's first apply or drift job on such a release, its page says there is no resource list yet; a [scheduled drift check](/configuration/drift) fills it in without changing anything.
 
 ## Module version tracking {#module-versions}
 
