@@ -151,6 +151,25 @@ A lock is an orchestration lock on one stack, held in Postgres. It is not the S3
 
 Drift is a difference between a stack's state and its code on the default branch. The server's scheduler dispatches a drift run per stack on `drift.schedule`; the CLI runs `plan -detailed-exitcode`, and exit code 2 marks the stack drifted. The UI shows the latest result per stack, and the server can keep one GitHub issue open per drifted stack.
 
+## Resources {#resources}
+
+A stack's resource list is the managed resources its state holds: the address, type, module and provider of each, and whether it is tainted or has a deposed object, with no attribute values. Data sources are left out. Apply jobs read it from the state once the tool has run, failed applies included, and drift jobs after their plan; plan jobs never do. The CLI reads the state on the runner and reports only the list with the result. The server keeps the latest list of each stack, and the stack page shows it grouped by module, with a filter on the address.
+
+<Screenshot
+  name="ui-stack-resources"
+  alt="The Resources section of the stacks/prod/eks page in the web UI: the list from a drift check two days ago, a filter showing 11 of 11, and open groups for the root module, module.eks and module.eks.module.addons, with aws_eks_node_group.default marked drifted, aws_launch_template.nodes marked tainted, and two EKS add-ons created by run 9e1a3c5e of pull request #38."
+  :width="776"
+  :height="866"
+  caption="The Resources section of a stack page, with sample data."
+/>
+
+- **Last change.** For each listed address, the server finds the newest applied run whose plan created, updated or replaced it, and links that run and its pull request. It derives this from the plan summaries it already keeps and stores nothing for it, so a resource imported, moved, created by a failed apply or outside Stackorder, or last changed before Stackorder ran the stack, shows none.
+- **Drifted, tainted, deposed.** A resource is marked drifted when the stack's latest drift check found drift and its plan names the address. A tainted resource is one the next plan replaces. Deposed means the state still holds an old object at the address, left by a `create_before_destroy` replacement that did not finish destroying it.
+- **Stored state, not refreshed state.** The list is the state as stored, not as a plan refreshes it, so a resource deleted outside Terraform stays listed until an apply removes it, and the drift check marks it drifted, since its plan would create it again.
+- **A report, not proof.** The jobs that send the list run the repository's code, a pull request's code for an apply before merge, so it shows what they reported. See [Security model](/reference/security-model#resource-lists).
+- **Size.** The list fits in one result of at most 1 MB. For a larger state, the CLI keeps the first resources by address and the page says how many of the total it shows.
+- **When it starts.** CLI releases after v0.4.0 report the list. Until a stack's first apply or drift job on such a release, its page says there is no resource list yet; a [scheduled drift check](/configuration/drift) fills it in without changing anything.
+
 ## Module version tracking {#module-versions}
 
 A git module edge carries its `ref`. When a module repository that has the App installed pushes a semver tag, the server records the version. The UI then shows every consumer stack with the ref it pins and how many releases it is behind.
