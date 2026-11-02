@@ -64,7 +64,7 @@ Non-goals, deliberately:
 - Managing the AWS role. The user creates one OIDC-trusted role per environment; Stackorder only tells the workflow which stack is running.
 
 ::: info Implementation note
-Stackorder is still neither a state backend nor a state viewer: no endpoint or page returns state. Besides the S3 key, it records where each stack's last apply or drift job found its state, and with [shared outputs](/configuration/outputs) on it reads that object to return the root-module outputs, never the state itself, and only to the stacks that stack lists as readers or to an API key.
+Stackorder is still neither a state backend nor a state viewer: no endpoint or page returns state. Besides the S3 key, it records where each stack's last apply or drift job found its state, and the stack's [resource list](/guide/concepts#resources) that job read from it: the address, type, module, provider and tainted and deposed flags of each managed resource, never a value. With [shared outputs](/configuration/outputs) on it reads that object to return the root-module outputs, never the state itself, and only to the stacks that stack lists as readers or to an API key.
 :::
 
 ## System overview
@@ -344,7 +344,7 @@ The implementation has more packages: `config`, `scan`, `graph`, `report`, `comm
 | `sessions`, `api_keys` |  | Human and automation auth |
 
 ::: info Implementation note
-The schema stores a stack's backend as one `backend` jsonb column, edges by `from_key` and `to_key` so they can point at other repositories, and a ref-less `base_key` family row per module. It adds `graph_stacks`, `graph_modules`, `checks`, `dispatches`, `oidc_jtis` and `audit`, and the trigger `manual`. `stacks.state_object` records where the stack's last apply or drift job found its state, which [shared outputs](/configuration/outputs#state-location) read from. With the artifact bucket, Postgres keeps only the first 8 KB of plan text. See [Data model](/reference/data-model).
+The schema stores a stack's backend as one `backend` jsonb column, edges by `from_key` and `to_key` so they can point at other repositories, and a ref-less `base_key` family row per module. It adds `graph_stacks`, `graph_modules`, `checks`, `dispatches`, `oidc_jtis` and `audit`, and the trigger `manual`. `stacks.state_object` records where the stack's last apply or drift job found its state, which [shared outputs](/configuration/outputs#state-location) read from, and `stack_resources` the resource list such a job read from it. With the artifact bucket, Postgres keeps only the first 8 KB of plan text. See [Data model](/reference/data-model).
 :::
 
 Plan text beyond 256 KB is truncated with a pointer to the Actions job log. An optional `STACKORDER_ARTIFACT_BUCKET` moves full plan text and JSON into an S3 bucket owned by the server's task role, with lifecycle expiry; this is the only optional AWS dependency and it is for Stackorder's own artifacts, never for Terraform state.
@@ -369,7 +369,7 @@ Plan text beyond 256 KB is truncated with a pointer to the Actions job log. An o
 | `GET /healthz`, `GET /readyz`, `GET /metrics` | ALB, Prometheus | Liveness, readiness (DB reachable), metrics |
 
 ::: info Implementation note
-Stack keys in runner paths are percent-encoded (`{key}`). `GET /v1/runs/{id}` also accepts runner tokens. `POST /v1/unlock` releases a lock by repository and stack key, and the human API has more endpoints: `/v1/me`, `/v1/overview`, `/v1/repos`, the repository runs and stacks, modules, `/v1/runs/{id}/rerun` and `/v1/audit`. Runners and API keys read a stack's [shared outputs](/configuration/outputs) with `GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs`. See [API](/reference/api).
+Stack keys in runner paths are percent-encoded (`{key}`). `GET /v1/runs/{id}` also accepts runner tokens. `POST /v1/unlock` releases a lock by repository and stack key, and the human API has more endpoints: `/v1/me`, `/v1/overview`, `/v1/repos`, the repository runs and stacks, modules, `/v1/runs/{id}/rerun` and `/v1/audit`. Runners and API keys read a stack's [shared outputs](/configuration/outputs) with `GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs`, and people and API keys its resource list with `GET /v1/stacks/{id}/resources`. See [API](/reference/api).
 :::
 
 Metrics worth having from day one: runs by status and trigger, plan and apply duration per stack, drifted stacks gauge, locks held gauge, webhook lag, GitHub API rate-limit remaining. Traces are OpenTelemetry with the run id as a span attribute so a run can be followed from webhook to check run.
@@ -379,6 +379,10 @@ The metric names are listed on [Metrics and tracing](/reference/metrics); spans 
 :::
 
 **Web UI pages**: org overview (stacks by status, drifted count, locks held); repo graph with affected-set replay for any run; stack page (last apply, history, drift, consumers of and by, pinned module versions); run page (waves, per-stack results, links to the job log and the PR); module page (versions and consumers). Read-only except unlock and re-run, both of which post back through the API and are audited.
+
+::: info Implementation note
+The stack page also lists the stack's resources, grouped by module, as its last apply or drift job read them from the state, with the drifted, tainted and deposed ones marked and the applied run that last created, updated or replaced each one. It shows no attribute values. See [Resources](/guide/concepts#resources).
+:::
 
 **Container and Fargate deployment**
 
@@ -588,13 +592,13 @@ With [shared outputs](/configuration/outputs) on, the server is no longer withou
 **Secrets in plan output.** Terraform already masks values marked `sensitive`. The CLI additionally masks anything matching the runner's known secret patterns with `::add-mask::`, truncates plan text at 256 KB, and can be set to `plan_output: summary` per stack so only resource counts and addresses ever reach the server or the PR comment. The full plan lives only in the job log and the plan artifact, both governed by the repo's own access rules and artifact retention.
 
 ::: info Implementation note
-The CLI does not use a list of the runner's secret patterns. It redacts everything it sends to the server, the step summary or a fallback check with its own rules: private key blocks, JSON web tokens, AWS keys, GitHub and Slack tokens, password and token assignments, and the values of environment variables whose names mark them as secrets. In Actions it registers those values with `::add-mask::` before Terraform runs and passes the job log output through the same redaction. See [CLI](/reference/cli#secrets).
+The CLI does not use a list of the runner's secret patterns. It redacts the text it sends to the server, the step summary or a fallback check with its own rules: private key blocks, JSON web tokens, AWS keys, GitHub and Slack tokens, password and token assignments, and the values of environment variables whose names mark them as secrets. In Actions it registers those values with `::add-mask::` before Terraform runs and passes the job log output through the same redaction. See [CLI](/reference/cli#secrets). `plan_output: summary` sends no plan text: only resource counts and the addresses of changes reach the server and the PR comment, and apply and drift jobs still send the server the stack's resource list, which holds no values.
 :::
 
 **Data retention.** Plan text is kept 30 days by default, summaries and run history indefinitely, events 7 days, drift history 90 days. All are configurable; nothing in the server is needed to operate Terraform, so wiping the database loses history and locks but never state.
 
 ::: info Implementation note
-Wiping the database also loses where each stack's state lives, so [shared outputs](/configuration/outputs#state-location) answer `state_location_unknown` for a stack until its next apply or drift job, and the plans of the stacks that read its outputs fail until then: for those stacks, the server is needed to operate Terraform.
+Wiping the database also loses where each stack's state lives, so [shared outputs](/configuration/outputs#state-location) answer `state_location_unknown` for a stack until its next apply or drift job, and the plans of the stacks that read its outputs fail until then: for those stacks, the server is needed to operate Terraform. Each stack's resource list is gone too until its next apply or drift job.
 :::
 
 **Availability and failure modes.** The server is not in the path of `terraform plan`, so a server outage degrades to plans with `unconfirmed` checks and refused applies. Postgres is the only stateful dependency; point-in-time recovery on RDS covers it. If GitHub webhooks are delayed, the 60-second `workflow_run` reconciliation catches finished waves. If GitHub Actions itself is down, nothing runs, exactly as with any Actions-based tool.
