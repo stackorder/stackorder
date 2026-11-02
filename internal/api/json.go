@@ -57,7 +57,10 @@ func bodyError(err error) error {
 		if field == "" {
 			field = "body"
 		}
-		return invalid(fmt.Sprintf("field %s: cannot use a JSON %s as %s", field, typeErr.Value, typeErr.Type))
+		reason := fmt.Sprintf("cannot use a JSON %s as %s", typeErr.Value, typeErr.Type)
+		e := invalid(fmt.Sprintf("field %s: %s", field, reason))
+		e.body.Details = map[string]any{"field": field, "reason": reason}
+		return e
 	}
 	return invalid("the request body is not valid JSON: " + err.Error())
 }
