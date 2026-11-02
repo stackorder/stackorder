@@ -52,7 +52,7 @@ instances:
 | `tool_version` | string | root `tool_version` | The tool version for this stack. |
 | `environment` | string | from the root `environments` map | The GitHub environment this stack's applies run under. It may be a template. |
 | `apply.allowed_teams` | list of teams | root `apply.allowed_teams` | Who may request an apply that touches this stack, in the same form as the root key. A non-empty list replaces the root list. The server reads it from the default branch. |
-| `plan_output` | `full` or `summary` | root `plan_output` | How much of this stack's plan reaches the server and the PR comment. A `summary` on the default branch wins over a pull request's `full`. |
+| `plan_output` | `full` or `summary` | root `plan_output` | How much of this stack's plan reaches the server and the PR comment. `summary` sends no plan text, only resource counts and the addresses of changes, and leaves the [resource list](/guide/concepts#resources) of apply and drift jobs as it is. A `summary` on the default branch wins over a pull request's `full`. |
 | `ignore_inferred` | list of stack keys | `[]` | Inferred `reads_state` edges to suppress. Each suppressed edge is reported as a warning by the scan. Entries may be templates. |
 | `outputs` | `readers` and `sensitive` | root `outputs` | The stacks that may read this stack's root-module outputs through the server, and whether sensitive outputs are served. `readers` set here, `[]` included, replaces the root list. The server reads it from the default branch. See [Shared outputs](./outputs). |
 

@@ -77,7 +77,7 @@ outputs:                          # who may read every stack's outputs through t
 | `backend_config` | list of strings | `[]` | `-backend-config` values for `init`, for every stack: `name=value`, or a file relative to the repository root. Templates. It overlays every stack's `backend` block, so set it here only when every discovered stack has a partial `backend "s3" {}` block; otherwise set it in the `.stackorder.yaml` of the stacks that need it. See [Where to put it](./instances#backend-config-scope). |
 | `var_files` | list of paths | `[]` | `-var-file` values for every plan, relative to each stack directory. Templates. See [`var_files`](./instances#var-files). |
 | `env` | map of name to string or `{plan, apply, drift}` | `{}` | Environment variables for the tool and the hooks, for every stack. Templates. See [`env`](./instances#env). |
-| `plan_output` | `full` or `summary` | `full` | How much of a plan reaches the server and the PR comment. `summary` sends only resource counts and addresses. Overridable per stack. |
+| `plan_output` | `full` or `summary` | `full` | How much of a plan reaches the server and the PR comment. `summary` sends no plan text, only resource counts and the addresses of changes; apply and drift jobs still report the stack's [resource list](/guide/concepts#resources). Overridable per stack. |
 | `outputs` | `readers` and `sensitive` | unset | The stacks that may read the root-module outputs of every stack through the server, and whether sensitive outputs are served. A stack or an instance that sets its own `readers` replaces these. Read from the default branch. See [Shared outputs](./outputs). |
 
 ### `stacks`

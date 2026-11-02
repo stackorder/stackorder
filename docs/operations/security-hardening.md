@@ -344,5 +344,5 @@ On the default branch, with a branch protection rule or a ruleset:
 
 ## Plan output {#plan-output}
 
-- Set `plan_output: summary` on stacks whose plans show secrets that are not marked `sensitive`: only counts and addresses then reach the server and the pull request comment.
+- Set `plan_output: summary` on stacks whose plans show secrets that are not marked `sensitive`: no plan text then reaches the server or the pull request comment, only resource counts and the addresses of changes. Apply and drift jobs still send the server the stack's [resource list](/reference/security-model#resource-lists), which holds addresses and no values.
 - The binary plan file in the workflow artifact contains every value, sensitive ones included. It is governed by the repository's access rules; the `plan` action keeps it 5 days (`retention-days`). Keep that short.
