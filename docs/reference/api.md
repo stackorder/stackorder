@@ -35,7 +35,7 @@ List endpoints take `?limit=` and `?cursor=` and return a page:
 | `limit` | `50` | Items per page, a positive integer; values above `500` are treated as `500`. |
 | `cursor` | first page | The `next_cursor` of the previous page, opaque. A malformed cursor is `400 invalid` with `details.field` `cursor`. |
 
-`next_cursor` is absent on the last page. `total` counts every item across pages and is present only on `GET /v1/repos`, `GET /v1/repos/{owner}/{repo}/stacks` and, for API keys, `GET /v1/modules`, and only when it is not zero. Pages of `GET /v1/audit` and `GET /v1/modules` may hold fewer than `limit` items, or none, and still carry `next_cursor`, because entries the caller may not see are removed after paging.
+`next_cursor` is absent on the last page. `total` counts every item across pages and is present only on `GET /v1/repos`, `GET /v1/repos/{owner}/{repo}/stacks`, `GET /v1/stacks` and, for API keys, `GET /v1/modules`, and only when it is not zero. Pages of `GET /v1/audit` and `GET /v1/modules` may hold fewer than `limit` items, or none, and still carry `next_cursor`, because entries the caller may not see are removed after paging.
 
 ## Authentication {#authentication}
 
@@ -110,6 +110,7 @@ The CLI maps these to [exit codes](/reference/exit-codes#server-answers).
 | [`GET /v1/repos/{owner}/{repo}/graph`](#repo-graph) | Person, API key | `?ref=&run=` | `GraphView` |
 | [`GET /v1/repos/{owner}/{repo}/runs`](#repo-runs) | Person, API key | `?status=&pr=&mode=` | `Page` of `Run` |
 | [`GET /v1/repos/{owner}/{repo}/stacks`](#repo-stacks) | Person, API key | | `Page` of `StackDetail` |
+| [`GET /v1/stacks`](#stacks) | Person, API key | | `Page` of `StackDetail` |
 | [`GET /v1/stacks/{id}`](#stack) | Person, API key | | `StackDetail` |
 | [`GET /v1/stacks/{id}/runs`](#stack-runs) | Person, API key | | `Page` of `RunStackRef` |
 | [`GET /v1/stacks/{id}/resources`](#stack-resources) | Person, API key | | `StackResources` |
@@ -822,6 +823,36 @@ A page of the repository's current stacks, ordered by key, each in the [`StackDe
     }
   ],
   "total": 1
+}
+```
+
+### `GET /v1/stacks` {#stacks}
+
+A page of the current stacks of every repository the caller sees, ordered by repository full name and then by key, each in the [`StackDetail`](#stack) shape, with `total`. Each item is the one [`GET /v1/repos/{owner}/{repo}/stacks`](#repo-stacks) returns for the stack.
+
+```json
+{
+  "items": [
+    {
+      "id": "3d6f0a2e-1b4c-4d8e-9f10-2a3b4c5d6e7f",
+      "repo": "acme/infra",
+      "key": "stacks/prod/vpc",
+      "path": "stacks/prod/vpc",
+      "environment": "production",
+      "tool": "tofu",
+      "dependents": ["stacks/prod/apps"]
+    },
+    {
+      "id": "9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d",
+      "repo": "acme/network",
+      "key": "stacks/prod/tgw",
+      "path": "stacks/prod/tgw",
+      "environment": "production",
+      "tool": "tofu"
+    }
+  ],
+  "next_cursor": "YWNtZS9uZXR3b3JrAHN0YWNrcy9wcm9kL3Rndw",
+  "total": 42
 }
 ```
 

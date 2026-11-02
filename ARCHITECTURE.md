@@ -684,6 +684,7 @@ with `next_cursor`.
 | `GET /v1/repos/{owner}/{repo}/graph?ref=&run=` | `v1.GraphView`; `ref` is a full commit SHA, a unique prefix of at least 7 characters of a recorded graph's SHA (ambiguous: 400 `invalid`) or `default` (the default-branch graph), never a branch name; without `ref` the repo's default-branch graph when known, else the latest |
 | `GET /v1/repos/{owner}/{repo}/runs?status=&pr=&mode=` | `v1.Page[v1.Run]`, newest first |
 | `GET /v1/repos/{owner}/{repo}/stacks` | `v1.Page[v1.StackDetail]` |
+| `GET /v1/stacks` | `v1.Page[v1.StackDetail]`, the live stacks of every visible repo, ordered by repo full name, then key |
 | `GET /v1/stacks/{id}` | `v1.StackDetail` |
 | `GET /v1/stacks/{id}/runs` | `v1.Page[v1.RunStackRef]`, newest first |
 | `GET /v1/stacks/{id}/resources` | `v1.StackResources`: the recorded list with each item's `last_change` from `store.StackResourceChanges`; 200 with `items: []`, `total` 0 and no run fields when nothing is recorded; a removed stack keeps its last list; 404 through `visibleStack`; not paged, since a result body bounds the list |
