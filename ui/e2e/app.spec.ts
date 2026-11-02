@@ -264,6 +264,24 @@ test.describe('signed in', () => {
     await expect(addonsTable.getByRole('row')).toHaveCount(3);
   });
 
+  for (const width of [1280, 375]) {
+    test(`stack page lines up the resource columns across module groups at ${String(width)}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await mockApi(page);
+      await page.goto(`/stacks/${ids.stack}`);
+      const resources = page.getByRole('region', { name: 'Resources' });
+      const headers = resources.getByRole('columnheader', { name: 'Last change' });
+      await expect(headers).toHaveCount(3);
+      const lefts = await headers.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().left));
+      expect(new Set(lefts).size).toBe(1);
+      const overflow = await resources
+        .locator('.table-wrap')
+        .evaluateAll((els) => els.map((el) => el.scrollWidth - el.clientWidth));
+      expect(overflow).toEqual([0, 0, 0]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    });
+  }
+
   test('module list filters and links to the module page', async ({ page }) => {
     await mockApi(page);
     await page.goto('/modules');
