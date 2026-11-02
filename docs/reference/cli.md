@@ -482,7 +482,7 @@ The text the CLI sends to the server, the step summary or a fallback check (plan
 - quoted values assigned to names ending in `password`, `passwd`, `secret` or `token`, and `…PASSWORD=`, `…SECRET=` or `…TOKEN=` assignments;
 - the value of every environment variable, from the process environment or the stack's `env`, whose name has a `SECRET`, `TOKEN`, `PASSWORD`, `PASSWD`, `PASSPHRASE`, `APIKEY`, `API_KEY`, `PRIVATE_KEY` or `CREDENTIAL(S)` component, such as `GITHUB_TOKEN` or `DB_PASSWORD`, unless it is shorter than 4 characters, a boolean or a number.
 
-The resource list's addresses, types, module addresses and providers go through the same redactor. The list holds no values, so this only guards against a secret in a `for_each` key of a resource or a module; items whose addresses become identical once masked are merged. The addresses in a plan summary are not redacted, because the re-plan before an apply compares them with the recorded ones.
+The resource list's addresses, types, module addresses and providers go through the same redactor. The list holds no values, so this only guards against a secret in a `for_each` key of a resource or a module; items whose addresses become identical once masked are merged. The addresses in a plan summary are not redacted, because the re-plan before an apply compares them with the recorded ones, so a resource whose address the redactor masked gets no drifted badge and no last change.
 
 In Actions those environment values are also registered with `::add-mask::` before Terraform runs, and the output Terraform streams to the job log goes through the same redactor. Values marked `sensitive` are already masked by Terraform itself.
 
