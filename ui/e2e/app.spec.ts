@@ -303,6 +303,24 @@ test.describe('signed in', () => {
     await expect(nav.getByRole('link', { name: 'Stacks' })).toHaveAttribute('aria-current', 'page');
   });
 
+  test('fits a 320px wide screen without scrolling sideways', async ({ page }) => {
+    await mockApi(page);
+    await page.setViewportSize({ width: 320, height: 800 });
+    for (const [path, heading] of [
+      ['/', 'Overview'],
+      ['/stacks', 'Stacks'],
+    ] as const) {
+      await page.goto(path);
+      await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
+      await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Modules' })).toBeInViewport({ ratio: 1 });
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(scrollWidth, path).toBeLessThanOrEqual(clientWidth);
+    }
+  });
+
   test('module list filters and links to the module page', async ({ page }) => {
     await mockApi(page);
     await page.goto('/modules');
