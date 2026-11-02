@@ -459,6 +459,68 @@ func TestRepoStacksAndHistory(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.get("/v1/stacks/"+w.globexStack.String()+"/runs", true).Code)
 }
 
+func TestStacks(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+	_, err := w.st.UpsertInstallation(ctx, store.Installation{ID: 3, Account: "octocat", AccountType: "User"})
+	require.NoError(t, err)
+	dotfiles, err := w.st.UpsertRepo(ctx, store.RepoParams{ID: 300, InstallationID: 3, FullName: "octocat/dotfiles", DefaultBranch: "main"})
+	require.NoError(t, err)
+	_, _, err = w.st.SaveGraph(ctx, dotfiles.ID, &v1.Graph{Repo: "octocat/dotfiles", SHA: "d1", Stacks: []v1.Stack{{Key: "stacks/home", Path: "stacks/home"}}})
+	require.NoError(t, err)
+	keysOf := func(items []v1.StackDetail) []string {
+		out := make([]string, len(items))
+		for i, d := range items {
+			out[i] = d.Repo + " " + d.Key
+		}
+		return out
+	}
+
+	page := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks", true))
+	assert.Equal(t, []string{
+		"acme/infra stacks/prod/apps:blue", "acme/infra stacks/prod/eks", "acme/infra stacks/prod/new", "acme/infra stacks/prod/vpc",
+		"octocat/dotfiles stacks/home",
+	}, keysOf(page.Items), "a person sees the stacks of their own account and their organisations, not globex's")
+	assert.Equal(t, 5, page.Total)
+	assert.Empty(t, page.NextCursor)
+	infra := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/repos/acme/infra/stacks", true))
+	assert.Equal(t, infra.Items, page.Items[:4], "items equal what the repository's stack list returns")
+
+	all := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks", false))
+	assert.Equal(t, 6, all.Total, "API keys see every repository")
+	assert.Equal(t, "globex/platform stacks/app", keysOf(all.Items)[4])
+
+	first := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks?limit=3", false))
+	require.NotEmpty(t, first.NextCursor)
+	assert.Equal(t, 6, first.Total)
+	second := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks?limit=2&cursor="+first.NextCursor, false))
+	assert.Equal(t, []string{"acme/infra stacks/prod/vpc", "globex/platform stacks/app"}, keysOf(second.Items))
+	require.NotEmpty(t, second.NextCursor)
+	last := decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks?limit=2&cursor="+second.NextCursor, false))
+	assert.Equal(t, []string{"octocat/dotfiles stacks/home"}, keysOf(last.Items))
+	assert.Empty(t, last.NextCursor)
+	globex := decodeBody[v1.StackDetail](t, w.ok("/v1/stacks/"+w.globexStack.String(), false))
+	assert.Equal(t, globex, second.Items[1])
+
+	_, err = w.st.MarkStacksRemoved(ctx, w.infra.ID, []string{"stacks/prod/apps:blue", "stacks/prod/eks", "stacks/prod/vpc"})
+	require.NoError(t, err)
+	page = decodeBody[v1.Page[v1.StackDetail]](t, w.ok("/v1/stacks", true))
+	assert.NotContains(t, keysOf(page.Items), "acme/infra stacks/prod/new", "removed stacks are not listed")
+	assert.Equal(t, 4, page.Total)
+
+	token, _, err := w.st.CreateSession(ctx, store.NewSession{Login: "hubot", UserID: 2, TTL: time.Hour})
+	require.NoError(t, err)
+	r := newRequest(t, http.MethodGet, "/v1/stacks", nil)
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: w.srv.sessionCookieValue(token)})
+	rec := httptest.NewRecorder()
+	w.h.ServeHTTP(rec, r)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"items":[]}`, rec.Body.String())
+
+	assert.Equal(t, http.StatusBadRequest, w.get("/v1/stacks?cursor=!!!", true).Code)
+	assert.Equal(t, http.StatusBadRequest, w.get("/v1/stacks?limit=0", true).Code)
+}
+
 func TestModules(t *testing.T) {
 	w := newWorld(t)
 	page := decodeBody[v1.Page[v1.ModuleDetail]](t, w.ok("/v1/modules", true))

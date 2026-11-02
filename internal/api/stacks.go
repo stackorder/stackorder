@@ -312,3 +312,47 @@ func (s *server) repoStacks(w http.ResponseWriter, r *http.Request, id identity)
 	s.writeJSON(w, r, http.StatusOK, page)
 	return nil
 }
+
+type repoStack struct {
+	repo  store.Repo
+	stack store.Stack
+}
+
+func (s *server) stacks(w http.ResponseWriter, r *http.Request, id identity) error {
+	limit, cursor, err := pageParams(r)
+	if err != nil {
+		return err
+	}
+	repos, err := s.db.ListRepos(r.Context(), id.accounts()...)
+	if err != nil {
+		return fmt.Errorf("list repos: %w", err)
+	}
+	var all []repoStack
+	for _, repo := range repos {
+		stacks, err := s.db.ListStacks(r.Context(), repo.ID, false)
+		if err != nil {
+			return fmt.Errorf("list stacks: %w", err)
+		}
+		for _, st := range stacks {
+			all = append(all, repoStack{repo: repo, stack: st})
+		}
+	}
+	items, next, err := pageByKey(all, func(rs repoStack) string { return rs.repo.FullName + "\x00" + rs.stack.Key }, limit, cursor)
+	if err != nil {
+		return err
+	}
+	page := v1.Page[v1.StackDetail]{Items: make([]v1.StackDetail, len(items)), NextCursor: next, Total: len(all)}
+	var b *detailBuilder
+	for i, rs := range items {
+		if b == nil || b.repo.ID != rs.repo.ID {
+			if b, err = s.newDetailBuilder(r.Context(), rs.repo, true); err != nil {
+				return err
+			}
+		}
+		if page.Items[i], err = b.detail(r.Context(), rs.stack); err != nil {
+			return err
+		}
+	}
+	s.writeJSON(w, r, http.StatusOK, page)
+	return nil
+}
