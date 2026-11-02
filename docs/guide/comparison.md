@@ -32,7 +32,7 @@ Terraform runs in your GitHub Actions jobs, on GitHub-hosted or self-hosted runn
 
 ### State backend
 
-State stays in your S3 bucket, locked with `use_lockfile = true` (Terraform or OpenTofu 1.10 and later) or a DynamoDB table. Each stack's `backend "s3"` block is the source of truth. The CLI reads `bucket`, `key` and `region` from it to run `init` and to report the location, so the UI can link a stack to its state object. Stackorder never takes or releases the state lock; its own [orchestration lock](./concepts#locks) sits above it. With [shared outputs](/configuration/outputs) on, the server reads a stack's state object to return its root-module outputs to the stacks it lists as readers, and keeps nothing it reads.
+State stays in your S3 bucket, locked with `use_lockfile = true` (Terraform or OpenTofu 1.10 and later) or a DynamoDB table. Each stack's `backend "s3"` block is the source of truth. The CLI reads `bucket`, `key` and `region` from it to run `init` and to report the location, so the UI can link a stack to its state object. Stackorder never takes or releases the state lock; its own [orchestration lock](./concepts#locks) sits above it. With [shared outputs](/configuration/outputs) on, the server reads a stack's state object to return its root-module outputs to the stacks it lists as readers, and keeps nothing it reads. Apply and drift jobs report the [resources](./concepts#resources) in each stack's state, without their values, so the stack page lists them.
 
 ### Module registry and tracking
 

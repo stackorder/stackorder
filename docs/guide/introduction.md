@@ -18,7 +18,7 @@ The guide, configuration, reference and operations pages describe the code as re
 By default the server does two things.
 
 1. **Dependency resolution.** It holds the graph of stacks, shared modules and the edges between them. For a change it computes the affected set, orders applies into waves, and serializes conflicting work with stack-level locks.
-2. **Observability.** It records every plan and apply per stack and per commit, surfaces drift, and shows the dependency graph and which stacks consume each module at which version. All of it is available through a small web UI, a JSON API and Prometheus metrics.
+2. **Observability.** It records every plan and apply per stack and per commit, surfaces drift, lists the [resources](./concepts#resources) in each stack's state with the applied run that last changed each one, and shows the dependency graph and which stacks consume each module at which version. All of it is available through a small web UI, a JSON API and Prometheus metrics.
 
 An operator can add a third, off by default: [shared outputs](/configuration/outputs), where the server returns a stack's root-module outputs to the stacks that stack lists as readers, so their roles need no access to its state.
 
@@ -36,7 +36,7 @@ Stackorder is deliberately not a state backend, a module registry, a secrets sto
 
 | Not a | Use instead |
 | --- | --- |
-| State backend or state viewer | The S3 backend, with S3-native or DynamoDB locking. Stackorder stores only where each stack's state lives, to link to it and, with [shared outputs](/configuration/outputs) on, to serve the stack's root-module outputs to the stacks it lists as readers. It never stores or shows the state itself. |
+| State backend or state viewer | The S3 backend, with S3-native or DynamoDB locking. Stackorder stores where each stack's state lives, to link to it and, with [shared outputs](/configuration/outputs) on, to serve the stack's root-module outputs to the stacks it lists as readers, and the [list of resources](./concepts#resources) in it, without their values. It never stores or shows the state itself. |
 | Module registry | Git or local paths. Stackorder indexes module references; it does not host code. |
 | Policy engine | OPA or conftest, Checkov, Infracost or any other tool as a step in the plan job. Stackorder records the verdict as a named check on the stack. |
 | Runner | GitHub-hosted or self-hosted Actions runners, under your own OIDC-federated AWS role. |
