@@ -175,6 +175,7 @@ type dataStore interface {
 
 	GetStack(ctx context.Context, id uuid.UUID) (store.Stack, error)
 	ListStacks(ctx context.Context, repoID int64, includeRemoved bool) ([]store.Stack, error)
+	ListLiveStacksOfRepos(ctx context.Context, repoIDs []int64) ([]store.Stack, error)
 	LatestRunStackForStack(ctx context.Context, stackID uuid.UUID, mode v1.RunMode, statuses ...v1.StackStatus) (store.StackRun, error)
 	StackHistory(ctx context.Context, stackID uuid.UUID, limit int, cursor string) ([]store.StackRun, string, error)
 	LatestDrift(ctx context.Context, stackID uuid.UUID) (store.Drift, error)
