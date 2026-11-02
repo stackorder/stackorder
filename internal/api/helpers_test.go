@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -56,6 +57,10 @@ type fakeStore struct {
 	stacks        map[uuid.UUID]store.Stack
 	runs          map[uuid.UUID]store.Run
 	runStacks     map[uuid.UUID][]store.RunStack
+	resources     map[uuid.UUID]store.StackResources
+	changes       map[uuid.UUID][]store.ResourceChange
+	resourcesErr  error
+	changesAsked  [][]string
 	sessionReads  int
 	created       []store.NewSession
 	deleted       []string
@@ -69,6 +74,8 @@ func newFakeStore() *fakeStore {
 		stacks:    map[uuid.UUID]store.Stack{},
 		runs:      map[uuid.UUID]store.Run{},
 		runStacks: map[uuid.UUID][]store.RunStack{},
+		resources: map[uuid.UUID]store.StackResources{},
+		changes:   map[uuid.UUID][]store.ResourceChange{},
 	}
 }
 
@@ -180,6 +187,32 @@ func (f *fakeStore) GetRunStacks(_ context.Context, runID uuid.UUID) ([]store.Ru
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]store.RunStack(nil), f.runStacks[runID]...), nil
+}
+
+func (f *fakeStore) GetStackResources(_ context.Context, stackID uuid.UUID) (store.StackResources, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.resourcesErr != nil {
+		return store.StackResources{}, f.resourcesErr
+	}
+	rec, ok := f.resources[stackID]
+	if !ok {
+		return store.StackResources{}, store.ErrNotFound
+	}
+	return rec, nil
+}
+
+func (f *fakeStore) StackResourceChanges(_ context.Context, stackID uuid.UUID, addresses []string) ([]store.ResourceChange, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.changesAsked = append(f.changesAsked, addresses)
+	var out []store.ResourceChange
+	for _, c := range f.changes[stackID] {
+		if slices.Contains(addresses, c.Address) {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeStore) addRepo(id, installationID int64, account, fullName string) store.Repo {
