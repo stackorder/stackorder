@@ -170,3 +170,39 @@ func TestClearStackStateObject(t *testing.T) {
 	}
 	f.requireStateObject(vpcID, &obj, &drift.ID)
 }
+
+func TestListLiveStacksOfRepos(t *testing.T) {
+	f := newFixture(t)
+	live := f.addRepo(1, 101, "acme", "acme/infra-live")
+	other := f.addRepo(2, 200, "globex", "globex/platform")
+	f.stacks("b", "a", "gone")
+	_, err := f.s.MarkStacksRemoved(f.ctx, f.repo.ID, []string{"a", "b"})
+	require.NoError(t, err)
+	f.saveGraph(live.ID, &v1.Graph{Repo: live.FullName, SHA: "l1", Stacks: []v1.Stack{{Key: "z", Path: "z"}, {Key: "c", Path: "c"}}})
+	f.saveGraph(other.ID, &v1.Graph{Repo: other.FullName, SHA: "o1", Stacks: []v1.Stack{{Key: "app", Path: "app"}}})
+	keysOf := func(stacks []store.Stack) []string {
+		out := make([]string, len(stacks))
+		for i, st := range stacks {
+			out[i] = st.Repo + " " + st.Key
+		}
+		return out
+	}
+
+	got, err := f.s.ListLiveStacksOfRepos(f.ctx, []int64{live.ID, f.repo.ID})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"acme/infra a", "acme/infra b", "acme/infra-live c", "acme/infra-live z"}, keysOf(got),
+		"live stacks of the given repositories only, ordered by repository id then key")
+	want, err := f.s.ListStacks(f.ctx, f.repo.ID, false)
+	require.NoError(t, err)
+	assert.Equal(t, want, got[:2], "rows equal what ListStacks returns")
+
+	got, err = f.s.ListLiveStacksOfRepos(f.ctx, []int64{other.ID, 999})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"globex/platform app"}, keysOf(got), "an unknown repository id matches nothing")
+
+	for _, ids := range [][]int64{nil, {}} {
+		got, err = f.s.ListLiveStacksOfRepos(f.ctx, ids)
+		require.NoError(t, err)
+		assert.Empty(t, got, "no repositories, no stacks")
+	}
+}

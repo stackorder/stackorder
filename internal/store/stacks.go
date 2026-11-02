@@ -114,6 +114,15 @@ func (s *Store) ListStacks(ctx context.Context, repoID int64, includeRemoved boo
 	return out, wrap("list stacks", err)
 }
 
+// ListLiveStacksOfRepos returns the stacks not marked removed of the given
+// repositories, ordered by repository id and key.
+func (s *Store) ListLiveStacksOfRepos(ctx context.Context, repoIDs []int64) ([]Stack, error) {
+	out, err := queryAll[Stack](ctx, s.db, stackSelect+`
+		WHERE s.repo_id = ANY($1::bigint[]) AND s.removed_at IS NULL
+		ORDER BY s.repo_id, s.key`, nonNil(repoIDs))
+	return out, wrap("list live stacks of repos", err)
+}
+
 // MarkStacksRemoved stamps removed_at on every stack of the repository whose
 // key is not in keepKeys and returns how many were marked. Stacks already
 // marked keep their original removal time.
