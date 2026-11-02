@@ -73,7 +73,7 @@ Every error response has the same body. `details` is present only for the codes 
 
 | Status | Code | Meaning |
 | --- | --- | --- |
-| 400 | `invalid` | The body or a parameter failed validation. `details.field` and `details.reason` name the field when one is at fault. |
+| 400 | `invalid` | The body or a parameter failed validation. `details.field` and `details.reason` name the field when one is at fault. A JSON value of the wrong type names it by its path, array indexes included, such as `resources.items.0.tainted`. |
 | 401 | `unauthorized` | Missing or unusable credentials: no token, a bad signature, the wrong audience or issuer, a token older than 10 minutes or already used, an unknown or revoked API key, an expired session. |
 | 403 | `forbidden` | Valid credentials that may not do this: a repository the server does not know, a suspended installation, a `job_workflow_ref` that does not match, a claim that does not match the run, a person without push permission, a cross-origin request. |
 | 404 | `not_found` | The run, stack, module, repository or route does not exist or is not visible to the caller. |
@@ -112,6 +112,7 @@ The CLI maps these to [exit codes](/reference/exit-codes#server-answers).
 | [`GET /v1/repos/{owner}/{repo}/stacks`](#repo-stacks) | Person, API key | | `Page` of `StackDetail` |
 | [`GET /v1/stacks/{id}`](#stack) | Person, API key | | `StackDetail` |
 | [`GET /v1/stacks/{id}/runs`](#stack-runs) | Person, API key | | `Page` of `RunStackRef` |
+| [`GET /v1/stacks/{id}/resources`](#stack-resources) | Person, API key | | `StackResources` |
 | [`GET /v1/modules`](#modules) | Person, API key | `?q=` | `Page` of `ModuleDetail` |
 | [`GET /v1/modules/{id}`](#module) | Person, API key | | `ModuleDetail` |
 | [`GET /v1/audit`](#audit) | Person, API key | | `Page` of `AuditEntry` |
@@ -378,9 +379,35 @@ Reports a plan, apply or drift outcome for one stack and answers with the stack'
 }
 ```
 
+An apply or drift result also carries `resources`, the [resource list](#stack-resources) the job read from the stack's state:
+
+```json
+{
+  "resources": {
+    "total": 2,
+    "items": [
+      {
+        "address": "aws_subnet.private[0]",
+        "type": "aws_subnet",
+        "provider": "registry.opentofu.org/hashicorp/aws"
+      },
+      {
+        "address": "module.nat.aws_nat_gateway.this[\"a\"]",
+        "type": "aws_nat_gateway",
+        "module": "module.nat",
+        "provider": "registry.opentofu.org/hashicorp/aws",
+        "tainted": true
+      }
+    ]
+  }
+}
+```
+
 `status` is `success`, `failure` (the tool or a hook failed, or the CLI refused) or `error`. `exit_code` is the tool's exit code, `2` for a plan with changes. Other fields: `truncated` when the plan text was cut at 256 KB, `error_text`, and `unconfirmed`, which records the stack as `unconfirmed`. The summary can also count `imports`, `moves` and `output_changes`, and list `destroyed` and `replaced` addresses. Plan text of a stack whose default-branch `plan_output` is `summary` is never stored.
 
 `backend` is the backend `init` recorded. `state` is the S3 object that held the stack's state after `init` and workspace selection: `bucket`, `key` with the workspace prefix (`env:/production/stacks/prod/vpc/terraform.tfstate` in the workspace `production`), and `region` unless the backend takes it from the environment. The CLI leaves it out for a backend other than `s3`, or without a bucket or a key. The server records it as the stack's state location from an accepted apply or drift result, manual runs included and whatever the outcome; never from a plan result, a repeated or refused result, or a result of a run older than the one that recorded the current location, and, with shared outputs on, never an object that no entry of `STACKORDER_STATE_BUCKETS` grants the stack's repository: such a result clears the recorded location instead, under the same order, and the server logs the object. [Shared outputs](/configuration/outputs#state-location) read the state from there.
+
+`resources` lists the managed resources in the stack's state, sorted by address, with no value of any kind: each item has `address`, `type`, `module` (the module address, left out in the root module), `provider` (the provider's source address), and `tainted` and `deposed` when the object is tainted or the state also holds a deposed object at the address. Data sources are left out. `total` counts every resource in the state, and `truncated` is set when `items` holds fewer. Apply jobs read the list once the tool has run, failed applies included, and drift jobs after the plan; plan results never carry one. The server records it as the stack's list from an accepted apply or drift result, manual runs included, whatever the outcome and even when the result repeats the recorded one, unless the recorded list was read from newer state: a confirmed apply result counts as read when it arrives, a drift or unconfirmed apply result as read when its run was created. A plan result's list and a refused result's are ignored. The server drops an item with an empty `address` or `type`, invalid UTF-8, a control or format character, or a field over its limit (2048 bytes for `address` and `module`, 512 for `type` and `provider`), keeps the rest and sets `truncated`; it merges items with the same address and drops any `last_change`. A list's content never makes the server refuse a result, but its JSON types are checked with the rest of the body: a string for `tainted` is `400 invalid` with `details.field` `resources.items.0.tainted`. A result body may be up to 1 MB (`MaxResultBytes`); the CLI cuts the list to fit, and when the server answers `413` or a `400 invalid` whose `details.field` starts with `resources`, it posts the result once more without the list.
 
 ```json
 {
@@ -859,6 +886,53 @@ A page of the stack's history, newest first, each item in the `RunStackRef` shap
   "next_cursor": "MjAyNi0wOS0yOFQwOToyMDowMFo"
 }
 ```
+
+### `GET /v1/stacks/{id}/resources` {#stack-resources}
+
+The stack's resource list: the managed resources its last apply or drift job found in its state, with no values. A person sees the stacks of the repositories they see, and API keys every stack; a stack the caller cannot see is `404`, and runner tokens are refused with `401`.
+
+```json
+{
+  "run_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "mode": "apply",
+  "sha": "9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
+  "reported_at": "2026-09-28T09:22:41Z",
+  "changed_at": "2026-09-28T09:22:41Z",
+  "total": 3,
+  "items": [
+    {
+      "address": "aws_route_table.private[2]",
+      "type": "aws_route_table",
+      "provider": "registry.opentofu.org/hashicorp/aws",
+      "last_change": {
+        "action": "create",
+        "run_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+        "sha": "9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
+        "pr_number": 42,
+        "finished_at": "2026-09-28T09:22:40Z"
+      }
+    },
+    {
+      "address": "aws_vpc.main",
+      "type": "aws_vpc",
+      "provider": "registry.opentofu.org/hashicorp/aws"
+    },
+    {
+      "address": "module.nat.aws_nat_gateway.this[\"a\"]",
+      "type": "aws_nat_gateway",
+      "module": "module.nat",
+      "provider": "registry.opentofu.org/hashicorp/aws",
+      "tainted": true
+    }
+  ]
+}
+```
+
+`run_id`, `mode` (`apply` or `drift`) and `sha` name the run whose job reported the list; `run_id` is left out if that run is deleted. `reported_at` is when the list was last recorded, and `changed_at` when it last differed from the list before it. Items have the fields of a [result's `resources`](#stack-result), and `truncated` is set when `items` holds fewer than `total`.
+
+`last_change` is the newest applied run whose plan created (`create`), updated (`update`) or replaced (`replace`) the address: its `run_id`, `sha`, `pr_number` and `finished_at`, when the stack's apply finished. The server derives it from the plan summaries of the stack's applied runs and stores nothing for it. It is left out when no applied run changed the address, as for a resource imported, moved, created outside Stackorder or by an apply that failed, and when the newest such run destroyed the address, since what recreated it is unknown.
+
+With no list recorded, the answer is `200` with `"total": 0`, `"items": []` and no run fields. A removed stack keeps its last list. The list is not paged: it fits in a result body.
 
 ### `GET /v1/modules` {#modules}
 
