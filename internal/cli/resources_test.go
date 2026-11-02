@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -10,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
@@ -414,6 +416,30 @@ func TestJSONOutputShowsTheResultWithoutTheRefusedResourceList(t *testing.T) {
 			assert.Equal(t, fs.lastResult().Result, out.Result)
 		})
 	}
+}
+
+func TestResultIsPostedAgainAfterTheJobContextIsDone(t *testing.T) {
+	saved := reportTimeout
+	reportTimeout = 2 * time.Second
+	t.Cleanup(func() { reportTimeout = saved })
+	t.Setenv(EnvAPIKey, "key-1")
+	fs := newFakeServer(t)
+	fs.rejectNext("result", http.StatusRequestEntityTooLarge, v1.Error{Code: "invalid"})
+	fs.delayNext("result", 1500*time.Millisecond)
+	fs.delayNext("result", time.Second)
+	var logs strings.Builder
+	a := newTestApp(&logs)
+	a.server = fs.url()
+	s := &session{a: a, gh: &Context{}, key: "stacks/app", runID: "run-1"}
+	res := v1.StackResult{Mode: v1.ModeApply, Status: v1.ResultSuccess, Resources: &v1.ResourceList{Total: 0, Items: []v1.StackResource{}}}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	require.NoError(t, s.post(ctx, &res))
+	assert.Nil(t, res.Resources)
+	require.Len(t, fs.requestBodies("result"), 2)
+	assert.Nil(t, fs.lastResult().Result.Resources)
+	assert.Contains(t, logs.String(), "reported again without the list")
 }
 
 func TestStateValuesNeverLeaveTheRunner(t *testing.T) {

@@ -31,10 +31,11 @@ const (
 	envDataDir     = "TF_DATA_DIR"
 	envWorkspace   = "TF_WORKSPACE"
 	workspaceFile  = "environment"
-	reportTimeout  = 30 * time.Second
 	stateTimeout   = 5 * time.Minute
 	resultMargin   = 64 * 1024
 )
+
+var reportTimeout = 30 * time.Second
 
 var plainVersion = regexp.MustCompile(`^\d+(\.\d+){0,2}$`)
 
@@ -535,21 +536,26 @@ func (s *session) post(ctx context.Context, res *v1.StackResult) error {
 	if err != nil {
 		return err
 	}
-	if ctx.Err() != nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), reportTimeout)
-		defer cancel()
-	}
-	_, err = cl.PostResult(ctx, s.runID, s.key, *res)
+	err = postResult(ctx, cl, s.runID, s.key, *res)
 	if apiErr, ok := resourcesRefused(err); ok && res.Resources != nil {
 		s.a.warn(fmt.Sprintf("the server refused the %s result of %s with its resource list (%d %s), so it is reported again without the list", res.Mode, s.key, apiErr.Status, apiErr.Code))
 		res.Resources = nil
-		_, err = cl.PostResult(ctx, s.runID, s.key, *res)
+		err = postResult(ctx, cl, s.runID, s.key, *res)
 	}
 	if err != nil {
 		return fmt.Errorf("reporting the %s result of %s to run %s: %w", res.Mode, s.key, s.runID, err)
 	}
 	return nil
+}
+
+func postResult(ctx context.Context, cl *client.Client, runID, key string, res v1.StackResult) error {
+	if ctx.Err() != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), reportTimeout)
+		defer cancel()
+	}
+	_, err := cl.PostResult(ctx, runID, key, res)
+	return err
 }
 
 func resourcesRefused(err error) (*client.Error, bool) {
