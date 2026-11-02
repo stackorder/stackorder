@@ -381,7 +381,7 @@ function ResourceTable({
 function Provenance({ list, stack, history }: { list: StackResources; stack: StackDetail; history?: RunStackRef[] | null }) {
   const runId = list.run_id ?? '';
   const drift = list.mode === 'drift';
-  const failed = !drift && (history ?? []).some((r) => r.run_id === runId && r.status === 'failed');
+  const failed = !drift && !!runId && (history ?? []).some((r) => r.run_id === runId && r.status === 'failed');
   const source = drift ? 'at drift check' : failed ? 'after failed apply' : 'after apply';
   const last = stack.last_apply;
   const stale =
@@ -391,7 +391,14 @@ function Provenance({ list, stack, history }: { list: StackResources; stack: Sta
     Date.parse(list.reported_at) < Date.parse(last.finished_at);
   return (
     <p class="muted">
-      {list.total === 0 ? 'No resources in the state' : 'From the state'} {source} <RunLink id={runId} />,{' '}
+      {list.total === 0 ? 'No resources in the state' : 'From the state'} {source}
+      {runId ? (
+        <>
+          {' '}
+          <RunLink id={runId} />
+        </>
+      ) : null}
+      ,{' '}
       <TimeAgo value={list.reported_at} />
       {stale ? ', before the last apply' : ''}.
     </p>
@@ -411,7 +418,7 @@ function ResourceList({
 }) {
   const { path, query, route } = useLocation();
   const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(new Map());
-  if (!list.run_id) return <p class="empty">No resource list yet.</p>;
+  if (!list.reported_at) return <p class="empty">No resource list yet.</p>;
 
   const items = list.items ?? [];
   const filter = query.q ?? '';
