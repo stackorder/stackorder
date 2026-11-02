@@ -65,9 +65,36 @@ describe('App', () => {
     expect(window.location.pathname).toBe(`/stacks/${ids.stack}`);
   });
 
+  it('opens a stack from the stacks list in the navigation', async () => {
+    renderApp('/');
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('link', { name: 'Stacks' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Stacks' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/stacks');
+    fireEvent.click(within(screen.getByRole('table', { name: 'Stacks' })).getByRole('link', { name: 'stacks/prod/eks' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'stacks/prod/eks' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe(`/stacks/${ids.stack}`);
+  });
+
+  it.each([
+    ['/', 'Overview'],
+    ['/repos', 'Repositories'],
+    ['/repos/acme/infra', 'Repositories'],
+    ['/stacks', 'Stacks'],
+    [`/stacks/${ids.stack}`, 'Stacks'],
+    ['/modules', 'Modules'],
+  ])('marks only the section of %s as current: %s', async (url, current) => {
+    renderApp(url);
+    const nav = within(await screen.findByRole('navigation', { name: 'Main' }));
+    const links = nav.getAllByRole('link');
+    expect(links.map((a) => a.textContent)).toEqual(['Overview', 'Repositories', 'Stacks', 'Modules']);
+    expect(links.filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent)).toEqual([current]);
+  });
+
   it.each([
     [`/runs/${ids.run}`, 'Run 7d9f1b3c failed'],
     [`/modules/${ids.module}`, 'acme/terraform-modules//eks-addons'],
+    ['/stacks', 'Stacks'],
     ['/modules', 'Modules'],
     ['/nowhere/at/all', 'Page not found'],
   ])('renders %s', async (url, heading) => {

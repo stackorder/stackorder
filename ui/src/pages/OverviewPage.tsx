@@ -70,7 +70,9 @@ export function OverviewPage() {
         </div>
         <div class="stat">
           <dt>Stacks</dt>
-          <dd>{o.stacks}</dd>
+          <dd>
+            <a href="/stacks">{o.stacks}</a>
+          </dd>
         </div>
         <div class={`stat${o.drifted > 0 ? ' stat--warning' : ''}`}>
           <dt>Drifted</dt>
