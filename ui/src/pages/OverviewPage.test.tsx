@@ -19,6 +19,7 @@ describe('OverviewPage', () => {
     expect(stat('Drifted')).toBe('2');
     expect(stat('Locks held')).toBe('5');
     expect(screen.getByRole('link', { name: '3' })).toHaveAttribute('href', '/repos');
+    expect(screen.getByRole('link', { name: '14' })).toHaveAttribute('href', '/stacks');
 
     const stacks = within(screen.getByRole('region', { name: 'Stacks by status' }));
     expect(stacks.getAllByRole('listitem').map((li) => li.textContent)).toEqual([

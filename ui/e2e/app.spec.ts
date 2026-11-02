@@ -282,6 +282,27 @@ test.describe('signed in', () => {
     });
   }
 
+  test('stack list opens from the navigation, filters and links to the stack page', async ({ page }) => {
+    await mockApi(page);
+    await page.goto('/');
+    const nav = page.getByRole('navigation', { name: 'Main' });
+    await nav.getByRole('link', { name: 'Stacks' }).click();
+    await expect(page).toHaveURL('/stacks');
+    await expect(nav.getByRole('link', { name: 'Stacks' })).toHaveAttribute('aria-current', 'page');
+    await expect(nav.getByRole('link', { name: 'Repositories' })).not.toHaveAttribute('aria-current');
+    const table = page.getByRole('table', { name: 'Stacks' });
+    await expect(table.getByRole('row')).toHaveCount(15);
+    await page.getByLabel('Filter').fill('prod/eks');
+    await expect(page).toHaveURL('/stacks?q=prod%2Feks');
+    await expect(table.getByRole('row')).toHaveCount(2);
+    await expect(page.getByRole('search')).toContainText('1 of 14');
+    await expect(table).toContainText('drifted');
+    await table.getByRole('link', { name: 'stacks/prod/eks' }).click();
+    await expect(page).toHaveURL(`/stacks/${ids.stack}`);
+    await expect(page.getByRole('heading', { level: 1, name: 'stacks/prod/eks' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Stacks' })).toHaveAttribute('aria-current', 'page');
+  });
+
   test('module list filters and links to the module page', async ({ page }) => {
     await mockApi(page);
     await page.goto('/modules');

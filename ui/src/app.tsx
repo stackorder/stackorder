@@ -17,11 +17,13 @@ import { RepoGraphPage } from './pages/RepoGraphPage';
 import { ReposPage } from './pages/ReposPage';
 import { RunPage } from './pages/RunPage';
 import { StackPage } from './pages/StackPage';
+import { StacksPage } from './pages/StacksPage';
 import { ROUTER_SCOPE } from './routerScope';
 
 const NAV = [
   { href: '/', label: 'Overview', match: (p: string) => p === '/' },
-  { href: '/repos', label: 'Repositories', match: (p: string) => p.startsWith('/repos') || p.startsWith('/stacks') },
+  { href: '/repos', label: 'Repositories', match: (p: string) => p.startsWith('/repos') },
+  { href: '/stacks', label: 'Stacks', match: (p: string) => p === '/stacks' || p.startsWith('/stacks/') },
   { href: '/modules', label: 'Modules', match: (p: string) => p.startsWith('/modules') },
 ];
 
@@ -36,6 +38,7 @@ export function Routes() {
       <Route path="/" component={OverviewPage} />
       <Route path="/repos" component={ReposPage} />
       <Route path="/repos/:owner/:repo" component={RepoGraphPage} />
+      <Route path="/stacks" component={StacksPage} />
       <Route path="/stacks/:id" component={StackPage} />
       <Route path="/runs/:id" component={RunPage} />
       <Route path="/modules" component={ModulesPage} />
