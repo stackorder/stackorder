@@ -44,7 +44,7 @@ What crosses each boundary:
 
 | Boundary | What crosses it |
 | --- | --- |
-| GitHub to server | Webhook payloads (HMAC-signed) and, from runners, JSON manifests and result summaries, with the [resource list](./concepts#resources) of apply and drift jobs: addresses, types, modules and providers read from state, never values. No repository contents beyond file paths and parsed dependency edges. |
+| GitHub to server | Webhook payloads (HMAC-signed) and, from runners, JSON manifests and result summaries, with the [resource list](./concepts#resources) of apply and drift jobs: addresses, types, modules and providers read from state, never attribute values. No repository contents beyond file paths and parsed dependency edges. |
 | Server to GitHub | Calls made with App installation tokens, scoped to one installation and expiring within an hour: `workflow_dispatch`, check runs and comments. |
 | Runner to AWS | Your role, assumed with `aws-actions/configure-aws-credentials` and a trust policy pinned to the repository and environment. State, lock and plan files never leave this zone, except the state objects the server reads for shared outputs. |
 | Server to your state buckets | Only with [shared outputs](/configuration/outputs) on: reads of the state objects under the buckets and prefixes the operator lists, with the server's own role or one it assumes. The server keeps the `outputs` block, returns the outputs the producer shares to the reading job or API key, and writes nothing back. See [Security model](/reference/security-model#shared-outputs). |
