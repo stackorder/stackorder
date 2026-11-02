@@ -8,11 +8,14 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+
+	v1 "github.com/stackorder/stackorder/api/v1"
 )
 
 const (
-	maxBodyBytes  = 1 << 20
-	maxGraphBytes = 8 << 20
+	maxBodyBytes   = 1 << 20
+	maxResultBytes = v1.MaxResultBytes
+	maxGraphBytes  = 8 << 20
 )
 
 func decodeJSON(r *http.Request, v any, required bool) error {
