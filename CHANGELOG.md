@@ -4,6 +4,8 @@ All notable changes to this repository are documented here. The format follows [
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-02
+
 ### Added
 
 - A stack's page lists the [resources](docs/guide/concepts.md#resources) in its state, grouped by module and filtered by address, with the applied run and pull request that last created, updated or replaced each one, and marks those the latest drift check found drifted and those that are tainted or have a deposed object. Apply jobs once the tool has run, failed applies included, and drift jobs after their plan read the state with `show -json` on the runner and report it as [`resources`](docs/reference/api.md#stack-result) in their results: the address, type, module and provider of each managed resource and its tainted and deposed flags, never an attribute value, output or identity, and no data source. The CLI captures the state without streaming it to the job log or writing it to disk, redacts the list as it redacts plan text, cuts it to fit the 1 MB result body, keeping the first resources by address, and only warns when the read fails; when the server answers `413`, or `400 invalid` with a `details.field` under `resources`, it posts the result once more without the list. The list is part of `--format json` output, never of `GITHUB_OUTPUT` or the step summary. Plan jobs never send one, and `plan_output` does not change it. See the [CLI reference](docs/reference/cli.md#plan).
@@ -222,7 +224,8 @@ Recorded in [ARCHITECTURE.md](ARCHITECTURE.md) and in the implementation notes o
 - The schema stores a stack's backend as one `backend` jsonb column and edges by `from_key` and `to_key`, keeps a ref-less family row per module, and adds tables for graph membership, checks, dispatches, OIDC `jti`s and the audit log.
 - Named checks accept `warn`, which passes; a stack's `apply.allowed_teams` replaces the root list rather than narrowing it.
 
-[Unreleased]: https://github.com/stackorder/stackorder/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/stackorder/stackorder/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/stackorder/stackorder/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/stackorder/stackorder/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/stackorder/stackorder/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/stackorder/stackorder/compare/v0.1.0...v0.2.0

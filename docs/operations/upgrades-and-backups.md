@@ -37,7 +37,7 @@ To go back, deploy the previous image. The server never runs down migrations, so
 - Set `stackorder-version` in the calling workflows to pin the CLI, and bump it to move. Left at `latest`, every run installs the newest release.
 - The `v1` tag of `stackorder/actions` moves on its own. Calling `plan.yml@v1.x.y` instead of `@v1` pins the workflow file, but the reusable workflows still call the actions at `@v1`.
 - If the server sets `STACKORDER_REQUIRED_WORKFLOW_REF` or the AWS roles pin `job_workflow_ref`, keep the pinned pattern in step with the tags you use. `refs/tags/v1*` covers every `v1` release.
-- CLI releases after v0.4.0 report each stack's [resource list](/guide/concepts#resources) from apply and drift jobs. An older server ignores it, and a stack's page shows no list until a job on such a release has reported one.
+- CLI v0.5.0 and later report each stack's [resource list](/guide/concepts#resources) from apply and drift jobs. An older server ignores it, and a stack's page shows no list until a job on such a release has reported one.
 
 ## Backups {#backups}
 
