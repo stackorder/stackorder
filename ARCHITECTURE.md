@@ -615,14 +615,22 @@ content. The write uses a detached 10 s context, and a failure is logged at
 warn level without failing the result. Unlike `state_object`, which follows
 run order, a list replaces the recorded one only when its `observed_at` is
 not older, computed on the database clock: `now()` for a confirmed apply
-result, whose job reads state after the apply and its hooks, right before
-posting, and the run's `created_at` for a drift or unconfirmed apply
-result, a lower bound on when its job read state. Run order would let a
-drift run created while an apply waited for approval, which may read state
-before the apply changes it, replace the apply's list; this rule rejects
-it, and any drift run created before an apply's list was recorded, even
-when it posts later. The cost is discarding a drift list equal to the
-apply's.
+result posted for the first time, whose job reads state after the apply and
+its hooks, right before posting; the stack row's `run_stacks.finished_at`,
+which that first accepted post stamped, for a confirmed apply result that
+arrives through either duplicate-result branch, falling back to the run's
+`created_at` when it is null; and the run's `created_at` for a drift or
+unconfirmed apply result, a lower bound on when its job read state.
+`runs.resourceObservation` picks the rule as a `store.ResourceObservation`.
+Run order would let a drift run created while an apply waited for approval,
+which may read state before the apply changes it, replace the apply's
+list; this rule rejects it, and any drift run created before an apply's
+list was recorded, even when it posts later. Dating a repeat by its first
+post means a late replay, such as an API key posting a finished manual
+run's result again, never replaces a list recorded by a drift run created
+or an apply posted since the stack finished, while a retry whose first
+list write failed still records unless such a list exists. The cost is
+discarding a drift list equal to the apply's.
 
 `v1.StackOutputs` carries the root-module outputs of a stack: `repo`,
 `stack`, the state's `serial`, `lineage` and `terraform_version`,
@@ -1107,7 +1115,11 @@ holds one row per stack with its latest resource list as jsonb; `run_id` is
 `ON DELETE SET NULL`, so the list outlives its run. Only
 `store.SetStackResources` writes it, for apply and drift runs of the stack's
 repository (`ErrInvalid` otherwise, `ErrNotFound` for an unknown stack or
-run), under the `observed_at` rule of the runner endpoints. `digest` is the
+run), under the `observed_at` rule of the runner endpoints: the caller
+passes a `store.ResourceObservation`, `ObservedNow`, `ObservedAtStackFinish`
+or `ObservedAtRunCreation` (`ErrInvalid` for any other), and the store
+computes the time in the same statement, on the database clock, always
+using `created_at` for a drift run. `digest` is the
 SHA-256 of the canonical JSON of `total`, `truncated` and the sorted items;
 on an unchanged digest the old `resources` datum and `changed_at` are kept
 and the other columns updated. `store.StackResourceChanges` derives each
