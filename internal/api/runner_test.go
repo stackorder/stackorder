@@ -311,7 +311,7 @@ func TestRunnerRequestValidation(t *testing.T) {
 		{name: "malformed run id on result", target: "/v1/runs/42/stacks/a/result", body: v1.StackResult{}, status: 404},
 		{name: "empty body", target: "/v1/runs", status: 400},
 		{name: "not json", target: "/v1/runs", body: "mode=plan", ctype: "application/x-www-form-urlencoded", status: 400},
-		{name: "result over 1 MB", target: "/v1/runs/" + uuid.NewString() + "/stacks/a/result", body: v1.StackResult{PlanText: strings.Repeat("x", maxBodyBytes)}, status: 413},
+		{name: "result over 1 MB", target: "/v1/runs/" + uuid.NewString() + "/stacks/a/result", body: v1.StackResult{PlanText: strings.Repeat("x", maxResultBytes)}, status: 413},
 		{name: "graph over 8 MB", target: "/v1/runs/" + uuid.NewString() + "/graph", body: v1.GraphUploadRequest{ChangedPaths: []string{strings.Repeat("x", maxGraphBytes)}}, status: 413},
 		{name: "graph over 1 MB is fine", target: "/v1/runs/" + uuid.NewString() + "/graph", body: v1.GraphUploadRequest{ChangedPaths: []string{strings.Repeat("x", 2*maxBodyBytes)}}, status: 200},
 	}
