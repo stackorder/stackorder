@@ -24,13 +24,12 @@ function LastApply({ stack }: { stack: StackDetail }) {
   if (!apply) return <span class="muted">—</span>;
   return (
     <span class="nowrap">
-      <StatusBadge status={apply.status} />{' '}
-      {apply.finished_at ? (
-        <a href={`/runs/${encodeURIComponent(apply.run_id)}`}>
+      <StatusBadge status={apply.status} /> <RunLink id={apply.run_id} />
+      {apply.finished_at && (
+        <>
+          {' '}
           <TimeAgo value={apply.finished_at} />
-        </a>
-      ) : (
-        <RunLink id={apply.run_id} />
+        </>
       )}
     </span>
   );
