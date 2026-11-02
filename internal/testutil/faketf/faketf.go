@@ -4,8 +4,9 @@
 // reads a Config from the JSON file named by EnvConfig and answers version,
 // init, workspace, plan, show, apply and output with the Behavior configured
 // for the stack it runs for, named by EnvStack or else by its directory:
-// plan and apply exit codes, a canned show -json fixture, and an apply that
-// can wait for a file so a test can observe an apply in flight. Every call is
+// plan and apply exit codes, a canned show -json fixture for a plan file, a
+// canned state for show -json with no file, and an apply that can wait for a
+// file so a test can observe an apply in flight. Every call is
 // recorded with its arguments and the TF_VAR_ and STACKORDER_ variables of
 // its environment.
 package faketf
@@ -38,6 +39,10 @@ const (
 	// ExitMisconfigured is the exit code of a call the Config cannot answer,
 	// such as a missing config file or show -json fixture.
 	ExitMisconfigured = 97
+	// EmptyState is what show -json prints with no file when
+	// Behavior.StateJSON is empty: the state of a workspace with no
+	// resources.
+	EmptyState = `{"format_version":"1.0"}`
 )
 
 // Package is the import path of the command Build compiles.
@@ -68,8 +73,12 @@ type Behavior struct {
 	// under -detailed-exitcode, anything else a failure. A plan that does
 	// not fail writes its -out file.
 	PlanExit int `json:"plan_exit,omitempty"`
-	// ShowJSON is the file whose contents show -json prints.
+	// ShowJSON is the file whose contents show -json prints for a plan
+	// file.
 	ShowJSON string `json:"show_json,omitempty"`
+	// StateJSON is what show -json prints with no file, the stack's state;
+	// EmptyState when empty.
+	StateJSON string `json:"state_json,omitempty"`
 	// ApplyExit is the exit code of apply.
 	ApplyExit int `json:"apply_exit,omitempty"`
 	// ApplyWaitFile, when set, makes apply wait until the file exists.
@@ -275,6 +284,14 @@ func planFileArg(args []string) (string, bool) {
 
 func show(args []string, b Behavior, stdout, stderr io.Writer) int {
 	f, ok := planFileArg(args)
+	if f == "" && slices.Contains(args, "-json") {
+		state := b.StateJSON
+		if state == "" {
+			state = EmptyState
+		}
+		_, _ = io.WriteString(stdout, state)
+		return 0
+	}
 	if !ok {
 		_, _ = fmt.Fprintf(stderr, "Error: Failed to read the given file %s as a state or plan file\n", f)
 		return 1
