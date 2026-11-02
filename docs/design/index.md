@@ -108,6 +108,8 @@ What crosses each boundary:
 
 ::: info Implementation note
 The server also fetches GitHub's OIDC signing keys, from `https://token.actions.githubusercontent.com/.well-known/jwks` or `GITHUB_OIDC_JWKS_URL`, and, when they are configured, writes to the artifact bucket and exports traces to `OTEL_EXPORTER_OTLP_ENDPOINT`. With [shared outputs](/configuration/outputs) on, it also talks to AWS for the user: it reads the state objects under `STACKORDER_STATE_BUCKETS` from S3, through STS when `STACKORDER_STATE_ROLE_ARN` is set, so those objects leave the runner's zone; the server keeps only their `outputs` block and writes nothing back. See [Server configuration](/reference/server-configuration#network).
+
+From GitHub, the server also reads the contents of `stackorder.yaml`, `.stackorder.yaml` files and `CODEOWNERS` through the API; no other repository contents reach it beyond file paths and parsed dependency edges. The App's `Contents: Read` permission would let it read every file of an installed repository. See [What crosses each boundary](/reference/security-model#boundaries).
 :::
 
 ## Execution model
