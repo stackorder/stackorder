@@ -79,7 +79,8 @@ type RunService interface {
 	CreateRun(ctx context.Context, p principal.Principal, req v1.CreateRunRequest) (*v1.CreateRunResponse, error)
 	// UploadGraph stores a scanned graph and resolves the run against it.
 	UploadGraph(ctx context.Context, p principal.Principal, runID string, req v1.GraphUploadRequest) (*v1.ResolveResponse, error)
-	// RecordResult records one stack's plan, apply or drift outcome.
+	// RecordResult records one stack's plan, apply or drift outcome and
+	// the resource list an apply or drift result carries.
 	RecordResult(ctx context.Context, p principal.Principal, runID, stackKey string, res v1.StackResult) (*v1.RunStack, error)
 	// RecordCheck records a named check verdict on one stack of a run.
 	RecordCheck(ctx context.Context, p principal.Principal, runID, stackKey, name string, verdict v1.CheckVerdict) (*v1.Check, error)
@@ -180,6 +181,8 @@ type dataStore interface {
 	GetLock(ctx context.Context, stackID uuid.UUID) (store.Lock, error)
 	ListLocks(ctx context.Context, repoID int64) ([]store.Lock, error)
 	StackModules(ctx context.Context, stackID uuid.UUID) ([]store.ModuleConsumer, error)
+	GetStackResources(ctx context.Context, stackID uuid.UUID) (store.StackResources, error)
+	StackResourceChanges(ctx context.Context, stackID uuid.UUID, addresses []string) ([]store.ResourceChange, error)
 
 	GetModule(ctx context.Context, id uuid.UUID) (store.Module, error)
 	GetModuleByKey(ctx context.Context, key string) (store.Module, error)
