@@ -313,43 +313,44 @@ func (s *server) repoStacks(w http.ResponseWriter, r *http.Request, id identity)
 	return nil
 }
 
-type repoStack struct {
-	repo  store.Repo
-	stack store.Stack
-}
-
 func (s *server) stacks(w http.ResponseWriter, r *http.Request, id identity) error {
+	ctx := r.Context()
 	limit, cursor, err := pageParams(r)
 	if err != nil {
 		return err
 	}
-	repos, err := s.db.ListRepos(r.Context(), id.accounts()...)
+	if _, err := decodeKeyCursor(cursor); err != nil {
+		return err
+	}
+	repos, err := s.db.ListRepos(ctx, id.accounts()...)
 	if err != nil {
 		return fmt.Errorf("list repos: %w", err)
 	}
-	var all []repoStack
-	for _, repo := range repos {
-		stacks, err := s.db.ListStacks(r.Context(), repo.ID, false)
-		if err != nil {
-			return fmt.Errorf("list stacks: %w", err)
-		}
-		for _, st := range stacks {
-			all = append(all, repoStack{repo: repo, stack: st})
-		}
+	byID := make(map[int64]store.Repo, len(repos))
+	ids := make([]int64, len(repos))
+	for i, repo := range repos {
+		byID[repo.ID] = repo
+		ids[i] = repo.ID
 	}
-	items, next, err := pageByKey(all, func(rs repoStack) string { return rs.repo.FullName + "\x00" + rs.stack.Key }, limit, cursor)
+	all, err := s.db.ListLiveStacksOfRepos(ctx, ids)
+	if err != nil {
+		return fmt.Errorf("list stacks: %w", err)
+	}
+	items, next, err := pageByKey(all, func(st store.Stack) string { return st.Repo + "\x00" + st.Key }, limit, cursor)
 	if err != nil {
 		return err
 	}
 	page := v1.Page[v1.StackDetail]{Items: make([]v1.StackDetail, len(items)), NextCursor: next, Total: len(all)}
+	families := map[uuid.UUID]*family{}
 	var b *detailBuilder
-	for i, rs := range items {
-		if b == nil || b.repo.ID != rs.repo.ID {
-			if b, err = s.newDetailBuilder(r.Context(), rs.repo, true); err != nil {
+	for i, st := range items {
+		if b == nil || b.repo.ID != st.RepoID {
+			if b, err = s.newDetailBuilder(ctx, byID[st.RepoID], true); err != nil {
 				return err
 			}
+			b.families = families
 		}
-		if page.Items[i], err = b.detail(r.Context(), rs.stack); err != nil {
+		if page.Items[i], err = b.detail(ctx, st); err != nil {
 			return err
 		}
 	}
