@@ -44,7 +44,7 @@ What crosses each boundary:
 
 | Boundary | What crosses it |
 | --- | --- |
-| GitHub to server | Webhook payloads (HMAC-signed) and, from runners, JSON manifests and result summaries. No repository contents beyond file paths and parsed dependency edges. |
+| GitHub to server | Webhook payloads (HMAC-signed) and, from runners, JSON manifests and result summaries, with the [resource list](./concepts#resources) of apply and drift jobs: addresses, types, modules and providers read from state, never values. No repository contents beyond file paths and parsed dependency edges. |
 | Server to GitHub | Calls made with App installation tokens, scoped to one installation and expiring within an hour: `workflow_dispatch`, check runs and comments. |
 | Runner to AWS | Your role, assumed with `aws-actions/configure-aws-credentials` and a trust policy pinned to the repository and environment. State, lock and plan files never leave this zone, except the state objects the server reads for shared outputs. |
 | Server to your state buckets | Only with [shared outputs](/configuration/outputs) on: reads of the state objects under the buckets and prefixes the operator lists, with the server's own role or one it assumes. The server keeps the `outputs` block, returns the outputs the producer shares to the reading job or API key, and writes nothing back. See [Security model](/reference/security-model#shared-outputs). |
@@ -108,7 +108,7 @@ Waves are the longest-path layering of the affected stacks over `depends_on` and
   caption="The run page of the web UI, with sample data: stacks/prod/eks failed in wave 1, so stacks/prod/apps is blocked and wave 2 was never dispatched. The PR keeps its locks."
 />
 
-With `apply.from_plan: true`, the default, the apply job applies the saved plan file. If the artifact has expired, the CLI re-plans and refuses to apply unless the new plan's resource-address set matches the recorded one.
+With `apply.from_plan: true`, the default, the apply job applies the saved plan file. If the artifact has expired, the CLI re-plans and refuses to apply unless the new plan's resource-address set matches the recorded one. Once the tool has run, the job reads the stack's [resource list](./concepts#resources) from its state and reports it with the result.
 
 ### Locks {#locks}
 
@@ -118,7 +118,7 @@ Plans on a locked stack still run, with a warning on the check. A PR closed with
 
 ### Drift
 
-On `drift.schedule`, the server dispatches `mode: drift` per stack, staggered across the hour, at the head of the default branch, under the environment `default` and with the plan role. The CLI runs `plan -detailed-exitcode`. Exit code 2 marks the stack drifted and records the summary; the server can open or update one GitHub issue per stack. See [Drift detection](/configuration/drift).
+On `drift.schedule`, the server dispatches `mode: drift` per stack, staggered across the hour, at the head of the default branch, under the environment `default` and with the plan role. The CLI runs `plan -detailed-exitcode`. Exit code 2 marks the stack drifted and records the summary; the server can open or update one GitHub issue per stack. The job also reports the stack's [resource list](./concepts#resources), read from its state after the plan. See [Drift detection](/configuration/drift).
 
 ## Pull request lifecycle {#pr-lifecycle}
 
