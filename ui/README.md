@@ -15,6 +15,7 @@ component library and loads no fonts or scripts from a CDN.
 | `/` | `GET /v1/overview` | Counts, stacks and runs by status, drift, locks held, recent runs |
 | `/repos` | `GET /v1/repos` | Repositories with stack, drift and lock counts |
 | `/repos/:owner/:repo` | `GET /v1/repos/{owner}/{repo}/graph?ref=&run=`, `.../runs`, `GET /v1/runs/{id}` | The dependency graph. `?run=` replays that run's affected set and waves |
+| `/stacks` | `GET /v1/stacks` | Every stack with its repository, environment, last apply, drift and lock; `?q=` filters by key, repository, path or environment |
 | `/stacks/:id` | `GET /v1/stacks/{id}`, `.../runs`, `.../resources`, `GET /v1/repos/{owner}/{repo}/stacks` | Last apply and plan, drift, lock and unlock, dependencies, pinned modules, history, and the resources in the stack's state grouped by module; `?q=` filters them by address |
 | `/runs/:id` | `GET /v1/runs/{id}` | Waves with per-stack results, plan details, job logs, re-run. Refreshes every 10 s until the run is terminal |
 | `/modules` | `GET /v1/modules` | Every module; `?q=` filters by key or source |
