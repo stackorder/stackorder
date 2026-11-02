@@ -274,8 +274,8 @@ func TestStackResourcesWireFormat(t *testing.T) {
 }
 
 func TestStackResourceCarriesNoValues(t *testing.T) {
-	var fields []string
 	typ := reflect.TypeFor[v1.StackResource]()
+	fields := make([]string, 0, typ.NumField())
 	for i := range typ.NumField() {
 		fields = append(fields, typ.Field(i).Name)
 	}
