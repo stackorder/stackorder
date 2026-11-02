@@ -52,7 +52,7 @@ func TestDecodeJSON(t *testing.T) {
 		{name: "not json", body: "hello", status: 400, message: "the request body is not valid JSON"},
 		{name: "truncated", body: `{"name":`, status: 400, message: "the request body is not valid JSON"},
 		{name: "wrong type", body: `{"count":"x"}`, status: 400, message: "field count: cannot use a JSON string as int", field: "count"},
-		{name: "wrong nested type", body: `{"inner":{"items":[{"size":"x"}]}}`, status: 400, message: "field inner.items.0.size: cannot use a JSON string as int", field: "inner.items.0.size"},
+		{name: "wrong nested type", body: `{"inner":{"items":[{"size":"x"}]}}`, status: 400, message: "field inner.items.size: cannot use a JSON string as int", field: "inner.items.size"},
 		{name: "not an object", body: `[1]`, status: 400, message: "field body: cannot use a JSON array", field: "body"},
 		{name: "second value", body: `{"name":"a"} {"name":"b"}`, status: 400, message: "the request body has data after the JSON value"},
 		{name: "garbage after", body: `{"name":"a"} x`, status: 400, message: "the request body is not valid JSON"},

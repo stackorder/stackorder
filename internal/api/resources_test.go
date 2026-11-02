@@ -183,6 +183,6 @@ func TestResultWithAMalformedResourceListNamesTheField(t *testing.T) {
 	assert.Equal(t, codeInvalid, got.Code)
 	details, ok := got.Details.(map[string]any)
 	require.True(t, ok, rec.Body.String())
-	assert.Equal(t, "resources.items.0.tainted", details["field"], "the CLI resends the result without its list when the field is under resources")
+	assert.Equal(t, "resources.items.tainted", details["field"], "the CLI resends the result without its list when the field is under resources")
 	assert.Zero(t, e.runs.count())
 }

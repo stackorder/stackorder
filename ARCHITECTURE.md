@@ -663,7 +663,8 @@ with its own code, message and details and the status of its `Kind`:
 `forbidden`, `conflict`, `refused`, `locked` and `superseded`,
 and on its own fail-closed decisions (an unreachable server during apply). `invalid` carries `details.field` and `details.reason` when a
 field is at fault, a JSON type error in a body included, whose field is
-Go's path with array indexes, such as `resources.items.0.tainted`. A body
+its path without array indexes, such as `resources.items.tainted`, the
+same whichever Go release built the server. A body
 over its route's limit (8 MB for graph uploads, 1 MB, `1 << 20` bytes, for
 every other POST under `/v1` and `/auth`, results included through
 `v1.MaxResultBytes`, which has the same value) is 413 with
