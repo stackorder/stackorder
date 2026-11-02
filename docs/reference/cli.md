@@ -183,6 +183,8 @@ Global Flags:
 
 Every result, of `plan`, `apply` and `drift`, carries the backend `init` recorded, with the stack's `backend_config` and `STACKORDER_BACKEND_CONFIG` merged in, as `backend`. For an `s3` backend with a bucket and a key it also carries `state`: the bucket, the full object key, with the `workspace_key_prefix` and workspace when the tool uses a workspace other than `default`, and the region. The workspace is found as the tool finds it: a non-empty `TF_WORKSPACE`, else the workspace `init` and `workspace select` left in the data directory, else `default`. `state` is left out when workspace selection fails. The server records it from apply and drift results as the place to read the stack's [shared outputs](/configuration/outputs#state-location) from.
 
+Results of `apply` and `drift` also carry `resources`, the stack's [resource list](/guide/concepts#resources), read from its state as their steps below say; `plan` never reads one. The CLI runs `show -json -no-color` without a plan file and captures the state it prints without streaming it to the job log or writing it to disk, since it holds every attribute value in clear text. It keeps only each managed resource's address, type, module address, provider, and tainted and deposed flags, then drops the state. A read has 5 minutes and is skipped once the job is cancelled. A failed read only warns: the result carries no list and the exit code is unchanged. The list is cut to fit 64 KB under the server's 1 MB result limit, keeping the first items by address and setting `truncated`. If the server still answers `413`, or `400 invalid` with a `details.field` starting with `resources`, the CLI warns and posts the result once more without the list. The list is part of `result` in `--format json` output, but never goes to `GITHUB_OUTPUT`, the step summary or a file.
+
 The plan file is `<plan dir>/<artifact>.tfplan`, where the plan dir is `STACKORDER_PLAN_DIR` (default `.stackorder/plans`, relative to the repository root, so local plans write their files under `.stackorder/plans/` in the checkout; add it to `.gitignore`) and the artifact is `stackorder-plan-<slug>-<sha>`, where the slug is the key with `/` and `:` replaced by `-`, then `-` and the first 8 hex characters of the key's SHA-256 (`stackorder-plan-stacks-prod-vpc-69df0ef0-<sha>`), so keys such as `a/b` and `a-b` get different artifacts. Outside a git checkout the SHA part is `local`.
 
 The text output is one line, `stacks/prod/vpc: 4 to add, 0 to change, 0 to destroy, 0 to replace, 2 output changes`, after Terraform's own output. `--format json` prints `{"stack", "run_id", "plan_file", "unconfirmed", "result"}`, where `result` is the [`StackResult`](/reference/api#stack-result) that was, or would have been, posted.
@@ -238,7 +240,7 @@ Then it runs `init`, with the same backend configuration as `plan`, and chooses 
 
 A re-plan passes the stack's var files. `apply <plan file>` passes none: the plan file holds the values of every variable, and only [ephemeral variables](/configuration/instances#ephemeral) take their value from the apply's environment.
 
-A re-plan whose addresses differ, or a run that recorded no summary to compare with, is refused with exit 3 and the differing addresses. The `pre-apply` hook runs before `apply -input=false -no-color <plan file>`, and the `post-apply` hook after it. Once the run is confirmed, the result is posted whatever happens: a failed apply exits 1 after reporting, a failed post after a successful apply exits 1, and so does a failing `post-apply` hook.
+A re-plan whose addresses differ, or a run that recorded no summary to compare with, is refused with exit 3 and the differing addresses. The `pre-apply` hook runs before `apply -input=false -no-color <plan file>`, and the `post-apply` hook after a successful apply. Once the tool has run, whether the apply succeeded or failed, `apply` reads the resource list from the stack's state, after the `post-apply` hook, as its last step before reporting. An apply that stops before the tool runs, refused or failing in `init` or the `pre-apply` hook, reads none. Once the run is confirmed, the result is posted whatever happens: a failed apply exits 1 after reporting, a failed post after a successful apply exits 1, and so does a failing `post-apply` hook.
 
 **`--local`.** Outside Actions, `apply` needs `--local`, a server and `STACKORDER_API_KEY`, and takes neither `--run-id` nor `--plan-file`. It starts a manual run with `POST /v1/runs` (`trigger: manual`, `mode: apply`, `stacks: [<key>]`), which makes the server take the stack's lock before it answers, plans afresh, applies, and posts the result, which releases the lock. It warns when the working tree has uncommitted changes, because it applies what is on disk. An unreachable server is a refusal, exit 3.
 
@@ -267,7 +269,7 @@ Global Flags:
   -v, --verbose            log debug output
 ```
 
-Runs `init` and `plan -detailed-exitcode` into a temporary plan file, with the same backend configuration and var files as `plan` and the `drift` values of the stack's `env`, summarizes it, and posts the result like `plan` does. It runs no hooks. The text output is `stacks/prod/vpc: no drift` or `stacks/prod/vpc: drifted: …`.
+Runs `init` and `plan -detailed-exitcode` into a temporary plan file, with the same backend configuration and var files as `plan` and the `drift` values of the stack's `env`, summarizes it, and posts the result like `plan` does. It runs no hooks. After the plan, whatever its outcome, as long as `init` succeeded, it reads the resource list from the stack's state as `apply` does. That is the state as stored, not the plan's refreshed copy, so a resource deleted outside Terraform stays listed and the drift summary marks it. The text output is `stacks/prod/vpc: no drift` or `stacks/prod/vpc: drifted: …`.
 
 | Output | Meaning |
 | --- | --- |
@@ -474,11 +476,13 @@ The CLI runs `terraform` or `tofu` according to `tool` in the stack's effective 
 
 ## Secrets {#secrets}
 
-Everything the CLI sends to the server, the step summary or a fallback check (plan text, error text, check summaries and details) is redacted first. The redactor masks, as `***`:
+The text the CLI sends to the server, the step summary or a fallback check (plan text, error text, check summaries and details) is redacted first. The redactor masks, as `***`:
 
 - the bodies of PEM private key blocks, JSON web tokens, AWS access key ids and secret access key assignments, GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`) and Slack tokens;
 - quoted values assigned to names ending in `password`, `passwd`, `secret` or `token`, and `…PASSWORD=`, `…SECRET=` or `…TOKEN=` assignments;
 - the value of every environment variable, from the process environment or the stack's `env`, whose name has a `SECRET`, `TOKEN`, `PASSWORD`, `PASSWD`, `PASSPHRASE`, `APIKEY`, `API_KEY`, `PRIVATE_KEY` or `CREDENTIAL(S)` component, such as `GITHUB_TOKEN` or `DB_PASSWORD`, unless it is shorter than 4 characters, a boolean or a number.
+
+The resource list's addresses, types, module addresses and providers go through the same redactor. The list holds no values, so this only guards against a secret in a `for_each` key of a resource or a module; items whose addresses become identical once masked are merged. The addresses in a plan summary are not redacted, because the re-plan before an apply compares them with the recorded ones.
 
 In Actions those environment values are also registered with `::add-mask::` before Terraform runs, and the output Terraform streams to the job log goes through the same redactor. Values marked `sensitive` are already masked by Terraform itself.
 
