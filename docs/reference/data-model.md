@@ -4,9 +4,9 @@ description: 'The Postgres schema behind the Stackorder server: graph, run, queu
 
 # Data model
 
-Postgres is the server's only stateful dependency. It holds the graphs, the run history, the locks, the audit log and the work queue. Nothing in it is needed to operate Terraform, except by stacks that read [shared outputs](/configuration/outputs): wiping the database loses history and locks, never state. It also loses where each stack's state lives, so shared outputs answer `state_location_unknown` for a stack until its next apply or drift job, and the plans of the stacks that read its outputs fail until then.
+Postgres is the server's only stateful dependency. It holds the graphs, the run history, the locks, the audit log and the work queue. Nothing in it is needed to operate Terraform, except by stacks that read [shared outputs](/configuration/outputs): wiping the database loses history and locks, never state. It also loses where each stack's state lives, so shared outputs answer `state_location_unknown` for a stack until its next apply or drift job, and the plans of the stacks that read its outputs fail until then. Each stack's resource list is gone too until its next apply or drift job reports it again.
 
-All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.id`, `modules.id`, `graphs.id`, `dispatches.id`) are UUIDs; `installations.id` and `repos.id` are GitHub's numeric ids. The schema is created by the migrations in `migrations/`, `0001_graph` to `0008_stack_state_object`.
+All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.id`, `modules.id`, `graphs.id`, `dispatches.id`) are UUIDs; `installations.id` and `repos.id` are GitHub's numeric ids. The schema is created by the migrations in `migrations/`, `0001_graph` to `0009_stack_resources`.
 
 ## Tables {#tables}
 
@@ -34,6 +34,7 @@ All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.i
 | `dispatches` | `id`, `run_id`, `wave`, `environment`, `mode`, `chunk`, `workflow_run_id`, `dispatched_at`, `sent_at`, `completed_at`, `conclusion` | One row per `workflow_dispatch`, unique per (run, wave, environment, mode, chunk); a workflow run id belongs to at most one dispatch |
 | `locks` | `stack_id`, `run_id`, `pr_number`, `taken_at`, `reason` | Primary key on `stack_id`, so a lock is unique by construction |
 | `drift` | `id`, `stack_id`, `run_id`, `checked_at`, `drifted`, `summary` (jsonb), `issue_number` | One row per drift check; the latest per stack is what the UI shows |
+| `stack_resources` | `stack_id`, `run_id`, `run_mode`, `sha`, `observed_at`, `reported_at`, `changed_at`, `total`, `truncated`, `digest`, `resources` (jsonb) | One row per stack (primary key `stack_id`): the [resource list](/guide/concepts#resources) the stack's apply or drift job last reported from its state, each managed resource's address, type, module, provider and tainted and deposed flags, never a value. `run_id` names that job's run and becomes `NULL` if the run is deleted. A list replaces the recorded one only when its `observed_at` is not older: the time a confirmed apply result arrives, otherwise its run's `created_at`. `digest` is the SHA-256 of the list, and `changed_at` moves only when it differs. The last change of each resource is not stored: the server derives it from the `summary` of the stack's applied `run_stacks` rows, read through the partial index `run_stacks_applied_idx` |
 
 ### Queue and access {#queue-tables}
 
@@ -67,6 +68,8 @@ erDiagram
   stacks ||--o| locks : "held on"
   runs ||--o{ locks : takes
   stacks ||--o{ drift : "checked in"
+  stacks ||--o| stack_resources : "listed in"
+  runs |o--o{ stack_resources : reported
   runs |o--o{ stacks : "located the state of"
   modules ||--o{ module_versions : releases
 ```
@@ -96,6 +99,7 @@ An hourly `prune` job applies the retention settings:
 | Accepted runner token ids | Until the token expires | |
 | Sessions | Until they expire, 7 days after sign-in | |
 | Locks | Until released | |
+| Resource list of a stack | Until a newer list replaces it, or the stack's repository is deleted; it outlives its run | |
 | Runs, stack rows, summaries, checks, graphs, API keys, audit log | Indefinitely | |
 
 ## Migrations {#migrations}
