@@ -28,6 +28,11 @@ type postedCheck struct {
 	Verdict v1.CheckVerdict
 }
 
+type rejection struct {
+	status int
+	body   v1.Error
+}
+
 type fakeServer struct {
 	t   *testing.T
 	srv *httptest.Server
@@ -49,6 +54,7 @@ type fakeServer struct {
 	audiences []string
 	hits      map[string]int
 	bodies    map[string][][]byte
+	rejects   map[string][]rejection
 }
 
 func newFakeServer(t *testing.T) *fakeServer {
@@ -62,6 +68,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 		auth:     map[string][]string{},
 		hits:     map[string]int{},
 		bodies:   map[string][][]byte{},
+		rejects:  map[string][]rejection{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/runs", f.route("create", func(r *http.Request) (any, error) {
@@ -141,6 +148,13 @@ func (f *fakeServer) route(name string, fn func(*http.Request) (any, error)) htt
 		require.NoError(f.t, err)
 		f.bodies[name] = append(f.bodies[name], body)
 		r.Body = io.NopCloser(bytes.NewReader(body))
+		if pending := f.rejects[name]; len(pending) > 0 {
+			f.rejects[name] = pending[1:]
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(pending[0].status)
+			_ = json.NewEncoder(w).Encode(pending[0].body)
+			return
+		}
 		if status := f.fail[name]; status != 0 {
 			code := f.failCode[name]
 			if code == "" {
@@ -160,6 +174,12 @@ func (f *fakeServer) route(name string, fn func(*http.Request) (any, error)) htt
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
 	}
+}
+
+func (f *fakeServer) rejectNext(route string, status int, body v1.Error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rejects[route] = append(f.rejects[route], rejection{status: status, body: body})
 }
 
 func (f *fakeServer) requestBodies(route string) [][]byte {

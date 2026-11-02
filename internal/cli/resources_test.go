@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -303,6 +304,87 @@ func TestResourceListFitsTheResultBudget(t *testing.T) {
 	require.Len(t, bodies, 1)
 	assert.LessOrEqual(t, len(bodies[0]), v1.MaxResultBytes-resultMargin)
 	assert.Greater(t, len(bodies[0]), v1.MaxResultBytes-2*resultMargin)
+}
+
+func TestResultIsPostedAgainWithoutTheResourceList(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    int
+		body      v1.Error
+		wantCode  int
+		wantPosts int
+	}{
+		{
+			name:      "body too large",
+			status:    http.StatusRequestEntityTooLarge,
+			body:      v1.Error{Code: "invalid", Message: "the request body exceeds 1048576 bytes"},
+			wantPosts: 2,
+		},
+		{
+			name:      "proxy limit without a v1 body",
+			status:    http.StatusRequestEntityTooLarge,
+			wantPosts: 2,
+		},
+		{
+			name:      "invalid resources field",
+			status:    http.StatusBadRequest,
+			body:      v1.Error{Code: "invalid", Message: "invalid resources", Details: map[string]any{"field": "resources.items", "reason": "too many"}},
+			wantPosts: 2,
+		},
+		{
+			name:      "invalid other field",
+			status:    http.StatusBadRequest,
+			body:      v1.Error{Code: "invalid", Message: "invalid summary", Details: map[string]any{"field": "summary.added", "reason": "bad"}},
+			wantCode:  ExitFailure,
+			wantPosts: 1,
+		},
+		{
+			name:      "invalid without details",
+			status:    http.StatusBadRequest,
+			body:      v1.Error{Code: "invalid", Message: "the request body is not valid JSON"},
+			wantCode:  ExitFailure,
+			wantPosts: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, fs := newApplyHarness(t)
+			h.savedPlan(h.sha)
+			h.tf.StateJSON = stateFixture(t)
+			fs.rejectNext("result", tt.status, tt.body)
+
+			r := h.run("apply", "--stack", "stacks/app")
+			require.Equal(t, tt.wantCode, r.code, r.stderr)
+			bodies := fs.requestBodies("result")
+			require.Len(t, bodies, tt.wantPosts)
+			assert.Contains(t, string(bodies[0]), `"resources":`)
+			if tt.wantPosts == 1 {
+				assert.Contains(t, r.stderr, "applied stacks/app, but reporting the result failed")
+				return
+			}
+			assert.NotContains(t, string(bodies[1]), `"resources"`)
+			var first, second v1.StackResult
+			require.NoError(t, json.Unmarshal(bodies[0], &first))
+			require.NoError(t, json.Unmarshal(bodies[1], &second))
+			first.Resources = nil
+			assert.Equal(t, first, second)
+			assert.Contains(t, r.stderr, fmt.Sprintf("::warning::the server refused the apply result of stacks/app with its resource list (%d ", tt.status))
+		})
+	}
+}
+
+func TestDriftResultIsPostedAgainWithoutTheResourceList(t *testing.T) {
+	h := newHarness(t)
+	fs := newFakeServer(t)
+	h.ci(fs, "workflow_dispatch", dispatchPayload("run-drift", headSHA))
+	h.tf.StateJSON = stateFixture(t)
+	fs.rejectNext("result", http.StatusRequestEntityTooLarge, v1.Error{Code: "invalid"})
+	r := h.run("drift", "--stack", "stacks/app")
+	require.Equal(t, ExitChanges, r.code, r.stderr)
+	bodies := fs.requestBodies("result")
+	require.Len(t, bodies, 2)
+	assert.NotContains(t, string(bodies[1]), `"resources"`)
+	assert.Nil(t, fs.lastResult().Result.Resources)
 }
 
 func TestStateValuesNeverLeaveTheRunner(t *testing.T) {
