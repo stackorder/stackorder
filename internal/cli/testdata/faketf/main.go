@@ -24,6 +24,8 @@ type fakeTFConfig struct {
 	ShowJSON      string          `json:"show_json"`
 	ShowText      string          `json:"show_text"`
 	ShowExit      int             `json:"show_exit"`
+	StateJSON     string          `json:"state_json,omitempty"`
+	StateExit     int             `json:"state_exit"`
 	ApplyExit     int             `json:"apply_exit"`
 	ApplyOutput   string          `json:"apply_output"`
 	FailOutput    string          `json:"fail_output"`
@@ -115,6 +117,9 @@ func run(cfgPath string, args []string) int {
 		}
 		return cfg.PlanExit
 	case "show":
+		if last := args[len(args)-1]; last == "show" || strings.HasPrefix(last, "-") {
+			return showState(cfg, fail)
+		}
 		f, ok := lastFile()
 		if !ok {
 			fmt.Fprintf(os.Stderr, "Error: Failed to read the given file %s as a state or plan file\n", f)
@@ -146,6 +151,22 @@ func run(cfgPath string, args []string) int {
 		fmt.Println("Apply complete! Resources: 1 added, 0 changed, 0 destroyed.")
 	case "output":
 		fmt.Println("{}")
+	}
+	return 0
+}
+
+func showState(cfg fakeTFConfig, fail func(int) int) int {
+	out := []byte(`{"format_version":"1.0"}`)
+	if cfg.StateJSON != "" {
+		var err error
+		if out, err = os.ReadFile(cfg.StateJSON); err != nil {
+			fmt.Fprintln(os.Stderr, "fake terraform:", err)
+			return 97
+		}
+	}
+	_, _ = os.Stdout.Write(out)
+	if cfg.StateExit != 0 {
+		return fail(cfg.StateExit)
 	}
 	return 0
 }

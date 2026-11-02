@@ -120,6 +120,19 @@ case "$1" in
     done
     exit "$FAKE_PLAN_EXIT" ;;
   show)
+    case "$last" in
+      show|-*)
+        if [ -z "$FAKE_STATE_JSON" ]; then
+          printf '{"format_version":"1.0"}'
+        elif [ -r "$FAKE_STATE_JSON" ]; then
+          cat "$FAKE_STATE_JSON"
+        else
+          echo "fake terraform: cannot read $FAKE_STATE_JSON" >&2
+          exit 97
+        fi
+        if [ "$FAKE_STATE_EXIT" -ne 0 ]; then fail "$FAKE_STATE_EXIT"; fi
+        exit 0 ;;
+    esac
     if [ ! -e "$last" ]; then
       printf 'Error: Failed to read the given file %s as a state or plan file\n' "$last" >&2
       exit 1
@@ -178,6 +191,8 @@ func (c fakeTFConfig) shellEnv() string {
 		{"FAKE_SHOW_JSON", c.ShowJSON},
 		{"FAKE_SHOW_TEXT", c.ShowText},
 		{"FAKE_SHOW_EXIT", strconv.Itoa(c.ShowExit)},
+		{"FAKE_STATE_JSON", c.StateJSON},
+		{"FAKE_STATE_EXIT", strconv.Itoa(c.StateExit)},
 		{"FAKE_APPLY_EXIT", strconv.Itoa(c.ApplyExit)},
 		{"FAKE_APPLY_OUTPUT", c.ApplyOutput},
 		{"FAKE_FAIL_OUTPUT", c.FailOutput},
@@ -201,6 +216,8 @@ type fakeTFConfig struct {
 	ShowJSON      string          `json:"show_json"`
 	ShowText      string          `json:"show_text"`
 	ShowExit      int             `json:"show_exit"`
+	StateJSON     string          `json:"state_json,omitempty"`
+	StateExit     int             `json:"state_exit"`
 	ApplyExit     int             `json:"apply_exit"`
 	ApplyOutput   string          `json:"apply_output"`
 	FailOutput    string          `json:"fail_output"`
