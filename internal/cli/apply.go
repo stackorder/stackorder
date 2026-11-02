@@ -316,7 +316,7 @@ func addressDiff(want, got []string) string {
 }
 
 func (s *session) finishApply(ctx context.Context, oc *applyOutcome) error {
-	repErr := s.post(ctx, oc.res)
+	repErr := s.post(ctx, &oc.res)
 	summary := "null"
 	if oc.res.Summary != nil {
 		summary = jsonLine(oc.res.Summary)

@@ -387,6 +387,35 @@ func TestDriftResultIsPostedAgainWithoutTheResourceList(t *testing.T) {
 	assert.Nil(t, fs.lastResult().Result.Resources)
 }
 
+func TestJSONOutputShowsTheResultWithoutTheRefusedResourceList(t *testing.T) {
+	for _, command := range []string{"apply", "drift"} {
+		t.Run(command, func(t *testing.T) {
+			var h *harness
+			var fs *fakeServer
+			wantCode := 0
+			if command == "apply" {
+				h, fs = newApplyHarness(t)
+				h.savedPlan(h.sha)
+			} else {
+				h, fs = newHarness(t), newFakeServer(t)
+				h.ci(fs, "workflow_dispatch", dispatchPayload("run-drift", headSHA))
+				wantCode = ExitChanges
+			}
+			h.tf.StateJSON = stateFixture(t)
+			fs.rejectNext("result", http.StatusRequestEntityTooLarge, v1.Error{Code: "invalid"})
+
+			r := h.run("--format", "json", command, "--stack", "stacks/app")
+			require.Equal(t, wantCode, r.code, r.stderr)
+			require.Len(t, fs.requestBodies("result"), 2)
+			var out stackOutput
+			require.NoError(t, json.Unmarshal([]byte(r.stdout), &out))
+			assert.Nil(t, out.Result.Resources)
+			assert.NotContains(t, r.stdout, `"resources"`)
+			assert.Equal(t, fs.lastResult().Result, out.Result)
+		})
+	}
+}
+
 func TestStateValuesNeverLeaveTheRunner(t *testing.T) {
 	const sentinel = "leak-0b5e"
 	full, err := os.ReadFile(stateFixture(t))
