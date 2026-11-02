@@ -37,15 +37,16 @@ To go back, deploy the previous image. The server never runs down migrations, so
 - Set `stackorder-version` in the calling workflows to pin the CLI, and bump it to move. Left at `latest`, every run installs the newest release.
 - The `v1` tag of `stackorder/actions` moves on its own. Calling `plan.yml@v1.x.y` instead of `@v1` pins the workflow file, but the reusable workflows still call the actions at `@v1`.
 - If the server sets `STACKORDER_REQUIRED_WORKFLOW_REF` or the AWS roles pin `job_workflow_ref`, keep the pinned pattern in step with the tags you use. `refs/tags/v1*` covers every `v1` release.
+- CLI releases after v0.4.0 report each stack's [resource list](/guide/concepts#resources) from apply and drift jobs. An older server ignores it, and a stack's page shows no list until a job on such a release has reported one.
 
 ## Backups {#backups}
 
-Postgres holds the graphs, the run history, the locks, drift results, sessions, API keys, the work queue and where each stack's state object lives. Terraform state itself is never there.
+Postgres holds the graphs, the run history, the locks, drift results, sessions, API keys, the work queue, where each stack's state object lives and each stack's resource list, with no values. Terraform state itself is never there.
 
 - **RDS or Aurora:** turn on automated backups with point-in-time recovery.
 - **Elsewhere:** use your platform's snapshots or `pg_dump` on a schedule.
 
-What a lost database costs you: history, drift results, locks, and the state locations [shared outputs](/configuration/outputs#state-location) read from, which each stack's next apply or drift job records again. Plans and applies keep working against your S3 state once a new database is in place, because nothing in the server is needed to operate Terraform, except by stacks that read shared outputs: their plans fail until each producer's next apply or drift job records its state location again.
+What a lost database costs you: history, drift results, locks, and the state locations [shared outputs](/configuration/outputs#state-location) read from and the resource lists, which each stack's next apply or drift job records again. Plans and applies keep working against your S3 state once a new database is in place, because nothing in the server is needed to operate Terraform, except by stacks that read shared outputs: their plans fail until each producer's next apply or drift job records its state location again.
 
 ## Restoring {#restore}
 
