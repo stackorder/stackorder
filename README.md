@@ -43,7 +43,7 @@ Stackorder is a GitHub App plus a small control-plane server that decides **whic
 By default the server has two jobs:
 
 - **Dependency resolution.** It holds the graph of stacks, shared modules and the edges between them. From that graph it computes the affected set for a change, orders applies into waves, and serializes conflicting work with stack-level locks.
-- **Observability.** It records every plan and apply per stack and per commit, surfaces drift, and shows the dependency graph and which stacks consume each module at which version. All of this is exposed through a small web UI, a JSON API and Prometheus metrics.
+- **Observability.** It records every plan and apply per stack and per commit, surfaces drift, lists the resources in each stack's state, without their values, with the applied run that last changed each one, and shows the dependency graph and which stacks consume each module at which version. All of this is exposed through a small web UI, a JSON API and Prometheus metrics.
 
 An operator can add a third, off by default: with [shared outputs](docs/configuration/outputs.md), a stack reads another stack's root-module outputs through the server, once that stack lists it as a reader on its default branch, so the reading stack's role needs no access to the other stack's state.
 
