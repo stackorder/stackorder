@@ -259,11 +259,13 @@ func (s *session) apply(ctx context.Context, sha, planFlag string, fresh bool, r
 	if ar != nil {
 		oc.res.ExitCode = ar.ExitCode
 	}
-	if err != nil {
-		return err
+	if err == nil {
+		oc.hookErr = s.runHook(ctx, tf.HookPostApply, oc.planFile, jsonFile)
 	}
-	oc.hookErr = s.runHook(ctx, tf.HookPostApply, oc.planFile, jsonFile)
-	return nil
+	if ar != nil {
+		oc.res.Resources = s.readResources(ctx, r)
+	}
+	return err
 }
 
 func (s *session) replan(ctx context.Context, r *tf.Runner, planFile, jsonFile string, fresh bool, recorded *v1.PlanSummary, why string) (*tfjson.Plan, error) {

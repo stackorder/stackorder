@@ -297,3 +297,38 @@ func TestPrePlanHookCanWriteAVarFile(t *testing.T) {
 	require.Equal(t, 0, r.code, r.stderr)
 	assert.Equal(t, prodVarFiles, varFileArgs(h.tfCall("plan").args))
 }
+
+const orderHook = `#!/bin/sh
+printf '%s\036\n' "$(basename "$0" .sh)" >> "$ORDER_LOG"
+exit "${HOOK_EXIT:-0}"
+`
+
+func TestApplyReadsTheStateAfterThePostApplyHook(t *testing.T) {
+	tests := []struct {
+		name     string
+		exit     string
+		wantCode int
+		wantCmds []string
+		wantList bool
+	}{
+		{name: "hooks succeed", exit: "0", wantCmds: []string{"version", "init", "show", "pre-apply", "apply", "post-apply", "show"}, wantList: true},
+		{name: "hooks fail", exit: "1", wantCode: ExitFailure, wantCmds: []string{"version", "init", "show", "pre-apply"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, fs := newApplyHarness(t)
+			h.savedPlan(h.sha)
+			h.tf.StateJSON = stateFixture(t)
+			for _, n := range []string{"pre-apply", "post-apply"} {
+				writeFile(t, filepath.Join(h.root, ".stackorder", "hooks", n+".sh"), orderHook)
+				require.NoError(t, os.Chmod(filepath.Join(h.root, ".stackorder", "hooks", n+".sh"), 0o755)) //nolint:gosec
+			}
+			t.Setenv("ORDER_LOG", h.tf.Log)
+			t.Setenv("HOOK_EXIT", tt.exit)
+			r := h.run("apply", "--stack", "stacks/app")
+			require.Equal(t, tt.wantCode, r.code, r.stderr)
+			assert.Equal(t, tt.wantCmds, h.tfCommands())
+			assert.Equal(t, tt.wantList, fs.lastResult().Result.Resources != nil)
+		})
+	}
+}

@@ -108,6 +108,12 @@ func (s *session) drift(ctx context.Context, res *v1.StackResult) error {
 	if err := s.init(ctx, r); err != nil {
 		return err
 	}
+	err = s.driftPlan(ctx, r, varFiles, res)
+	res.Resources = s.readResources(ctx, r)
+	return err
+}
+
+func (s *session) driftPlan(ctx context.Context, r *tf.Runner, varFiles []string, res *v1.StackResult) error {
 	tmp, err := os.MkdirTemp("", "stackorder-drift-")
 	if err != nil {
 		return fmt.Errorf("creating a temporary directory: %w", err)

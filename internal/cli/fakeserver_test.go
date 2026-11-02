@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -46,6 +48,7 @@ type fakeServer struct {
 	auth      map[string][]string
 	audiences []string
 	hits      map[string]int
+	bodies    map[string][][]byte
 }
 
 func newFakeServer(t *testing.T) *fakeServer {
@@ -58,6 +61,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 		failCode: map[string]string{},
 		auth:     map[string][]string{},
 		hits:     map[string]int{},
+		bodies:   map[string][][]byte{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/runs", f.route("create", func(r *http.Request) (any, error) {
@@ -133,6 +137,10 @@ func (f *fakeServer) route(name string, fn func(*http.Request) (any, error)) htt
 		defer f.mu.Unlock()
 		f.hits[name]++
 		f.auth[name] = append(f.auth[name], r.Header.Get("Authorization"))
+		body, err := io.ReadAll(r.Body)
+		require.NoError(f.t, err)
+		f.bodies[name] = append(f.bodies[name], body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
 		if status := f.fail[name]; status != 0 {
 			code := f.failCode[name]
 			if code == "" {
@@ -143,15 +151,21 @@ func (f *fakeServer) route(name string, fn func(*http.Request) (any, error)) htt
 			_ = json.NewEncoder(w).Encode(v1.Error{Code: code, Message: "injected " + code})
 			return
 		}
-		body, err := fn(r)
+		out, err := fn(r)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(v1.Error{Code: "invalid", Message: err.Error()})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(body)
+		_ = json.NewEncoder(w).Encode(out)
 	}
+}
+
+func (f *fakeServer) requestBodies(route string) [][]byte {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][]byte(nil), f.bodies[route]...)
 }
 
 func (f *fakeServer) url() string { return f.srv.URL }

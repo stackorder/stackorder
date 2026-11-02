@@ -148,7 +148,7 @@ func TestToolEnvironmentCarriesTheServer(t *testing.T) {
 			},
 		},
 		{
-			name: "apply", command: "apply", calls: []string{"init", "show", "apply"},
+			name: "apply", command: "apply", calls: []string{"init", "show", "apply", "show"},
 			setup: func(t *testing.T) (*harness, *fakeServer) {
 				h, fs := newApplyHarness(t)
 				h.savedPlan(h.sha)
@@ -156,7 +156,7 @@ func TestToolEnvironmentCarriesTheServer(t *testing.T) {
 			},
 		},
 		{
-			name: "drift", command: "drift", calls: []string{"init", "plan", "show", "show"},
+			name: "drift", command: "drift", calls: []string{"init", "plan", "show", "show", "show"},
 			setup: func(t *testing.T) (*harness, *fakeServer) {
 				h, fs := newHarness(t), newFakeServer(t)
 				h.ci(fs, "workflow_dispatch", dispatchPayload("run-1", headSHA))

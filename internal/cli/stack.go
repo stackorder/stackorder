@@ -30,6 +30,8 @@ const (
 	envWorkspace   = "TF_WORKSPACE"
 	workspaceFile  = "environment"
 	reportTimeout  = 30 * time.Second
+	stateTimeout   = 5 * time.Minute
+	resultMargin   = 64 * 1024
 )
 
 var plainVersion = regexp.MustCompile(`^\d+(\.\d+){0,2}$`)
@@ -456,6 +458,45 @@ func (s *session) planText(ctx context.Context, r *tf.Runner, planFile string) (
 	return out, cut, nil
 }
 
+func (s *session) readResources(ctx context.Context, r *tf.Runner) *v1.ResourceList {
+	if ctx.Err() != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, stateTimeout)
+	defer cancel()
+	items, err := stateResources(ctx, r)
+	if err != nil {
+		s.a.warn(fmt.Sprintf("reading the resource list of %s from its state failed, so the result carries none: %v", s.key, err))
+		return nil
+	}
+	items = tf.RedactResources(items, s.redactor)
+	return &v1.ResourceList{Total: len(items), Items: items}
+}
+
+func stateResources(ctx context.Context, r *tf.Runner) ([]v1.StackResource, error) {
+	raw, err := r.ShowStateJSONRaw(ctx)
+	if err != nil {
+		return nil, err
+	}
+	state, err := tf.ParseStateJSON(raw)
+	if err != nil {
+		return nil, err
+	}
+	if state.Values == nil {
+		return tf.Resources(nil), nil
+	}
+	return tf.Resources(state.Values.RootModule), nil
+}
+
+func resourceBudget(res v1.StackResult) int {
+	res.Resources = nil
+	data, err := json.Marshal(res)
+	if err != nil {
+		return 0
+	}
+	return v1.MaxResultBytes - len(data) - resultMargin
+}
+
 func (s *session) fail(res *v1.StackResult, err error) {
 	res.Status = v1.ResultError
 	text := err.Error()
@@ -484,6 +525,7 @@ func (s *session) finalize(res *v1.StackResult) {
 	res.Backend = s.backend
 	res.State = s.state
 	res.DurationMS = time.Since(s.start).Milliseconds()
+	res.Resources = tf.FitResources(res.Resources, resourceBudget(*res))
 }
 
 func (s *session) post(ctx context.Context, res v1.StackResult) error {
