@@ -58,8 +58,10 @@ describe('StacksPage', () => {
     expect(within(eks).getByText('production')).toBeInTheDocument();
     expect(within(eks).getByText('applied')).toHaveClass('badge--success');
     const applied = nth(within(eks).getAllByRole('link'), 2);
+    expect(applied).toHaveTextContent('9e1a3c5e');
     expect(applied).toHaveAttribute('href', `/runs/${stack.last_apply?.run_id ?? ''}`);
-    expect(applied.querySelector('time')).toHaveAttribute('datetime', stack.last_apply?.finished_at);
+    expect(applied.querySelector('time')).toBeNull();
+    expect(eks.querySelector('time')).toHaveAttribute('datetime', stack.last_apply?.finished_at);
     expect(within(eks).getByText('drifted')).toHaveClass('badge--warning');
     expect(within(eks).getByText('locked')).toHaveClass('badge--running');
 
@@ -86,6 +88,7 @@ describe('StacksPage', () => {
     const table = await screen.findByRole('table', { name: 'Stacks' });
     expect(within(table).getByText('applying')).toHaveClass('badge--running');
     expect(within(table).getByRole('link', { name: '7d9f1b3c' })).toHaveAttribute('href', `/runs/${ids.run}`);
+    expect(table.querySelector('time')).toBeNull();
   });
 
   it('lists every stack past the first page', async () => {
