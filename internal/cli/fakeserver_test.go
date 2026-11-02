@@ -55,6 +55,7 @@ type fakeServer struct {
 	hits      map[string]int
 	bodies    map[string][][]byte
 	rejects   map[string][]rejection
+	delays    map[string][]time.Duration
 }
 
 func newFakeServer(t *testing.T) *fakeServer {
@@ -69,6 +70,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 		hits:     map[string]int{},
 		bodies:   map[string][][]byte{},
 		rejects:  map[string][]rejection{},
+		delays:   map[string][]time.Duration{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/runs", f.route("create", func(r *http.Request) (any, error) {
@@ -141,6 +143,12 @@ func newFakeServer(t *testing.T) *fakeServer {
 func (f *fakeServer) route(name string, fn func(*http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
+		if pending := f.delays[name]; len(pending) > 0 {
+			f.delays[name] = pending[1:]
+			f.mu.Unlock()
+			time.Sleep(pending[0])
+			f.mu.Lock()
+		}
 		defer f.mu.Unlock()
 		f.hits[name]++
 		f.auth[name] = append(f.auth[name], r.Header.Get("Authorization"))
@@ -180,6 +188,12 @@ func (f *fakeServer) rejectNext(route string, status int, body v1.Error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rejects[route] = append(f.rejects[route], rejection{status: status, body: body})
+}
+
+func (f *fakeServer) delayNext(route string, d time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.delays[route] = append(f.delays[route], d)
 }
 
 func (f *fakeServer) requestBodies(route string) [][]byte {
