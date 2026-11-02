@@ -173,3 +173,16 @@ func TestStackResourcesRefusals(t *testing.T) {
 		})
 	}
 }
+
+func TestResultWithAMalformedResourceListNamesTheField(t *testing.T) {
+	e := newRunnerEnv(t)
+	body := `{"mode":"apply","status":"success","resources":{"total":1,"items":[{"address":"aws_vpc.main","type":"aws_vpc","tainted":"yes"}]}}`
+	rec := e.do(bearer(newRequest(t, http.MethodPost, "/v1/runs/"+uuid.NewString()+"/stacks/a/result", body), e.apiKey("ci")))
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	got := errorOf(t, rec)
+	assert.Equal(t, codeInvalid, got.Code)
+	details, ok := got.Details.(map[string]any)
+	require.True(t, ok, rec.Body.String())
+	assert.Equal(t, "resources.items.0.tainted", details["field"], "the CLI resends the result without its list when the field is under resources")
+	assert.Zero(t, e.runs.count())
+}

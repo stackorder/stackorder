@@ -20,6 +20,11 @@ func newRecorderFor(t *testing.T, e *testEnv, err error) *httptest.ResponseRecor
 type sample struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
+	Inner *struct {
+		Items []struct {
+			Size int `json:"size"`
+		} `json:"items"`
+	} `json:"inner,omitempty"`
 }
 
 func TestDecodeJSON(t *testing.T) {
@@ -32,6 +37,7 @@ func TestDecodeJSON(t *testing.T) {
 		want        sample
 		status      int
 		message     string
+		field       string
 	}{
 		{name: "valid", contentType: "application/json", body: `{"name":"a","count":2}`, want: sample{Name: "a", Count: 2}},
 		{name: "unknown fields are ignored", contentType: "application/json; charset=utf-8", body: `{"name":"a","future":true}`, want: sample{Name: "a"}},
@@ -45,8 +51,9 @@ func TestDecodeJSON(t *testing.T) {
 		{name: "bad media type", contentType: ";;", body: `{}`, status: 400, message: "the request body must be application/json"},
 		{name: "not json", body: "hello", status: 400, message: "the request body is not valid JSON"},
 		{name: "truncated", body: `{"name":`, status: 400, message: "the request body is not valid JSON"},
-		{name: "wrong type", body: `{"count":"x"}`, status: 400, message: "field count: cannot use a JSON string as int"},
-		{name: "not an object", body: `[1]`, status: 400, message: "field body: cannot use a JSON array"},
+		{name: "wrong type", body: `{"count":"x"}`, status: 400, message: "field count: cannot use a JSON string as int", field: "count"},
+		{name: "wrong nested type", body: `{"inner":{"items":[{"size":"x"}]}}`, status: 400, message: "field inner.items.0.size: cannot use a JSON string as int", field: "inner.items.0.size"},
+		{name: "not an object", body: `[1]`, status: 400, message: "field body: cannot use a JSON array", field: "body"},
 		{name: "second value", body: `{"name":"a"} {"name":"b"}`, status: 400, message: "the request body has data after the JSON value"},
 		{name: "garbage after", body: `{"name":"a"} x`, status: 400, message: "the request body is not valid JSON"},
 		{name: "too large", body: `{"name":"` + strings.Repeat("x", 100) + `"}`, limit: 32, status: 413, message: "the request body exceeds 32 bytes"},
@@ -72,6 +79,9 @@ func TestDecodeJSON(t *testing.T) {
 			assert.Equal(t, tc.status, e.status)
 			assert.Equal(t, codeInvalid, e.body.Code)
 			assert.Contains(t, e.body.Message, tc.message)
+			if tc.field != "" {
+				assert.Equal(t, map[string]any{"field": tc.field, "reason": e.body.Details.(map[string]any)["reason"]}, e.body.Details)
+			}
 		})
 	}
 }
