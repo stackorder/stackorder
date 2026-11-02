@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,6 +20,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
+	"github.com/stackorder/stackorder/internal/client"
 	"github.com/stackorder/stackorder/internal/config"
 	"github.com/stackorder/stackorder/internal/tf"
 )
@@ -538,10 +540,32 @@ func (s *session) post(ctx context.Context, res v1.StackResult) error {
 		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), reportTimeout)
 		defer cancel()
 	}
-	if _, err := cl.PostResult(ctx, s.runID, s.key, res); err != nil {
+	_, err = cl.PostResult(ctx, s.runID, s.key, res)
+	if apiErr, ok := resourcesRefused(err); ok && res.Resources != nil {
+		s.a.warn(fmt.Sprintf("the server refused the %s result of %s with its resource list (%d %s), so it is reported again without the list", res.Mode, s.key, apiErr.Status, apiErr.Code))
+		res.Resources = nil
+		_, err = cl.PostResult(ctx, s.runID, s.key, res)
+	}
+	if err != nil {
 		return fmt.Errorf("reporting the %s result of %s to run %s: %w", res.Mode, s.key, s.runID, err)
 	}
 	return nil
+}
+
+func resourcesRefused(err error) (*client.Error, bool) {
+	var apiErr *client.Error
+	if !errors.As(err, &apiErr) {
+		return nil, false
+	}
+	if apiErr.Status == http.StatusRequestEntityTooLarge {
+		return apiErr, true
+	}
+	if apiErr.Status != http.StatusBadRequest || apiErr.Code != client.CodeInvalid {
+		return nil, false
+	}
+	details, _ := apiErr.Details.(map[string]any)
+	field, _ := details["field"].(string)
+	return apiErr, strings.HasPrefix(field, "resources")
 }
 
 func (s *session) report(ctx context.Context, res v1.StackResult) (unconfirmed bool, reason string, err error) {
