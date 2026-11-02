@@ -409,6 +409,20 @@ details.card[open] > summary {
   font-weight: 400;
 }
 
+.resource-table {
+  table-layout: fixed;
+}
+
+.resource-table th + th {
+  width: 18rem;
+}
+
+@media (max-width: 600px) {
+  .resource-table th + th {
+    width: 40%;
+  }
+}
+
 .kv {
   display: grid;
   grid-template-columns: max-content 1fr;

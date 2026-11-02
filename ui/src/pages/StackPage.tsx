@@ -375,7 +375,7 @@ function ResourceTable({
       },
     });
   }
-  return <Table caption={caption} rows={rows} rowKey={(r) => r.address} columns={columns} />;
+  return <Table class="resource-table" caption={caption} rows={rows} rowKey={(r) => r.address} columns={columns} />;
 }
 
 function Provenance({ list, stack, history }: { list: StackResources; stack: StackDetail; history?: RunStackRef[] | null }) {
