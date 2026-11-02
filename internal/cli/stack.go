@@ -530,7 +530,7 @@ func (s *session) finalize(res *v1.StackResult) {
 	res.Resources = tf.FitResources(res.Resources, resourceBudget(*res))
 }
 
-func (s *session) post(ctx context.Context, res v1.StackResult) error {
+func (s *session) post(ctx context.Context, res *v1.StackResult) error {
 	cl, err := s.a.newClient(s.gh, !s.gh.CI)
 	if err != nil {
 		return err
@@ -540,11 +540,11 @@ func (s *session) post(ctx context.Context, res v1.StackResult) error {
 		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), reportTimeout)
 		defer cancel()
 	}
-	_, err = cl.PostResult(ctx, s.runID, s.key, res)
+	_, err = cl.PostResult(ctx, s.runID, s.key, *res)
 	if apiErr, ok := resourcesRefused(err); ok && res.Resources != nil {
 		s.a.warn(fmt.Sprintf("the server refused the %s result of %s with its resource list (%d %s), so it is reported again without the list", res.Mode, s.key, apiErr.Status, apiErr.Code))
 		res.Resources = nil
-		_, err = cl.PostResult(ctx, s.runID, s.key, res)
+		_, err = cl.PostResult(ctx, s.runID, s.key, *res)
 	}
 	if err != nil {
 		return fmt.Errorf("reporting the %s result of %s to run %s: %w", res.Mode, s.key, s.runID, err)
@@ -568,7 +568,7 @@ func resourcesRefused(err error) (*client.Error, bool) {
 	return apiErr, strings.HasPrefix(field, "resources")
 }
 
-func (s *session) report(ctx context.Context, res v1.StackResult) (unconfirmed bool, reason string, err error) {
+func (s *session) report(ctx context.Context, res *v1.StackResult) (unconfirmed bool, reason string, err error) {
 	switch {
 	case s.a.server == "":
 		return true, "no server is configured", nil

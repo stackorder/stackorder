@@ -113,7 +113,7 @@ func (s *session) plan(ctx context.Context, out string, oc *planOutcome) error {
 }
 
 func (s *session) finishPlan(ctx context.Context, oc *planOutcome) error {
-	unconfirmed, reason, repErr := s.report(ctx, oc.res)
+	unconfirmed, reason, repErr := s.report(ctx, &oc.res)
 	note := ""
 	if unconfirmed && reason != "" && s.gh.CI {
 		note = "Unconfirmed: " + reason + ". Applies are refused until a plan of this commit is confirmed by the server."

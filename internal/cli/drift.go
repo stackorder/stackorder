@@ -53,7 +53,7 @@ func (a *app) runDrift(ctx context.Context, o driftOptions) error {
 	s.finalize(&res)
 	s.flush()
 
-	unconfirmed, reason, repErr := s.report(ctx, res)
+	unconfirmed, reason, repErr := s.report(ctx, &res)
 	if unconfirmed && reason != "" && s.gh.CI {
 		s.a.warn(fmt.Sprintf("the drift check of %s is unconfirmed: %s", s.key, reason))
 	}
