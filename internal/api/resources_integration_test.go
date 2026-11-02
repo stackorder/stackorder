@@ -27,10 +27,10 @@ func TestStackResources(t *testing.T) {
 		{Address: "aws_subnet.a", Type: "aws_subnet", Provider: "registry.opentofu.org/hashicorp/aws", Tainted: true},
 		{Address: "aws_route_table.private", Type: "aws_route_table", Provider: "registry.opentofu.org/hashicorp/aws"},
 	}}
-	require.NoError(t, w.st.SetStackResources(ctx, vpcID, w.applyRun.ID, list, false))
+	require.NoError(t, w.st.SetStackResources(ctx, vpcID, w.applyRun.ID, list, store.ObservedNow))
 	require.NoError(t, w.st.SetStackResources(ctx, w.globexStack, w.globexRun.ID, v1.ResourceList{Total: 1, Items: []v1.StackResource{
 		{Address: "aws_s3_bucket.globex", Type: "aws_s3_bucket"},
-	}}, false))
+	}}, store.ObservedNow))
 
 	target := "/v1/stacks/" + vpcID.String() + "/resources"
 	got := decodeBody[v1.StackResources](t, w.ok(target, true))

@@ -27,7 +27,7 @@ type droppedResource struct {
 	reason string
 }
 
-func (s *Service) recordResources(ctx context.Context, run store.Run, stack store.Stack, res v1.StackResult) {
+func (s *Service) recordResources(ctx context.Context, run store.Run, stack store.Stack, res v1.StackResult, repeated bool) {
 	if res.Resources == nil || (run.Mode != v1.ModeApply && run.Mode != v1.ModeDrift) {
 		return
 	}
@@ -39,9 +39,19 @@ func (s *Service) recordResources(ctx context.Context, run store.Run, stack stor
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), resourcesTimeout)
 	defer cancel()
-	if err := s.st.SetStackResources(ctx, stack.ID, run.ID, list, res.Unconfirmed); err != nil {
+	if err := s.st.SetStackResources(ctx, stack.ID, run.ID, list, resourceObservation(run.Mode, res, repeated)); err != nil {
 		s.log.WarnContext(ctx, "record resources", "run_id", run.ID, "stack", stack.Key, "error", err)
 	}
+}
+
+func resourceObservation(mode v1.RunMode, res v1.StackResult, repeated bool) store.ResourceObservation {
+	switch {
+	case mode != v1.ModeApply || res.Unconfirmed:
+		return store.ObservedAtRunCreation
+	case repeated:
+		return store.ObservedAtStackFinish
+	}
+	return store.ObservedNow
 }
 
 func cleanResources(in v1.ResourceList) (v1.ResourceList, int, droppedResource) {

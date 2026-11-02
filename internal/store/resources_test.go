@@ -55,13 +55,13 @@ func TestSetStackResources(t *testing.T) {
 	f.backdate(waitDrift.ID, time.Hour)
 
 	before := resourceList("aws_vpc.main")
-	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, waitDrift.ID, before, false))
+	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, waitDrift.ID, before, store.ObservedAtRunCreation))
 	first := f.requireResources(vpcID, &waitDrift.ID, before)
 	assert.Equal(t, v1.ModeDrift, first.RunMode)
 	assert.Equal(t, "sha-drift", first.SHA)
 
 	after := resourceList("aws_subnet.a", "aws_vpc.main")
-	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, apply.ID, after, false))
+	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, apply.ID, after, store.ObservedNow))
 	applied := f.requireResources(vpcID, &apply.ID, after)
 	assert.Equal(t, v1.ModeApply, applied.RunMode)
 	assert.Equal(t, "sha-apply", applied.SHA)
@@ -70,11 +70,14 @@ func TestSetStackResources(t *testing.T) {
 
 	lateDrift := f.run(store.CreateRunParams{Mode: v1.ModeDrift, Trigger: v1.TriggerSchedule})
 	f.backdate(lateDrift.ID, 10*time.Minute)
-	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, lateDrift.ID, before, false))
+	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, lateDrift.ID, before, store.ObservedAtRunCreation))
 	assert.Equal(t, applied, f.requireResources(vpcID, &apply.ID, after),
 		"a drift run created before the apply's list was recorded cannot replace it, even posting after it")
+	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, lateDrift.ID, before, store.ObservedNow))
+	assert.Equal(t, applied, f.requireResources(vpcID, &apply.ID, after),
+		"a drift run's list is dated by its run's creation whatever the rule")
 
-	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, apply.ID, before, true))
+	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, apply.ID, before, store.ObservedAtRunCreation))
 	assert.Equal(t, applied, f.requireResources(vpcID, &apply.ID, after),
 		"an unconfirmed apply result counts as read when its run was created")
 
@@ -82,14 +85,14 @@ func TestSetStackResources(t *testing.T) {
 		{Address: "module.b.aws_vpc.x", Type: "aws_vpc", Module: "module.b", Tainted: true},
 		{Address: "aws_vpc.main", Type: "aws_vpc", Deposed: true, LastChange: &v1.ResourceChange{Action: v1.ResourceCreate, RunID: "forged"}},
 	}}
-	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, apply.ID, again, false))
+	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, apply.ID, again, store.ObservedNow))
 	reported := f.requireResources(vpcID, &apply.ID, v1.ResourceList{Total: 3, Truncated: true, Items: []v1.StackResource{
 		{Address: "aws_vpc.main", Type: "aws_vpc", Deposed: true},
 		{Address: "module.b.aws_vpc.x", Type: "aws_vpc", Module: "module.b", Tainted: true},
 	}})
 	assert.True(t, reported.ChangedAt.After(applied.ChangedAt), "the same run may report again; a different list moves changed_at")
 
-	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, apply.ID, again, false))
+	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, apply.ID, again, store.ObservedNow))
 	unchanged := f.requireResources(vpcID, &apply.ID, v1.ResourceList{Total: 3, Truncated: true, Items: reported.Resources})
 	assert.True(t, unchanged.ChangedAt.Equal(reported.ChangedAt), "an unchanged list keeps changed_at")
 	assert.True(t, unchanged.ReportedAt.After(reported.ReportedAt), "an unchanged list still moves reported_at")
@@ -97,7 +100,7 @@ func TestSetStackResources(t *testing.T) {
 	nextDrift := f.run(store.CreateRunParams{Mode: v1.ModeDrift, Trigger: v1.TriggerSchedule, SHA: "sha-next"})
 	f.exec(`UPDATE runs SET created_at = now() + interval '1 minute' WHERE id = $1`, nextDrift.ID)
 	empty := v1.ResourceList{}
-	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, nextDrift.ID, empty, false))
+	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, nextDrift.ID, empty, store.ObservedAtRunCreation))
 	emptied := f.requireResources(vpcID, &nextDrift.ID, v1.ResourceList{Items: []v1.StackResource{}})
 	assert.NotNil(t, emptied.Resources, "an empty list is recorded, unlike no list")
 	assert.Equal(t, []v1.StackResource{}, emptied.ToV1().Items)
@@ -112,16 +115,19 @@ func TestSetStackResources(t *testing.T) {
 		name    string
 		stackID uuid.UUID
 		runID   uuid.UUID
+		obs     store.ResourceObservation
 		want    error
 	}{
-		{"unknown stack", uuid.New(), apply.ID, store.ErrNotFound},
-		{"unknown run", vpcID, uuid.New(), store.ErrNotFound},
-		{"plan run", vpcID, plan.ID, store.ErrInvalid},
-		{"apply run of another repository", vpcID, foreign.ID, store.ErrInvalid},
+		{"unknown stack", uuid.New(), apply.ID, store.ObservedNow, store.ErrNotFound},
+		{"unknown run", vpcID, uuid.New(), store.ObservedNow, store.ErrNotFound},
+		{"plan run", vpcID, plan.ID, store.ObservedNow, store.ErrInvalid},
+		{"apply run of another repository", vpcID, foreign.ID, store.ObservedNow, store.ErrInvalid},
+		{"unknown observation rule", vpcID, apply.ID, "later", store.ErrInvalid},
+		{"no observation rule", vpcID, apply.ID, "", store.ErrInvalid},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.ErrorIs(t, f.s.SetStackResources(f.ctx, tc.stackID, tc.runID, after, false), tc.want)
+			require.ErrorIs(t, f.s.SetStackResources(f.ctx, tc.stackID, tc.runID, after, tc.obs), tc.want)
 		})
 	}
 	f.requireResources(vpcID, &nextDrift.ID, v1.ResourceList{Items: []v1.StackResource{}})
@@ -131,6 +137,51 @@ func TestSetStackResources(t *testing.T) {
 	assert.Equal(t, v1.ModeDrift, kept.RunMode, "the list outlives the run that reported it")
 	assert.Empty(t, kept.ToV1().RunID)
 	assert.Equal(t, "sha-next", kept.ToV1().SHA)
+}
+
+func TestSetStackResourcesRepeatedApply(t *testing.T) {
+	f := newFixture(t)
+	_, ids := f.saveGraph(f.repo.ID, sampleGraph(f.repo.FullName, "sha1"))
+	vpcID, eksID, appsID := ids["stacks/prod/vpc"], ids["stacks/prod/eks"], ids["stacks/prod/apps:blue"]
+
+	apply := f.run(store.CreateRunParams{Mode: v1.ModeApply, Trigger: v1.TriggerManual, SHA: "sha-apply"})
+	f.backdate(apply.ID, 2*time.Hour)
+	require.NoError(t, f.s.UpsertRunStacks(f.ctx, apply.ID, []store.RunStack{{StackID: vpcID}, {StackID: eksID}}))
+	finished := func(stackID uuid.UUID) time.Time {
+		t.Helper()
+		applied := v1.StackApplied
+		rs, err := f.s.UpdateRunStack(f.ctx, apply.ID, stackID, store.RunStackPatch{Status: &applied})
+		require.NoError(t, err)
+		require.NotNil(t, rs.FinishedAt)
+		return *rs.FinishedAt
+	}
+
+	finishedAt := finished(vpcID)
+	applied := resourceList("aws_vpc.main")
+	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, apply.ID, applied, store.ObservedNow))
+	first := f.requireResources(vpcID, &apply.ID, applied)
+	assert.False(t, first.ObservedAt.Before(finishedAt), "a first apply result is dated when it is recorded")
+
+	drift := f.run(store.CreateRunParams{Mode: v1.ModeDrift, Trigger: v1.TriggerSchedule, SHA: "sha-drift"})
+	f.exec(`UPDATE runs SET created_at = now() + interval '1 minute' WHERE id = $1`, drift.ID)
+	drifted := resourceList("aws_subnet.a", "aws_vpc.main")
+	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, drift.ID, drifted, store.ObservedAtRunCreation))
+	newer := f.requireResources(vpcID, &drift.ID, drifted)
+
+	require.NoError(t, f.s.SetStackResources(f.ctx, vpcID, apply.ID, applied, store.ObservedAtStackFinish))
+	assert.Equal(t, newer, f.requireResources(vpcID, &drift.ID, drifted),
+		"a repeated apply result posted after a newer drift list was recorded does not replace it")
+
+	eksFinished := finished(eksID)
+	require.NoError(t, f.s.SetStackResources(f.ctx, eksID, apply.ID, applied, store.ObservedAtStackFinish))
+	late := f.requireResources(eksID, &apply.ID, applied)
+	assert.True(t, late.ObservedAt.Equal(eksFinished), "a repeated apply result whose first list was never recorded is dated when its stack finished")
+
+	run, err := f.s.GetRun(f.ctx, apply.ID)
+	require.NoError(t, err)
+	require.NoError(t, f.s.SetStackResources(f.ctx, appsID, apply.ID, applied, store.ObservedAtStackFinish))
+	unrowed := f.requireResources(appsID, &apply.ID, applied)
+	assert.True(t, unrowed.ObservedAt.Equal(run.CreatedAt), "without a finished stack row the run's creation dates it")
 }
 
 func TestStackResourceChanges(t *testing.T) {
