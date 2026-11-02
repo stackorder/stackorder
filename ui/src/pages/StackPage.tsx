@@ -1,14 +1,24 @@
+import { useLocation } from 'preact-iso';
 import { useState } from 'preact/hooks';
 
 import { useApi } from '../api/context';
-import { splitQualifiedStackKey, type RunStackRef, type StackDetail, type UnlockResponse } from '../api/types';
+import {
+  splitQualifiedStackKey,
+  type DriftStatus,
+  type ResourceAction,
+  type RunStackRef,
+  type StackDetail,
+  type StackResource,
+  type StackResources,
+  type UnlockResponse,
+} from '../api/types';
 import { useResource } from '../api/useResource';
 import { ErrorState } from '../components/ErrorState';
 import { Loading } from '../components/Loading';
 import { RunLink } from '../components/RunLink';
 import { Badge, StatusBadge } from '../components/StatusBadge';
 import { SummaryCounts } from '../components/SummaryCounts';
-import { Table } from '../components/Table';
+import { type Column, Table } from '../components/Table';
 import { TimeAgo } from '../components/TimeAgo';
 import { UnlockDialog } from '../components/UnlockDialog';
 import {
@@ -197,7 +207,305 @@ function unlockedMessage(res: UnlockResponse | undefined): string {
   return `Released ${plural(released.length, 'lock')}${from ? ` held by ${from}` : ''}.`;
 }
 
-/** One stack: its latest apply, plan and drift, its lock, neighbours, modules and history. */
+/** Whether a resource matches a free-text filter on its address. */
+export function matchesResource(r: Pick<StackResource, 'address'>, filter: string): boolean {
+  const q = filter.trim().toLowerCase();
+  return !q || r.address.toLowerCase().includes(q);
+}
+
+/** A resource's address relative to the module that holds it. */
+export function relativeAddress(r: Pick<StackResource, 'address' | 'module'>): string {
+  const prefix = r.module ? `${r.module}.` : '';
+  return prefix && r.address.startsWith(prefix) ? r.address.slice(prefix.length) : r.address;
+}
+
+/** The resources of one module; module is empty for the root module. */
+export interface ResourceGroup {
+  module: string;
+  items: StackResource[];
+}
+
+/** Groups resources by module, the root module first and then module addresses in order, keeping each group's order. */
+export function groupResources(items: readonly StackResource[]): ResourceGroup[] {
+  const byModule = new Map<string, StackResource[]>();
+  for (const r of items) {
+    const module = r.module ?? '';
+    const group = byModule.get(module);
+    if (group) group.push(r);
+    else byModule.set(module, [r]);
+  }
+  return [...byModule.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([module, group]) => ({ module, items: group }));
+}
+
+/** The addresses the latest drift check found changed; empty when it found no drift. */
+export function driftedAddresses(drift: DriftStatus | undefined): Set<string> {
+  if (!drift?.drifted) return new Set();
+  const s = drift.summary;
+  return new Set([...(s?.added ?? []), ...(s?.changed ?? []), ...(s?.replaced ?? []), ...(s?.destroyed ?? [])]);
+}
+
+/** How many resources of a list are drifted, tainted or deposed. */
+export interface ResourceFlagCounts {
+  drifted: number;
+  tainted: number;
+  deposed: number;
+}
+
+/** Counts the drifted, tainted and deposed resources of a list. */
+export function resourceFlagCounts(items: readonly StackResource[], drifted: ReadonlySet<string>): ResourceFlagCounts {
+  const counts = { drifted: 0, tainted: 0, deposed: 0 };
+  for (const r of items) {
+    if (drifted.has(r.address)) counts.drifted++;
+    if (r.tainted) counts.tainted++;
+    if (r.deposed) counts.deposed++;
+  }
+  return counts;
+}
+
+/** Most rows the resource groups show open at once before only flagged groups start open. */
+export const OPEN_RESOURCE_ROWS = 50;
+
+/** Whether a resource group starts open: when it has a flagged row, a filter is active, or few rows are shown. */
+export function groupStartsOpen(flags: ResourceFlagCounts, filtering: boolean, shownRows: number): boolean {
+  return flags.drifted + flags.tainted + flags.deposed > 0 || filtering || shownRows <= OPEN_RESOURCE_ROWS;
+}
+
+const actionWords: Record<ResourceAction, string> = { create: 'created', update: 'updated', replace: 'replaced' };
+
+function ResourceBadges({ r, drifted }: { r: StackResource; drifted: ReadonlySet<string> }) {
+  return (
+    <>
+      {drifted.has(r.address) && (
+        <>
+          {' '}
+          <Badge tone="warning">drifted</Badge>
+        </>
+      )}
+      {r.tainted && (
+        <>
+          {' '}
+          <Badge tone="danger">tainted</Badge>
+        </>
+      )}
+      {r.deposed && (
+        <>
+          {' '}
+          <Badge tone="warning">deposed</Badge>
+        </>
+      )}
+    </>
+  );
+}
+
+function FlagBadges({ flags }: { flags: ResourceFlagCounts }) {
+  return (
+    <>
+      {flags.drifted > 0 && (
+        <>
+          {' '}
+          <Badge tone="warning">{flags.drifted} drifted</Badge>
+        </>
+      )}
+      {flags.tainted > 0 && (
+        <>
+          {' '}
+          <Badge tone="danger">{flags.tainted} tainted</Badge>
+        </>
+      )}
+      {flags.deposed > 0 && (
+        <>
+          {' '}
+          <Badge tone="warning">{flags.deposed} deposed</Badge>
+        </>
+      )}
+    </>
+  );
+}
+
+function ResourceTable({
+  caption,
+  rows,
+  relative,
+  drifted,
+  showLastChange,
+  links,
+}: {
+  caption: string;
+  rows: StackResource[];
+  relative: boolean;
+  drifted: ReadonlySet<string>;
+  showLastChange: boolean;
+  links: Links;
+}) {
+  const columns: Column<StackResource>[] = [
+    {
+      key: 'resource',
+      header: 'Resource',
+      render: (r) => (
+        <>
+          <code class="wrap" title={r.address}>
+            {relative ? relativeAddress(r) : r.address}
+          </code>
+          <ResourceBadges r={r} drifted={drifted} />
+        </>
+      ),
+    },
+  ];
+  if (showLastChange) {
+    columns.push({
+      key: 'last-change',
+      header: 'Last change',
+      render: (r) => {
+        const c = r.last_change;
+        if (!c) return <span class="muted">—</span>;
+        return (
+          <span class="resource-change">
+            {actionWords[c.action]} <RunLink id={c.run_id} />
+            {c.pr_number ? (
+              <>
+                {' '}
+                <a href={pullUrl(links.repo, c.pr_number, links.origin)}>#{c.pr_number}</a>
+              </>
+            ) : null}{' '}
+            <TimeAgo value={c.finished_at} />
+          </span>
+        );
+      },
+    });
+  }
+  return <Table caption={caption} rows={rows} rowKey={(r) => r.address} columns={columns} />;
+}
+
+function Provenance({ list, stack, history }: { list: StackResources; stack: StackDetail; history?: RunStackRef[] | null }) {
+  const runId = list.run_id ?? '';
+  const drift = list.mode === 'drift';
+  const failed = !drift && (history ?? []).some((r) => r.run_id === runId && r.status === 'failed');
+  const source = drift ? 'at drift check' : failed ? 'after failed apply' : 'after apply';
+  const last = stack.last_apply;
+  const stale =
+    !!last?.finished_at &&
+    !!list.reported_at &&
+    last.run_id !== runId &&
+    Date.parse(list.reported_at) < Date.parse(last.finished_at);
+  return (
+    <p class="muted">
+      {list.total === 0 ? 'No resources in the state' : 'From the state'} {source} <RunLink id={runId} />,{' '}
+      <TimeAgo value={list.reported_at} />
+      {stale ? ', before the last apply' : ''}.
+    </p>
+  );
+}
+
+function ResourceList({
+  list,
+  stack,
+  history,
+  links,
+}: {
+  list: StackResources;
+  stack: StackDetail;
+  history?: RunStackRef[] | null;
+  links: Links;
+}) {
+  const { path, query, route } = useLocation();
+  const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(new Map());
+  if (!list.run_id) return <p class="empty">No resource list yet.</p>;
+
+  const items = list.items ?? [];
+  const filter = query.q ?? '';
+  const filtering = filter.trim() !== '';
+  const drifted = driftedAddresses(stack.drift);
+  const showLastChange = items.some((r) => r.last_change);
+  const single = groupResources(items).length <= 1;
+  const shown = items.filter((r) => matchesResource(r, filter));
+  const groups = groupResources(shown);
+
+  return (
+    <>
+      <Provenance list={list} stack={stack} history={history} />
+      {list.truncated && (
+        <p class="text-warning">
+          Showing the first {items.length} of {list.total} resources, by address.
+        </p>
+      )}
+      {items.length > 0 && (
+        <>
+          <form
+            class="controls"
+            role="search"
+            onSubmit={(e) => {
+              e.preventDefault();
+            }}
+          >
+            <label for="resource-filter">Filter</label>
+            <input
+              id="resource-filter"
+              type="search"
+              value={filter}
+              placeholder="address"
+              spellcheck={false}
+              onInput={(e) => {
+                const q = e.currentTarget.value;
+                route(q ? `${path}?q=${encodeURIComponent(q)}` : path, true);
+              }}
+            />
+            <span class="muted" aria-live="polite">
+              {shown.length} of {items.length}
+            </span>
+          </form>
+          {shown.length === 0 ? (
+            <p class="empty">No resource matches the filter.</p>
+          ) : single ? (
+            <ResourceTable
+              caption={`Resources of ${stack.key}`}
+              rows={shown}
+              relative={false}
+              drifted={drifted}
+              showLastChange={showLastChange}
+              links={links}
+            />
+          ) : (
+            <div class="resource-groups">
+              {groups.map((g) => {
+                const flags = resourceFlagCounts(g.items, drifted);
+                const open = toggled.get(g.module) ?? groupStartsOpen(flags, filtering, shown.length);
+                const label = g.module || 'Root module';
+                return (
+                  <details key={g.module} class="card resource-group" open={open}>
+                    <summary
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setToggled((prev) => new Map(prev).set(g.module, !open));
+                      }}
+                    >
+                      {g.module ? <span class="mono wrap">{g.module}</span> : label}{' '}
+                      <span class="muted">{plural(g.items.length, 'resource')}</span>
+                      <FlagBadges flags={flags} />
+                    </summary>
+                    {open && (
+                      <ResourceTable
+                        caption={`Resources in ${label} of ${stack.key}`}
+                        rows={g.items}
+                        relative
+                        drifted={drifted}
+                        showLastChange={showLastChange}
+                        links={links}
+                      />
+                    )}
+                  </details>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+/** One stack: its latest apply, plan and drift, its lock, neighbours, modules, history and resources. */
 export function StackPage({ id }: { id: string }) {
   return <StackView key={id} id={id} />;
 }
@@ -206,6 +514,7 @@ function StackView({ id }: { id: string }) {
   const api = useApi();
   const stack = useResource((signal) => api.stack(id, { signal }), [id]);
   const history = useResource((signal) => api.stackRuns(id, { signal }), [id]);
+  const resources = useResource((signal) => api.stackResources(id, { signal }), [id]);
   const repoName = stack.data?.repo ?? '';
   const siblings = useResource(
     (signal) => {
@@ -374,6 +683,17 @@ function StackView({ id }: { id: string }) {
               },
             ]}
           />
+        )}
+      </section>
+
+      <section class="resources" aria-labelledby="stack-resources">
+        <h2 id="stack-resources">Resources</h2>
+        {resources.error && !resources.data ? (
+          <ErrorState error={resources.error} onRetry={resources.reload} />
+        ) : !resources.data ? (
+          <Loading label="Loading resources…" />
+        ) : (
+          <ResourceList list={resources.data} stack={s} history={history.data?.items} links={links} />
         )}
       </section>
 
