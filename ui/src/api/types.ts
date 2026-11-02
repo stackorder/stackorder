@@ -399,6 +399,41 @@ export interface StackDetail {
   modules?: ModuleConsume[];
 }
 
+/** How an applied plan changed a resource. */
+export type ResourceAction = 'create' | 'update' | 'replace';
+
+/** The applied run whose plan last created, updated or replaced a resource. */
+export interface ResourceChange {
+  action: ResourceAction;
+  run_id: string;
+  sha: string;
+  pr_number?: number;
+  finished_at?: string;
+}
+
+/** One managed resource of a stack: where it sits and what it is, never what it holds. */
+export interface StackResource {
+  address: string;
+  type: string;
+  module?: string;
+  provider?: string;
+  tainted?: boolean;
+  deposed?: boolean;
+  last_change?: ResourceChange;
+}
+
+/** The body of GET /v1/stacks/{id}/resources. */
+export interface StackResources {
+  run_id?: string;
+  mode?: RunMode;
+  sha?: string;
+  reported_at?: string;
+  changed_at?: string;
+  total: number;
+  truncated?: boolean;
+  items: StackResource[] | null;
+}
+
 /** One released version of a git module. */
 export interface ModuleVersion {
   version: string;

@@ -7,6 +7,7 @@ import type {
   Run,
   RunStackRef,
   StackDetail,
+  StackResources,
   Whoami,
 } from '../api/types';
 import graphRunJson from './graph-run.json' with { type: 'json' };
@@ -20,6 +21,7 @@ import reposJson from './repos.json' with { type: 'json' };
 import runJson from './run.json' with { type: 'json' };
 import runsJson from './runs.json' with { type: 'json' };
 import stackRunsJson from './stack-runs.json' with { type: 'json' };
+import stackResourcesJson from './stack-resources.json' with { type: 'json' };
 import stackJson from './stack.json' with { type: 'json' };
 
 /** Deep copies a fixture so a test can mutate it freely. */
@@ -45,6 +47,8 @@ export const run = runJson as Run;
 export const stack = stackJson as StackDetail;
 /** GET /v1/stacks/{id}/runs for stacks/prod/eks. */
 export const stackRuns = stackRunsJson as Page<RunStackRef>;
+/** GET /v1/stacks/{id}/resources for stacks/prod/eks: the list its last drift check read from state. */
+export const stackResources = stackResourcesJson as StackResources;
 /** GET /v1/repos/acme/infra/stacks. */
 export const repoStacks = repoStacksJson as Page<StackDetail>;
 /** GET /v1/modules. */
@@ -108,6 +112,7 @@ export const routes: FixtureRoute[] = [
   { method: 'GET', pattern: /^\/v1\/repos\/acme\/infra\/stacks$/, body: () => repoStacks },
   { method: 'GET', pattern: new RegExp(`^/v1/stacks/${stack.id}$`), body: () => stack },
   { method: 'GET', pattern: new RegExp(`^/v1/stacks/${stack.id}/runs$`), body: () => stackRuns },
+  { method: 'GET', pattern: new RegExp(`^/v1/stacks/${stack.id}/resources$`), body: () => stackResources },
   { method: 'GET', pattern: /^\/v1\/modules$/, body: () => modules },
   { method: 'GET', pattern: new RegExp(`^/v1/modules/${moduleDetail.id}$`), body: () => moduleDetail },
   { method: 'GET', pattern: new RegExp(`^/v1/runs/${run.id}$`), body: () => run },
