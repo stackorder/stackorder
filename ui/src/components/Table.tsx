@@ -16,16 +16,17 @@ export interface TableProps<T> {
   rowKey: (row: T) => string;
   empty?: ComponentChildren;
   rowClass?: (row: T) => string | undefined;
+  class?: string;
 }
 
 /** A data table with a caption for assistive technology and an empty state. */
-export function Table<T>({ caption, columns, rows, rowKey, empty, rowClass }: TableProps<T>) {
+export function Table<T>({ caption, columns, rows, rowKey, empty, rowClass, class: className }: TableProps<T>) {
   if (rows.length === 0) {
     return <p class="empty">{empty ?? 'Nothing to show yet.'}</p>;
   }
   return (
     <div class="table-wrap">
-      <table class="table">
+      <table class={`table${className ? ` ${className}` : ''}`}>
         <caption class="sr-only">{caption}</caption>
         <thead>
           <tr>
