@@ -53,7 +53,7 @@ func bodyError(err error) error {
 	case errors.As(err, &tooLarge):
 		return newError(http.StatusRequestEntityTooLarge, codeInvalid, fmt.Sprintf("the request body exceeds %d bytes", tooLarge.Limit))
 	case errors.As(err, &typeErr):
-		field := typeErr.Field
+		field := fieldPath(typeErr.Field)
 		if field == "" {
 			field = "body"
 		}
@@ -63,6 +63,18 @@ func bodyError(err error) error {
 		return e
 	}
 	return invalid("the request body is not valid JSON: " + err.Error())
+}
+
+func fieldPath(goPath string) string {
+	segments := strings.Split(goPath, ".")
+	kept := segments[:0]
+	for _, s := range segments {
+		if s != "" && strings.Trim(s, "0123456789") == "" {
+			continue
+		}
+		kept = append(kept, s)
+	}
+	return strings.Join(kept, ".")
 }
 
 func limitBody(limit int64, next http.Handler) http.Handler {
