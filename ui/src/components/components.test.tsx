@@ -83,6 +83,20 @@ describe('Table', () => {
     expect(screen.getAllByRole('row')).toHaveLength(3);
     expect(screen.getByText('22')).toHaveClass('num');
     expect(screen.getByText('beta').closest('tr')).toHaveClass('row--warning');
+    expect(table).toHaveAttribute('class', 'table');
+  });
+
+  it('adds an extra class to the table', () => {
+    render(
+      <Table
+        class="resource-table"
+        caption="Things"
+        rows={rows}
+        rowKey={(r) => r.id}
+        columns={[{ key: 'name', header: 'Name', render: (r) => r.name }]}
+      />,
+    );
+    expect(screen.getByRole('table', { name: 'Things' })).toHaveAttribute('class', 'table resource-table');
   });
 
   it('renders the empty state instead of an empty table', () => {
