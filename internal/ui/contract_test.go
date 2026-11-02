@@ -328,6 +328,7 @@ func TestFixturesAreAPIResponses(t *testing.T) {
 		"stack-runs.json":      func() any { return new(v1.Page[v1.RunStackRef]) },
 		"stack-resources.json": func() any { return new(v1.StackResources) },
 		"repo-stacks.json":     func() any { return new(v1.Page[v1.StackDetail]) },
+		"stacks.json":          func() any { return new(v1.Page[v1.StackDetail]) },
 		"modules.json":         func() any { return new(v1.Page[v1.ModuleDetail]) },
 		"module.json":          func() any { return new(v1.ModuleDetail) },
 	}

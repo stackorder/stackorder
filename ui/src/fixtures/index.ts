@@ -23,6 +23,7 @@ import runsJson from './runs.json' with { type: 'json' };
 import stackRunsJson from './stack-runs.json' with { type: 'json' };
 import stackResourcesJson from './stack-resources.json' with { type: 'json' };
 import stackJson from './stack.json' with { type: 'json' };
+import stacksJson from './stacks.json' with { type: 'json' };
 
 /** Deep copies a fixture so a test can mutate it freely. */
 export function clone<T>(value: T): T {
@@ -51,6 +52,8 @@ export const stackRuns = stackRunsJson as Page<RunStackRef>;
 export const stackResources = stackResourcesJson as StackResources;
 /** GET /v1/repos/acme/infra/stacks. */
 export const repoStacks = repoStacksJson as Page<StackDetail>;
+/** GET /v1/stacks: every stack of the three repositories, the acme/infra ones as in repoStacks. */
+export const stacks = stacksJson as Page<StackDetail>;
 /** GET /v1/modules. */
 export const modules = modulesJson as Page<ModuleDetail>;
 /** GET /v1/modules/{id} for the eks-addons git module. */
@@ -110,6 +113,7 @@ export const routes: FixtureRoute[] = [
   },
   { method: 'GET', pattern: /^\/v1\/repos\/acme\/infra\/runs$/, body: () => runs },
   { method: 'GET', pattern: /^\/v1\/repos\/acme\/infra\/stacks$/, body: () => repoStacks },
+  { method: 'GET', pattern: /^\/v1\/stacks$/, body: () => stacks },
   { method: 'GET', pattern: new RegExp(`^/v1/stacks/${stack.id}$`), body: () => stack },
   { method: 'GET', pattern: new RegExp(`^/v1/stacks/${stack.id}/runs$`), body: () => stackRuns },
   { method: 'GET', pattern: new RegExp(`^/v1/stacks/${stack.id}/resources$`), body: () => stackResources },
