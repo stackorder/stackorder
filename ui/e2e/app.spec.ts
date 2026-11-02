@@ -234,6 +234,36 @@ test.describe('signed in', () => {
     await expect(lock).toContainText('Not locked.');
   });
 
+  test('stack page lists resources by module, toggles a group with the keyboard and filters by address', async ({ page }) => {
+    await mockApi(page);
+    await page.goto(`/stacks/${ids.stack}`);
+    const resources = page.getByRole('region', { name: 'Resources' });
+    await expect(resources).toContainText('From the state at drift check d2f4a6c8');
+    const eks = resources.getByRole('table', { name: 'Resources in module.eks of stacks/prod/eks' });
+    await expect(eks.getByRole('row')).toHaveCount(8);
+    await expect(eks.getByRole('row').filter({ hasText: 'aws_eks_node_group.default' })).toContainText('drifted');
+    await expect(eks.getByRole('row').filter({ hasText: 'aws_eks_addon.coredns' }).getByRole('link', { name: '#38' })).toHaveAttribute(
+      'href',
+      'https://github.com/acme/infra/pull/38',
+    );
+
+    const addons = resources.locator('summary').filter({ hasText: 'module.eks.module.addons' });
+    const addonsTable = resources.getByRole('table', { name: 'Resources in module.eks.module.addons of stacks/prod/eks' });
+    await expect(addonsTable).toBeVisible();
+    await addons.focus();
+    await page.keyboard.press('Enter');
+    await expect(addonsTable).toBeHidden();
+
+    await resources.getByLabel('Filter').fill('helm');
+    await expect(page).toHaveURL(`/stacks/${ids.stack}?q=helm`);
+    await expect(resources.getByText('2 of 11')).toBeVisible();
+    await expect(resources.locator('summary')).toHaveText(['module.eks.module.addons 2 resources']);
+    await expect(addonsTable).toBeHidden();
+    await addons.focus();
+    await page.keyboard.press('Space');
+    await expect(addonsTable.getByRole('row')).toHaveCount(3);
+  });
+
   test('module list filters and links to the module page', async ({ page }) => {
     await mockApi(page);
     await page.goto('/modules');
