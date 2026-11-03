@@ -36,7 +36,7 @@ This repository was tested with:
 
 | Component | Version |
 | --- | --- |
-| [`stackorder/stackorder`](https://github.com/stackorder/stackorder) (server and CLI) | v0.4.0 |
+| [`stackorder/stackorder`](https://github.com/stackorder/stackorder) (server and CLI) | v0.5.0 |
 | [`stackorder/terraform-provider-stackorder`](https://github.com/stackorder/terraform-provider-stackorder) (provider `stackorder/stackorder` on the Terraform and OpenTofu registries) | v0.1.0 |
 | Terraform | 1.14.4 |
 | OpenTofu | 1.12.6 |
