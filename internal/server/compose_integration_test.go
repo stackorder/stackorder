@@ -37,7 +37,7 @@ func TestComposeWiresTheStateReaderOnlyWithBuckets(t *testing.T) {
 	}{
 		{
 			name: "no state buckets",
-			vars: []string{EnvArtifactEndpoint, endpoint},
+			vars: []string{EnvS3Endpoint, endpoint},
 		},
 		{
 			name:    "one bucket",
@@ -46,7 +46,7 @@ func TestComposeWiresTheStateReaderOnlyWithBuckets(t *testing.T) {
 		},
 		{
 			name:    "prefixes, a role and an endpoint",
-			vars:    []string{EnvStateBuckets, "acme/infra=acme-state/stacks/prod/, *=acme-shared", EnvStateRoleARN, role, EnvArtifactEndpoint, endpoint},
+			vars:    []string{EnvStateBuckets, "acme/infra=acme-state/stacks/prod/, *=acme-shared", EnvStateRoleARN, role, EnvS3Endpoint, endpoint},
 			buckets: []any{"acme/infra=acme-state/stacks/prod/", "*=acme-shared"},
 			role:    role,
 		},

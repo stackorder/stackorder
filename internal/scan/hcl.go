@@ -35,10 +35,13 @@ var (
 	terraformSchema = &hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{
 		{Type: "backend", LabelNames: []string{"type"}},
 	}}
-	s3Attributes = []string{"bucket", "key", "region", "dynamodb_table", "use_lockfile", "workspace_key_prefix"}
+	// s3Attributes are read in this order, so that endpoints.s3 wins over
+	// the deprecated endpoint of the same block or file, as in the backend.
+	s3Attributes = []string{"bucket", "key", "region", "dynamodb_table", "use_lockfile", "workspace_key_prefix", "endpoint", "endpoints"}
 	s3Schema     = &hcl.BodySchema{Attributes: []hcl.AttributeSchema{
 		{Name: "bucket"}, {Name: "key"}, {Name: "region"},
 		{Name: "dynamodb_table"}, {Name: "use_lockfile"}, {Name: "workspace_key_prefix"},
+		{Name: "endpoint"}, {Name: "endpoints"},
 	}}
 	remoteStateSchema = &hcl.BodySchema{Attributes: []hcl.AttributeSchema{
 		{Name: "backend"}, {Name: "config"}, {Name: "workspace"},
@@ -126,6 +129,7 @@ type remoteState struct {
 	bucket    string
 	key       string
 	prefix    string
+	endpoint  string
 	workspace string
 	problem   string
 }
@@ -297,13 +301,22 @@ func (r *hclReader) overlayS3(attrs hcl.Attributes, be *v1.Backend, what, outcom
 		if !ok {
 			continue
 		}
-		if name == "use_lockfile" {
+		switch name {
+		case "use_lockfile":
 			v, ok := literalBool(attr.Expr)
 			if !ok {
 				r.warn("%s: %s attribute %q is not a literal value; %s", location(attr.Range), what, name, outcome)
 				continue
 			}
 			be.UseLockfile = v
+			continue
+		case "endpoints":
+			v, found, ok := s3EndpointOf(attr.Expr)
+			if !ok {
+				r.warn("%s: %s attribute %q is not an object literal with a literal s3; %s", location(attr.Range), what, name, outcome)
+			} else if found && strings.TrimSpace(v) != "" {
+				be.Endpoint = config.S3Endpoint(v)
+			}
 			continue
 		}
 		v, ok := literalString(attr.Expr)
@@ -327,7 +340,44 @@ func setS3String(be *v1.Backend, name, value string) {
 		be.DynamoDBTable = value
 	case "workspace_key_prefix":
 		be.WorkspaceKeyPrefix = value
+	case "endpoint":
+		be.Endpoint = config.S3Endpoint(value)
 	}
+}
+
+// s3EndpointOf returns the s3 attribute of an endpoints object literal.
+// found is false when the object has no s3 key, and ok is false when expr
+// is not an object literal or its s3 is neither a literal string nor a
+// literal null. A null s3 is returned as "", which callers treat as unset.
+func s3EndpointOf(expr hcl.Expression) (endpoint string, found, ok bool) {
+	pairs, diags := hcl.ExprMap(expr)
+	if diags.HasErrors() {
+		return "", false, false
+	}
+	for _, pair := range pairs {
+		name, ok := keyName(pair.Key)
+		if !ok {
+			return "", false, false
+		}
+		if name != "s3" {
+			continue
+		}
+		if isLiteralNull(pair.Value) {
+			return "", true, true
+		}
+		v, ok := literalString(pair.Value)
+		return v, true, ok
+	}
+	return "", false, true
+}
+
+// isLiteralNull reports whether expr is the literal null.
+func isLiteralNull(expr hcl.Expression) bool {
+	if !isLiteral(expr) {
+		return false
+	}
+	v, diags := expr.Value(nil)
+	return !diags.HasErrors() && v.IsNull()
 }
 
 func (r *hclReader) readRemoteState(block *hcl.Block) remoteState {
@@ -362,6 +412,7 @@ func (r *hclReader) readRemoteState(block *hcl.Block) remoteState {
 	if diags.HasErrors() {
 		return fail(cfg.Range, "config is not an object literal")
 	}
+	var endpoints bool
 	for _, pair := range pairs {
 		name, ok := keyName(pair.Key)
 		if !ok {
@@ -375,6 +426,25 @@ func (r *hclReader) readRemoteState(block *hcl.Block) remoteState {
 			dst = &rs.key
 		case "workspace_key_prefix":
 			dst = &rs.prefix
+		case "endpoint":
+			if endpoints {
+				continue
+			}
+			if rs.endpoint, ok = literalString(pair.Value); !ok {
+				rs.endpoint = ""
+			}
+			continue
+		case "endpoints":
+			// An endpoint that is not literal is left unknown, which
+			// matches a writer at any endpoint, as before endpoints
+			// were read.
+			// A blank s3 counts as unset, as in the backend, so the
+			// deprecated endpoint still applies.
+			v, found, ok := s3EndpointOf(pair.Value)
+			if !ok || found && strings.TrimSpace(v) != "" {
+				endpoints, rs.endpoint = true, v
+			}
+			continue
 		default:
 			continue
 		}
@@ -388,6 +458,7 @@ func (r *hclReader) readRemoteState(block *hcl.Block) remoteState {
 	if rs.key == "" {
 		return fail(cfg.Range, "config.key is not set")
 	}
+	rs.endpoint = config.S3Endpoint(rs.endpoint)
 	return rs
 }
 

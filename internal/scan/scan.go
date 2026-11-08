@@ -761,19 +761,29 @@ func (s *scanner) ignoredTargets(dirs map[string][]string, info *stackInfo) []st
 
 type stateLocation struct{ bucket, key string }
 
+// stateWriter is a stack that keeps its state at a stateLocation, with the
+// config.S3Service of its backend's endpoint.
+type stateWriter struct{ key, service string }
+
+// sameService reports whether two config.S3Service names may be the same
+// service: equal, or either one left to the environment.
+func sameService(a, b string) bool {
+	return a == "" || b == "" || a == b
+}
+
 func (s *scanner) inferRemoteState(explicit map[string]map[string]bool) {
-	writers := map[stateLocation][]string{}
+	writers := map[stateLocation][]stateWriter{}
 	for _, key := range s.sortedStackKeys() {
 		st := s.stacks[key].stack
 		if st.Backend == nil || st.Backend.Bucket == "" || st.Backend.Key == "" {
 			continue
 		}
 		loc := stateLocation{st.Backend.Bucket, config.StateObjectKey(st.Backend.WorkspaceKeyPrefix, st.Workspace, st.Backend.Key)}
-		writers[loc] = append(writers[loc], key)
+		writers[loc] = append(writers[loc], stateWriter{key, config.S3Service(st.Backend.Endpoint)})
 	}
-	for loc, keys := range writers {
-		if len(keys) > 1 {
-			s.warn("stacks %s share the state object s3://%s/%s", strings.Join(keys, ", "), loc.bucket, loc.key)
+	for loc, ws := range writers {
+		if shared := sharingWriters(ws); len(shared) > 1 {
+			s.warn("stacks %s share the state object s3://%s/%s", strings.Join(shared, ", "), loc.bucket, loc.key)
 		}
 	}
 	dirs := s.stackKeysByDir()
@@ -789,7 +799,12 @@ func (s *scanner) inferRemoteState(explicit map[string]map[string]bool) {
 				continue
 			}
 			objectKey := rs.objectKey()
-			for _, target := range writers[stateLocation{rs.bucket, objectKey}] {
+			service := config.S3Service(rs.endpoint)
+			for _, w := range writers[stateLocation{rs.bucket, objectKey}] {
+				if !sameService(service, w.service) {
+					continue
+				}
+				target := w.key
 				switch {
 				case target == key, explicit[key][target]:
 				case slices.Contains(ignored, target):
@@ -800,12 +815,39 @@ func (s *scanner) inferRemoteState(explicit map[string]map[string]bool) {
 						To:       v1.StackRef(target),
 						Type:     v1.EdgeReadsState,
 						Inferred: true,
-						Meta:     map[string]string{"bucket": rs.bucket, "key": objectKey},
+						Meta:     remoteStateMeta(rs, objectKey),
 					})
 				}
 			}
 		}
 	}
+}
+
+// sharingWriters returns the keys of the writers of one bucket and key that
+// may share the object: all of them unless each names a different service.
+func sharingWriters(ws []stateWriter) []string {
+	keys := make([]string, 0, len(ws))
+	seen := map[string]bool{}
+	distinct := true
+	for _, w := range ws {
+		keys = append(keys, w.key)
+		if w.service == "" || seen[w.service] {
+			distinct = false
+		}
+		seen[w.service] = true
+	}
+	if distinct {
+		return nil
+	}
+	return keys
+}
+
+func remoteStateMeta(rs remoteState, objectKey string) map[string]string {
+	meta := map[string]string{"bucket": rs.bucket, "key": objectKey}
+	if rs.endpoint != "" {
+		meta["endpoint"] = rs.endpoint
+	}
+	return meta
 }
 
 func (s *scanner) inferOutputs(explicit map[string]map[string]bool) {

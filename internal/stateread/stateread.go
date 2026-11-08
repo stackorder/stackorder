@@ -64,7 +64,8 @@ var (
 	ErrTooLarge = errors.New("stateread: state too large")
 
 	// ErrNotAllowed is returned, before any request to S3, for a location
-	// that no grant allows the producer's repository.
+	// that no grant allows the producer's repository, or that names an S3
+	// endpoint other than the one the Reader reads from.
 	ErrNotAllowed = errors.New("stateread: state location not allowed")
 
 	// ErrUnreadable is returned for an unusable location and for permanent
@@ -76,12 +77,15 @@ var (
 	ErrMalformed = errors.New("stateread: malformed state")
 )
 
-// Location names a state object: the bucket, the object key and the
-// bucket's region, as the s3 backend of the stack configures them.
+// Location names a state object: the bucket, the object key, the bucket's
+// region and the S3 endpoint, as the s3 backend of the stack configures
+// them. An empty Endpoint is AWS S3, or an endpoint the stack's jobs take
+// from their environment.
 type Location struct {
-	Bucket string
-	Key    string
-	Region string
+	Bucket   string
+	Key      string
+	Region   string
+	Endpoint string
 }
 
 // State is what Read keeps of a state object: its identity and its root

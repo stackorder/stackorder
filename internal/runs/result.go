@@ -15,7 +15,6 @@ import (
 	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/principal"
 	"github.com/stackorder/stackorder/internal/report"
-	"github.com/stackorder/stackorder/internal/stateread"
 	"github.com/stackorder/stackorder/internal/store"
 )
 
@@ -150,7 +149,7 @@ func (s *Service) recordStateObject(ctx context.Context, run store.Run, repo sto
 		s.log.WarnContext(ctx, "ignore a state object without a bucket or key", "run_id", run.ID, "stack", stack.Key)
 		return
 	}
-	granted := s.state == nil || s.state.Allows(repo.FullName, stateread.Location{Bucket: obj.Bucket, Key: obj.Key, Region: obj.Region})
+	granted := s.state == nil || s.state.Allows(repo.FullName, stateLocation(obj))
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stateObjectTimeout)
 	defer cancel()
 	if granted {
@@ -160,7 +159,7 @@ func (s *Service) recordStateObject(ctx context.Context, run store.Run, repo sto
 		return
 	}
 	s.log.WarnContext(ctx, "clear the state location for a state object no grant of its repository covers", "run_id", run.ID,
-		"repo", repo.FullName, "stack", stack.Key, "bucket", auditField(obj.Bucket), "key", auditField(obj.Key))
+		"repo", repo.FullName, "stack", stack.Key, "bucket", auditField(obj.Bucket), "key", auditField(obj.Key), "endpoint", auditField(obj.Endpoint))
 	if err := s.st.ClearStackStateObject(ctx, stack.ID, run.ID); err != nil {
 		s.log.WarnContext(ctx, "clear state object", "run_id", run.ID, "stack", stack.Key, "error", err)
 	}

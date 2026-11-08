@@ -57,6 +57,10 @@ var setupTokenChars = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
 
 var iamRoleARN = regexp.MustCompile(`^arn:[a-z-]+:iam::[0-9]{12}:role/([A-Za-z0-9+=,.@_-]+/)*[A-Za-z0-9+=,.@_-]+$`)
 
+// validRegion matches the region names the AWS SDK and S3-compatible
+// services take, as stateread checks them.
+var validRegion = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
+
 // Environment variables LoadConfig reads.
 const (
 	EnvBaseURL             = "STACKORDER_BASE_URL"
@@ -75,9 +79,17 @@ const (
 	EnvRequiredWorkflowRef = "STACKORDER_REQUIRED_WORKFLOW_REF"
 	EnvArtifactBucket      = "STACKORDER_ARTIFACT_BUCKET"
 	EnvArtifactPrefix      = "STACKORDER_ARTIFACT_PREFIX"
-	EnvArtifactEndpoint    = "AWS_ENDPOINT_URL_S3"
+	EnvArtifactEndpoint    = "STACKORDER_ARTIFACT_ENDPOINT"
+	EnvArtifactRegion      = "STACKORDER_ARTIFACT_REGION"
+	EnvArtifactAccessKeyID = "STACKORDER_ARTIFACT_ACCESS_KEY_ID"
+	EnvArtifactSecretKey   = "STACKORDER_ARTIFACT_SECRET_ACCESS_KEY" //nolint:gosec // a variable name, not a secret
+	EnvS3Endpoint          = "AWS_ENDPOINT_URL_S3"
 	EnvStateBuckets        = "STACKORDER_STATE_BUCKETS"
 	EnvStateRoleARN        = "STACKORDER_STATE_ROLE_ARN"
+	EnvStateEndpoint       = "STACKORDER_STATE_ENDPOINT"
+	EnvStateRegion         = "STACKORDER_STATE_REGION"
+	EnvStateAccessKeyID    = "STACKORDER_STATE_ACCESS_KEY_ID"
+	EnvStateSecretKey      = "STACKORDER_STATE_SECRET_ACCESS_KEY" //nolint:gosec // a variable name, not a secret
 	EnvSessionKey          = "STACKORDER_SESSION_KEY"
 	EnvMetricsToken        = "STACKORDER_METRICS_TOKEN"
 	EnvPlanTextRetention   = "STACKORDER_PLAN_TEXT_RETENTION"
@@ -136,13 +148,23 @@ type Config struct {
 	// of S3.
 	ArtifactBucket string
 	ArtifactPrefix string
-	// ArtifactEndpoint is AWS_ENDPOINT_URL_S3, read only with an artifact
-	// bucket or state buckets. When set, the artifact store and the state
-	// reader send their S3 requests to it with path-style addressing, which
-	// LocalStack and other S3-compatible services need. The state reader's
-	// STS requests keep the SDK's endpoint resolution, AWS_ENDPOINT_URL_STS
-	// included.
+	// ArtifactEndpoint is STACKORDER_ARTIFACT_ENDPOINT, else
+	// AWS_ENDPOINT_URL_S3, read only with an artifact bucket. When set, the
+	// artifact store sends its requests to it with path-style addressing,
+	// which LocalStack and S3-compatible services such as Cloudflare R2 and
+	// MinIO need.
 	ArtifactEndpoint string
+	// ArtifactRegion is STACKORDER_ARTIFACT_REGION, the artifact bucket's
+	// region, such as auto for Cloudflare R2; empty takes the region of
+	// the AWS configuration.
+	ArtifactRegion string
+	// ArtifactAccessKeyID and ArtifactSecretAccessKey are
+	// STACKORDER_ARTIFACT_ACCESS_KEY_ID and
+	// STACKORDER_ARTIFACT_SECRET_ACCESS_KEY, both or neither: a static key
+	// for the artifact bucket, such as an R2 API token's, in place of the
+	// AWS SDK's default credential chain.
+	ArtifactAccessKeyID     string
+	ArtifactSecretAccessKey string
 
 	// StateGrants is STACKORDER_STATE_BUCKETS as stateread.ParseGrants
 	// reads it: the buckets, each with an optional key prefix, whose state
@@ -154,6 +176,24 @@ type Config struct {
 	// reader assumes to read state objects; it requires state buckets.
 	// Empty reads them with the server's own credentials.
 	StateRoleARN string
+	// StateEndpoint is STACKORDER_STATE_ENDPOINT, else AWS_ENDPOINT_URL_S3,
+	// read only with state buckets: the S3-compatible endpoint, such as
+	// https://<account>.r2.cloudflarestorage.com, that the state reader
+	// sends its S3 requests to with path-style addressing. Its STS requests
+	// keep the SDK's endpoint resolution, AWS_ENDPOINT_URL_STS included. The
+	// reader refuses a state object that a job reports at another endpoint.
+	StateEndpoint string
+	// StateRegion is STACKORDER_STATE_REGION, the region for state objects
+	// whose jobs report none and for STS, such as auto for Cloudflare R2;
+	// empty takes the region of the AWS configuration.
+	StateRegion string
+	// StateAccessKeyID and StateSecretAccessKey are
+	// STACKORDER_STATE_ACCESS_KEY_ID and STACKORDER_STATE_SECRET_ACCESS_KEY,
+	// both or neither: a static key the state reader signs its requests
+	// with, or assumes StateRoleARN with, in place of the AWS SDK's default
+	// credential chain.
+	StateAccessKeyID     string
+	StateSecretAccessKey string
 
 	// SessionKey is STACKORDER_SESSION_KEY decoded from hex,
 	// SessionKeySize bytes that sign cookies.
@@ -252,11 +292,17 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		e.fail(EnvArtifactPrefix, "is set without %s", EnvArtifactBucket)
 	}
 	stateBuckets := e.str(EnvStateBuckets) != ""
-	if !stateBuckets && e.str(EnvStateRoleARN) != "" {
-		e.fail(EnvStateRoleARN, "is set without %s", EnvStateBuckets)
+	e.requires(stateBuckets, EnvStateBuckets, EnvStateRoleARN, EnvStateEndpoint, EnvStateRegion, EnvStateAccessKeyID, EnvStateSecretKey)
+	e.requires(e.str(EnvArtifactBucket) != "", EnvArtifactBucket, EnvArtifactEndpoint, EnvArtifactRegion, EnvArtifactAccessKeyID, EnvArtifactSecretKey)
+	if cfg.ArtifactBucket != "" {
+		cfg.ArtifactEndpoint = e.s3Endpoint(EnvArtifactEndpoint)
+		cfg.ArtifactRegion = e.region(EnvArtifactRegion)
+		cfg.ArtifactAccessKeyID, cfg.ArtifactSecretAccessKey = e.accessKey(EnvArtifactAccessKeyID, EnvArtifactSecretKey)
 	}
-	if cfg.ArtifactBucket != "" || stateBuckets {
-		cfg.ArtifactEndpoint = e.absoluteURL(EnvArtifactEndpoint, "")
+	if stateBuckets {
+		cfg.StateEndpoint = e.s3Endpoint(EnvStateEndpoint)
+		cfg.StateRegion = e.region(EnvStateRegion)
+		cfg.StateAccessKeyID, cfg.StateSecretAccessKey = e.accessKey(EnvStateAccessKeyID, EnvStateSecretKey)
 	}
 	cfg.SessionKey = e.hexKey(EnvSessionKey, SessionKeySize)
 	if cfg.SessionKey == nil && e.str(EnvSessionKey) == "" {
@@ -487,6 +533,52 @@ func (e *env) stateGrants(name string) []stateread.Grant {
 		return nil
 	}
 	return grants
+}
+
+// requires fails each of names that is set while required, the variable
+// they depend on, is not.
+func (e *env) requires(set bool, required string, names ...string) {
+	if set {
+		return
+	}
+	for _, name := range names {
+		if e.str(name) != "" {
+			e.fail(name, "is set without %s", required)
+		}
+	}
+}
+
+// s3Endpoint reads name, an S3 endpoint for one purpose, else the shared
+// AWS_ENDPOINT_URL_S3.
+func (e *env) s3Endpoint(name string) string {
+	if e.str(name) != "" {
+		return e.absoluteURL(name, "")
+	}
+	return e.absoluteURL(EnvS3Endpoint, "")
+}
+
+func (e *env) region(name string) string {
+	v := e.str(name)
+	if v != "" && !validRegion.MatchString(v) {
+		e.fail(name, "must be a region name of lowercase letters, digits and hyphens, such as us-east-1 or auto, got %q", v)
+		return ""
+	}
+	return v
+}
+
+// accessKey reads a static access key: both its id and its secret, or
+// neither.
+func (e *env) accessKey(idName, secretName string) (id, secret string) {
+	id, secret = e.str(idName), e.str(secretName)
+	switch {
+	case id != "" && secret == "":
+		e.fail(idName, "is set without %s", secretName)
+	case id == "" && secret != "":
+		e.fail(secretName, "is set without %s", idName)
+	default:
+		return id, secret
+	}
+	return "", ""
 }
 
 func (e *env) roleARN(name string) string {

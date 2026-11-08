@@ -182,6 +182,11 @@ type Backend struct {
 	// WorkspaceKeyPrefix is the S3 backend's workspace_key_prefix, defaulting
 	// to "env:" when workspaces are used.
 	WorkspaceKeyPrefix string `json:"workspace_key_prefix,omitempty"`
+	// Endpoint is the S3 endpoint the backend configures, endpoints.s3 or
+	// the deprecated endpoint, for an S3-compatible service such as
+	// Cloudflare R2 or MinIO. It is empty for AWS S3 and when the endpoint
+	// comes only from the environment, such as AWS_ENDPOINT_URL_S3.
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 // Stack is a node of the graph that Terraform runs in: one instance of a
@@ -524,6 +529,9 @@ type StateObject struct {
 	Key string `json:"key"`
 	// Region is empty when the backend takes it from the environment.
 	Region string `json:"region,omitempty"`
+	// Endpoint is the backend's S3 endpoint, as in Backend.Endpoint: empty
+	// when the backend configures none.
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 // StackOutputs is the body of GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs:

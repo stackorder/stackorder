@@ -1,6 +1,7 @@
 package stateread
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -19,6 +20,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+
+	stackconfig "github.com/stackorder/stackorder/internal/config"
 )
 
 const (
@@ -35,9 +38,12 @@ var validRegion = regexp.MustCompile(`^[a-z0-9-]{1,32}$`).MatchString
 type Reader struct {
 	client *s3.Client
 	region string
-	grants []Grant
-	slots  chan struct{}
-	wait   time.Duration
+	// service is the config.S3Service of the endpoint the client sends
+	// S3 requests to, config.AWSS3 for AWS S3 itself.
+	service string
+	grants  []Grant
+	slots   chan struct{}
+	wait    time.Duration
 }
 
 type options struct {
@@ -56,7 +62,8 @@ type Option func(*options)
 // WithEndpoint sends every S3 and STS request to endpoint, such as
 // LocalStack's http://localhost:4566, with path-style addressing and
 // checksums only where S3 requires them. Without it the SDK's endpoint
-// resolution applies, AWS_ENDPOINT_URL_S3 included.
+// resolution applies, AWS_ENDPOINT_URL_S3 included. Use WithS3Endpoint for
+// an S3-compatible service without STS, such as Cloudflare R2.
 func WithEndpoint(endpoint string) Option {
 	return func(o *options) {
 		o.s3Endpoint = strings.TrimRight(endpoint, "/")
@@ -154,18 +161,30 @@ func New(ctx context.Context, grants []Grant, opts ...Option) (*Reader, error) {
 		so.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 	})
 	return &Reader{
-		client: client,
-		region: cfg.Region,
-		grants: slices.Clone(grants),
-		slots:  make(chan struct{}, MaxConcurrent),
-		wait:   o.wait,
+		client:  client,
+		region:  cfg.Region,
+		service: cmp.Or(stackconfig.S3Service(aws.ToString(client.Options().BaseEndpoint)), stackconfig.AWSS3),
+		grants:  slices.Clone(grants),
+		slots:   make(chan struct{}, MaxConcurrent),
+		wait:    o.wait,
 	}, nil
 }
 
 // Allows reports whether a grant of the Reader lets the stacks of repo
-// have loc read, as Read checks before it makes any request.
+// have loc read, as Read checks before it makes any request. A loc with an
+// Endpoint must also name the S3 service the Reader sends its requests to,
+// compared as config.S3Service compares them, so that a bucket of one
+// service is never read from another service with a bucket of the same
+// name; a loc without one is read wherever the Reader reads.
 func (r *Reader) Allows(repo string, loc Location) bool {
-	return Allowed(r.grants, repo, loc)
+	return r.AtEndpoint(loc) && Allowed(r.grants, repo, loc)
+}
+
+// AtEndpoint reports whether loc names no endpoint or the S3 service the
+// Reader sends its requests to.
+func (r *Reader) AtEndpoint(loc Location) bool {
+	service := stackconfig.S3Service(loc.Endpoint)
+	return service == "" || service == r.service
 }
 
 // Read returns the outputs of the state object at loc for a stack of repo,

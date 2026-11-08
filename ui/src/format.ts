@@ -53,9 +53,27 @@ export function stateObjectKey(backend: Backend, workspace?: string): string | u
   return `${prefix}/${workspace}/${backend.key}`;
 }
 
-/** Link to a stack's state object in the S3 console, or undefined for non-S3 backends. */
+const AWS_HOST_SUFFIXES = ['.amazonaws.com', '.amazonaws.com.cn', '.api.aws'];
+
+/** Whether an S3 endpoint is absent or one of AWS S3 itself, as the server compares them. */
+export function isAwsS3Endpoint(endpoint: string | undefined): boolean {
+  const trimmed = endpoint?.trim();
+  if (!trimmed) return true;
+  let host: string;
+  try {
+    host = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`).hostname.toLowerCase().replace(/\.$/, '');
+  } catch {
+    return false;
+  }
+  return AWS_HOST_SUFFIXES.some((suffix) => host === suffix.slice(1) || host.endsWith(suffix));
+}
+
+/**
+ * Link to a stack's state object in the S3 console, or undefined for non-S3 backends and for
+ * S3-compatible services such as Cloudflare R2 or MinIO, which the AWS console cannot show.
+ */
 export function s3ConsoleUrl(backend: Backend | undefined, workspace?: string): string | undefined {
-  if (backend?.type !== 's3' || !backend.bucket) return undefined;
+  if (backend?.type !== 's3' || !backend.bucket || !isAwsS3Endpoint(backend.endpoint)) return undefined;
   const bucket = encodeURIComponent(backend.bucket);
   const key = stateObjectKey(backend, workspace);
   const params = new URLSearchParams();

@@ -154,7 +154,22 @@ func readBackend(dataDir string) (*v1.Backend, string) {
 		DynamoDBTable:      str("dynamodb_table"),
 		UseLockfile:        lockfile,
 		WorkspaceKeyPrefix: str("workspace_key_prefix"),
+		Endpoint:           backendEndpoint(state.Backend.Config),
 	}, prefix
+}
+
+// backendEndpoint returns the S3 endpoint an initialized S3 backend
+// configures: endpoints.s3, else the deprecated endpoint. An endpoint the
+// backend takes from the environment, such as AWS_ENDPOINT_URL_S3, is not
+// in its configuration and yields "".
+func backendEndpoint(cfg map[string]any) string {
+	if endpoints, ok := cfg["endpoints"].(map[string]any); ok {
+		if s3, _ := endpoints["s3"].(string); strings.TrimSpace(s3) != "" {
+			return config.S3Endpoint(s3)
+		}
+	}
+	endpoint, _ := cfg["endpoint"].(string)
+	return config.S3Endpoint(endpoint)
 }
 
 func stateObject(be *v1.Backend, prefix, workspace string) *v1.StateObject {
@@ -162,9 +177,10 @@ func stateObject(be *v1.Backend, prefix, workspace string) *v1.StateObject {
 		return nil
 	}
 	return &v1.StateObject{
-		Bucket: be.Bucket,
-		Key:    config.ResolvedStateObjectKey(prefix, workspace, be.Key),
-		Region: be.Region,
+		Bucket:   be.Bucket,
+		Key:      config.ResolvedStateObjectKey(prefix, workspace, be.Key),
+		Region:   be.Region,
+		Endpoint: be.Endpoint,
 	}
 }
 

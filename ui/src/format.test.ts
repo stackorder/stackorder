@@ -72,7 +72,19 @@ describe('s3ConsoleUrl and stateUri', () => {
     expect(s3ConsoleUrl({ type: 's3', bucket: 'acme-tfstate' })).toBe('https://s3.console.aws.amazon.com/s3/buckets/acme-tfstate');
   });
 
-  it.each<[Backend | undefined]>([[undefined], [{ type: 'gcs', bucket: 'b', key: 'k' }], [{ type: 's3', key: 'k' }]])(
+  it('links a state object at an AWS S3 endpoint', () => {
+    expect(s3ConsoleUrl({ type: 's3', bucket: 'b', endpoint: 'https://s3.eu-west-1.amazonaws.com' })).toBe(
+      'https://s3.console.aws.amazon.com/s3/buckets/b',
+    );
+  });
+
+  it.each<[Backend | undefined]>([
+    [undefined],
+    [{ type: 'gcs', bucket: 'b', key: 'k' }],
+    [{ type: 's3', key: 'k' }],
+    [{ type: 's3', bucket: 'b', key: 'k', region: 'auto', endpoint: 'https://0123abcd.r2.cloudflarestorage.com' }],
+    [{ type: 's3', bucket: 'b', key: 'k', endpoint: 'http://minio.internal:9000' }],
+  ])(
     'has no console link for %j',
     (backend) => {
       expect(s3ConsoleUrl(backend)).toBeUndefined();

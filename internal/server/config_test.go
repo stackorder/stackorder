@@ -94,6 +94,11 @@ func TestLoadConfigDefaults(t *testing.T) {
 	assert.Empty(t, cfg.ArtifactBucket)
 	assert.Empty(t, cfg.ArtifactPrefix)
 	assert.Empty(t, cfg.ArtifactEndpoint)
+	assert.Empty(t, cfg.ArtifactRegion)
+	assert.Empty(t, cfg.ArtifactAccessKeyID)
+	assert.Empty(t, cfg.StateEndpoint)
+	assert.Empty(t, cfg.StateRegion)
+	assert.Empty(t, cfg.StateAccessKeyID)
 	assert.Empty(t, cfg.StateGrants, "shared outputs are off by default")
 	assert.Empty(t, cfg.StateRoleARN)
 	assert.Len(t, cfg.SessionKey, SessionKeySize)
@@ -132,8 +137,16 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 		EnvArtifactBucket:      "acme-stackorder-artifacts",
 		EnvArtifactPrefix:      "plans/",
 		EnvArtifactEndpoint:    "http://localstack:4566",
+		EnvArtifactRegion:      "auto",
+		EnvArtifactAccessKeyID: "artifact-key-id",
+		EnvArtifactSecretKey:   "artifact-secret",
+		EnvS3Endpoint:          "http://ignored:4566",
 		EnvStateBuckets:        "acme/infra=acme-state/stacks/prod/",
 		EnvStateRoleARN:        "arn:aws:iam::123456789012:role/stackorder-state-reader",
+		EnvStateEndpoint:       "https://0123abcd.r2.cloudflarestorage.com/",
+		EnvStateRegion:         "auto",
+		EnvStateAccessKeyID:    "state-key-id",
+		EnvStateSecretKey:      "state-secret",
 		EnvSessionKey:          " " + sessionKey + "\n",
 		EnvMetricsToken:        "metrics-token",
 		EnvPlanTextRetention:   "240h",
@@ -168,7 +181,14 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 	assert.Equal(t, oidc.DefaultWorkflowRefPattern, cfg.RequiredWorkflowRef)
 	assert.Equal(t, "acme-stackorder-artifacts", cfg.ArtifactBucket)
 	assert.Equal(t, "plans/", cfg.ArtifactPrefix)
-	assert.Equal(t, "http://localstack:4566", cfg.ArtifactEndpoint)
+	assert.Equal(t, "http://localstack:4566", cfg.ArtifactEndpoint, "the artifact endpoint wins over AWS_ENDPOINT_URL_S3")
+	assert.Equal(t, "auto", cfg.ArtifactRegion)
+	assert.Equal(t, "artifact-key-id", cfg.ArtifactAccessKeyID)
+	assert.Equal(t, "artifact-secret", cfg.ArtifactSecretAccessKey)
+	assert.Equal(t, "https://0123abcd.r2.cloudflarestorage.com", cfg.StateEndpoint, "the state endpoint wins over AWS_ENDPOINT_URL_S3")
+	assert.Equal(t, "auto", cfg.StateRegion)
+	assert.Equal(t, "state-key-id", cfg.StateAccessKeyID)
+	assert.Equal(t, "state-secret", cfg.StateSecretAccessKey)
 	assert.Equal(t, []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state", Prefix: "stacks/prod/"}}, cfg.StateGrants)
 	assert.Equal(t, "arn:aws:iam::123456789012:role/stackorder-state-reader", cfg.StateRoleARN)
 	assert.Equal(t, wantKey, cfg.SessionKey, "surrounding white space is trimmed")
@@ -266,6 +286,12 @@ func TestLoadConfigInvalid(t *testing.T) {
 		{"bucket path", with(minimalEnv(), EnvArtifactBucket, "acme-artifacts/plans"), EnvArtifactBucket + " must be a bucket name"},
 		{"prefix without bucket", with(minimalEnv(), EnvArtifactPrefix, "plans"), EnvArtifactPrefix + " is set without " + EnvArtifactBucket},
 		{"artifact endpoint relative", with(minimalEnv(), EnvArtifactBucket, "b", EnvArtifactEndpoint, "localstack:4566"), EnvArtifactEndpoint + " must be an absolute"},
+		{"shared artifact endpoint relative", with(minimalEnv(), EnvArtifactBucket, "b", EnvS3Endpoint, "localstack:4566"), EnvS3Endpoint + " must be an absolute"},
+		{"artifact endpoint without a bucket", with(minimalEnv(), EnvArtifactEndpoint, "http://localstack:4566"), EnvArtifactEndpoint + " is set without " + EnvArtifactBucket},
+		{"artifact region without a bucket", with(minimalEnv(), EnvArtifactRegion, "auto"), EnvArtifactRegion + " is set without " + EnvArtifactBucket},
+		{"artifact region invalid", with(minimalEnv(), EnvArtifactBucket, "b", EnvArtifactRegion, "EU West"), EnvArtifactRegion + " must be a region name"},
+		{"artifact key id without a secret", with(minimalEnv(), EnvArtifactBucket, "b", EnvArtifactAccessKeyID, "id"), EnvArtifactAccessKeyID + " is set without " + EnvArtifactSecretKey},
+		{"artifact secret without a key id", with(minimalEnv(), EnvArtifactBucket, "b", EnvArtifactSecretKey, "s"), EnvArtifactSecretKey + " is set without " + EnvArtifactAccessKeyID},
 		{"session key not hex", with(minimalEnv(), EnvSessionKey, "not-hex"), EnvSessionKey + " must be hex encoded"},
 		{"session key short", with(minimalEnv(), EnvSessionKey, "abcd"), EnvSessionKey + " must decode to 32 bytes"},
 		{"session key long", with(minimalEnv(), EnvSessionKey, strings.Repeat("ab", 33)), EnvSessionKey + " must decode to 32 bytes"},
@@ -343,14 +369,45 @@ func TestLoadConfigStateBuckets(t *testing.T) {
 			role:   "arn:aws-us-gov:iam::123456789012:role/stackorder/state-reader",
 		},
 		{
-			name:     "the endpoint applies with state buckets alone",
-			env:      with(minimalEnv(), EnvStateBuckets, infra, EnvArtifactEndpoint, endpoint+"/"),
+			name:     "the shared endpoint applies with state buckets alone",
+			env:      with(minimalEnv(), EnvStateBuckets, infra, EnvS3Endpoint, endpoint+"/"),
 			grants:   []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state"}},
 			endpoint: endpoint,
 		},
 		{
-			name: "the endpoint is ignored without any bucket",
-			env:  with(minimalEnv(), EnvArtifactEndpoint, "localstack:4566"),
+			name:     "the state endpoint wins over the shared one",
+			env:      with(minimalEnv(), EnvStateBuckets, infra, EnvS3Endpoint, "http://ignored:4566", EnvStateEndpoint, endpoint),
+			grants:   []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state"}},
+			endpoint: endpoint,
+		},
+		{
+			name: "the shared endpoint is ignored without any bucket",
+			env:  with(minimalEnv(), EnvS3Endpoint, "localstack:4566"),
+		},
+		{
+			name: "a state endpoint without buckets",
+			env:  with(minimalEnv(), EnvStateEndpoint, endpoint),
+			err:  EnvStateEndpoint + " is set without " + EnvStateBuckets,
+		},
+		{
+			name: "a state region without buckets",
+			env:  with(minimalEnv(), EnvStateRegion, "auto"),
+			err:  EnvStateRegion + " is set without " + EnvStateBuckets,
+		},
+		{
+			name: "a state key without buckets",
+			env:  with(minimalEnv(), EnvStateAccessKeyID, "id", EnvStateSecretKey, "s"),
+			err:  EnvStateAccessKeyID + " is set without " + EnvStateBuckets,
+		},
+		{
+			name: "a state key id without a secret",
+			env:  with(minimalEnv(), EnvStateBuckets, infra, EnvStateAccessKeyID, "id"),
+			err:  EnvStateAccessKeyID + " is set without " + EnvStateSecretKey,
+		},
+		{
+			name: "an invalid state region",
+			env:  with(minimalEnv(), EnvStateBuckets, infra, EnvStateRegion, "auto.evil.example"),
+			err:  EnvStateRegion + " must be a region name",
 		},
 		{
 			name: "a bucket without a repository",
@@ -404,8 +461,8 @@ func TestLoadConfigStateBuckets(t *testing.T) {
 		},
 		{
 			name: "a relative endpoint with state buckets",
-			env:  with(minimalEnv(), EnvStateBuckets, infra, EnvArtifactEndpoint, "localstack:4566"),
-			err:  EnvArtifactEndpoint + " must be an absolute",
+			env:  with(minimalEnv(), EnvStateBuckets, infra, EnvStateEndpoint, "localstack:4566"),
+			err:  EnvStateEndpoint + " must be an absolute",
 		},
 	}
 	for _, tt := range tests {
@@ -421,7 +478,8 @@ func TestLoadConfigStateBuckets(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.grants, cfg.StateGrants)
 			assert.Equal(t, tt.role, cfg.StateRoleARN)
-			assert.Equal(t, tt.endpoint, cfg.ArtifactEndpoint)
+			assert.Equal(t, tt.endpoint, cfg.StateEndpoint)
+			assert.Empty(t, cfg.ArtifactEndpoint, "the artifact store has no bucket")
 		})
 	}
 }

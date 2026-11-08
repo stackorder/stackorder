@@ -125,13 +125,14 @@ func (s *Service) authorizeOutputs(ctx context.Context, r *outputsRead) (config.
 	if stack.StateObject == nil {
 		why := "the stack has had no apply or drift job on a CLI that reports its state object"
 		if stack.StateObjectAt != nil {
-			why = "its last apply or drift job reported a state object outside the buckets and prefixes this server may read for " + producer.FullName
+			why = "its last apply or drift job reported a state object outside the buckets and prefixes this server may read for " + producer.FullName +
+				", or at an S3 endpoint other than the one it reads from"
 		}
 		return config.Effective{}, stateread.Location{}, &principal.CodedError{Kind: principal.ErrConflict, Code: v1.ErrCodeStateLocationUnknown,
 			Message: fmt.Sprintf("the server does not know where the state of %s is: %s", r.key, why)}
 	}
 	obj := stack.StateObject
-	return eff, stateread.Location{Bucket: obj.Bucket, Key: obj.Key, Region: obj.Region}, nil
+	return eff, stateLocation(obj), nil
 }
 
 func (s *Service) bindReader(ctx context.Context, r *outputsRead) error {
@@ -385,9 +386,15 @@ var stateErrors = []struct {
 
 func (s *Service) locationNotGranted(ctx context.Context, r *outputsRead, loc stateread.Location) error {
 	s.log.WarnContext(ctx, "refuse a state object no grant of its repository covers",
-		"repo", r.producer.FullName, "stack", auditField(r.key), "bucket", auditField(loc.Bucket), "key", auditField(loc.Key))
+		"repo", r.producer.FullName, "stack", auditField(r.key), "bucket", auditField(loc.Bucket), "key", auditField(loc.Key),
+		"endpoint", auditField(loc.Endpoint))
 	return &principal.CodedError{Kind: principal.ErrForbidden, Code: v1.ErrCodeStateBucketNotAllowed,
-		Message: fmt.Sprintf("the state object of %s lies outside the buckets and prefixes this server may read for %s", r.key, r.producer.FullName)}
+		Message: fmt.Sprintf("the state object of %s lies outside the buckets and prefixes this server may read for %s, or at an S3 endpoint other than the one it reads from", r.key, r.producer.FullName)}
+}
+
+// stateLocation is the stateread.Location of a reported state object.
+func stateLocation(obj *v1.StateObject) stateread.Location {
+	return stateread.Location{Bucket: obj.Bucket, Key: obj.Key, Region: obj.Region, Endpoint: obj.Endpoint}
 }
 
 func (s *Service) stateError(ctx context.Context, r *outputsRead, err error) error {

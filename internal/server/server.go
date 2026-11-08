@@ -243,6 +243,12 @@ func (s *Server) compose(ctx context.Context, deps *api.Deps) error {
 		if cfg.ArtifactEndpoint != "" {
 			storeOpts = append(storeOpts, artifacts.WithEndpoint(cfg.ArtifactEndpoint))
 		}
+		if cfg.ArtifactRegion != "" {
+			storeOpts = append(storeOpts, artifacts.WithRegion(cfg.ArtifactRegion))
+		}
+		if cfg.ArtifactAccessKeyID != "" {
+			storeOpts = append(storeOpts, artifacts.WithStaticCredentials(cfg.ArtifactAccessKeyID, cfg.ArtifactSecretAccessKey))
+		}
 		a, err := artifacts.NewS3Store(ctx, cfg.ArtifactBucket, cfg.ArtifactPrefix, storeOpts...)
 		if err != nil {
 			return fmt.Errorf("server: artifact bucket %s: %w", cfg.ArtifactBucket, err)
@@ -277,8 +283,14 @@ func (s *Server) compose(ctx context.Context, deps *api.Deps) error {
 func (s *Server) stateReader(ctx context.Context) (*stateread.Reader, error) {
 	cfg := s.cfg
 	var opts []stateread.Option
-	if cfg.ArtifactEndpoint != "" {
-		opts = append(opts, stateread.WithS3Endpoint(cfg.ArtifactEndpoint))
+	if cfg.StateEndpoint != "" {
+		opts = append(opts, stateread.WithS3Endpoint(cfg.StateEndpoint))
+	}
+	if cfg.StateRegion != "" {
+		opts = append(opts, stateread.WithRegion(cfg.StateRegion))
+	}
+	if cfg.StateAccessKeyID != "" {
+		opts = append(opts, stateread.WithStaticCredentials(cfg.StateAccessKeyID, cfg.StateSecretAccessKey))
 	}
 	if cfg.StateRoleARN != "" {
 		opts = append(opts, stateread.WithRoleARN(cfg.StateRoleARN))
@@ -292,7 +304,7 @@ func (s *Server) stateReader(ctx context.Context) (*stateread.Reader, error) {
 		grants[i] = g.String()
 	}
 	s.log.InfoContext(ctx, "shared outputs are on: the server reads the outputs of state objects in the buckets granted to each repository",
-		"grants", len(cfg.StateGrants), "state_buckets", grants, "role_arn", cfg.StateRoleARN)
+		"grants", len(cfg.StateGrants), "state_buckets", grants, "role_arn", cfg.StateRoleARN, "endpoint", cfg.StateEndpoint)
 	s.warnOverlappingGrants(ctx)
 	return reader, nil
 }

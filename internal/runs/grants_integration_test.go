@@ -65,6 +65,16 @@ func objectAt(bucket, key string) *v1.StateObject {
 	return &v1.StateObject{Bucket: bucket, Key: key, Region: "eu-west-1"}
 }
 
+// r2Endpoint is an S3-compatible endpoint other than the one
+// newGrantedReader reads from.
+const r2Endpoint = "https://0123abcd.r2.cloudflarestorage.com"
+
+func objectAtEndpoint(bucket, key, endpoint string) *v1.StateObject {
+	obj := objectAt(bucket, key)
+	obj.Endpoint = endpoint
+	return obj
+}
+
 func TestOutputsLocationMustBeGrantedToTheProducerRepository(t *testing.T) {
 	const grants = "acme/infra=acme-state/stacks/prod, acme/network=acme-state/acme/network/"
 	tests := []struct {
@@ -78,6 +88,7 @@ func TestOutputsLocationMustBeGrantedToTheProducerRepository(t *testing.T) {
 		{name: "a sibling of the repository's prefix", obj: objectAt("acme-state", "stacks/production/vpc.tfstate")},
 		{name: "a dot segment out of the repository's prefix", obj: objectAt("acme-state", "stacks/prod/../../acme/network/stacks/shared/vpc.tfstate")},
 		{name: "another bucket", obj: objectAt("acme-other", "stacks/prod/vpc.tfstate")},
+		{name: "another S3 endpoint", obj: objectAtEndpoint("acme-state", "stacks/prod/vpc.tfstate", r2Endpoint)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -99,7 +110,8 @@ func TestOutputsLocationMustBeGrantedToTheProducerRepository(t *testing.T) {
 				return
 			}
 			message := requireCoded(t, err, principal.ErrForbidden, v1.ErrCodeStateBucketNotAllowed)
-			assert.Equal(t, "the state object of "+vpc+" lies outside the buckets and prefixes this server may read for "+repoName, message)
+			assert.Equal(t, "the state object of "+vpc+" lies outside the buckets and prefixes this server may read for "+repoName+
+				", or at an S3 endpoint other than the one it reads from", message)
 			assert.Empty(t, s3.requests(), "no request reached S3")
 
 			rows := e.audit("outputs_refused")
@@ -245,6 +257,7 @@ func TestResultDoesNotRecordAnUngrantedStateObject(t *testing.T) {
 		{name: "under another repository's prefix", obj: elsewhere},
 		{name: "a sibling of the repository's prefix", obj: objectAt("acme-state", "stacks/production/vpc.tfstate")},
 		{name: "another bucket", obj: objectAt("acme-other", "stacks/prod/vpc.tfstate")},
+		{name: "another S3 endpoint", obj: objectAtEndpoint("acme-state", "stacks/prod/vpc.tfstate", r2Endpoint)},
 	}
 	for _, rp := range reports {
 		for _, tt := range tests {
@@ -270,6 +283,7 @@ func TestResultDoesNotRecordAnUngrantedStateObject(t *testing.T) {
 				assert.Equal(t, vpc, warned[0]["stack"])
 				assert.Equal(t, tt.obj.Bucket, warned[0]["bucket"])
 				assert.Equal(t, tt.obj.Key, warned[0]["key"])
+				assert.Equal(t, tt.obj.Endpoint, warned[0]["endpoint"])
 			})
 		}
 	}
@@ -287,7 +301,7 @@ func TestResultDoesNotRecordAnUngrantedStateObject(t *testing.T) {
 		_, err := e.outputs(apiKey(), vpc, "", "")
 		message := requireCoded(t, err, principal.ErrConflict, v1.ErrCodeStateLocationUnknown)
 		assert.Equal(t, "the server does not know where the state of "+vpc+" is: its last apply or drift job reported a state object "+
-			"outside the buckets and prefixes this server may read for "+repoName, message)
+			"outside the buckets and prefixes this server may read for "+repoName+", or at an S3 endpoint other than the one it reads from", message)
 		assert.Empty(t, s3.requests(), "outputs no longer come from the object the stack left")
 		rows := e.audit("outputs_refused")
 		require.Len(t, rows, 1)
