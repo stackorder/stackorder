@@ -35,6 +35,12 @@ func readsState(from, to, bucket, key string) v1.Edge {
 	}
 }
 
+func readsStateAt(from, to, bucket, key, endpoint string) v1.Edge {
+	e := readsState(from, to, bucket, key)
+	e.Meta["endpoint"] = endpoint
+	return e
+}
+
 func readsOutputs(from, to string) v1.Edge {
 	return v1.Edge{
 		From: v1.StackRef(from), To: v1.StackRef(to), Type: v1.EdgeReadsState, Inferred: true,
@@ -160,6 +166,87 @@ func TestScanCases(t *testing.T) {
 					readsState("stacks/c", "stacks/b", "b", "same.tfstate"),
 				},
 				Warnings: []string{"stacks stacks/a, stacks/b share the state object s3://b/same.tfstate"},
+			},
+		},
+		{
+			name: "S3-compatible endpoints tell buckets of the same name apart",
+			files: map[string]string{
+				"stacks/aws/main.tf": `terraform {
+  backend "s3" {
+    bucket    = "b"
+    key       = "same.tfstate"
+    endpoints = { s3 = "https://s3.eu-west-1.amazonaws.com" }
+  }
+}
+`,
+				"stacks/r2/main.tf": `terraform {
+  backend "s3" {
+    bucket    = "b"
+    key       = "same.tfstate"
+    region    = "auto"
+    endpoint  = "https://ignored.example.com"
+    endpoints = { s3 = "https://0123ABCD.r2.cloudflarestorage.com/" }
+  }
+}
+`,
+				"stacks/minio/main.tf": `terraform {
+  backend "s3" {
+    bucket   = "m"
+    key      = "m.tfstate"
+    endpoint = "http://minio.internal:9000"
+  }
+}
+`,
+				"stacks/env/main.tf": s3Block("e", "e.tfstate"),
+				"stacks/reader/main.tf": s3Block("b", "reader.tfstate") + `data "terraform_remote_state" "r2" {
+  backend = "s3"
+  config = {
+    bucket    = "b"
+    key       = "same.tfstate"
+    endpoints = { s3 = "https://0123abcd.r2.cloudflarestorage.com" }
+  }
+}
+data "terraform_remote_state" "aws" {
+  backend = "s3"
+  config = {
+    bucket    = "b"
+    key       = "same.tfstate"
+    endpoints = { s3 = "https://s3.eu-west-1.amazonaws.com" }
+  }
+}
+data "terraform_remote_state" "minio" {
+  backend = "s3"
+  config = {
+    bucket   = "m"
+    key      = "m.tfstate"
+    endpoint = "http://minio.internal:9000"
+  }
+}
+data "terraform_remote_state" "computed" {
+  backend = "s3"
+  config = {
+    bucket    = "e"
+    key       = "e.tfstate"
+    endpoint  = var.endpoint
+    endpoints = { s3 = var.endpoint }
+  }
+}
+`,
+			},
+			want: &v1.Graph{
+				Stacks: []v1.Stack{
+					defaultStack("stacks/aws", &v1.Backend{Type: "s3", Bucket: "b", Key: "same.tfstate", Endpoint: "https://s3.eu-west-1.amazonaws.com"}, nil),
+					defaultStack("stacks/env", state("e", "e.tfstate"), nil),
+					defaultStack("stacks/minio", &v1.Backend{Type: "s3", Bucket: "m", Key: "m.tfstate", Endpoint: "http://minio.internal:9000"}, nil),
+					defaultStack("stacks/r2", &v1.Backend{Type: "s3", Bucket: "b", Key: "same.tfstate", Region: "auto", Endpoint: "https://0123abcd.r2.cloudflarestorage.com"}, nil),
+					defaultStack("stacks/reader", state("b", "reader.tfstate"), nil),
+				},
+				Edges: []v1.Edge{
+					readsStateAt("stacks/reader", "stacks/aws", "b", "same.tfstate", "https://s3.eu-west-1.amazonaws.com"),
+					readsState("stacks/reader", "stacks/env", "e", "e.tfstate"),
+					readsStateAt("stacks/reader", "stacks/minio", "m", "m.tfstate", "http://minio.internal:9000"),
+					readsStateAt("stacks/reader", "stacks/r2", "b", "same.tfstate", "https://0123abcd.r2.cloudflarestorage.com"),
+				},
 			},
 		},
 		{

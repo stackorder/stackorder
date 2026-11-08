@@ -110,6 +110,7 @@ export interface Backend {
   dynamodb_table?: string;
   use_lockfile?: boolean;
   workspace_key_prefix?: string;
+  endpoint?: string;
 }
 
 /** Narrows the apply policy for one stack. */

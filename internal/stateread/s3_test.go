@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -138,6 +139,8 @@ func TestReadRefusesBeforeCallingS3(t *testing.T) {
 		{"no key", producer, stateread.Location{Bucket: "acme-state"}, stateread.ErrNotAllowed},
 		{"no bucket", producer, stateread.Location{Key: acme.Key}, stateread.ErrNotAllowed},
 		{"invalid region", producer, stateread.Location{Bucket: "acme-state", Key: acme.Key, Region: "eu-west-1.evil.example"}, stateread.ErrUnreadable},
+		{"another S3-compatible endpoint", producer, stateread.Location{Bucket: "acme-state", Key: acme.Key, Endpoint: "https://0123abcd.r2.cloudflarestorage.com"}, stateread.ErrNotAllowed},
+		{"AWS S3 itself", producer, stateread.Location{Bucket: "acme-state", Key: acme.Key, Endpoint: "https://s3.eu-west-1.amazonaws.com"}, stateread.ErrNotAllowed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -152,6 +155,43 @@ func TestReadRefusesBeforeCallingS3(t *testing.T) {
 	assert.True(t, r.Allows("ACME/infra", acme), "repository names ignore case")
 	regions, _ := s3.requests()
 	assert.Empty(t, regions, "no request reached S3")
+}
+
+func TestReadMatchesTheReportedEndpoint(t *testing.T) {
+	s3 := newFakeS3(t, serveState(fixture(t, "terraform.tfstate")))
+	r := newReader(t, s3.URL)
+	for _, endpoint := range []string{"", s3.URL, s3.URL + "/", " " + strings.ToUpper(s3.URL) + " "} {
+		loc := acme
+		loc.Endpoint = endpoint
+		assert.True(t, r.Allows(producer, loc), "endpoint %q", endpoint)
+		_, err := r.Read(t.Context(), producer, loc)
+		require.NoError(t, err, "endpoint %q", endpoint)
+	}
+	_, paths := s3.requests()
+	assert.Len(t, paths, 4)
+}
+
+func TestReadAtAWSRefusesOtherEndpoints(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing")
+	t.Setenv("AWS_CONFIG_FILE", missing)
+	t.Setenv("AWS_ENDPOINT_URL", "")
+	t.Setenv("AWS_ENDPOINT_URL_S3", "")
+	r, err := stateread.New(t.Context(), []stateread.Grant{{Repository: producer, Bucket: "acme-state"}},
+		stateread.WithRegion("us-east-1"), stateread.WithStaticCredentials("AKIDEXAMPLE", "secret"))
+	require.NoError(t, err)
+	for endpoint, ok := range map[string]bool{
+		"":                                     true,
+		"https://s3.eu-west-1.amazonaws.com":   true,
+		"s3.dualstack.us-east-1.amazonaws.com": true,
+		"https://bucket.vpce-1a2b3c4d-5e6f.s3.us-east-1.vpce.amazonaws.com": true,
+		"https://0123abcd.r2.cloudflarestorage.com":                         false,
+		"http://minio.internal:9000":                                        false,
+	} {
+		loc := acme
+		loc.Endpoint = endpoint
+		assert.Equal(t, ok, r.Allows(producer, loc), "endpoint %q", endpoint)
+		assert.Equal(t, ok, r.AtEndpoint(loc), "endpoint %q", endpoint)
+	}
 }
 
 var sentinels = []error{

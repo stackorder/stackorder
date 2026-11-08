@@ -433,9 +433,9 @@ func TestStateReaderReadsAtTheS3EndpointAsTheRole(t *testing.T) {
 			}
 			s := &Server{
 				cfg: Config{
-					StateGrants:      []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state", Prefix: "stacks/prod/"}},
-					StateRoleARN:     tt.role,
-					ArtifactEndpoint: s3URL,
+					StateGrants:   []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state", Prefix: "stacks/prod/"}},
+					StateRoleARN:  tt.role,
+					StateEndpoint: s3URL,
 				},
 				log: slog.New(slog.DiscardHandler),
 			}
@@ -450,7 +450,7 @@ func TestStateReaderReadsAtTheS3EndpointAsTheRole(t *testing.T) {
 			st, err := reader.Read(t.Context(), "acme/infra", stateread.Location{Bucket: "acme-state", Key: "stacks/prod/vpc/terraform.tfstate"})
 			require.NoError(t, err)
 			assert.Contains(t, st.Outputs, "vpc_id")
-			assert.Equal(t, tt.s3, s3Calls(), "S3 is read path-style at AWS_ENDPOINT_URL_S3")
+			assert.Equal(t, tt.s3, s3Calls(), "S3 is read path-style at the state endpoint")
 			assert.Equal(t, tt.sts, stsCalls(), "STS keeps its own endpoint resolution")
 		})
 	}

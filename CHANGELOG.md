@@ -4,6 +4,17 @@ All notable changes to this repository are documented here. The format follows [
 
 ## [Unreleased]
 
+### Added
+
+- [S3-compatible storage](docs/reference/server-configuration.md#s3-compatible), such as Cloudflare R2, MinIO or Ceph, for the artifact bucket and for the state buckets of shared outputs. `STACKORDER_ARTIFACT_ENDPOINT` and `STACKORDER_STATE_ENDPOINT` give each its own endpoint, read with path-style addressing, in place of the shared `AWS_ENDPOINT_URL_S3`, which still applies to whichever sets none; `STACKORDER_ARTIFACT_REGION` and `STACKORDER_STATE_REGION` set a region, such as `auto` for R2; and `STACKORDER_ARTIFACT_ACCESS_KEY_ID` with `STACKORDER_ARTIFACT_SECRET_ACCESS_KEY`, and `STACKORDER_STATE_ACCESS_KEY_ID` with `STACKORDER_STATE_SECRET_ACCESS_KEY`, a static key, such as an R2 API token's, in place of the AWS SDK's credential chain. So plan text can stay in AWS S3 while state is read from R2. Each variable requires its bucket variable, each key needs both halves, and a region must be lowercase letters, digits and hyphens.
+- The CLI reports the S3 endpoint of an `s3` backend, from `endpoints.s3` or the deprecated `endpoint` as `init` recorded them, as `endpoint` in the result's [`backend` and `state`](docs/reference/api.md#stack-result), in canonical form, and the scanner reads it from literal backend blocks, `backend_config` files and `key=value` entries. The server records and reads a state object only at the endpoint its state reader uses, with every AWS S3 endpoint counted as AWS S3: a result reported at another endpoint clears the stack's state location as one outside `STACKORDER_STATE_BUCKETS` does, and a read of such a location answers `403 state_bucket_not_allowed`, so a bucket of one service is never read from another with a bucket of the same name. A backend that names no endpoint, taking it from the job's environment if anywhere, is read at the server's, as before. The `shared outputs are on` start-up line also logs the state endpoint.
+- The scanner tells buckets of the same name apart by endpoint when it infers `reads_state` edges from `terraform_remote_state`: a `config` whose `endpoints.s3` or `endpoint` names one service no longer matches a stack whose backend names another, while either side naming none still matches. Such an edge carries the reader's endpoint as `Meta` `endpoint`. An endpoint that is not a literal string counts as naming none.
+
+### Changed
+
+- The web UI no longer links a state object kept in an S3-compatible service to the AWS S3 console, which cannot show it; it shows the `s3://` location as text.
+- `server.EnvArtifactEndpoint` now names `STACKORDER_ARTIFACT_ENDPOINT`; `server.EnvS3Endpoint` names `AWS_ENDPOINT_URL_S3`, and `Config.StateEndpoint`, not `Config.ArtifactEndpoint`, holds the endpoint the state reader uses.
+
 ## [0.5.0] - 2026-11-02
 
 ### Added

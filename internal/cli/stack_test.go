@@ -288,6 +288,22 @@ func TestResultsReportTheStateObject(t *testing.T) {
 			want:    &v1.StateObject{Bucket: "acme-state", Key: "blue/stacks/app.tfstate", Region: "eu-west-1"},
 		},
 		{
+			name: "an R2 endpoint recorded by the tool", command: "drift", key: "stacks/app",
+			tfstate: `{"version":3,"backend":{"type":"s3","config":{"bucket":"acme-state","key":"stacks/app.tfstate","region":"auto",` +
+				`"endpoint":null,"endpoints":{"dynamodb":null,"iam":null,"s3":"HTTPS://0123abcd.R2.cloudflarestorage.com/","sso":null,"sts":null}}}}`,
+			want: &v1.StateObject{Bucket: "acme-state", Key: "stacks/app.tfstate", Region: "auto", Endpoint: "https://0123abcd.r2.cloudflarestorage.com"},
+		},
+		{
+			name: "the deprecated endpoint recorded by the tool", command: "drift", key: "stacks/app",
+			tfstate: `{"version":3,"backend":{"type":"s3","config":{"bucket":"acme-state","key":"stacks/app.tfstate","endpoint":"http://minio.internal:9000","endpoints":null}}}`,
+			want:    &v1.StateObject{Bucket: "acme-state", Key: "stacks/app.tfstate", Endpoint: "http://minio.internal:9000"},
+		},
+		{
+			name: "endpoints.s3 wins over the deprecated endpoint", command: "drift", key: "stacks/app",
+			tfstate: `{"version":3,"backend":{"type":"s3","config":{"bucket":"acme-state","key":"stacks/app.tfstate","endpoint":"http://old:9000","endpoints":{"s3":"http://new:9000"}}}}`,
+			want:    &v1.StateObject{Bucket: "acme-state", Key: "stacks/app.tfstate", Endpoint: "http://new:9000"},
+		},
+		{
 			name: "dot segments cleaned in a named workspace", command: "plan", key: "stacks/app:blue",
 			block: []string{"bucket=acme-state", "key=./stacks/./app.tfstate", "workspace_key_prefix=states/./ws"},
 			want:  &v1.StateObject{Bucket: "acme-state", Key: "states/ws/blue/stacks/app.tfstate"},

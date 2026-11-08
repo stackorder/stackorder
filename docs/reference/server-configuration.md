@@ -27,9 +27,15 @@ Values are trimmed of surrounding white space, and an empty value counts as unse
 | `STACKORDER_REQUIRED_WORKFLOW_REF` | unset | A glob that every runner token's `job_workflow_ref` must match, validated at start-up. See [below](#required-workflow-ref). |
 | `STACKORDER_ARTIFACT_BUCKET` | unset | S3 bucket name, not a URL, for full plan text. See [below](#artifact-bucket). |
 | `STACKORDER_ARTIFACT_PREFIX` | empty | Key prefix inside the bucket. Setting it without a bucket is an error. |
-| `AWS_ENDPOINT_URL_S3` | unset | Only read with an artifact bucket or state buckets: an S3-compatible endpoint, used with path-style addressing, such as LocalStack. It applies to S3 requests only. The STS requests that assume `STACKORDER_STATE_ROLE_ARN` keep the AWS SDK's own endpoint resolution, which reads `AWS_ENDPOINT_URL_STS`. |
+| `STACKORDER_ARTIFACT_ENDPOINT` | `AWS_ENDPOINT_URL_S3` | The endpoint of an S3-compatible service that holds the artifact bucket, such as `https://<account>.r2.cloudflarestorage.com` for Cloudflare R2, used with path-style addressing. Setting it without a bucket is an error. See [S3-compatible storage](#s3-compatible). |
+| `STACKORDER_ARTIFACT_REGION` | AWS configuration | The artifact bucket's region, such as `auto` for R2: lowercase letters, digits and hyphens. Setting it without a bucket is an error. |
+| `STACKORDER_ARTIFACT_ACCESS_KEY_ID`, `STACKORDER_ARTIFACT_SECRET_ACCESS_KEY` | unset | A static access key for the artifact bucket, such as an R2 API token's, in place of the AWS SDK's credential chain. Set both or neither, and only with a bucket. |
+| `AWS_ENDPOINT_URL_S3` | unset | Only read with an artifact bucket or state buckets, for whichever of the two has no endpoint of its own: an S3-compatible endpoint, used with path-style addressing, such as LocalStack. It applies to S3 requests only. The STS requests that assume `STACKORDER_STATE_ROLE_ARN` keep the AWS SDK's own endpoint resolution, which reads `AWS_ENDPOINT_URL_STS`. |
 | `STACKORDER_STATE_BUCKETS` | unset | Comma-separated `owner/repo=bucket` or `owner/repo=bucket/prefix` entries, the state objects the server may read to serve the [shared outputs](/configuration/outputs) of each repository's stacks; `*=bucket[/prefix]` grants an entry to every repository. Unset turns shared outputs off. Each entry must name a repository, or `*`, and a valid S3 bucket name. See [below](#shared-outputs). |
 | `STACKORDER_STATE_ROLE_ARN` | unset | The ARN of one IAM role, such as `arn:aws:iam::123456789012:role/stackorder-state-reader`, that the server assumes to read those state objects. Setting it without `STACKORDER_STATE_BUCKETS` is an error. |
+| `STACKORDER_STATE_ENDPOINT` | `AWS_ENDPOINT_URL_S3` | The endpoint of an S3-compatible service that holds the state buckets, such as `https://<account>.r2.cloudflarestorage.com` for Cloudflare R2, used with path-style addressing for S3 requests only. Setting it without `STACKORDER_STATE_BUCKETS` is an error. See [S3-compatible storage](#s3-compatible). |
+| `STACKORDER_STATE_REGION` | AWS configuration | The region for state objects whose backend names none, and for STS, such as `auto` for R2: lowercase letters, digits and hyphens. Setting it without `STACKORDER_STATE_BUCKETS` is an error. |
+| `STACKORDER_STATE_ACCESS_KEY_ID`, `STACKORDER_STATE_SECRET_ACCESS_KEY` | unset | A static access key that reads the state objects, or assumes `STACKORDER_STATE_ROLE_ARN`, in place of the AWS SDK's credential chain, such as a read-only R2 API token's. Set both or neither, and only with `STACKORDER_STATE_BUCKETS`. |
 | `STACKORDER_SESSION_KEY` | generated | 32 bytes, hex encoded (64 characters), that sign session, sign-in and setup cookies. When unset the server generates one at each start and logs a warning, so sessions end at every restart and are not shared between instances. |
 | `STACKORDER_METRICS_TOKEN` | unset | When set, `GET /metrics` requires `Authorization: Bearer <token>`. |
 | `STACKORDER_PLAN_TEXT_RETENTION` | `720h` | How long stored plan text is kept (30 days). |
@@ -135,7 +141,7 @@ Pair it with a `job_workflow_ref` condition in the AWS role trust policy. See [S
 
 The CLI sends at most 256 KB of redacted plan text per stack, and without a bucket the server keeps it in Postgres. With `STACKORDER_ARTIFACT_BUCKET` set, the server writes that text to `<prefix>runs/<run id>/<slug>/plan.txt` in the bucket, and the plan summary to `plan.json` next to it (the slug is the key with `/` and `:` replaced by `-`, then `-` and the first 8 hex characters of the key's SHA-256, as in the [plan artifact name](/reference/cli#plan)), keeps only the first 8 KB in Postgres, and links the object from the run's stack row as `plan_url` (`s3://bucket/key`). [`GET /v1/runs/{id}/stacks/{key}/plan`](/reference/api#plan-text) reads the full text back from the bucket, and the run page of the web UI shows it in place of the stored beginning, so the server's role needs `s3:GetObject` as well as `s3:PutObject` on the prefix, and `s3:ListBucket` on the bucket: without it S3 answers a read of an expired object with `403` instead of `404`, and the endpoint answers `500` instead of `404`. The [Terraform module](/operations/deploy-aws) grants all three. When the upload fails it falls back to Postgres. Stacks with `plan_output: summary` store no text anywhere.
 
-The server's AWS credentials come from the standard SDK chain, such as the ECS task role. Unless [state buckets](#shared-outputs) are set, the artifact bucket is the only AWS access the server needs, and it holds Stackorder's own artifacts, never Terraform state. Give the bucket a lifecycle expiry; the [Terraform module](/operations/deploy-aws) does. That expiry, not `STACKORDER_PLAN_TEXT_RETENTION`, bounds how long the full text is served: the endpoint keeps answering after the retention cleared the beginning kept in Postgres, until the object expires. It reads under the current bucket and prefix, so after either changes, the plans stored before answer `404`.
+The server's AWS credentials come from the standard SDK chain, such as the ECS task role, unless `STACKORDER_ARTIFACT_ACCESS_KEY_ID` and `STACKORDER_ARTIFACT_SECRET_ACCESS_KEY` set a static key. The bucket can also live on an [S3-compatible service](#s3-compatible). Unless [state buckets](#shared-outputs) are set, the artifact bucket is the only AWS access the server needs, and it holds Stackorder's own artifacts, never Terraform state. Give the bucket a lifecycle expiry; the [Terraform module](/operations/deploy-aws) does. That expiry, not `STACKORDER_PLAN_TEXT_RETENTION`, bounds how long the full text is served: the endpoint keeps answering after the retention cleared the beginning kept in Postgres, until the object expires. It reads under the current bucket and prefix, so after either changes, the plans stored before answer `404`.
 
 ## Shared outputs {#shared-outputs}
 
@@ -151,12 +157,54 @@ STACKORDER_STATE_ROLE_ARN=arn:aws:iam::123456789012:role/stackorder-state-reader
 - `*=bucket` or `*=bucket/prefix` grants the location to every repository the server knows, an explicit opt-in to exposure across repositories: any of them can then point its stacks at an object under it. `*` is accepted only as the whole repository.
 - An entry covers an object when it names its bucket and the object's key is the prefix or lies under it at a path segment boundary: the prefix ends with `/`, or the key goes on with `/` after it, so `stacks/prod` covers `stacks/prod/vpc.tfstate` but not `stacks/production/vpc.tfstate`. A key with a `.` or `..` segment is never read.
 - The object is the one the stack's last apply or drift job reported, never one a pull request's plan names. A result whose object no entry of its repository covers is accepted, its object is not recorded, and the server logs it at `warn` level and clears the location it had recorded for the stack, unless a newer run recorded it, so reads answer `409 state_location_unknown` until an apply or drift job reports an object an entry covers. A read of a location no entry of the producer's repository covers answers `403 state_bucket_not_allowed` before any request to S3, and is audited and logged at `warn` level with the repository, the stack, the bucket and the key.
-- With `STACKORDER_STATE_ROLE_ARN`, the server assumes that role through STS with its own credentials for these reads, and renews it before it expires. Without it, it reads with its own credentials, such as the ECS task role.
+- With `STACKORDER_STATE_ROLE_ARN`, the server assumes that role through STS with its own credentials for these reads, and renews it before it expires. Without it, it reads with its own credentials, such as the ECS task role, or with the static key of `STACKORDER_STATE_ACCESS_KEY_ID` and `STACKORDER_STATE_SECRET_ACCESS_KEY`.
+- The state buckets can live on an [S3-compatible service](#s3-compatible) such as Cloudflare R2. The server reads every entry from one service: AWS S3, or the endpoint of `STACKORDER_STATE_ENDPOINT`.
 - The credentials that read need `s3:GetObject` on the objects under each entry, `s3:ListBucket` on each bucket limited to the same prefixes, so that a missing object answers `404 state_not_found` rather than `403 state_access_denied`, and `kms:Decrypt` for objects encrypted with a KMS key. IAM cannot tell repositories apart, so these grants cover every entry for the server as a whole, and the server's check of the producer's repository keeps each repository to its own entries. The [Terraform module](/operations/deploy-aws#shared-outputs) grants these from `shared_outputs_state`, or only `sts:AssumeRole` with `shared_outputs_role_arn`.
 - The server has read access to whole state objects, secrets included, though it returns only the outputs and stores, caches and logs nothing it reads. List the narrowest prefixes that hold the state of the stacks that share outputs, one per repository.
-- At start-up the server logs once, at `info` level, that shared outputs are on, with the number of entries, the entries as `repository=bucket/prefix` and the role. It then logs at `warn` level each pair of entries of different repositories, `*` included, where one's location lies under the other's, such as `acme/infra=acme-tfstate/stacks/` and `acme/network=acme-tfstate/stacks/network/`: the stacks of either repository can be pointed at the objects both cover.
+- At start-up the server logs once, at `info` level, that shared outputs are on, with the number of entries, the entries as `repository=bucket/prefix`, the role and the endpoint. It then logs at `warn` level each pair of entries of different repositories, `*` included, where one's location lies under the other's, such as `acme/infra=acme-tfstate/stacks/` and `acme/network=acme-tfstate/stacks/network/`: the stacks of either repository can be pointed at the objects both cover.
 
 The limits on a read, 64 MiB of state scanned, 4 MiB of outputs, 30 s once it has a slot, 4 reads at a time per instance and 20 s of waiting for a slot, are on the [Shared outputs](/configuration/outputs#server) page.
+
+## S3-compatible storage {#s3-compatible}
+
+The artifact bucket and the state buckets of shared outputs can live on a service that speaks the S3 API, such as Cloudflare R2, MinIO or Ceph, instead of AWS S3. Each has its own endpoint, region and key, so plan text can stay in AWS S3 while state is read from R2, or the other way round. An endpoint sends that purpose's S3 requests to the service with path-style addressing, and with checksums only where S3 requires them, which S3-compatible services expect.
+
+For state kept in R2 by a backend such as this one:
+
+```hcl
+terraform {
+  backend "s3" {
+    bucket    = "acme-tfstate"
+    key       = "stacks/prod/vpc/terraform.tfstate"
+    region    = "auto"
+    endpoints = { s3 = "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com" }
+
+    use_path_style              = true
+    skip_credentials_validation = true
+    skip_region_validation      = true
+    skip_requesting_account_id  = true
+    skip_metadata_api_check     = true
+    skip_s3_checksum            = true
+  }
+}
+```
+
+the server reads the outputs with a read-only R2 API token:
+
+```sh
+STACKORDER_STATE_BUCKETS=acme/infra=acme-tfstate/stacks/
+STACKORDER_STATE_ENDPOINT=https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com
+STACKORDER_STATE_REGION=auto
+STACKORDER_STATE_ACCESS_KEY_ID=<R2 access key id>
+STACKORDER_STATE_SECRET_ACCESS_KEY=<R2 secret access key>
+```
+
+- Load the secret access keys from a secret store, as for the other secrets. Give the state key read access only, to the state buckets alone: an R2 token scoped to *Object Read only* on those buckets. Give the artifact key read and write access to the artifact bucket alone.
+- The runners need nothing from Stackorder for this: the backend's own settings and the job's credentials, such as `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` from the [`env` secret](/configuration/workflows#env), reach R2 as they would without Stackorder. Leave the workflows' AWS role inputs empty for stacks that need no AWS role.
+- The CLI reports the backend's endpoint with the state object, from `endpoints.s3` or the deprecated `endpoint` as `init` recorded them, in the canonical form: lowercase scheme and host, without a default port or a trailing slash. The server records and reads only a state object reported at the endpoint it reads from, compared in that form, with every AWS S3 endpoint, `*.amazonaws.com` and the like, counted as AWS S3. A result reported at another endpoint clears the stack's state location as one outside the entries does, so a bucket of one service is never read from another that has a bucket of the same name. An endpoint the job sets only in its environment, such as `AWS_ENDPOINT_URL_S3`, is not reported, and the server then reads the object at its own endpoint.
+- `STACKORDER_STATE_ROLE_ARN` is for AWS: STS assumes it with the server's credentials, or the static key, whatever the S3 endpoint.
+- The web UI links a stack's state object to the AWS S3 console only when it is in AWS S3; for another service it shows the `s3://` location as text.
+- The [Terraform module](/operations/deploy-aws) deploys to AWS and grants the task role AWS S3 access; it does not set these variables. A [container deployment](/operations/deploy-container) sets them like any other.
 
 ## GitHub Enterprise Server {#ghes}
 

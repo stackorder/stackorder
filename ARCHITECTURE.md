@@ -45,8 +45,8 @@ internal/metrics/          Prometheus registry, all metric names, HTTP and GitHu
 internal/api/              HTTP handlers, auth middleware, sessions and OAuth, API keys, /setup manifest flow
 internal/ui/               embed.FS serving of the built UI with SPA fallback
 internal/server/           composition of all of the above into one http.Server; used by cmd and by tests
-internal/artifacts/        optional S3 store for full plan text (STACKORDER_ARTIFACT_BUCKET)
-internal/stateread/        reads only the root outputs of a state object a grant allows the producer's repository (STACKORDER_STATE_BUCKETS); stores and logs nothing
+internal/artifacts/        optional S3 or S3-compatible store for full plan text (STACKORDER_ARTIFACT_BUCKET)
+internal/stateread/        reads only the root outputs of a state object a grant allows the producer's repository (STACKORDER_STATE_BUCKETS), at the one S3 or S3-compatible endpoint it reads from; stores and logs nothing
 internal/testutil/pgtest/  Postgres for tests: TEST_DATABASE_URL or testcontainers, one database per test
 internal/testutil/ghfake/  in-memory fake of the GitHub API with inspection and payload builders
 internal/testutil/oidcfake/ fake OIDC issuer and runner token endpoint
@@ -66,7 +66,8 @@ Dependency direction: `api/v1` <- `config` <- `scan`, `graph`, `command`,
 `report`, `tf` <- `client`, `cli` (runner side); `api/v1` <- `store`, `gh`,
 `oidc` <- `principal` <- `runs` <- `webhook`, `worker`, `sched`, `api` <-
 `server` <- `cmd`; `runs` also imports `stateread` for its `Location` and
-`State` types. `runs` talks to GitHub through its `GitHub` interface
+`State` types, and `stateread` imports `config` for `S3Service`, the one
+comparison of S3 endpoints that the CLI, the scanner and the server share. `runs` talks to GitHub through its `GitHub` interface
 (`Client`, `ListInstallations`, `InstallationRepos`), satisfied by `*gh.App`. Nothing under `internal/` imports `internal/cli` or
 `internal/server` except `cmd` and tests. `internal/graph`, `internal/report`
 and `internal/command` import nothing but `api/v1`, `internal/config` and
@@ -131,7 +132,10 @@ dependencies.
   graph nodes and `v1.ModuleConsumer.Ref` carry the pinned ref.
 - Inferred `reads_state` edges have `Inferred: true`. Those inferred from a
   `terraform_remote_state` data source carry `Meta` `bucket` and `key` (the
-  full S3 object key, workspace prefix included); those inferred from a
+  full S3 object key, workspace prefix included), plus `endpoint` when the
+  data source's `config` names an S3 endpoint (`config.S3Endpoint` form);
+  a reader and a writer that both name an endpoint match only when
+  `config.S3Service` names the same service for both; those inferred from a
   `stackorder_outputs` data source or ephemeral resource carry `Meta`
   `source: stackorder_outputs` and may point at an external stack. When
   both blocks infer the same edge, the remote state `Meta` is kept. A
