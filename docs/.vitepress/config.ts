@@ -151,6 +151,14 @@ export default withMermaid(
       ['meta', { property: 'og:image:height', content: '630' }],
       ['meta', { property: 'og:image:alt', content: 'stackorder: Terraform and OpenTofu orchestration on GitHub Actions' }],
       ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+      [
+        'script',
+        {
+          type: 'module',
+          src: 'https://static.cloudflareinsights.com/beacon.min.js',
+          'data-cf-beacon': JSON.stringify({ token: 'ced3dee8ba59494e97d97107d4b834cf' }),
+        },
+      ],
     ],
     sitemap: { hostname: site },
     transformHead({ pageData, title, description }) {
