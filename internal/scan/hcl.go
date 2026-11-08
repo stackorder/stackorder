@@ -314,7 +314,7 @@ func (r *hclReader) overlayS3(attrs hcl.Attributes, be *v1.Backend, what, outcom
 			v, found, ok := s3EndpointOf(attr.Expr)
 			if !ok {
 				r.warn("%s: %s attribute %q is not an object literal with a literal s3; %s", location(attr.Range), what, name, outcome)
-			} else if found {
+			} else if found && strings.TrimSpace(v) != "" {
 				be.Endpoint = config.S3Endpoint(v)
 			}
 			continue
@@ -425,8 +425,10 @@ func (r *hclReader) readRemoteState(block *hcl.Block) remoteState {
 			// An endpoint that is not literal is left unknown, which
 			// matches a writer at any endpoint, as before endpoints
 			// were read.
+			// A blank s3 counts as unset, as in the backend, so the
+			// deprecated endpoint still applies.
 			v, found, ok := s3EndpointOf(pair.Value)
-			if found || !ok {
+			if !ok || found && strings.TrimSpace(v) != "" {
 				endpoints, rs.endpoint = true, v
 			}
 			continue

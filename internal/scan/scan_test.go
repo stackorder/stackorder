@@ -191,9 +191,10 @@ func TestScanCases(t *testing.T) {
 `,
 				"stacks/minio/main.tf": `terraform {
   backend "s3" {
-    bucket   = "m"
-    key      = "m.tfstate"
-    endpoint = "http://minio.internal:9000"
+    bucket    = "m"
+    key       = "m.tfstate"
+    endpoint  = "http://minio.internal:9000"
+    endpoints = { s3 = "" }
   }
 }
 `,
@@ -217,9 +218,10 @@ data "terraform_remote_state" "aws" {
 data "terraform_remote_state" "minio" {
   backend = "s3"
   config = {
-    bucket   = "m"
-    key      = "m.tfstate"
-    endpoint = "http://minio.internal:9000"
+    bucket    = "m"
+    key       = "m.tfstate"
+    endpoints = { s3 = " " }
+    endpoint  = "http://minio.internal:9000"
   }
 }
 data "terraform_remote_state" "computed" {
