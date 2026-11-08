@@ -194,7 +194,7 @@ func TestScanCases(t *testing.T) {
     bucket    = "m"
     key       = "m.tfstate"
     endpoint  = "http://minio.internal:9000"
-    endpoints = { s3 = "" }
+    endpoints = { s3 = null }
   }
 }
 `,
@@ -220,7 +220,7 @@ data "terraform_remote_state" "minio" {
   config = {
     bucket    = "m"
     key       = "m.tfstate"
-    endpoints = { s3 = " " }
+    endpoints = { s3 = null }
     endpoint  = "http://minio.internal:9000"
   }
 }

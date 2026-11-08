@@ -347,7 +347,8 @@ func setS3String(be *v1.Backend, name, value string) {
 
 // s3EndpointOf returns the s3 attribute of an endpoints object literal.
 // found is false when the object has no s3 key, and ok is false when expr
-// is not an object literal or its s3 is not a literal string.
+// is not an object literal or its s3 is neither a literal string nor a
+// literal null. A null s3 is returned as "", which callers treat as unset.
 func s3EndpointOf(expr hcl.Expression) (endpoint string, found, ok bool) {
 	pairs, diags := hcl.ExprMap(expr)
 	if diags.HasErrors() {
@@ -361,10 +362,22 @@ func s3EndpointOf(expr hcl.Expression) (endpoint string, found, ok bool) {
 		if name != "s3" {
 			continue
 		}
+		if isLiteralNull(pair.Value) {
+			return "", true, true
+		}
 		v, ok := literalString(pair.Value)
 		return v, true, ok
 	}
 	return "", false, true
+}
+
+// isLiteralNull reports whether expr is the literal null.
+func isLiteralNull(expr hcl.Expression) bool {
+	if !isLiteral(expr) {
+		return false
+	}
+	v, diags := expr.Value(nil)
+	return !diags.HasErrors() && v.IsNull()
 }
 
 func (r *hclReader) readRemoteState(block *hcl.Block) remoteState {
