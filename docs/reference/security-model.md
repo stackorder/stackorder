@@ -82,7 +82,7 @@ It still cannot write state while its role grants only reads, nor assume the rol
 | CloudTrail data events on the state buckets | Records every read of the objects, including reads that leave no row in the server's own audit log, such as a compromised server's |
 | `STACKORDER_REQUIRED_WORKFLOW_REF` | Refuses reads by a copy of the workflow edited in a pull request |
 | `apply.max_parallel: 1` | Makes a read at apply time name its reader exactly, since each dispatch then holds one stack |
-| API keys kept out of CI | Keeps an administrator key, which reads the outputs of any stack whatever its `readers`, out of reach of the code a job runs |
+| API keys kept out of CI | Keeps an administrator key, which reads the outputs of any stack whatever its `readers`, out of reach of the code a job runs; where a key must be exposed, [scope](/reference/api#api-key-scopes) it read-only, to one installation, or with an expiry |
 
 [Security hardening](/operations/security-hardening#shared-outputs) has the policies. A runner token does not prove which stack's job calls: within one repository, a pull request's plan jobs can read whatever is shared with any stack key of the repository. [Who may read](/configuration/outputs#who-may-read) says what the server can and cannot prove about a reader.
 
@@ -120,7 +120,9 @@ The server is not in the path of `terraform plan`, except for a stack that reads
 
 ## Human access {#human-access}
 
-People sign in with GitHub through the App's OAuth client, with the `read:org` scope only. A session is issued only to a user whose own account, or one of whose organisations, has the App installed, and the UI shows only those accounts' repositories. API keys see every repository and are administrators; a signed-in user is not. An operator mints the first key with `stackorder-server api-key`, and an administrator key then creates, lists and revokes keys through [`/v1/keys`](/reference/api#keys); a session cannot. The UI is read-only except for unlock and re-run, which go through the API and are audited, as creating and revoking a key are.
+People sign in with GitHub through the App's OAuth client, with the `read:org` scope only. A session is issued only to a user whose own account, or one of whose organisations, has the App installed, and the UI shows only those accounts' repositories. An unscoped API key sees every repository and is an administrator; a signed-in user is not. An operator mints the first key with `stackorder-server api-key`, and an administrator key then creates, lists and revokes keys through [`/v1/keys`](/reference/api#keys); a session cannot. The UI is read-only except for unlock and re-run, which go through the API and are audited, as creating and revoking a key are.
+
+An API key may be [scoped](/reference/api#api-key-scopes) below full administrator: **read-only** (refused every mutating route), **installation-scoped** (sees only one installation and treats everything of any other as not found, with no existence oracle), and **expiring** (refused like a revoked key after its time). A scoped key cannot manage keys, so it can never obtain a broader key, and expiry and read-only enforcement are applied on every request. Give automation — a dashboard, a script, a support engineer — the narrowest key that works, so a leaked credential is read-only, bounded to one installation, or short-lived rather than a standing administrator over everything.
 
 ## Reporting a vulnerability {#reporting}
 

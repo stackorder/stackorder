@@ -42,12 +42,22 @@ List endpoints take `?limit=` and `?cursor=` and return a page:
 | Caller | Credential | Sees |
 | --- | --- | --- |
 | Runner | `Authorization: Bearer <GitHub Actions OIDC token>` | Its own repository |
-| Automation | `Authorization: Bearer sk_<key>` | Every repository; treated as an administrator |
+| Automation | `Authorization: Bearer sk_<key>` | Every repository, unless the key is [scoped](#api-key-scopes); an unscoped key is an administrator |
 | Person | The `stackorder_session` cookie, set by [GitHub sign-in](#sign-in) | Repositories whose installation account is one of the person's organisations, or their own login |
 
 Runners never hold a shared secret: the token is the job's own OIDC token. A runner token is accepted only once, so the CLI requests a fresh one for every call. See [OIDC binding](#oidc-binding). API keys are created by an operator; see [API keys](/reference/server-configuration#api-keys).
 
 Anything a caller may not see answers `404 not_found`, as if it did not exist. State-changing requests made with the session cookie (unlock, re-run, sign-out) must also come from the server's own origin: `Origin` must equal the origin of `STACKORDER_BASE_URL`, or, without `Origin`, `Sec-Fetch-Site` must be `same-origin`; otherwise they are `403 forbidden`. API keys are exempt. A `401` response carries `WWW-Authenticate: Bearer realm="stackorder"`.
+
+### API key scopes {#api-key-scopes}
+
+An API key is an unscoped administrator by default. [Creating a key](#create-key) may narrow it three independent ways:
+
+- **Read-only** (`read_only`). The key is refused every mutating route — any request whose method is not `GET` — with `403 forbidden`. It may still read anything its installation scope allows. Starting a manual run, uploading a graph, reporting a result, unlocking, re-running and managing keys are all refused.
+- **Installation-scoped** (`installation_id`). The key sees only the one installation and nothing of any other: repository and stack lists, overview counts, runs, plan text, shared outputs, resources and the audit log are all filtered, and a repository, run or stack of another installation answers `404 not_found` exactly as one that does not exist, with no `403`-versus-`404` difference to probe. A key whose installation is later uninstalled sees nothing.
+- **Expiring** (`expires_at`). After that time the key stops authenticating and is refused exactly like a revoked one (`401 unauthorized`). Expiry is checked on every request.
+
+A scoped key is not an administrator: it can neither list, create nor revoke keys, so it can never mint itself a broader key. Only an unscoped (read-write, installation-wide) key manages keys.
 
 ## Errors {#errors}
 
@@ -74,7 +84,7 @@ Every error response has the same body. `details` is present only for the codes 
 | Status | Code | Meaning |
 | --- | --- | --- |
 | 400 | `invalid` | The body or a parameter failed validation. `details.field` and `details.reason` name the field when one is at fault. A JSON value of the wrong type names it by its path, without array indexes, such as `resources.items.tainted`. |
-| 401 | `unauthorized` | Missing or unusable credentials: no token, a bad signature, the wrong audience or issuer, a token older than 10 minutes or already used, an unknown or revoked API key, an expired session. |
+| 401 | `unauthorized` | Missing or unusable credentials: no token, a bad signature, the wrong audience or issuer, a token older than 10 minutes or already used, an unknown, revoked or expired API key, an expired session. |
 | 403 | `forbidden` | Valid credentials that may not do this: a repository the server does not know, a suspended installation, a `job_workflow_ref` that does not match, a claim that does not match the run, a person without push permission, a cross-origin request. |
 | 404 | `not_found` | The run, stack, module, repository or route does not exist or is not visible to the caller. |
 | 409 | `conflict` | The request conflicts with the current state, such as a result for a stack that already finished. |
@@ -556,7 +566,7 @@ GET /v1/repos/acme/infra/stacks/stacks%2Fprod%2Fvpc/outputs?run=7c9e6679-7425-40
 
 Whatever the credential, a repository, key, `run` or `reader` that is not valid UTF-8 or holds a control character, such as `%00`, is `400 invalid` before anything is looked up, with `details.field` `repo`, `stack_key`, `run_id` or `reader`.
 
-A runner token must name a run of its own repository and a stack of that run whose job has not reported yet: `pending`, `planning` or `unknown` in a plan or drift run, and `pending`, `planned`, `applying` or `unknown` in an apply run. The run must not be superseded (`409 superseded`) or finished, nor, for a `pull_request` token, `planned` (`409 conflict`). A `workflow_dispatch` token's reader must have been dispatched, and the job binds to its dispatch as for a [result](#oidc-binding). A missing run or reader, a run that does not exist or belongs to another repository, which answer alike, and a stack that is not one of the run's are `403 forbidden`. The producer must belong to the reader's installation, and the producer's `outputs.readers` must match the reader. An API key is an administrator: it reads the outputs of any stack, whatever its `readers`, and every read is audited.
+A runner token must name a run of its own repository and a stack of that run whose job has not reported yet: `pending`, `planning` or `unknown` in a plan or drift run, and `pending`, `planned`, `applying` or `unknown` in an apply run. The run must not be superseded (`409 superseded`) or finished, nor, for a `pull_request` token, `planned` (`409 conflict`). A `workflow_dispatch` token's reader must have been dispatched, and the job binds to its dispatch as for a [result](#oidc-binding). A missing run or reader, a run that does not exist or belongs to another repository, which answer alike, and a stack that is not one of the run's are `403 forbidden`. The producer must belong to the reader's installation, and the producer's `outputs.readers` must match the reader. An API key reads the outputs of any stack, whatever its `readers`, and every read is audited; an [installation-scoped](#api-key-scopes) key reads only stacks of its own installation and treats any other as not found.
 
 The producer's repository is matched without regard to case. Its policy comes from the default branch only: `repos.config` and the stack's `.stackorder.yaml` at the commit that configuration was read at. At that commit, the key must name a stack the default branch still has: `stackorder.yaml` discovers its directory, the directory exists, and the key names one of the stack's instances, declared in its `.stackorder.yaml` or derived by `stacks.instances.from_var_files` from the var files there, or none for a stack without instances.
 
@@ -701,7 +711,7 @@ For a person:
 }
 ```
 
-For an API key, `login` is `apikey:<key name>` and `admin` is `true`:
+For an API key, `login` is `apikey:<key name>` and `admin` is `true` only for an unscoped key; a read-only or [installation-scoped](#api-key-scopes) key reports `admin` `false` (omitted):
 
 ```json
 { "login": "apikey:ci", "orgs": [], "admin": true }
@@ -1071,11 +1081,19 @@ Unlocks target the qualified stack key `owner/repo//key` and keep the stack's id
 
 ## API keys {#keys}
 
-These endpoints create, list and revoke [API keys](/reference/server-configuration#api-keys). Only an API key may call them: it is an administrator. A session cookie is `403 forbidden` ("managing API keys requires an administrator API key"), and a runner token is `401 unauthorized`. The first key, when none exists, is minted with the [`stackorder-server api-key`](/reference/server-configuration#api-keys-bootstrap) subcommand instead.
+These endpoints create, list and revoke [API keys](/reference/server-configuration#api-keys). Only an unscoped administrator API key may call them. A read-only or [installation-scoped](#api-key-scopes) key, a session cookie and a runner token are refused — a session and a scoped key with `403 forbidden` ("managing API keys requires an administrator API key"), a runner token with `401 unauthorized` — so a scoped key can never mint itself a broader one. The first key, when none exists, is minted with the [`stackorder-server api-key`](/reference/server-configuration#api-keys-bootstrap) subcommand instead.
 
 ### `POST /v1/keys` {#create-key}
 
 Creates a key and returns its metadata together with the full secret, which is shown only here and stored only as a SHA-256 hash afterwards. `name` is required, is trimmed, and must be at most 100 characters. The key's `created_by` is the calling key's actor (`apikey:<name>`). The creation is audited as `api_key_created`; the key and its audit entry are written in one transaction, so the call fails and creates no key if the entry cannot be recorded.
+
+The request may [scope](#api-key-scopes) the new key:
+
+| Field | Meaning |
+| --- | --- |
+| `read_only` | A key refused every mutating route. Default `false`. |
+| `installation_id` | Limit the key to one installation id; it sees nothing of any other. Default `0`, every installation. An id that is not an installation of this server is `400 invalid`. |
+| `expires_at` | When the key stops authenticating, RFC 3339. Must be in the future, else `400 invalid`. Default unset, never expires. |
 
 ```json
 {
@@ -1084,9 +1102,14 @@ Creates a key and returns its metadata together with the full secret, which is s
   "prefix": "sk_7f3a9c1",
   "created_by": "apikey:ci",
   "created_at": "2026-11-15T09:20:00Z",
+  "read_only": true,
+  "installation_id": 42,
+  "expires_at": "2027-05-15T09:20:00Z",
   "secret": "sk_7f3a9c1d…"
 }
 ```
+
+`read_only`, `installation_id` and `expires_at` are omitted when the key is unscoped on that axis.
 
 ### `GET /v1/keys` {#list-keys}
 

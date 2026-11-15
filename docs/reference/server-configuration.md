@@ -101,7 +101,7 @@ Commands:
   (none)       run the server; configuration comes from the environment
   migrate      apply the embedded migrations to DATABASE_URL and exit
   healthcheck  GET http://127.0.0.1<STACKORDER_LISTEN>/healthz, exit 0 on 200
-  api-key      create, list and revoke API keys; needs DATABASE_URL
+  api-key      create, list and revoke API keys (optional scope flags); needs DATABASE_URL
   version      print the build information
 ```
 
@@ -148,7 +148,7 @@ Keep the key stable across restarts and instances. Every instance must use the s
 
 ## API keys {#api-keys}
 
-Automation, `stackorder apply --local` and `stackorder unlock` authenticate with an API key, `sk_` followed by random characters, sent as `Authorization: Bearer sk_…`. An API key sees every repository and is treated as an administrator. The server stores only the SHA-256 of a key and its first 10 characters, for display.
+Automation, `stackorder apply --local` and `stackorder unlock` authenticate with an API key, `sk_` followed by random characters, sent as `Authorization: Bearer sk_…`. By default an API key sees every repository and is an administrator. A key may be [scoped](#api-keys-scopes) read-only, limited to one installation, and given an expiry, to hand out a credential narrower than full administrator. The server stores only the SHA-256 of a key and its first 10 characters, for display.
 
 ### Bootstrap a key from the command line {#api-keys-bootstrap}
 
@@ -165,6 +165,24 @@ stackorder-server api-key list
 stackorder-server api-key revoke <key-id>
 ```
 
+`list` shows each key's access (`admin`, `read-write` or `read-only`), its installation (`all` or an id) and its expiry.
+
+### Scope a key {#api-keys-scopes}
+
+A key created without a scope flag is a full administrator, like a row inserted by hand. `create` takes three flags to narrow a new key, over the command line or the API ([`read_only`, `installation_id`, `expires_at`](/reference/api#create-key)):
+
+```sh
+stackorder-server api-key create dashboard --read-only                 # refused every mutating route
+stackorder-server api-key create acme-ci --installation 42             # sees only installation 42
+stackorder-server api-key create temp --expires 720h                   # stops working after 30 days
+```
+
+- `--read-only` keys are refused every mutating route and may only read. They cannot start a manual apply, unlock, re-run or manage keys.
+- `--installation <id>` keys see only that installation — its repositories, stacks, runs, plan text, shared outputs and audit entries — and treat everything of any other installation as not found. Find installation ids in the GitHub App's installations, or in the server's `installations` table. A key whose installation is later removed sees nothing. An unknown id is refused.
+- `--expires <duration>` makes the key stop authenticating after that long (Go duration, such as `720h`); an expired key is refused exactly like a revoked one, checked on every request.
+
+A scoped key — read-only or installation-limited — is not an administrator: it can neither list, create nor revoke keys, so it can never obtain a key broader than itself. Only an unscoped administrator key mints keys; give automation the narrowest key that works.
+
 ### Manage keys over the API {#api-keys-api}
 
 Once you hold a key, manage the rest over HTTP without database access; see [API keys](/reference/api#keys) for the request and response shapes.
@@ -177,7 +195,7 @@ curl -sS -H "Authorization: Bearer $STACKORDER_API_KEY" https://stackorder.examp
 curl -sS -X DELETE -H "Authorization: Bearer $STACKORDER_API_KEY" https://stackorder.example.com/v1/keys/<key-id>   # revoke
 ```
 
-Only an API key may manage keys; a signed-in browser user is not an administrator and is refused. Creating and revoking a key, by either route, is written to the [audit log](/reference/api#audit) as `api_key_created` and `api_key_revoked`, each in the same transaction as the change it records, so a key never exists without its creation entry and a revocation is never recorded unless it took effect; revoking an already-revoked key keeps the first revocation time and adds no further entry. A key's `name` is required, is trimmed, and may be at most 100 characters, by either route. The `name` becomes the actor of a key's own later calls, as `apikey:ci`.
+Only an unscoped administrator API key may manage keys; a signed-in browser user, a read-only key and an installation-scoped key are refused. Creating and revoking a key, by either route, is written to the [audit log](/reference/api#audit) as `api_key_created` and `api_key_revoked`, each in the same transaction as the change it records, so a key never exists without its creation entry and a revocation is never recorded unless it took effect; revoking an already-revoked key keeps the first revocation time and adds no further entry. A key's `name` is required, is trimmed, and may be at most 100 characters, by either route. The `name` becomes the actor of a key's own later calls, as `apikey:ci`.
 
 ### Keys inserted by hand still work {#api-keys-manual}
 
@@ -191,6 +209,8 @@ VALUES ('ci', encode(sha256(convert_to(:'key', 'UTF8')), 'hex'), left(:'key', 10
 SQL
 echo "$key"   # shown once; store it in your secret store
 ```
+
+The `read_only`, `installation_id` and `expires_at` columns default to an unscoped administrator, so a row inserted this way is a full key; set them to scope a hand-inserted key (`read_only = true`, `installation_id = <id>`, `expires_at = now() + interval '30 days'`).
 
 Revoke such a key by setting its `revoked_at`, or by its id with the subcommand or the API:
 
