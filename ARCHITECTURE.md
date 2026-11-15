@@ -1000,7 +1000,9 @@ All names carry the `stackorder_` prefix: `runs_total{status,trigger,mode}`,
 `webhook_duplicates_total`, `webhook_lag_seconds` (received to a worker
 starting on the event), `events_processed_total{kind,result}`,
 `events_dead_total{kind}`, `jobs_processed_total{kind,result}`,
-`queue_depth{queue}` (refreshed once a minute), `github_requests_total{route,status}`,
+`queue_depth{queue}` (refreshed once a minute),
+`artifact_operations_total{operation,result}` (reads and writes against the
+artifact bucket), `github_requests_total{route,status}`,
 `github_request_duration_seconds{route}` (routes as `METHOD /template`),
 `github_rate_limit_remaining{installation}` (the installation id, or `app`
 for the App JWT), `scheduler_leader`,

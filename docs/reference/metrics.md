@@ -24,6 +24,16 @@ Every metric is defined in `internal/metrics` and carries the `stackorder_` pref
 
 `stackorder_drifted_stacks` and `stackorder_locks_held` are read from the database by the instance that records a drift result or takes or releases a lock. An instance that has done neither since it started reports `0`, so aggregate them with `max()` across instances.
 
+### Artifact store {#artifacts}
+
+These appear only when `STACKORDER_ARTIFACT_BUCKET` is set; see [Server configuration](/reference/server-configuration#artifact-bucket).
+
+| Metric | Type | Labels | Meaning |
+| --- | --- | --- | --- |
+| `stackorder_artifact_operations_total` | counter | `operation`, `result` | Reads and writes against the artifact store; `operation` is `write` or `read`, `result` is `ok` or `error` |
+
+The server writes a stack's full plan text and plan JSON to the bucket and reads the plan text back to serve `GET /v1/runs/{id}/stacks/{key}/plan`. A failed write (`operation="write",result="error"`) means the server fell back to keeping only the truncated plan text in Postgres, which a broken bucket policy or credentials cause silently; a read of an object that is gone counts as `ok`, as the store answered. Compute an error rate with `rate(stackorder_artifact_operations_total{result="error"}[5m]) / rate(stackorder_artifact_operations_total[5m])`.
+
 ### Webhooks and the queue {#queue}
 
 | Metric | Type | Labels | Meaning |
@@ -92,6 +102,8 @@ groups:
         expr: sum(increase(stackorder_events_dead_total[1h])) > 0
       - alert: StackorderDispatchErrors
         expr: sum(increase(stackorder_dispatches_total{result="error"}[15m])) > 0
+      - alert: StackorderArtifactWriteErrors
+        expr: sum(increase(stackorder_artifact_operations_total{operation="write",result="error"}[15m])) > 0
       - alert: StackorderNoSchedulerLeader
         expr: max(stackorder_scheduler_leader) < 1
         for: 10m
