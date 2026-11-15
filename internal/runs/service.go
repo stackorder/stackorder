@@ -90,6 +90,7 @@ type Metrics interface {
 	SetDriftedStacks(n int)
 	SetLocksHeld(n int)
 	CommandReceived(verb string, accepted bool)
+	ArtifactWrite(ok bool)
 }
 
 // NopMetrics discards every observation.
@@ -112,6 +113,9 @@ func (NopMetrics) SetLocksHeld(int) {}
 
 // CommandReceived implements Metrics.
 func (NopMetrics) CommandReceived(string, bool) {}
+
+// ArtifactWrite implements Metrics.
+func (NopMetrics) ArtifactWrite(bool) {}
 
 // EnqueueFunc queues a job of kind with a JSON encodable payload, due at
 // runAfter (now when zero). A non-empty dedupeKey makes a second enqueue

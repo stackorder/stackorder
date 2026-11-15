@@ -77,17 +77,18 @@ func (c *fakeClock) Set(t time.Time) {
 }
 
 type recMetrics struct {
-	mu         sync.Mutex
-	runs       []string
-	stacks     map[v1.StackStatus]int
-	dispatched map[bool]int
-	drifted    int
-	locks      int
-	commands   map[string]int
+	mu             sync.Mutex
+	runs           []string
+	stacks         map[v1.StackStatus]int
+	dispatched     map[bool]int
+	drifted        int
+	locks          int
+	commands       map[string]int
+	artifactWrites map[bool]int
 }
 
 func newRecMetrics() *recMetrics {
-	return &recMetrics{stacks: map[v1.StackStatus]int{}, dispatched: map[bool]int{}, commands: map[string]int{}}
+	return &recMetrics{stacks: map[v1.StackStatus]int{}, dispatched: map[bool]int{}, commands: map[string]int{}, artifactWrites: map[bool]int{}}
 }
 
 func (m *recMetrics) RunStatusChanged(s v1.RunStatus, t v1.Trigger, mode v1.RunMode) {
@@ -124,6 +125,18 @@ func (m *recMetrics) CommandReceived(verb string, accepted bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.commands[fmt.Sprintf("%s:%t", verb, accepted)]++
+}
+
+func (m *recMetrics) ArtifactWrite(ok bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.artifactWrites[ok]++
+}
+
+func (m *recMetrics) artifactWriteCounts() (ok, failed int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.artifactWrites[true], m.artifactWrites[false]
 }
 
 func (m *recMetrics) snapshot() (locks, drifted int, commands map[string]int) {
@@ -175,15 +188,25 @@ func (q *jobQueue) take() []queuedJob {
 }
 
 type memArtifacts struct {
-	mu    sync.Mutex
-	items map[string][]byte
+	mu      sync.Mutex
+	items   map[string][]byte
+	failPut error
 }
 
 func (a *memArtifacts) Put(_ context.Context, key, _ string, body []byte) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.failPut != nil {
+		return "", a.failPut
+	}
 	a.items[key] = append([]byte(nil), body...)
 	return "https://artifacts.test/" + key, nil
+}
+
+func (a *memArtifacts) setFailPut(err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.failPut = err
 }
 
 type env struct {

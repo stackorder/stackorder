@@ -243,6 +243,7 @@ func (s *Service) resultPatch(ctx context.Context, run store.Run, row store.RunS
 
 func (s *Service) storeArtifacts(ctx context.Context, run store.Run, key, text string, summary *v1.PlanSummary) (string, bool) {
 	url, err := s.artifacts.Put(ctx, store.PlanTextArtifactKey(run.ID, key), "text/plain; charset=utf-8", []byte(text))
+	s.m.ArtifactWrite(err == nil)
 	if err != nil {
 		s.log.WarnContext(ctx, "store plan text", "run_id", run.ID, "stack", key, "error", err)
 		return "", false
@@ -251,6 +252,7 @@ func (s *Service) storeArtifacts(ctx context.Context, run store.Run, key, text s
 		body, err := json.Marshal(summary)
 		if err == nil {
 			_, err = s.artifacts.Put(ctx, store.PlanJSONArtifactKey(run.ID, key), "application/json", body)
+			s.m.ArtifactWrite(err == nil)
 		}
 		if err != nil {
 			s.log.WarnContext(ctx, "store plan json", "run_id", run.ID, "stack", key, "error", err)

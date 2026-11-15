@@ -3,6 +3,7 @@
 package runs_test
 
 import (
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -660,10 +661,31 @@ func TestArtifactStoreKeepsFullPlanText(t *testing.T) {
 	full, err := e.st.GetRunStack(e.ctx, uuid.MustParse(runID), uuid.MustParse(row.StackID))
 	require.NoError(t, err)
 	assert.Len(t, full.PlanText, 8<<10, "Postgres keeps the first 8 KB")
+	ok, failed := e.m.artifactWriteCounts()
+	assert.Equal(t, 2, ok, "the plan text and plan JSON writes are counted")
+	assert.Zero(t, failed)
 	e.artifacts.mu.Lock()
 	defer e.artifacts.mu.Unlock()
 	assert.Equal(t, res.PlanText, string(e.artifacts.items[key]))
 	assert.Contains(t, string(e.artifacts.items["runs/"+runID+"/stacks-prod-vpc-69df0ef0/plan.json"]), `"adds":1`)
+}
+
+func TestArtifactWriteFailureFallsBackAndIsCounted(t *testing.T) {
+	e := newEnv(t, baseConfig(), withArtifacts())
+	e.artifacts.setFailPut(errors.New("bucket policy denies PutObject"))
+	e.openPull(7, headSHA)
+	job, runID, _ := e.startPlan(7, headSHA)
+	res := planResult(vpc, headSHA, 1)
+	res.PlanText = strings.Repeat("resource change line\n", 1000)
+	row, err := e.svc.RecordResult(e.ctx, job.p, runID, vpc, res)
+	require.NoError(t, err)
+	assert.Empty(t, row.PlanURL, "a failed write keeps the plan text in Postgres with no link")
+	full, err := e.st.GetRunStack(e.ctx, uuid.MustParse(runID), uuid.MustParse(row.StackID))
+	require.NoError(t, err)
+	assert.NotEmpty(t, full.PlanText)
+	ok, failed := e.m.artifactWriteCounts()
+	assert.Zero(t, ok)
+	assert.Equal(t, 1, failed, "the failed plan text write is counted once")
 }
 
 func TestNothingAffected(t *testing.T) {
