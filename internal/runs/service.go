@@ -90,6 +90,7 @@ type Metrics interface {
 	Dispatched(mode v1.RunMode, ok bool)
 	SetDriftedStacks(n int)
 	SetLocksHeld(n int)
+	SetPendingObjectDeletions(n int)
 	CommandReceived(verb string, accepted bool)
 	ArtifactWrite(ok bool)
 }
@@ -114,6 +115,9 @@ func (NopMetrics) SetDriftedStacks(int) {}
 
 // SetLocksHeld implements Metrics.
 func (NopMetrics) SetLocksHeld(int) {}
+
+// SetPendingObjectDeletions implements Metrics.
+func (NopMetrics) SetPendingObjectDeletions(int) {}
 
 // CommandReceived implements Metrics.
 func (NopMetrics) CommandReceived(string, bool) {}
@@ -146,6 +150,9 @@ func StoreEnqueue(st *store.Store) EnqueueFunc {
 type ArtifactStore interface {
 	// Put stores body under key and returns a URL where it can be read.
 	Put(ctx context.Context, key string, contentType string, body []byte) (url string, err error)
+	// Delete removes the object stored under key. Deleting a key with no
+	// object is not an error.
+	Delete(ctx context.Context, key string) error
 }
 
 // StateReader reads the root module outputs of a state object, for serving

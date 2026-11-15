@@ -578,7 +578,64 @@ func (s *Service) Prune(ctx context.Context, planText, events, drift time.Durati
 	}
 	s.log.InfoContext(ctx, "pruned", "plan_text", res.PlanText, "events", res.Events, "jobs", res.Jobs,
 		"drift", res.Drift, "jtis", res.JTIs, "sessions", res.Sessions)
+	s.sweepObjectDeletions(ctx)
 	return nil
+}
+
+const (
+	objectDeletionBatch    = 256
+	objectDeletionMaxBatch = 64
+)
+
+// sweepObjectDeletions removes from the artifact store the plan objects that
+// pruning and repository deletion no longer reference. A delete that fails,
+// such as when the server's role lacks s3:DeleteObject, is logged and left
+// to be retried next time rather than failing the prune, and the pending
+// count is published so the backlog stays visible. Without an artifact
+// store there is nothing to delete, but the backlog is still reported.
+func (s *Service) sweepObjectDeletions(ctx context.Context) {
+	if s.artifacts != nil {
+		for batch := 0; batch < objectDeletionMaxBatch; batch++ {
+			pending, err := s.st.ClaimObjectDeletions(ctx, objectDeletionBatch)
+			if err != nil {
+				s.log.WarnContext(ctx, "claim object deletions", "error", err)
+				break
+			}
+			if len(pending) == 0 {
+				break
+			}
+			deleted := 0
+			for _, d := range pending {
+				if err := s.deleteStackObjects(ctx, d.RunID, d.StackKey); err != nil {
+					s.log.WarnContext(ctx, "delete plan objects", "run_id", d.RunID, "stack", d.StackKey, "error", err)
+					if err := s.st.FailObjectDeletion(ctx, d.RunID, d.StackKey, err); err != nil {
+						s.log.WarnContext(ctx, "record object deletion failure", "run_id", d.RunID, "stack", d.StackKey, "error", err)
+					}
+					continue
+				}
+				if err := s.st.CompleteObjectDeletion(ctx, d.RunID, d.StackKey); err != nil {
+					s.log.WarnContext(ctx, "forget object deletion", "run_id", d.RunID, "stack", d.StackKey, "error", err)
+				}
+				deleted++
+			}
+			if deleted == 0 || len(pending) < objectDeletionBatch {
+				break
+			}
+		}
+	}
+	n, err := s.st.CountObjectDeletions(ctx)
+	if err != nil {
+		s.log.WarnContext(ctx, "count object deletions", "error", err)
+		return
+	}
+	s.m.SetPendingObjectDeletions(int(n))
+}
+
+func (s *Service) deleteStackObjects(ctx context.Context, runID uuid.UUID, key string) error {
+	if err := s.artifacts.Delete(ctx, store.PlanTextArtifactKey(runID, key)); err != nil {
+		return err
+	}
+	return s.artifacts.Delete(ctx, store.PlanJSONArtifactKey(runID, key))
 }
 
 // CanActOnRepo reports whether login has push permission on the

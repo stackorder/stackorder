@@ -84,6 +84,7 @@ type recMetrics struct {
 	dispatched     map[bool]int
 	drifted        int
 	locks          int
+	pending        int
 	commands       map[string]int
 	artifactWrites map[bool]int
 }
@@ -132,6 +133,18 @@ func (m *recMetrics) SetLocksHeld(n int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.locks = n
+}
+
+func (m *recMetrics) SetPendingObjectDeletions(n int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pending = n
+}
+
+func (m *recMetrics) pendingDeletions() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pending
 }
 
 func (m *recMetrics) CommandReceived(verb string, accepted bool) {
@@ -201,9 +214,10 @@ func (q *jobQueue) take() []queuedJob {
 }
 
 type memArtifacts struct {
-	mu      sync.Mutex
-	items   map[string][]byte
-	failPut error
+	mu        sync.Mutex
+	items     map[string][]byte
+	failPut   error
+	deleteErr error
 }
 
 func (a *memArtifacts) Put(_ context.Context, key, _ string, body []byte) (string, error) {
@@ -220,6 +234,16 @@ func (a *memArtifacts) setFailPut(err error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.failPut = err
+}
+
+func (a *memArtifacts) Delete(_ context.Context, key string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.deleteErr != nil {
+		return a.deleteErr
+	}
+	delete(a.items, key)
+	return nil
 }
 
 type env struct {
