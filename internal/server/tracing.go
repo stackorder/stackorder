@@ -166,31 +166,58 @@ func (s *Server) extractTrace(ctx context.Context, raw json.RawMessage) context.
 // record whose context carries a recording span, so logs can be joined with
 // the traces of the same request, event or job. Records logged without such
 // a context, as before tracing starts or outside any span, are unchanged.
+//
+// The ids are added to the base handler before any group opened with
+// WithGroup, so they stay at the top level of the record and remain joinable
+// by key even when the logger groups its other attributes.
 type traceLogHandler struct {
-	slog.Handler
+	base     slog.Handler
+	prepared slog.Handler
+	mods     []func(slog.Handler) slog.Handler
 }
 
 func newTraceLogHandler(h slog.Handler) slog.Handler {
-	return traceLogHandler{Handler: h}
+	return traceLogHandler{base: h, prepared: h}
+}
+
+func (h traceLogHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.prepared.Enabled(ctx, level)
 }
 
 func (h traceLogHandler) Handle(ctx context.Context, rec slog.Record) error {
-	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
-		rec = rec.Clone()
-		rec.AddAttrs(
-			slog.String("trace_id", sc.TraceID().String()),
-			slog.String("span_id", sc.SpanID().String()),
-		)
+	sc := trace.SpanContextFromContext(ctx)
+	if !sc.IsValid() {
+		return h.prepared.Handle(ctx, rec)
 	}
-	return h.Handler.Handle(ctx, rec)
+	handler := h.base.WithAttrs([]slog.Attr{
+		slog.String("trace_id", sc.TraceID().String()),
+		slog.String("span_id", sc.SpanID().String()),
+	})
+	for _, mod := range h.mods {
+		handler = mod(handler)
+	}
+	return handler.Handle(ctx, rec)
 }
 
 func (h traceLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return traceLogHandler{Handler: h.Handler.WithAttrs(attrs)}
+	if len(attrs) == 0 {
+		return h
+	}
+	return h.extend(func(inner slog.Handler) slog.Handler { return inner.WithAttrs(attrs) })
 }
 
 func (h traceLogHandler) WithGroup(name string) slog.Handler {
-	return traceLogHandler{Handler: h.Handler.WithGroup(name)}
+	if name == "" {
+		return h
+	}
+	return h.extend(func(inner slog.Handler) slog.Handler { return inner.WithGroup(name) })
+}
+
+func (h traceLogHandler) extend(mod func(slog.Handler) slog.Handler) traceLogHandler {
+	mods := make([]func(slog.Handler) slog.Handler, len(h.mods)+1)
+	copy(mods, h.mods)
+	mods[len(h.mods)] = mod
+	return traceLogHandler{base: h.base, prepared: mod(h.prepared), mods: mods}
 }
 
 func payloadRunID(payload json.RawMessage) (string, bool) {

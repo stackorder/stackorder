@@ -46,3 +46,21 @@ func TestTraceLogHandlerKeepsWithAttrsAndGroups(t *testing.T) {
 	assert.Equal(t, "worker", rec["component"], "wrapped attributes survive")
 	assert.Equal(t, sc.TraceID().String(), rec["trace_id"])
 }
+
+func TestTraceLogHandlerKeepsTraceIDsTopLevelUnderGroup(t *testing.T) {
+	tr, _ := memoryTracing(t)
+	var buf bytes.Buffer
+	log := slog.New(newTraceLogHandler(slog.NewJSONHandler(&buf, nil))).WithGroup("g")
+
+	ctx, sc := producerSpan(t, &Server{tracing: tr})
+	log.InfoContext(ctx, "handled", "k", "v")
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &rec))
+	assert.Equal(t, sc.TraceID().String(), rec["trace_id"], "trace_id stays at the top level, not nested under the group")
+	assert.Equal(t, sc.SpanID().String(), rec["span_id"], "span_id stays at the top level, not nested under the group")
+	group, ok := rec["g"].(map[string]any)
+	require.True(t, ok, "the group still wraps the record attributes")
+	assert.Equal(t, "v", group["k"], "grouped attributes stay inside the group")
+	assert.NotContains(t, group, "trace_id", "trace_id is not nested under the group")
+}
