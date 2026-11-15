@@ -25,6 +25,9 @@ const (
 type tokenSource interface {
 	token(ctx context.Context) (string, error)
 	invalidate() bool
+	// rateLimitScope labels the GitHub rate limit budget this source draws
+	// from, or "" when its budget is not tracked (a user access token).
+	rateLimitScope() string
 }
 
 type staticToken string
@@ -32,6 +35,8 @@ type staticToken string
 func (s staticToken) token(context.Context) (string, error) { return string(s), nil }
 
 func (staticToken) invalidate() bool { return false }
+
+func (staticToken) rateLimitScope() string { return "" }
 
 type request struct {
 	method  string
@@ -226,7 +231,7 @@ func (t *transport) once(ctx context.Context, r request, target, token string, p
 	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	t.observe(r, resp.StatusCode, time.Since(start))
-	t.observeRateLimit(resp.Header)
+	t.observeRateLimit(r.auth, resp.Header)
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
@@ -239,8 +244,15 @@ func (t *transport) observe(r request, status int, d time.Duration) {
 	}
 }
 
-func (t *transport) observeRateLimit(h http.Header) {
+func (t *transport) observeRateLimit(auth tokenSource, h http.Header) {
 	if t.metrics == nil {
+		return
+	}
+	if auth == nil {
+		return
+	}
+	scope := auth.rateLimitScope()
+	if scope == "" {
 		return
 	}
 	remaining, err := strconv.Atoi(h.Get("X-RateLimit-Remaining"))
@@ -251,7 +263,7 @@ func (t *transport) observeRateLimit(h http.Header) {
 	if err != nil {
 		return
 	}
-	t.metrics.ObserveRateLimit(remaining, time.Unix(reset, 0).UTC())
+	t.metrics.ObserveRateLimit(scope, remaining, time.Unix(reset, 0).UTC())
 }
 
 func (t *transport) backoff(attempt int) time.Duration {

@@ -149,13 +149,14 @@ func (r *Registry) ObserveRequest(method, route string, status int, d time.Durat
 	r.githubDuration.WithLabelValues(label).Observe(max(d, 0).Seconds())
 }
 
-// ObserveRateLimit records the remaining GitHub rate limit; it implements
-// gh.Metrics.
-func (r *Registry) ObserveRateLimit(remaining int, _ time.Time) {
+// ObserveRateLimit records the remaining GitHub rate limit for one
+// installation budget; it implements gh.Metrics. installation is the
+// installation id, or "app" for the App JWT.
+func (r *Registry) ObserveRateLimit(installation string, remaining int, _ time.Time) {
 	if r == nil {
 		return
 	}
-	r.githubRateLimit.Set(float64(remaining))
+	r.githubRateLimit.WithLabelValues(installation).Set(float64(remaining))
 }
 
 func normalizeMethod(m string) string {

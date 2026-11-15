@@ -47,7 +47,7 @@ func touchAll(r *metrics.Registry) {
 	r.SetQueueDepth(metrics.QueueEvents, 7)
 	r.SetSchedulerLeader(true)
 	r.ObserveRequest(http.MethodPost, "/repos/{owner}/{repo}/check-runs", http.StatusCreated, 80*time.Millisecond)
-	r.ObserveRateLimit(4999, time.Unix(1_800_000_000, 0))
+	r.ObserveRateLimit("42", 4999, time.Unix(1_800_000_000, 0))
 	r.HTTPMiddleware("GET /v1/me")(http.NotFoundHandler()).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/me", nil))
 }
 
@@ -235,8 +235,8 @@ func TestRecording(t *testing.T) {
 		},
 		{
 			name:   "rate limit",
-			record: func(r *metrics.Registry) { r.ObserveRateLimit(123, time.Now()) },
-			series: "stackorder_github_rate_limit_remaining",
+			record: func(r *metrics.Registry) { r.ObserveRateLimit("app", 123, time.Now()) },
+			series: `stackorder_github_rate_limit_remaining{installation="app"}`,
 			want:   123,
 		},
 		{

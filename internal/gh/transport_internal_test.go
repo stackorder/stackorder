@@ -21,6 +21,7 @@ type recordedMetrics struct {
 	mu        sync.Mutex
 	requests  []string
 	remaining []int
+	scopes    []string
 }
 
 func (m *recordedMetrics) ObserveRequest(method, route string, status int, _ time.Duration) {
@@ -29,10 +30,11 @@ func (m *recordedMetrics) ObserveRequest(method, route string, status int, _ tim
 	m.requests = append(m.requests, fmt.Sprintf("%s %s %d", method, route, status))
 }
 
-func (m *recordedMetrics) ObserveRateLimit(remaining int, _ time.Time) {
+func (m *recordedMetrics) ObserveRateLimit(installation string, remaining int, _ time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.remaining = append(m.remaining, remaining)
+	m.scopes = append(m.scopes, installation)
 }
 
 type sleeps struct {
@@ -335,6 +337,8 @@ func (c *countingSource) invalidate() bool {
 	return true
 }
 
+func (*countingSource) rateLimitScope() string { return "42" }
+
 func TestUnauthorizedRefreshesTokenOnce(t *testing.T) {
 	var auths []string
 	var mu sync.Mutex
@@ -380,6 +384,8 @@ type failingSource struct{}
 func (failingSource) token(context.Context) (string, error) { return "", errors.New("no token") }
 
 func (failingSource) invalidate() bool { return false }
+
+func (failingSource) rateLimitScope() string { return "" }
 
 func TestTokenSourceError(t *testing.T) {
 	h, calls := sequence(t)
@@ -445,11 +451,29 @@ func TestMetricsAndRateLimitObservation(t *testing.T) {
 		okJSON(`{}`, "X-RateLimit-Remaining", "10", "X-RateLimit-Reset", "bogus"),
 	)
 	tr, _, m := testTransport(t, h)
-	require.NoError(t, tr.call(context.Background(), request{method: http.MethodGet, route: "/repos/{owner}/{repo}", path: "/thing"}, nil))
-	require.NoError(t, tr.call(context.Background(), get("/b"), nil))
-	require.NoError(t, tr.call(context.Background(), get("/c"), nil))
+	inst := &countingSource{tokens: []string{"x"}}
+	r0 := request{method: http.MethodGet, route: "/repos/{owner}/{repo}", path: "/thing", auth: inst}
+	rb := get("/b")
+	rb.auth = inst
+	rc := get("/c")
+	rc.auth = inst
+	require.NoError(t, tr.call(context.Background(), r0, nil))
+	require.NoError(t, tr.call(context.Background(), rb, nil))
+	require.NoError(t, tr.call(context.Background(), rc, nil))
 	assert.Equal(t, []string{"GET /repos/{owner}/{repo} 502", "GET /repos/{owner}/{repo} 200", "GET /b 200", "GET /c 200"}, m.requests)
 	assert.Equal(t, []int{4000, 3999}, m.remaining)
+	assert.Equal(t, []string{"42", "42"}, m.scopes)
+}
+
+func TestRateLimitScopeOmittedForUserToken(t *testing.T) {
+	reset := strconv.FormatInt(fixedNow.Add(time.Hour).Unix(), 10)
+	h, _ := sequence(t, okJSON(`{}`, "X-RateLimit-Remaining", "3999", "X-RateLimit-Reset", reset))
+	tr, _, m := testTransport(t, h)
+	r := get("/thing")
+	r.auth = staticToken("user")
+	require.NoError(t, tr.call(context.Background(), r, nil))
+	assert.Empty(t, m.remaining)
+	assert.Empty(t, m.scopes)
 }
 
 func TestPaginationFollowsLinkHeader(t *testing.T) {

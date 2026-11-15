@@ -50,7 +50,10 @@ type Metrics interface {
 	// response was received.
 	ObserveRequest(method, route string, status int, d time.Duration)
 	// ObserveRateLimit records the rate limit headers of a response.
-	ObserveRateLimit(remaining int, reset time.Time)
+	// installation identifies the GitHub rate limit budget the response was
+	// drawn from: the installation id for an installation token, or "app"
+	// for the App JWT.
+	ObserveRateLimit(installation string, remaining int, reset time.Time)
 }
 
 // Config configures an App or a token Client.

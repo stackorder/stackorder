@@ -123,6 +123,8 @@ func (s appJWT) token(context.Context) (string, error) { return s.app.JWT() }
 
 func (appJWT) invalidate() bool { return false }
 
+func (appJWT) rateLimitScope() string { return "app" }
+
 func (a *App) jwtAuth() tokenSource { return appJWT{app: a} }
 
 // InstallationToken returns a token for the installation, served from a
@@ -205,6 +207,8 @@ func (s installationAuth) invalidate() bool {
 	s.app.invalidateToken(s.id)
 	return true
 }
+
+func (s installationAuth) rateLimitScope() string { return strconv.FormatInt(s.id, 10) }
 
 // Client returns a client scoped to one installation. It fetches a token
 // eagerly so an unknown or suspended installation fails here; later calls

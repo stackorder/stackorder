@@ -79,7 +79,7 @@ type Registry struct {
 
 	githubRequests  *prometheus.CounterVec
 	githubDuration  *prometheus.HistogramVec
-	githubRateLimit prometheus.Gauge
+	githubRateLimit *prometheus.GaugeVec
 
 	httpRequests *prometheus.CounterVec
 	httpDuration *prometheus.HistogramVec
@@ -163,10 +163,10 @@ func New() *Registry {
 			Help:    "GitHub API request attempt latency, by route.",
 			Buckets: githubBuckets,
 		}, []string{"route"}),
-		githubRateLimit: prometheus.NewGauge(prometheus.GaugeOpts{
+		githubRateLimit: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: Namespace, Name: "github_rate_limit_remaining",
-			Help: "Rate limit remaining on the last GitHub API response.",
-		}),
+			Help: "Rate limit remaining on the last GitHub API response, by installation; the App JWT's budget is labelled \"app\".",
+		}, []string{"installation"}),
 		httpRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: Namespace, Name: "http_requests_total",
 			Help: "HTTP requests served, by route, method and status.",

@@ -80,4 +80,12 @@ func TestMetricsAfterTheFlows(t *testing.T) {
 	assert.GreaterOrEqual(t, m["stackorder_locks_held"], 5.0)
 	assert.Contains(t, m, "stackorder_drifted_stacks")
 	assert.Contains(t, m, `stackorder_http_requests_total{method="POST",route="POST /v1/runs/{id}/stacks/{key}/result",status="200"}`)
+
+	assert.NotContains(t, m, "stackorder_github_rate_limit_remaining",
+		"the gauge is labelled by installation and carries no unlabelled series")
+	if assert.Contains(t, m, `stackorder_github_rate_limit_remaining{installation="7"}`) {
+		assert.Equal(t, 4999.0, m[`stackorder_github_rate_limit_remaining{installation="7"}`])
+	}
+	assert.Contains(t, m, `stackorder_github_rate_limit_remaining{installation="app"}`,
+		"the App JWT's budget is reported under installation=app")
 }
