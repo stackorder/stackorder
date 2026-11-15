@@ -25,6 +25,7 @@ type runsMetrics interface {
 	SetDriftedStacks(n int)
 	SetLocksHeld(n int)
 	CommandReceived(verb string, accepted bool)
+	ArtifactWrite(ok bool)
 }
 
 var (
@@ -46,6 +47,8 @@ func touchAll(r *metrics.Registry) {
 	r.JobProcessed("reconcile", metrics.ResultOK)
 	r.SetQueueDepth(metrics.QueueEvents, 7)
 	r.SetSchedulerLeader(true)
+	r.ArtifactWrite(true)
+	r.ArtifactRead(false)
 	r.ObserveRequest(http.MethodPost, "/repos/{owner}/{repo}/check-runs", http.StatusCreated, 80*time.Millisecond)
 	r.ObserveRateLimit("42", 4999, time.Unix(1_800_000_000, 0))
 	r.HTTPMiddleware("GET /v1/me")(http.NotFoundHandler()).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/me", nil))
@@ -67,6 +70,7 @@ func TestRegistryExportsEveryMetric(t *testing.T) {
 		goRuntime = goRuntime || f.GetName() == "go_goroutines"
 	}
 	want := []string{
+		"stackorder_artifact_operations_total",
 		"stackorder_build_info",
 		"stackorder_commands_total",
 		"stackorder_dispatches_total",
@@ -164,6 +168,18 @@ func TestRecording(t *testing.T) {
 			record: func(r *metrics.Registry) { r.CommandReceived("deploy-everything-now", false) },
 			series: `stackorder_commands_total{accepted="false",verb="other"}`,
 			want:   1,
+		},
+		{
+			name:   "artifact write failed",
+			record: func(r *metrics.Registry) { r.ArtifactWrite(false); r.ArtifactWrite(true) },
+			series: `stackorder_artifact_operations_total{operation="write",result="error"}`,
+			want:   1,
+		},
+		{
+			name:   "artifact read ok",
+			record: func(r *metrics.Registry) { r.ArtifactRead(true); r.ArtifactRead(true) },
+			series: `stackorder_artifact_operations_total{operation="read",result="ok"}`,
+			want:   2,
 		},
 		{
 			name:   "webhook received",

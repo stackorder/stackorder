@@ -136,6 +136,32 @@ func (r *Registry) SetSchedulerLeader(leader bool) {
 	r.schedulerLeader.Set(v)
 }
 
+// ArtifactWrite counts one write to the artifact store and whether it
+// succeeded. It implements runs.Metrics.
+func (r *Registry) ArtifactWrite(ok bool) {
+	if r == nil {
+		return
+	}
+	r.artifactOps.WithLabelValues("write", artifactResult(ok)).Inc()
+}
+
+// ArtifactRead counts one read from the artifact store and whether it
+// succeeded; a missing object counts as a successful read, as the store
+// answered.
+func (r *Registry) ArtifactRead(ok bool) {
+	if r == nil {
+		return
+	}
+	r.artifactOps.WithLabelValues("read", artifactResult(ok)).Inc()
+}
+
+func artifactResult(ok bool) string {
+	if ok {
+		return "ok"
+	}
+	return "error"
+}
+
 // ObserveRequest records one GitHub API attempt; it implements gh.Metrics.
 // The route label is the method and the route template, such as
 // "POST /repos/{owner}/{repo}/check-runs", matching the ServeMux pattern

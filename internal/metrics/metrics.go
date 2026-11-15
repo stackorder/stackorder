@@ -77,6 +77,8 @@ type Registry struct {
 	queueDepth        *prometheus.GaugeVec
 	schedulerLeader   prometheus.Gauge
 
+	artifactOps *prometheus.CounterVec
+
 	githubRequests  *prometheus.CounterVec
 	githubDuration  *prometheus.HistogramVec
 	githubRateLimit *prometheus.GaugeVec
@@ -154,6 +156,10 @@ func New() *Registry {
 			Namespace: Namespace, Name: "scheduler_leader",
 			Help: "1 while this instance holds the scheduler's advisory lock.",
 		}),
+		artifactOps: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: Namespace, Name: "artifact_operations_total",
+			Help: "Reads and writes against the optional artifact store, by operation and result.",
+		}, []string{"operation", "result"}),
 		githubRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: Namespace, Name: "github_requests_total",
 			Help: "GitHub API request attempts, by route and HTTP status (0 when no response arrived).",
@@ -187,6 +193,7 @@ func New() *Registry {
 		r.runs, r.stackFinished, r.stackDuration, r.dispatches, r.driftedStacks, r.locksHeld, r.commands,
 		r.webhookReceived, r.webhookDuplicates, r.webhookLag,
 		r.eventsProcessed, r.eventsDead, r.jobsProcessed, r.queueDepth, r.schedulerLeader,
+		r.artifactOps,
 		r.githubRequests, r.githubDuration, r.githubRateLimit,
 		r.httpRequests, r.httpDuration,
 		r.buildInfo,
