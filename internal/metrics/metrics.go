@@ -60,14 +60,15 @@ var (
 type Registry struct {
 	reg *prometheus.Registry
 
-	runs          *prometheus.CounterVec
-	runsCreated   *prometheus.CounterVec
-	stackFinished *prometheus.CounterVec
-	stackDuration *prometheus.HistogramVec
-	dispatches    *prometheus.CounterVec
-	driftedStacks prometheus.Gauge
-	locksHeld     prometheus.Gauge
-	commands      *prometheus.CounterVec
+	runs             *prometheus.CounterVec
+	runsCreated      *prometheus.CounterVec
+	stackFinished    *prometheus.CounterVec
+	stackDuration    *prometheus.HistogramVec
+	dispatches       *prometheus.CounterVec
+	driftedStacks    prometheus.Gauge
+	locksHeld        prometheus.Gauge
+	pendingDeletions prometheus.Gauge
+	commands         *prometheus.CounterVec
 
 	webhookReceived   *prometheus.CounterVec
 	webhookDuplicates prometheus.Counter
@@ -123,6 +124,10 @@ func New() *Registry {
 		locksHeld: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: Namespace, Name: "locks_held",
 			Help: "Orchestration locks currently held.",
+		}),
+		pendingDeletions: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: Namespace, Name: "pending_object_deletions",
+			Help: "Plan objects waiting to be removed from the artifact store after the last prune.",
 		}),
 		commands: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: Namespace, Name: "commands_total",
@@ -195,7 +200,7 @@ func New() *Registry {
 	r.reg.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-		r.runs, r.runsCreated, r.stackFinished, r.stackDuration, r.dispatches, r.driftedStacks, r.locksHeld, r.commands,
+		r.runs, r.runsCreated, r.stackFinished, r.stackDuration, r.dispatches, r.driftedStacks, r.locksHeld, r.pendingDeletions, r.commands,
 		r.webhookReceived, r.webhookDuplicates, r.webhookLag,
 		r.eventsProcessed, r.eventsDead, r.jobsProcessed, r.queueDepth, r.schedulerLeader,
 		r.artifactOps,

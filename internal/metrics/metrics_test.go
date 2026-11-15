@@ -25,6 +25,7 @@ type runsMetrics interface {
 	Dispatched(mode v1.RunMode, ok bool)
 	SetDriftedStacks(n int)
 	SetLocksHeld(n int)
+	SetPendingObjectDeletions(n int)
 	CommandReceived(verb string, accepted bool)
 	ArtifactWrite(ok bool)
 }
@@ -41,6 +42,7 @@ func touchAll(r *metrics.Registry) {
 	r.Dispatched(v1.ModeApply, true)
 	r.SetDriftedStacks(3)
 	r.SetLocksHeld(2)
+	r.SetPendingObjectDeletions(5)
 	r.CommandReceived("apply", true)
 	r.WebhookReceived("push")
 	r.WebhookDuplicate()
@@ -86,6 +88,7 @@ func TestRegistryExportsEveryMetric(t *testing.T) {
 		"stackorder_http_requests_total",
 		"stackorder_jobs_processed_total",
 		"stackorder_locks_held",
+		"stackorder_pending_object_deletions",
 		"stackorder_queue_depth",
 		"stackorder_runs_created_total",
 		"stackorder_runs_total",
@@ -168,6 +171,12 @@ func TestRecording(t *testing.T) {
 			record: func(r *metrics.Registry) { r.SetLocksHeld(9) },
 			series: "stackorder_locks_held",
 			want:   9,
+		},
+		{
+			name:   "pending object deletions",
+			record: func(r *metrics.Registry) { r.SetPendingObjectDeletions(7); r.SetPendingObjectDeletions(3) },
+			series: "stackorder_pending_object_deletions",
+			want:   3,
 		},
 		{
 			name:   "command refused",

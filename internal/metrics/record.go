@@ -67,6 +67,15 @@ func (r *Registry) SetLocksHeld(n int) {
 	r.locksHeld.Set(float64(n))
 }
 
+// SetPendingObjectDeletions sets the number of plan objects waiting to be
+// removed from the artifact store after the last prune.
+func (r *Registry) SetPendingObjectDeletions(n int) {
+	if r == nil {
+		return
+	}
+	r.pendingDeletions.Set(float64(n))
+}
+
 // CommandReceived counts a PR comment command and whether it was accepted.
 // A verb that is not one of the known commands is counted as Other.
 func (r *Registry) CommandReceived(verb string, accepted bool) {
