@@ -1197,7 +1197,9 @@ declares it as `HEALTHCHECK`. `stackorder-server migrate` applies the
 embedded migrations to `DATABASE_URL` and exits, under the migration lock,
 needing neither `STACKORDER_BASE_URL` nor the GitHub App settings; `--to N`
 stops at a version, `--status` reports the applied and target version and
-exits 0 up to date, 2 pending, 1 dirty or ahead of the embedded latest. At start-up, and daily at 04:00 UTC, the server
+exits 0 up to date, 2 pending, 1 dirty or ahead of the embedded latest, and
+`--force N` records version N and clears the dirty flag on a dirty database,
+for recovering a migration that failed. At start-up, and daily at 04:00 UTC, the server
 syncs installations and their repositories from the App API (adding and
 refreshing, reading `stackorder.yaml` only for repositories not seen before)
 so installations made in setup mode or lost webhooks are learned; when the
@@ -1232,12 +1234,19 @@ connection beyond the pool is open at a time.
 database. `store.Migrate` takes `store.MigrationLockKey`; `store.MigrateUp`
 takes the same lock, reads the applied version under it and migrates up to a
 given version, reporting whether it applied anything and refusing a dirty
-schema, or one already above the target with a `store.SchemaAheadError`,
-instead of reverting anything, and `store.SchemaVersion` reports the applied
+schema with a `store.SchemaDirtyError`, or one already above the target with a
+`store.SchemaAheadError`, instead of reverting anything; `store.Migrate` (the
+start-up path) refuses a dirty schema the same way. `store.ForceVersion`
+records a version and clears the dirty flag under the lock without running a
+migration (version 0 means no migration applied), for recovering a dirty
+schema after the operator has brought it to a known version; a migration file
+runs as one implicit transaction under the `pgx/v5` driver, so a failed
+migration rolls back and leaves only the dirty flag at the previous version.
+`store.SchemaVersion` reports the applied
 version and whether it is dirty, reading `schema_migrations` under the lock
 without creating it. The `stackorder-server migrate` subcommand applies
-them up to the latest or a `--to` version, or reports `--status`, needing only
-`DATABASE_URL`. The scheduler takes `store.SchedulerLockKey`
+them up to the latest or a `--to` version, reports `--status`, or recovers a
+dirty database with `--force`, needing only `DATABASE_URL`. The scheduler takes `store.SchedulerLockKey`
 through `store.TryAdvisoryLock`, which returns `(*AdvisoryLock, acquired,
 err)` with `Held(ctx)` and `Release()`. Dispatches are unique per (run, wave,
 environment, mode) and a workflow run id belongs to at most one dispatch.

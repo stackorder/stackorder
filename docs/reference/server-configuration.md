@@ -114,7 +114,7 @@ The server applies pending migrations at [start-up](#lifecycle), so you normally
 
 ```text
 $ stackorder-server migrate --help
-usage: stackorder-server migrate [--to N | --status]
+usage: stackorder-server migrate [--to N | --status | --force N]
 
 Apply the embedded migrations to DATABASE_URL and exit, holding the same
 migration lock as start-up so it is safe next to starting servers. It needs
@@ -133,7 +133,9 @@ only DATABASE_URL, not STACKORDER_BASE_URL or the GitHub App settings.
 
   It exits `0` when the database is already at the target version, `2` when migrations are pending, and `1` when the database is `dirty` — left half way by a migration that failed, which a human must repair before it can be migrated or started — or when the database is *ahead* of the binary, its version above the latest this binary embeds (as after a rolling downgrade), which `migrate` cannot bring up because it never reverts a migration. `--status` and plain `migrate` agree: both exit `1` on a database the binary cannot migrate up.
 
-It takes the same migration lock as start-up, so it is safe to run while servers are starting: they wait for each other and apply each migration once. It needs only `DATABASE_URL`, so it runs before `STACKORDER_BASE_URL` and the GitHub App are configured. Server start still migrates automatically; running `migrate` first does not change that.
+- `stackorder-server migrate --force N` records version `N`, clears the dirty flag, and exits `0`, **without running any migration**. It only recovers a `dirty` database — one a migration left unfinished — and exits `1` on a database that is not dirty, so it cannot be used to skip migrations on a healthy database. Each migration file runs in one transaction, so a migration that fails rolls back and leaves the schema at the version before it: after migration `N` fails, `--force N-1` records that version and the next `migrate` re-applies `N`. `--force 0` means no migration is applied, the state before the first one. See [Recover from a dirty migration](/operations/troubleshooting#dirty-migration) for the full procedure and when to force which version.
+
+It takes the same migration lock as start-up, so it is safe to run while servers are starting: they wait for each other and apply each migration once. It needs only `DATABASE_URL`, so it runs before `STACKORDER_BASE_URL` and the GitHub App are configured. Server start still migrates automatically; running `migrate` first does not change that. A server refuses to start against a dirty database, naming the version and pointing at the recovery, so a failed migration never starts a half-migrated server.
 
 ## Generating the session key {#session-key}
 

@@ -20,6 +20,7 @@ Stackorder degrades gracefully but never silently. Every refusal is a PR comment
 | A `stackorder_outputs` read refused, such as `outputs_not_shared` or `state_location_unknown` | [Shared outputs refused](#shared-outputs) |
 | The server serves only `/setup` | [Server start-up](#server-start) |
 | `/setup` answers `403` "Setup needs the setup token" | [Server start-up](#server-start) |
+| The server exits at start saying the schema is `dirty` | [Recover from a dirty migration](#dirty-migration) |
 
 ## Where to look {#where-to-look}
 
@@ -209,8 +210,47 @@ The reading stack is the consumer and the stack it names is the producer. Refusa
 | Symptom | Cause |
 | --- | --- |
 | The server exits at start | The log lists every invalid variable: `DATABASE_URL` or `STACKORDER_BASE_URL` missing, only some of the three `GITHUB_APP_*` variables set, a malformed private key, `STACKORDER_ARTIFACT_PREFIX` without a bucket, an entry of `STACKORDER_STATE_BUCKETS` without a repository or a valid bucket name, or with a `.` or `..` segment in its prefix, a `STACKORDER_STATE_ROLE_ARN` that is not a role ARN or is set without `STACKORDER_STATE_BUCKETS`, a bad duration or pattern. Or the database cannot be reached or migrated. |
+| The server exits at start saying the schema is `dirty` at a version | A migration failed on an earlier start or `migrate` run and left the schema marked unfinished. The server refuses to start a half-migrated database. See [Recover from a dirty migration](#dirty-migration). |
 | Only `/setup`, `/healthz` and `/readyz` respond | Setup mode: the GitHub App variables are not set. |
 | `/setup` answers `403` "Setup needs the setup token" | `/setup` needs the one-time [setup token](/reference/server-configuration#setup-token). Open the `setup_url` from the server's log, in the same browser for the whole setup. A generated token changes at every start, so take the latest line; with two instances, each has its own token. With `STACKORDER_LOG_LEVEL=error` the line is not logged: use `info` or `warn`, or set `STACKORDER_SETUP_TOKEN`. |
 | `/setup` says the server already has a GitHub App, but it runs in setup mode | An App was already created with this start's token. Restart the server with that App's credentials; if they were lost, delete the App in its GitHub settings and restart the server for a new token. |
 | `/healthz` passes, `/readyz` fails | The database is unreachable. |
 | Everyone was signed out | `STACKORDER_SESSION_KEY` changed, or differs between instances. |
+
+## Recover from a dirty migration {#dirty-migration}
+
+**Symptom.** A server exits at start, or `stackorder-server migrate` exits `1`, with an error like:
+
+```text
+schema is dirty at version 7: a previous migration did not finish and left the schema marked unfinished
+```
+
+`stackorder-server migrate --status` prints `dirty=true` and exits `1`.
+
+**Why.** Migrations record their progress in a `schema_migrations` table: version `N` is marked *dirty* before migration `N` runs and the flag is cleared when it finishes. A migration that fails — a statement errored, or the process was killed mid-migration — leaves the flag set. Every later migration and every server start then refuse the database until the flag is cleared, so a half-migrated schema is never served.
+
+**What state the database is in.** Each migration file runs in a single transaction. A migration that fails rolls its own changes back, so the schema is left at the version *before* the one that failed, and only the dirty flag remains. Confirm nothing from the failed migration survived before clearing the flag; a migration killed by a crash rolls back the same way.
+
+**Fix.**
+
+1. **Take a backup** (or a snapshot) before touching the database.
+2. **Read the error for the dirty version `N`** and find migration `N` in the server's logs or the release notes to see what it was doing.
+3. **Check the schema.** Because migration `N` runs in one transaction, a failed `N` leaves the schema at version `N-1`, with none of `N`'s objects present. Verify that is so — look for the tables, columns or indexes `N` would have added — and, if a crash left anything behind, drop it so the schema matches version `N-1` exactly.
+4. **Record the recovered version and clear the flag** with the new image's `migrate --force`, against the same database:
+
+   ```sh
+   docker run --rm -e DATABASE_URL="$DATABASE_URL" \
+     ghcr.io/stackorder/stackorder:X.Y.Z migrate --force N-1
+   ```
+
+   Pass the version the schema is actually at. After a rolled-back migration `N` that is `N-1`; `migrate --force 0` records "no migration applied", for a failed first migration. Force version `N` itself **only** if you finished migration `N` by hand instead of reverting it. `--force` changes nothing but the bookkeeping row, and refuses a database that is not dirty.
+5. **Migrate the rest** and start the server:
+
+   ```sh
+   docker run --rm -e DATABASE_URL="$DATABASE_URL" \
+     ghcr.io/stackorder/stackorder:X.Y.Z migrate
+   ```
+
+   With `--force N-1`, this re-applies migration `N` and any later ones; `migrate --status` should then print `dirty=false` and the current version. Start the server as usual.
+
+Fix the cause of the original failure — commonly data the migration could not transform, or a disk or connection lost mid-run — before the next attempt, or `N` fails and marks the schema dirty again.
