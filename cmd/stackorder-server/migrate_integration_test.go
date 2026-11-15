@@ -91,6 +91,35 @@ func TestMigrateConcurrentReportsAppliedOnce(t *testing.T) {
 	assert.Equal(t, n-1, already, "the rest report the database was already migrated")
 }
 
+func TestMigrateRefusesDatabaseAheadOfBinary(t *testing.T) {
+	target, err := store.LatestMigration()
+	require.NoError(t, err)
+	dsn := pgtest.DSN(t)
+	env := envOf(map[string]string{"DATABASE_URL": dsn})
+
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 0, run([]string{"migrate"}, env, &stdout, &stderr))
+
+	s, err := store.Open(t.Context(), dsn)
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+	_, err = s.Pool().Exec(t.Context(), `UPDATE schema_migrations SET version = 99`)
+	require.NoError(t, err)
+
+	stdout.Reset()
+	stderr.Reset()
+	assert.Equal(t, 1, run([]string{"migrate"}, env, &stdout, &stderr))
+	assert.Contains(t, stderr.String(),
+		fmt.Sprintf("database is at version 99, above the latest version %d this binary embeds", target))
+	assert.NotContains(t, stderr.String(), "requested version",
+		"plain migrate requested no version")
+
+	stderr.Reset()
+	assert.Equal(t, 1, run([]string{"migrate", "--to", "2"}, env, &stdout, &stderr))
+	assert.Contains(t, stderr.String(), "above the requested version 2",
+		"with --to the version was requested")
+}
+
 func TestMigrateStatusDoesNotMutate(t *testing.T) {
 	dsn := pgtest.DSN(t)
 	env := envOf(map[string]string{"DATABASE_URL": dsn})

@@ -26,13 +26,28 @@ func (s *Store) Migrate(ctx context.Context) error {
 	})
 }
 
+// SchemaAheadError reports that the database is at a migration version above
+// the one MigrateUp was asked to reach. MigrateUp never reverts a migration,
+// so it returns this rather than migrating down. Target is the version asked
+// for, normally LatestMigration; a caller that requested no particular version
+// can report it as the latest version the binary embeds.
+type SchemaAheadError struct {
+	Current uint
+	Target  uint
+}
+
+func (e *SchemaAheadError) Error() string {
+	return fmt.Sprintf("schema is at version %d, above the requested version %d; migrate does not revert migrations", e.Current, e.Target)
+}
+
 // MigrateUp applies the pending up migrations until the schema is at version,
 // holding MigrationLockKey as Migrate does. It reads the applied version under
 // the lock and never reverts a migration: it refuses a dirty schema, and a
-// schema already above version, rather than migrating down. version is
-// normally LatestMigration; passing it the current version is a no-op. applied
-// reports whether a migration ran, so concurrent callers can tell the one that
-// did the work from those that found the database already migrated.
+// schema already above version (with a *SchemaAheadError), rather than
+// migrating down. version is normally LatestMigration; passing it the current
+// version is a no-op. applied reports whether a migration ran, so concurrent
+// callers can tell the one that did the work from those that found the
+// database already migrated.
 func (s *Store) MigrateUp(ctx context.Context, version uint) (applied bool, err error) {
 	err = s.withMigrator(ctx, fmt.Sprintf("migrate up to %d", version), func(m *migrate.Migrate) error {
 		current, dirty, verr := m.Version()
@@ -46,7 +61,7 @@ func (s *Store) MigrateUp(ctx context.Context, version uint) (applied bool, err 
 			return fmt.Errorf("schema is dirty at version %d; repair it before migrating", current)
 		}
 		if current > version {
-			return fmt.Errorf("schema is at version %d, above the requested version %d; migrate does not revert migrations", current, version)
+			return &SchemaAheadError{Current: current, Target: version}
 		}
 		if merr := m.Migrate(version); merr != nil {
 			return merr

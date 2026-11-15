@@ -116,6 +116,11 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 
 	applied, err := st.MigrateUp(ctx, dest)
 	if err != nil {
+		var ahead *store.SchemaAheadError
+		if !toSet && errors.As(err, &ahead) {
+			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: database is at version %d, above the latest version %d this binary embeds; migrate does not revert migrations\n", ahead.Current, ahead.Target)
+			return 1
+		}
 		_, _ = fmt.Fprintln(stderr, "stackorder-server migrate:", err)
 		return 1
 	}

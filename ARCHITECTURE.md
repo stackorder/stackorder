@@ -1141,9 +1141,11 @@ connections (`server.PoolConnsBeyondWorkers`) unless the DSN's
 `store.LatestMigration` reports the highest embedded version without a
 database. `store.Migrate` takes `store.MigrationLockKey`; `store.MigrateUp`
 takes the same lock, reads the applied version under it and migrates up to a
-given version, refusing a dirty schema or one already above the target instead
-of reverting anything, and `store.SchemaVersion` reports the applied version
-and whether it is dirty. The `stackorder-server migrate` subcommand applies
+given version, reporting whether it applied anything and refusing a dirty
+schema, or one already above the target with a `store.SchemaAheadError`,
+instead of reverting anything, and `store.SchemaVersion` reports the applied
+version and whether it is dirty, reading `schema_migrations` under the lock
+without creating it. The `stackorder-server migrate` subcommand applies
 them up to the latest or a `--to` version, or reports `--status`, needing only
 `DATABASE_URL`. The scheduler takes `store.SchedulerLockKey`
 through `store.TryAdvisoryLock`, which returns `(*AdvisoryLock, acquired,

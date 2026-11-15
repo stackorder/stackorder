@@ -101,6 +101,10 @@ func TestMigrateUp(t *testing.T) {
 	_, err = s.MigrateUp(ctx, 2)
 	require.ErrorContains(t, err, "above the requested version 2",
 		"it refuses to migrate down instead of reverting")
+	var ahead *store.SchemaAheadError
+	require.ErrorAs(t, err, &ahead, "the refusal is a typed SchemaAheadError")
+	assert.Equal(t, uint(3), ahead.Current)
+	assert.Equal(t, uint(2), ahead.Target)
 	ver, _, err = s.SchemaVersion(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, uint(3), ver, "a refused down leaves the schema where it was")
