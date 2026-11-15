@@ -404,9 +404,15 @@ Each problem is one diagnostic with a severity, a message, and, where the loader
 ```text
 stackorder.yaml:7: error: unknown field "paralel"
 stacks/prod/vpc/.stackorder.yaml: error: depends_on[0]: "/abs": stack path must be repository relative
+invalid: 2 errors, 0 warnings
+```
+
+Once the files parse, the graph checks run, so a clean-parse repository reports its cycles and the scan's warnings instead:
+
+```text
 error: dependency cycle: stacks/prod/eks -> stacks/prod/vpc -> stacks/prod/eks
-warning: stacks/prod/db: var file prod.tfvars does not exist
-invalid: 2 errors, 1 warning
+warning: stacks/prod/db: var file stacks/prod/db/prod.tfvars does not exist
+invalid: 1 error, 1 warning
 ```
 
 `--format json` prints a `ValidationReport`: `valid`, the `errors` and `warnings` counts, and `diagnostics`, each a `{severity, message, file, line, column}` where `file` is repository relative, and `line` and `column` are 1-based and left out when the loader does not know them. The shape is stable; fields are only ever added.
