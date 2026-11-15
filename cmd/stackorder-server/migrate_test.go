@@ -83,10 +83,11 @@ func TestRollbackTableMatchesSchemaVersion(t *testing.T) {
 	require.NoError(t, err)
 	doc := string(guide)
 
-	release := regexp.MustCompile(`(?m)^\| This release \| (\d+) \|`).FindStringSubmatch(doc)
-	require.NotNil(t, release, "rollback table has no `| This release | N |` row")
-	assert.Equal(t, strconv.FormatUint(uint64(latest), 10), release[1],
-		"rollback table says this release is schema %s but LatestMigration is %d", release[1], latest)
+	rows := regexp.MustCompile(`(?m)^\| (This release|v\d+\.\d+\.\d+) \| (\d+) \|`).FindAllStringSubmatch(doc, -1)
+	require.NotEmpty(t, rows, "rollback table has no `| vX.Y.Z | N |` or `| This release | N |` row")
+	release := rows[len(rows)-1]
+	assert.Equal(t, strconv.FormatUint(uint64(latest), 10), release[2],
+		"rollback table's last row, %s, says schema %s but LatestMigration is %d", release[1], release[2], latest)
 
 	heading := regexp.MustCompile(`Reverting down from version (\d+) drops`).FindStringSubmatch(doc)
 	require.NotNil(t, heading, "rollback loss table has no `Reverting down from version N` heading")
