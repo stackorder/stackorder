@@ -766,6 +766,9 @@ func (s *Service) HandleInstallation(ctx context.Context, ev *gh.InstallationEve
 		}
 		return nil
 	case "suspend":
+		if _, err := s.st.UpsertInstallation(ctx, store.Installation{ID: inst.ID, Account: inst.Account.Login, AccountType: inst.Account.Type}); err != nil {
+			return storeErr(err, "record installation %d", inst.ID)
+		}
 		if _, err := s.setSuspended(ctx, inst.ID, true, observed); err != nil {
 			return err
 		}

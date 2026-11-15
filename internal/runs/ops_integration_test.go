@@ -862,6 +862,23 @@ func TestInstallationEventOrder(t *testing.T) {
 	assert.True(t, repo.Suspended, "a later delivery still takes effect")
 }
 
+func TestInstallationSuspendBeforeCreated(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.gh.SetRepo("gamma/infra", gh.Repository{ID: 800, DefaultBranch: "main"})
+	e.gh.AddInstallation(3, "gamma", "gamma/infra")
+
+	base := time.Now().UTC()
+	suspend := e.gh.InstallationEvent("suspend", 3)
+	created := e.gh.InstallationEvent("created", 3)
+
+	require.NoError(t, e.svc.HandleInstallation(runs.WithReceivedAt(e.ctx, base.Add(time.Minute)), suspend))
+	require.NoError(t, e.svc.HandleInstallation(runs.WithReceivedAt(e.ctx, base), created))
+
+	in, err := e.st.GetInstallation(e.ctx, 3)
+	require.NoError(t, err)
+	assert.NotNil(t, in.SuspendedAt, "the suspend was received latest; the installation stays suspended")
+}
+
 func TestPrune(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	runID := e.planned(7, headSHA)
