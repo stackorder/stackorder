@@ -2,6 +2,9 @@ locals {
   image_ref       = "${var.image}${startswith(var.image_tag, "sha256:") ? "@" : ":"}${var.image_tag}"
   verify_image    = var.verify_image && startswith(var.image, "ghcr.io/")
   ghcr_repository = trimprefix(var.image, "ghcr.io/")
+
+  cluster_arn  = var.create_cluster ? aws_ecs_cluster.this[0].arn : var.cluster_arn
+  cluster_name = var.create_cluster ? aws_ecs_cluster.this[0].name : split("/", var.cluster_arn)[1]
 }
 
 data "http" "image_pull_token" {
@@ -52,8 +55,8 @@ locals {
   )
 
   container_secrets = concat(
-    [{ name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.database.arn }],
-    [for key in local.app_secret_keys : { name = key, valueFrom = "${aws_secretsmanager_secret.app.arn}:${key}::" }],
+    [{ name = "DATABASE_URL", valueFrom = local.database_secret_arn }],
+    [for key in local.app_secret_keys : { name = key, valueFrom = "${local.app_secret_arn}:${key}::" }],
   )
 
   container = merge(
@@ -101,6 +104,8 @@ locals {
 }
 
 resource "aws_ecs_cluster" "this" {
+  count = var.create_cluster ? 1 : 0
+
   name = var.name
 
   setting {
@@ -109,6 +114,13 @@ resource "aws_ecs_cluster" "this" {
   }
 
   tags = var.tags
+}
+
+resource "aws_ecs_cluster_capacity_providers" "this" {
+  count = var.create_cluster && length(var.capacity_provider_strategy) > 0 ? 1 : 0
+
+  cluster_name       = aws_ecs_cluster.this[0].name
+  capacity_providers = distinct([for s in var.capacity_provider_strategy : s.capacity_provider])
 }
 
 resource "aws_ecs_task_definition" "this" {
@@ -131,10 +143,10 @@ resource "aws_ecs_task_definition" "this" {
 
 resource "aws_ecs_service" "this" {
   name                   = var.name
-  cluster                = aws_ecs_cluster.this.id
+  cluster                = local.cluster_arn
   task_definition        = aws_ecs_task_definition.this.arn
   desired_count          = local.github_app_configured ? var.desired_count : 1
-  launch_type            = "FARGATE"
+  launch_type            = length(var.capacity_provider_strategy) > 0 ? null : "FARGATE"
   platform_version       = "LATEST"
   enable_execute_command = var.enable_execute_command
   propagate_tags         = "SERVICE"
@@ -152,6 +164,16 @@ resource "aws_ecs_service" "this" {
   deployment_circuit_breaker {
     enable   = true
     rollback = true
+  }
+
+  dynamic "capacity_provider_strategy" {
+    for_each = var.capacity_provider_strategy
+
+    content {
+      capacity_provider = capacity_provider_strategy.value.capacity_provider
+      weight            = capacity_provider_strategy.value.weight
+      base              = capacity_provider_strategy.value.base
+    }
   }
 
   network_configuration {
@@ -174,6 +196,7 @@ resource "aws_ecs_service" "this" {
   }
 
   depends_on = [
+    aws_ecs_cluster_capacity_providers.this,
     aws_lb_listener.https,
     aws_iam_role_policy.execution,
     aws_iam_role_policy_attachment.execution,

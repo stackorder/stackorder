@@ -24,8 +24,8 @@ output "webhook_url" {
 }
 
 output "ecs_cluster_name" {
-  description = "Name of the ECS cluster."
-  value       = aws_ecs_cluster.this.name
+  description = "Name of the ECS cluster the service runs in, whether the module created it or create_cluster is false."
+  value       = local.cluster_name
 }
 
 output "ecs_service_name" {
@@ -44,18 +44,18 @@ output "db_endpoint" {
 }
 
 output "db_secret_arn" {
-  description = "ARN of the Secrets Manager secret holding DATABASE_URL."
-  value       = aws_secretsmanager_secret.database.arn
+  description = "ARN of the Secrets Manager secret holding DATABASE_URL, whether the module created it or database_secret_arn is set."
+  value       = local.database_secret_arn
 }
 
 output "app_secret_arn" {
-  description = "ARN of the Secrets Manager secret holding the GitHub App credentials, the session key and the metrics token as JSON."
-  value       = aws_secretsmanager_secret.app.arn
+  description = "ARN of the Secrets Manager secret holding the GitHub App credentials, the session key and the metrics token as JSON, whether the module created it or app_secret_arn is set."
+  value       = local.app_secret_arn
 }
 
 output "metrics_token_secret_arn" {
-  description = "ARN of the Secrets Manager secret holding only the /metrics bearer token, as plain text; grant Prometheus read access to this one rather than to the app secret."
-  value       = aws_secretsmanager_secret.metrics_token.arn
+  description = "ARN of the Secrets Manager secret holding only the /metrics bearer token, as plain text, whether the module created it or metrics_token_secret_arn is set; grant Prometheus read access to this one rather than to the app secret."
+  value       = local.metrics_token_secret_arn
 }
 
 output "artifact_bucket" {

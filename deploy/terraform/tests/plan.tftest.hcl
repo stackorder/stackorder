@@ -9,7 +9,7 @@ mock_provider "http" {
 }
 
 override_resource {
-  target          = aws_secretsmanager_secret.database
+  target          = aws_secretsmanager_secret.database[0]
   override_during = plan
   values = {
     arn = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/database-url-AbCdEf"
@@ -17,7 +17,7 @@ override_resource {
 }
 
 override_resource {
-  target          = aws_secretsmanager_secret.app
+  target          = aws_secretsmanager_secret.app[0]
   override_during = plan
   values = {
     arn = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl"
@@ -25,7 +25,7 @@ override_resource {
 }
 
 override_resource {
-  target          = aws_secretsmanager_secret.metrics_token
+  target          = aws_secretsmanager_secret.metrics_token[0]
   override_during = plan
   values = {
     arn = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-MnOpQr"
@@ -141,7 +141,7 @@ run "defaults" {
   }
 
   assert {
-    condition     = aws_secretsmanager_secret.metrics_token.name == "stackorder/metrics-token" && output.metrics_token_secret_arn == "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-MnOpQr"
+    condition     = aws_secretsmanager_secret.metrics_token[0].name == "stackorder/metrics-token" && output.metrics_token_secret_arn == "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-MnOpQr"
     error_message = "metrics_token_secret_arn must expose the metrics token secret."
   }
 
@@ -251,7 +251,7 @@ run "defaults" {
   }
 
   assert {
-    condition     = one(aws_ecs_cluster.this.setting).name == "containerInsights" && one(aws_ecs_cluster.this.setting).value == "enabled"
+    condition     = one(aws_ecs_cluster.this[0].setting).name == "containerInsights" && one(aws_ecs_cluster.this[0].setting).value == "enabled"
     error_message = "Container insights must be enabled."
   }
 

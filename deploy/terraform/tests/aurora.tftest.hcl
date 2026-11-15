@@ -9,7 +9,7 @@ mock_provider "http" {
 }
 
 override_resource {
-  target          = aws_secretsmanager_secret.database
+  target          = aws_secretsmanager_secret.database[0]
   override_during = plan
   values = {
     arn = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/database-url-AbCdEf"

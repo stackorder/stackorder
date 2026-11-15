@@ -42,7 +42,7 @@ resource "aws_iam_role_policy" "execution" {
         Sid      = "ReadSecrets"
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [aws_secretsmanager_secret.database.arn, aws_secretsmanager_secret.app.arn]
+        Resource = [local.database_secret_arn, local.app_secret_arn]
       }],
       var.kms_key_arn == null ? [] : [{
         Sid      = "DecryptSecrets"

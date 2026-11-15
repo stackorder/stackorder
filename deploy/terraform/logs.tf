@@ -73,7 +73,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu" {
   ok_actions          = local.alarm_actions
 
   dimensions = {
-    ClusterName = aws_ecs_cluster.this.name
+    ClusterName = local.cluster_name
     ServiceName = aws_ecs_service.this.name
   }
 

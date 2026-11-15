@@ -49,14 +49,23 @@ locals {
 
   db_resource_id = var.use_aurora_serverless ? one(aws_rds_cluster.this[*].cluster_resource_id) : one(aws_db_instance.this[*].resource_id)
 
+  database_secret_arn      = var.database_secret_arn != null ? var.database_secret_arn : aws_secretsmanager_secret.database[0].arn
+  database_secret_id       = var.database_secret_arn != null ? var.database_secret_arn : aws_secretsmanager_secret.database[0].id
+  app_secret_arn           = var.app_secret_arn != null ? var.app_secret_arn : aws_secretsmanager_secret.app[0].arn
+  app_secret_id            = var.app_secret_arn != null ? var.app_secret_arn : aws_secretsmanager_secret.app[0].id
+  metrics_token_secret_arn = var.metrics_token_secret_arn != null ? var.metrics_token_secret_arn : aws_secretsmanager_secret.metrics_token[0].arn
+  metrics_token_secret_id  = var.metrics_token_secret_arn != null ? var.metrics_token_secret_arn : aws_secretsmanager_secret.metrics_token[0].id
+
   # The versions also follow the database, the secrets and the App ids, so both ends of a write-only value are written in one apply.
-  db_password_version     = parseint(substr(sha256(jsonencode([var.db_password_version, aws_secretsmanager_secret.database.arn])), 0, 12), 16)
+  db_password_version     = parseint(substr(sha256(jsonencode([var.db_password_version, local.database_secret_arn])), 0, 12), 16)
   database_secret_version = parseint(substr(sha256(jsonencode([var.db_password_version, local.db_resource_id])), 0, 12), 16)
-  app_secret_inputs       = [var.secrets_version, var.github_app_id, var.github_oauth_client_id, aws_secretsmanager_secret.app.arn, aws_secretsmanager_secret.metrics_token.arn]
+  app_secret_inputs       = [var.secrets_version, var.github_app_id, var.github_oauth_client_id, local.app_secret_arn, local.metrics_token_secret_arn]
   app_secret_version      = parseint(substr(nonsensitive(sha256(jsonencode(local.app_secret_inputs))), 0, 12), 16)
 }
 
 resource "aws_secretsmanager_secret" "database" {
+  count = var.database_secret_arn == null ? 1 : 0
+
   name                    = "${var.name}/database-url"
   description             = "Stackorder DATABASE_URL: PostgreSQL DSN including the master password"
   kms_key_id              = var.kms_key_arn
@@ -66,12 +75,14 @@ resource "aws_secretsmanager_secret" "database" {
 }
 
 resource "aws_secretsmanager_secret_version" "database" {
-  secret_id                = aws_secretsmanager_secret.database.id
+  secret_id                = local.database_secret_id
   secret_string_wo         = local.database_url
   secret_string_wo_version = local.database_secret_version
 }
 
 resource "aws_secretsmanager_secret" "app" {
+  count = var.app_secret_arn == null ? 1 : 0
+
   name                    = "${var.name}/app"
   description             = "Stackorder GitHub App credentials, session key and metrics token, one JSON key per environment variable"
   kms_key_id              = var.kms_key_arn
@@ -81,12 +92,14 @@ resource "aws_secretsmanager_secret" "app" {
 }
 
 resource "aws_secretsmanager_secret_version" "app" {
-  secret_id                = aws_secretsmanager_secret.app.id
+  secret_id                = local.app_secret_id
   secret_string_wo         = jsonencode(local.app_secret)
   secret_string_wo_version = local.app_secret_version
 }
 
 resource "aws_secretsmanager_secret" "metrics_token" {
+  count = var.metrics_token_secret_arn == null ? 1 : 0
+
   name                    = "${var.name}/metrics-token"
   description             = "Stackorder /metrics bearer token as plain text, for Prometheus; holds nothing else, unlike the app secret"
   kms_key_id              = var.kms_key_arn
@@ -96,7 +109,7 @@ resource "aws_secretsmanager_secret" "metrics_token" {
 }
 
 resource "aws_secretsmanager_secret_version" "metrics_token" {
-  secret_id                = aws_secretsmanager_secret.metrics_token.id
+  secret_id                = local.metrics_token_secret_id
   secret_string_wo         = local.metrics_token
   secret_string_wo_version = local.app_secret_version
 }

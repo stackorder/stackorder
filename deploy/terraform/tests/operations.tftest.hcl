@@ -9,7 +9,7 @@ mock_provider "http" {
 }
 
 override_resource {
-  target          = aws_secretsmanager_secret.database
+  target          = aws_secretsmanager_secret.database[0]
   override_during = plan
   values = {
     arn = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/database-url-AbCdEf"
@@ -17,7 +17,7 @@ override_resource {
 }
 
 override_resource {
-  target          = aws_secretsmanager_secret.app
+  target          = aws_secretsmanager_secret.app[0]
   override_during = plan
   values = {
     arn = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/app-GhIjKl"
@@ -25,7 +25,7 @@ override_resource {
 }
 
 override_resource {
-  target          = aws_secretsmanager_secret.metrics_token
+  target          = aws_secretsmanager_secret.metrics_token[0]
   override_during = plan
   values = {
     arn = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-MnOpQr"
@@ -129,9 +129,9 @@ run "kms_key" {
 
   assert {
     condition = (
-      aws_secretsmanager_secret.database.kms_key_id == "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000" &&
-      aws_secretsmanager_secret.app.kms_key_id == "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000" &&
-      aws_secretsmanager_secret.metrics_token.kms_key_id == "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000" &&
+      aws_secretsmanager_secret.database[0].kms_key_id == "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000" &&
+      aws_secretsmanager_secret.app[0].kms_key_id == "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000" &&
+      aws_secretsmanager_secret.metrics_token[0].kms_key_id == "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000" &&
       aws_db_instance.this[0].kms_key_id == "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000"
     )
     error_message = "The KMS key must encrypt the three secrets and the database."
@@ -570,7 +570,7 @@ run "a_new_metrics_token_secret_rewrites_both_copies" {
   command = plan
 
   override_resource {
-    target          = aws_secretsmanager_secret.metrics_token
+    target          = aws_secretsmanager_secret.metrics_token[0]
     override_during = plan
     values = {
       arn = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:stackorder/metrics-token-StUvWx"

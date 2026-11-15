@@ -355,6 +355,64 @@ variable "cpu_architecture" {
   }
 }
 
+variable "create_cluster" {
+  description = "Create an ECS cluster for the service. When false, cluster_arn names an existing cluster to run in."
+  type        = bool
+  default     = true
+}
+
+variable "cluster_arn" {
+  description = "ARN of an existing ECS cluster to run the service in. Required when create_cluster is false, must be null otherwise. With a capacity_provider_strategy the cluster must already have those capacity providers associated, which the module does only for a cluster it creates."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.create_cluster == (var.cluster_arn == null)
+    error_message = "Set cluster_arn when create_cluster is false, and leave it null when create_cluster is true."
+  }
+
+  validation {
+    condition     = var.cluster_arn == null || can(regex("^arn:[a-z-]+:ecs:[a-z0-9-]+:[0-9]{12}:cluster/.+$", var.cluster_arn))
+    error_message = "cluster_arn must be an ECS cluster ARN, arn:<partition>:ecs:<region>:<account>:cluster/<name>."
+  }
+}
+
+variable "capacity_provider_strategy" {
+  description = "Capacity provider strategy for the service, which replaces launch_type = FARGATE; set it to run tasks on FARGATE_SPOT. Each entry weights a provider, FARGATE or FARGATE_SPOT, and may set a base, the first number of tasks to place on it. Empty keeps launch_type = FARGATE. For a created cluster the module associates the named providers with it; an existing cluster must already have them."
+  type = list(object({
+    capacity_provider = string
+    weight            = optional(number)
+    base              = optional(number)
+  }))
+  default  = []
+  nullable = false
+
+  validation {
+    condition     = alltrue([for s in var.capacity_provider_strategy : contains(["FARGATE", "FARGATE_SPOT"], s.capacity_provider)])
+    error_message = "Each capacity_provider_strategy capacity_provider must be FARGATE or FARGATE_SPOT."
+  }
+
+  validation {
+    condition     = length(distinct([for s in var.capacity_provider_strategy : s.capacity_provider])) == length(var.capacity_provider_strategy)
+    error_message = "capacity_provider_strategy must not name the same capacity_provider twice."
+  }
+
+  validation {
+    condition     = alltrue([for s in var.capacity_provider_strategy : s.weight == null || (s.weight >= 0 && s.weight <= 1000 && floor(s.weight) == s.weight)])
+    error_message = "capacity_provider_strategy weight must be a whole number between 0 and 1000."
+  }
+
+  validation {
+    condition     = alltrue([for s in var.capacity_provider_strategy : s.base == null || (s.base >= 0 && s.base <= 100000 && floor(s.base) == s.base)])
+    error_message = "capacity_provider_strategy base must be a whole number between 0 and 100000."
+  }
+
+  validation {
+    condition     = length([for s in var.capacity_provider_strategy : s if s.base != null && s.base > 0]) <= 1
+    error_message = "capacity_provider_strategy may set base on at most one provider, as ECS places the base on a single provider."
+  }
+}
+
 variable "enable_execute_command" {
   description = "Enable ECS Exec. The SSM agent needs a writable root file system, so this also turns readonlyRootFilesystem off and grants the task role the ssmmessages permissions."
   type        = bool
@@ -682,6 +740,39 @@ variable "secret_recovery_window_days" {
   validation {
     condition     = var.secret_recovery_window_days == 0 || (var.secret_recovery_window_days >= 7 && var.secret_recovery_window_days <= 30)
     error_message = "secret_recovery_window_days must be 0 or between 7 and 30."
+  }
+}
+
+variable "database_secret_arn" {
+  description = "ARN of an existing Secrets Manager secret the module writes DATABASE_URL into, instead of creating <name>/database-url. The module owns the secret value and writes it with a write-only argument; you own the secret resource, its name, KMS key, recovery window and policies. Null creates the secret."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.database_secret_arn == null || can(regex("^arn:[a-z-]+:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$", var.database_secret_arn))
+    error_message = "database_secret_arn must be a Secrets Manager secret ARN."
+  }
+}
+
+variable "app_secret_arn" {
+  description = "ARN of an existing Secrets Manager secret the module writes the app secret into (the GitHub App credentials, the session key and the metrics token, as JSON), instead of creating <name>/app. The module owns the secret value and writes it with a write-only argument; you own the secret resource, its name, KMS key, recovery window and policies. Null creates the secret."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.app_secret_arn == null || can(regex("^arn:[a-z-]+:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$", var.app_secret_arn))
+    error_message = "app_secret_arn must be a Secrets Manager secret ARN."
+  }
+}
+
+variable "metrics_token_secret_arn" {
+  description = "ARN of an existing Secrets Manager secret the module writes the metrics token into as plain text, for scrapers, instead of creating <name>/metrics-token. The module owns the secret value and writes it with a write-only argument; you own the secret resource, its name, KMS key, recovery window and policies. Null creates the secret."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.metrics_token_secret_arn == null || can(regex("^arn:[a-z-]+:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$", var.metrics_token_secret_arn))
+    error_message = "metrics_token_secret_arn must be a Secrets Manager secret ARN."
   }
 }
 
