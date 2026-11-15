@@ -329,7 +329,11 @@ func (w *checkWriter) upsert(ctx context.Context, run *store.Run, name string, p
 	}
 	cr, err := w.c.CreateCheckRun(ctx, w.repo.FullName, p)
 	if err != nil {
-		return wrapCheck(name, err)
+		id := w.adoptCheckRun(ctx, run, name, err)
+		if id == 0 {
+			return wrapCheck(name, err)
+		}
+		cr = &gh.CheckRun{ID: id}
 	}
 	if err := w.tx.SetRunCheckRun(ctx, run.ID, name, cr.ID); err != nil {
 		return err
@@ -339,6 +343,23 @@ func (w *checkWriter) upsert(ctx context.Context, run *store.Run, name string, p
 	}
 	run.CheckRuns[name] = cr.ID
 	return nil
+}
+
+func (w *checkWriter) adoptCheckRun(ctx context.Context, run *store.Run, name string, createErr error) int64 {
+	if !errors.Is(createErr, gh.ErrUnknownOutcome) {
+		return 0
+	}
+	existing, err := w.c.ListCheckRunsForRef(ctx, w.repo.FullName, run.SHA, name)
+	if err != nil {
+		w.s.log.WarnContext(ctx, "adopt check run after unknown create", "run_id", run.ID, "name", name, "error", err)
+		return 0
+	}
+	for _, cr := range existing {
+		if cr.ExternalID == run.ID.String() {
+			return cr.ID
+		}
+	}
+	return 0
 }
 
 func (w *checkWriter) runComment(ctx context.Context, run *store.Run, body string) error {

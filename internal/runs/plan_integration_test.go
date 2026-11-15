@@ -122,6 +122,22 @@ func TestPlanFlow(t *testing.T) {
 	require.ErrorIs(t, err, principal.ErrNotFound)
 }
 
+func TestCheckRunAdoptedAfterUnknownCreate(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.gh.ApplyThenFailNext("POST /repos/{owner}/{repo}/check-runs", http.StatusBadGateway, 64)
+	runID := e.planned(7, headSHA)
+	assert.Equal(t, v1.RunPlanned, e.run(runID).Status, "a check run GitHub applied but answered 502 does not fail the plan")
+	byName := map[string]int{}
+	for _, c := range e.gh.CheckRuns(repoName) {
+		byName[c.Name]++
+		assert.Equal(t, runID, c.ExternalID, c.Name)
+	}
+	require.NotEmpty(t, byName)
+	for name, n := range byName {
+		assert.Equalf(t, 1, n, "check run %q is adopted by external id, not duplicated, after an unknown create", name)
+	}
+}
+
 func TestFinishedPlanRunsRefusePullRequestJobs(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	runID := e.planned(7, headSHA)
