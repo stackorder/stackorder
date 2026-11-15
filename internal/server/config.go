@@ -263,7 +263,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		cfg.OIDCAudience = cfg.BaseURL
 	}
 	if cfg.SchedulerCatchUp > MaxSchedulerCatchUp {
-		e.fail(EnvSchedulerCatchUp, "must be at most %s, got %s", MaxSchedulerCatchUp, cfg.SchedulerCatchUp)
+		e.fail(EnvSchedulerCatchUp, "must be at most %s, got %s", formatDuration(MaxSchedulerCatchUp), formatDuration(cfg.SchedulerCatchUp))
 	}
 	e.app(&cfg)
 	e.oauth(&cfg)
@@ -416,7 +416,7 @@ func (c *Config) validate() error {
 		errs = append(errs, fmt.Errorf("%s must be %q or %q, got %q", EnvLogFormat, LogFormatJSON, LogFormatText, c.LogFormat))
 	}
 	if c.SchedulerCatchUp > MaxSchedulerCatchUp {
-		errs = append(errs, fmt.Errorf("%s must be at most %s, got %s", EnvSchedulerCatchUp, MaxSchedulerCatchUp, c.SchedulerCatchUp))
+		errs = append(errs, fmt.Errorf("%s must be at most %s, got %s", EnvSchedulerCatchUp, formatDuration(MaxSchedulerCatchUp), formatDuration(c.SchedulerCatchUp)))
 	}
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("server: invalid configuration:\n%w", err)
@@ -521,6 +521,17 @@ func (e *env) roleARN(name string) string {
 		return ""
 	}
 	return v
+}
+
+func formatDuration(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = s[:len(s)-2]
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = s[:len(s)-2]
+	}
+	return s
 }
 
 func (e *env) duration(name string, def time.Duration) time.Duration {

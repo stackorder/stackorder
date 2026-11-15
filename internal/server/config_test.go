@@ -277,7 +277,7 @@ func TestLoadConfigInvalid(t *testing.T) {
 		{"drift retention negative", with(minimalEnv(), EnvDriftRetention, "-1h"), EnvDriftRetention + " must be a positive Go duration"},
 		{"catch up not a duration", with(minimalEnv(), EnvSchedulerCatchUp, "60"), EnvSchedulerCatchUp + " must be a positive Go duration"},
 		{"catch up zero", with(minimalEnv(), EnvSchedulerCatchUp, "0s"), EnvSchedulerCatchUp + " must be a positive Go duration"},
-		{"catch up too long", with(minimalEnv(), EnvSchedulerCatchUp, "169h"), EnvSchedulerCatchUp + " must be at most 168h"},
+		{"catch up too long", with(minimalEnv(), EnvSchedulerCatchUp, "169h"), EnvSchedulerCatchUp + " must be at most 168h, got 169h"},
 		{"workers not a number", with(minimalEnv(), EnvWorkers, "four"), EnvWorkers + " must be a positive integer"},
 		{"workers zero", with(minimalEnv(), EnvWorkers, "0"), EnvWorkers + " must be a positive integer"},
 		{"log level", with(minimalEnv(), EnvLogLevel, "verbose"), EnvLogLevel + " must be debug, info, warn or error"},
@@ -479,6 +479,7 @@ func TestConfigDefaultsAndValidation(t *testing.T) {
 		{"short session key", Config{BaseURL: testBaseURL, DatabaseURL: testDSN, SetupMode: true, SessionKey: []byte("short")}, []string{EnvSessionKey}},
 		{"bad log format", Config{BaseURL: testBaseURL, DatabaseURL: testDSN, SetupMode: true, LogFormat: "xml"}, []string{EnvLogFormat}},
 		{"short setup token", Config{BaseURL: testBaseURL, DatabaseURL: testDSN, SetupMode: true, SetupToken: "short"}, []string{EnvSetupToken}},
+		{"catch up too long", Config{BaseURL: testBaseURL, DatabaseURL: testDSN, SetupMode: true, SchedulerCatchUp: 169 * time.Hour}, []string{EnvSchedulerCatchUp + " must be at most 168h, got 169h"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -492,6 +493,22 @@ func TestConfigDefaultsAndValidation(t *testing.T) {
 				assert.Contains(t, err.Error(), name)
 			}
 		})
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	cases := map[time.Duration]string{
+		168 * time.Hour:               "168h",
+		169 * time.Hour:               "169h",
+		time.Hour:                     "1h",
+		90 * time.Minute:              "1h30m",
+		26*time.Hour + 30*time.Minute: "26h30m",
+		168*time.Hour + 1*time.Minute: "168h1m",
+		90 * time.Second:              "1m30s",
+		30 * time.Second:              "30s",
+	}
+	for in, want := range cases {
+		assert.Equal(t, want, formatDuration(in), "formatDuration(%s)", in)
 	}
 }
 
