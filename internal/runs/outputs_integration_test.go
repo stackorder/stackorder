@@ -179,6 +179,19 @@ func (e *env) outputs(p principal.Principal, key, runID, reader string) (*v1.Sta
 	return e.svc.StackOutputs(e.ctx, p, repoName, key, runID, reader)
 }
 
+func TestOutputsInstallationScopedAPIKey(t *testing.T) {
+	e, state := newOutputsEnv(t, baseConfig())
+	e.readingPlan(7)
+
+	_, err := e.outputs(scopedAPIKey(instID+1), vpc, "", "")
+	requireCoded(t, err, principal.ErrNotFound, "not_found")
+	assert.Empty(t, state.reads(), "a key of another installation reads no state")
+
+	got, err := e.outputs(scopedAPIKey(instID), vpc, "", "")
+	require.NoError(t, err, "a key of the producer's installation reads like an administrator")
+	assert.Equal(t, []string{"db_password"}, got.Withheld)
+}
+
 func (e *env) addRepo(id, inst int64, name string, cfg *v1.RepoConfig, keys ...string) {
 	e.t.Helper()
 	_, err := e.st.UpsertRepo(e.ctx, store.RepoParams{ID: id, InstallationID: inst, FullName: name, DefaultBranch: "main", Private: true})

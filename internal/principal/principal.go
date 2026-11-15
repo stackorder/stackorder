@@ -36,6 +36,19 @@ type Principal struct {
 	Claims *oidc.Claims
 	// APIKeyID is set for APIKey principals.
 	APIKeyID string
+	// ReadOnly is set for a read-only APIKey principal, which the API layer
+	// refuses every mutating route.
+	ReadOnly bool
+	// Installation is the one installation id an installation-scoped APIKey
+	// principal may see; zero means every installation.
+	Installation int64
+}
+
+// SeesInstallation reports whether the principal may act on a resource of
+// installation id. An unscoped principal (Installation zero) sees every
+// installation; a scoped one sees only its own.
+func (p Principal) SeesInstallation(id int64) bool {
+	return p.Installation == 0 || p.Installation == id
 }
 
 // Actor renders the principal for audit rows and comments.

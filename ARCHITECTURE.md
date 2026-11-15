@@ -23,7 +23,7 @@ Change it in the same commit as the code it describes.
 ```text
 api/v1/                    wire types shared by CLI, server, UI and tooling (JSON + YAML tags, no logic)
 cmd/stackorder/            CLI main; binds internal/scan, internal/graph and internal/validate into internal/cli
-cmd/stackorder-server/     server main; wiring only, plus the `migrate`, `healthcheck` and `api-key` (create/list/revoke, needs DATABASE_URL) subcommands
+cmd/stackorder-server/     server main; wiring only, plus the `migrate`, `healthcheck` and `api-key` (create/list/revoke with optional read-only, installation and expiry scope; needs DATABASE_URL) subcommands
 internal/config/           stackorder.yaml and .stackorder.yaml: defaults, validation, per-stack merge
 internal/scan/             HCL scanning: discover stacks, parse backends, module sources, remote state, stackorder_outputs reads; git diff
 internal/graph/            pure resolution algorithm: affected set, propagation, waves, cycles, DOT output
@@ -694,8 +694,10 @@ its wire format.
 
 Authentication: `Authorization: Bearer <GitHub OIDC token>` for runners,
 `Authorization: Bearer sk_<key>` for automation, cookie `stackorder_session`
-for humans. Every runner token is accepted once (its `jti` is recorded), so
-the CLI requests a fresh token for every call. Errors are `v1.Error` with
+for humans. An automation key may be scoped read-only, limited to one
+installation and given an expiry (see Human and automation endpoints). Every
+runner token is accepted once (its `jti` is recorded), so the CLI requests a
+fresh token for every call. Errors are `v1.Error` with
 codes `unauthorized` (401), `forbidden` (403), `not_found` (404), `invalid`
 (400), `conflict` (409), `refused` (409, apply gate; `details.failures`),
 `locked` (423, `details.conflicts`), `superseded` (409),
@@ -750,9 +752,9 @@ with `next_cursor`.
 | `POST /v1/stacks/{id}/unlock` | `v1.UnlockResponse` |
 | `POST /v1/runs/{id}/rerun` | `v1.CreateRunResponse` |
 | `GET /v1/audit` | `v1.Page[v1.AuditEntry]` |
-| `GET /v1/keys` | `v1.APIKeyList`; administrator API key only |
-| `POST /v1/keys` | `v1.CreatedAPIKey` (201), the secret shown once; `v1.CreateAPIKeyRequest`; administrator API key only |
-| `DELETE /v1/keys/{id}` | `v1.APIKey` with `revoked_at` set; administrator API key only |
+| `GET /v1/keys` | `v1.APIKeyList`; unscoped administrator API key only |
+| `POST /v1/keys` | `v1.CreatedAPIKey` (201), the secret shown once; `v1.CreateAPIKeyRequest` (optional `read_only`, `installation_id`, `expires_at`); unscoped administrator API key only |
+| `DELETE /v1/keys/{id}` | `v1.APIKey` with `revoked_at` set; unscoped administrator API key only |
 | `GET /auth/login?next=`, `GET /auth/callback` | redirects |
 | `POST /auth/logout` | 204 |
 | `GET /setup`, `GET /setup/callback`, `GET /setup/installed` | HTML |
@@ -760,25 +762,49 @@ with `next_cursor`.
 | `GET /healthz`, `GET /readyz`, `GET /metrics` | see below |
 
 A session user sees only repos whose installation account is one of the
-user's organisations (or the user's own login); API keys see everything.
-A session records the organisations at sign-in, so a membership change
-takes effect at the next sign-in. For a person, `GET /v1/audit` keeps the
-entries they made and those whose `details.repo`, or `target` (`owner/repo…`
-or `kind:owner/repo…`), names a repository they see, so a page may hold
-fewer than `limit` items and still carry `next_cursor`; `GET /v1/modules`
-sets `total` only for API keys. State-changing human endpoints require the
-session cookie plus a same-origin `Origin` or `Sec-Fetch-Site` check.
-The `/v1/keys` endpoints are the one administrator-only surface: they carry
-the `adminKey` auth mode, which `with` enforces after authentication, so a
-session is `403 forbidden` and a runner token `401` and only an API key
-manages keys. `identity.isAdmin` is the single chokepoint a later scoped
-key narrows. Creating and revoking a key is audited as `api_key_created` and
-`api_key_revoked` with the key name as the target; the store writes the
-mutation and its audit entry in one transaction, so a key never exists without
-its creation entry and the audit record is only ever written by the call that
-takes effect, which means a repeated revoke of an already-revoked key records
-nothing. The secret is returned once at creation and never stored in the
-clear. The same operations are available offline through
+user's organisations (or the user's own login). An unscoped API key sees
+every installation; an installation-scoped key (`api_keys.installation_id`
+set) sees only that installation and nothing of others — the server resolves
+the installation to its account in `apiKeyIdentity` and the key then reuses
+the session visibility machinery through `identity.accounts`/`identity.sees`,
+so repository and stack lists, overview counts, runs, plan text, shared
+outputs, resources and the audit log are all filtered, and anything of
+another installation answers `404 not_found` exactly as an absent object
+does, with no `404`-versus-`403` existence oracle. A key whose installation
+is no longer installed sees nothing (the scope never collapses to the
+every-account filter). A session records the organisations at sign-in, so a
+membership change takes effect at the next sign-in. For a person,
+`GET /v1/audit` keeps the entries they made and those whose `details.repo`,
+or `target` (`owner/repo…` or `kind:owner/repo…`), names a repository they
+see, so a page may hold fewer than `limit` items and still carry
+`next_cursor`; `GET /v1/modules` sets `total` only for API keys.
+
+A key is scoped in three independent ways (`migrations/0016_api_key_scopes`,
+columns `read_only`, `installation_id`, `expires_at`, all permissive by
+default so rows from before the migration stay unscoped administrators). A
+read-only key (`read_only`) is refused every mutating route centrally in
+`with`: an API key whose request method is not `GET`/`HEAD` is `403 forbidden`,
+which covers every route in the `authRoutes` table, including one added later,
+without a per-handler check. An `expires_at` in the past makes
+`store.VerifyAPIKey` refuse the key exactly as a revoked one, so an expired
+key is `401 unauthorized`; expiry is re-checked on every request.
+
+State-changing human endpoints require the session cookie plus a same-origin
+`Origin` or `Sec-Fetch-Site` check. The `/v1/keys` endpoints are the one
+administrator-only surface: they carry the `adminKey` auth mode, which `with`
+enforces after authentication, so a session is `403 forbidden`, a runner
+token `401`, and only an *unscoped* API key — `identity.isAdmin`, read-write
+and installation-wide — manages keys. A read-only or installation-scoped key
+is refused, so a restricted key can neither list, create nor revoke keys, and
+therefore can never obtain a broader key. `isAdmin` is the single chokepoint
+the scope narrows. Creating and revoking a key is audited as `api_key_created`
+and `api_key_revoked` with the key name as the target and the scope in
+`details`; the store writes the mutation and its audit entry in one
+transaction, so a key never exists without its creation entry and the audit
+record is only ever written by the call that takes effect, which means a
+repeated revoke of an already-revoked key records nothing. The secret is
+returned once at creation and never stored in the clear. The same operations,
+with the same scope flags, are available offline through
 `stackorder-server api-key`.
 Unknown `/v1/*` and `/auth/*` paths return a JSON 404, not the UI.
 Everything else under `/` serves the embedded UI with SPA fallback to

@@ -111,7 +111,7 @@ func (s *server) modules(w http.ResponseWriter, r *http.Request, id identity) er
 	slices.SortFunc(families, func(a, b store.Module) int { return cmp.Compare(a.BaseKey, b.BaseKey) })
 
 	page := v1.Page[v1.ModuleDetail]{Items: []v1.ModuleDetail{}}
-	if id.Kind == principal.APIKey {
+	if id.Kind == principal.APIKey && id.scope == nil {
 		page.Total = len(families)
 	}
 	for _, fam := range families {

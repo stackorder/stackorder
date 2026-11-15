@@ -167,7 +167,7 @@ func TestRunnerAuthentication(t *testing.T) {
 		{
 			name:    "unknown api key",
 			prepare: func(*runnerEnv) string { return "sk_unknown" },
-			status:  http.StatusUnauthorized, message: "the API key is unknown or revoked",
+			status:  http.StatusUnauthorized, message: "the API key is unknown, revoked or expired",
 		},
 	}
 	for _, tc := range cases {

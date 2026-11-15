@@ -239,7 +239,7 @@ func TestTheAPIServesPlanTextFromTheBucket(t *testing.T) {
 		_, err = st.UpdateRunStack(ctx, run.ID, ids[stack], store.RunStackPatch{PlanText: aws.String(full[:8<<10]), PlanTextTruncated: aws.Bool(true), PlanURL: aws.String(link)})
 		require.NoError(t, err)
 	}
-	key, _, err := st.CreateAPIKey(ctx, "ci", "admin")
+	key, _, err := st.CreateAPIKey(ctx, store.NewAPIKey{Name: "ci", CreatedBy: "admin"})
 	require.NoError(t, err)
 	h := api.New(api.Config{BaseURL: "https://stackorder.test", SessionKey: bytes.Repeat([]byte{1}, 32)},
 		api.Deps{Store: st, Runs: noRuns{}, Artifacts: s, Logger: slog.New(slog.DiscardHandler)})

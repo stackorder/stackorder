@@ -104,32 +104,53 @@ func (f *fakeStore) VerifyAPIKey(_ context.Context, plaintext string) (store.API
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	k, ok := f.keys[plaintext]
-	if !ok || k.RevokedAt != nil {
+	if !ok || k.RevokedAt != nil || (k.ExpiresAt != nil && !k.ExpiresAt.After(time.Now())) {
 		return store.APIKey{}, store.ErrNotFound
 	}
 	return k, nil
 }
 
-func (f *fakeStore) CreateAPIKey(_ context.Context, name, createdBy string) (string, store.APIKey, error) {
+func (f *fakeStore) CreateAPIKey(_ context.Context, n store.NewAPIKey) (string, store.APIKey, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	secret := store.APIKeyPrefix + name + "_" + uuid.NewString()
+	secret := store.APIKeyPrefix + n.Name + "_" + uuid.NewString()
 	key := store.APIKey{
-		ID:        uuid.New(),
-		Name:      name,
-		Prefix:    secret[:min(len(secret), 10)],
-		CreatedBy: createdBy,
-		CreatedAt: time.Now().UTC(),
+		ID:             uuid.New(),
+		Name:           n.Name,
+		Prefix:         secret[:min(len(secret), 10)],
+		CreatedBy:      n.CreatedBy,
+		CreatedAt:      time.Now().UTC(),
+		ReadOnly:       n.ReadOnly,
+		InstallationID: n.InstallationID,
+		ExpiresAt:      n.ExpiresAt,
 	}
 	f.keys[secret] = key
 	f.keysByID[key.ID] = key
+	details := map[string]any{"key_id": key.ID.String(), "prefix": key.Prefix}
+	if key.ReadOnly {
+		details["read_only"] = true
+	}
+	if key.InstallationID != nil {
+		details["installation_id"] = *key.InstallationID
+	}
 	f.recordAuditLocked(store.AuditEntry{
-		Actor:   createdBy,
+		Actor:   n.CreatedBy,
 		Action:  "api_key_created",
 		Target:  key.Name,
-		Details: map[string]any{"key_id": key.ID.String(), "prefix": key.Prefix},
+		Details: details,
 	})
 	return secret, key, nil
+}
+
+func (f *fakeStore) GetInstallation(_ context.Context, id int64) (store.Installation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, inst := range f.installations {
+		if inst.ID == id {
+			return inst, nil
+		}
+	}
+	return store.Installation{}, store.ErrNotFound
 }
 
 func (f *fakeStore) GetAPIKey(_ context.Context, id uuid.UUID) (store.APIKey, error) {

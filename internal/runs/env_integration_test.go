@@ -446,6 +446,12 @@ func apiKey() principal.Principal {
 	return principal.Principal{Kind: principal.APIKey, Login: "ci", APIKeyID: uuid.NewString()}
 }
 
+func scopedAPIKey(installation int64) principal.Principal {
+	p := apiKey()
+	p.Installation = installation
+	return p
+}
+
 func (e *env) startPlan(pr int, head string, changed ...string) (planJob, string, *v1.ResolveResponse) {
 	e.t.Helper()
 	return e.startPlanGraph(pr, testGraph(head), changed...)

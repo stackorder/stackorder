@@ -128,43 +128,71 @@ func (s *Store) PruneSessions(ctx context.Context) (int64, error) {
 }
 
 // APIKey is an automation key. Only the SHA-256 of the key is stored;
-// Prefix is its first characters, for display.
+// Prefix is its first characters, for display. A key is an administrator
+// unless it is scoped: ReadOnly refuses it every mutating route, and a
+// non-nil InstallationID limits it to one installation. ExpiresAt, when
+// set, is when the key stops authenticating.
 type APIKey struct {
-	ID         uuid.UUID  `db:"id"`
-	Name       string     `db:"name"`
-	Prefix     string     `db:"prefix"`
-	CreatedBy  string     `db:"created_by"`
-	CreatedAt  time.Time  `db:"created_at"`
-	LastUsedAt *time.Time `db:"last_used_at"`
-	RevokedAt  *time.Time `db:"revoked_at"`
+	ID             uuid.UUID  `db:"id"`
+	Name           string     `db:"name"`
+	Prefix         string     `db:"prefix"`
+	CreatedBy      string     `db:"created_by"`
+	CreatedAt      time.Time  `db:"created_at"`
+	LastUsedAt     *time.Time `db:"last_used_at"`
+	RevokedAt      *time.Time `db:"revoked_at"`
+	ReadOnly       bool       `db:"read_only"`
+	InstallationID *int64     `db:"installation_id"`
+	ExpiresAt      *time.Time `db:"expires_at"`
 }
 
-const keyColumns = `id, name, prefix, created_by, created_at, last_used_at, revoked_at`
+const keyColumns = `id, name, prefix, created_by, created_at, last_used_at, revoked_at, read_only, installation_id, expires_at`
+
+// Admin reports whether the key may manage API keys: an unrestricted key,
+// read-write and installation-wide. Expiry does not affect it.
+func (k APIKey) Admin() bool {
+	return !k.ReadOnly && k.InstallationID == nil
+}
 
 // ToV1 converts the key's metadata for the management API; it never carries
 // the secret, which exists only at creation.
 func (k APIKey) ToV1() v1.APIKey {
 	return v1.APIKey{
-		ID:         k.ID.String(),
-		Name:       k.Name,
-		Prefix:     k.Prefix,
-		CreatedBy:  k.CreatedBy,
-		CreatedAt:  k.CreatedAt.UTC(),
-		LastUsedAt: utc(k.LastUsedAt),
-		RevokedAt:  utc(k.RevokedAt),
+		ID:             k.ID.String(),
+		Name:           k.Name,
+		Prefix:         k.Prefix,
+		CreatedBy:      k.CreatedBy,
+		CreatedAt:      k.CreatedAt.UTC(),
+		LastUsedAt:     utc(k.LastUsedAt),
+		RevokedAt:      utc(k.RevokedAt),
+		ReadOnly:       k.ReadOnly,
+		InstallationID: k.InstallationID,
+		ExpiresAt:      utc(k.ExpiresAt),
 	}
+}
+
+// NewAPIKey describes a key to create. ReadOnly and InstallationID scope it
+// below full administrator access; ExpiresAt, when set, is an absolute
+// expiry and must be in the future (the caller enforces that). A zero
+// NewAPIKey but for Name and CreatedBy creates an unscoped administrator
+// key, as rows inserted before this field existed are.
+type NewAPIKey struct {
+	Name           string
+	CreatedBy      string
+	ReadOnly       bool
+	InstallationID *int64
+	ExpiresAt      *time.Time
 }
 
 // CreateAPIKey creates a key and records an api_key_created audit entry in the
 // same transaction, so a usable key never exists without its audit record. It
 // returns the key's plaintext, which starts with APIKeyPrefix and is shown
-// once. createdBy is the key's creator and the actor of the audit entry.
-func (s *Store) CreateAPIKey(ctx context.Context, name, createdBy string) (string, APIKey, error) {
+// once. n.CreatedBy is the key's creator and the actor of the audit entry.
+func (s *Store) CreateAPIKey(ctx context.Context, n NewAPIKey) (string, APIKey, error) {
 	const op = "create api key"
 	switch {
-	case name == "":
+	case n.Name == "":
 		return "", APIKey{}, invalid(op, "name is required")
-	case utf8.RuneCountInString(name) > MaxAPIKeyNameLen:
+	case utf8.RuneCountInString(n.Name) > MaxAPIKeyNameLen:
 		return "", APIKey{}, invalid(op, fmt.Sprintf("name must be at most %d characters", MaxAPIKeyNameLen))
 	}
 	token, err := randomToken()
@@ -175,13 +203,15 @@ func (s *Store) CreateAPIKey(ctx context.Context, name, createdBy string) (strin
 	var out APIKey
 	err = s.InTx(ctx, func(tx *Store) error {
 		created, err := queryOne[APIKey](ctx, tx.db, `
-			INSERT INTO api_keys (name, key_hash, prefix, created_by) VALUES ($1, $2, $3, $4)
-			RETURNING `+keyColumns, name, hashToken(plaintext), plaintext[:apiKeyShown], createdBy)
+			INSERT INTO api_keys (name, key_hash, prefix, created_by, read_only, installation_id, expires_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			RETURNING `+keyColumns,
+			n.Name, hashToken(plaintext), plaintext[:apiKeyShown], n.CreatedBy, n.ReadOnly, n.InstallationID, utc(n.ExpiresAt))
 		if err != nil {
 			return wrap(op, err)
 		}
 		out = created
-		_, err = tx.RecordAudit(ctx, keyAudit(createdBy, actionAPIKeyCreated, created))
+		_, err = tx.RecordAudit(ctx, keyAudit(n.CreatedBy, actionAPIKeyCreated, created))
 		return err
 	})
 	if err != nil {
@@ -191,11 +221,21 @@ func (s *Store) CreateAPIKey(ctx context.Context, name, createdBy string) (strin
 }
 
 func keyAudit(actor, action string, key APIKey) AuditEntry {
+	details := map[string]any{"key_id": key.ID.String(), "prefix": key.Prefix}
+	if key.ReadOnly {
+		details["read_only"] = true
+	}
+	if key.InstallationID != nil {
+		details["installation_id"] = *key.InstallationID
+	}
+	if key.ExpiresAt != nil {
+		details["expires_at"] = key.ExpiresAt.UTC().Format(time.RFC3339)
+	}
 	return AuditEntry{
 		Actor:   actor,
 		Action:  action,
 		Target:  key.Name,
-		Details: map[string]any{"key_id": key.ID.String(), "prefix": key.Prefix},
+		Details: details,
 	}
 }
 
@@ -205,8 +245,9 @@ func (s *Store) GetAPIKey(ctx context.Context, id uuid.UUID) (APIKey, error) {
 	return out, wrap("get api key", err)
 }
 
-// VerifyAPIKey returns the unrevoked key matching plaintext and stamps its
-// last use. Unknown, malformed and revoked keys return ErrNotFound.
+// VerifyAPIKey returns the unrevoked, unexpired key matching plaintext and
+// stamps its last use. Unknown, malformed, revoked and expired keys return
+// ErrNotFound, so an expired key is refused exactly like a revoked one.
 func (s *Store) VerifyAPIKey(ctx context.Context, plaintext string) (APIKey, error) {
 	const op = "verify api key"
 	if !strings.HasPrefix(plaintext, APIKeyPrefix) || len(plaintext) <= len(APIKeyPrefix) {
@@ -214,7 +255,7 @@ func (s *Store) VerifyAPIKey(ctx context.Context, plaintext string) (APIKey, err
 	}
 	out, err := queryOne[APIKey](ctx, s.db, `
 		UPDATE api_keys SET last_used_at = now()
-		WHERE key_hash = $1 AND revoked_at IS NULL
+		WHERE key_hash = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
 		RETURNING `+keyColumns, hashToken(plaintext))
 	return out, wrap(op, err)
 }

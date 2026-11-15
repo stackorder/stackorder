@@ -46,6 +46,9 @@ func (s *Service) RecordResult(ctx context.Context, p principal.Principal, runID
 	if err != nil {
 		return nil, err
 	}
+	if err := apiKeyReachesRun(p, repo, runID); err != nil {
+		return nil, err
+	}
 	stack, err := s.st.GetStackByKey(ctx, run.RepoID, stackKey)
 	if err != nil {
 		return nil, storeErr(err, "stack %s of %s", stackKey, repo.FullName)
@@ -120,6 +123,17 @@ func (s *Service) RecordResult(ctx context.Context, p principal.Principal, runID
 	}
 	s.renderQuiet(ctx, run.ID, renderOpts{stacks: changed})
 	return s.runStackView(ctx, run.ID, stack.ID)
+}
+
+// apiKeyReachesRun refuses an installation-scoped API key a run of another
+// installation with the same not-found a missing run gives, so a scoped key
+// cannot tell one from the other before the run's repository or stacks are
+// named in any later error.
+func apiKeyReachesRun(p principal.Principal, repo store.Repo, runID string) error {
+	if p.Kind == principal.APIKey && !p.SeesInstallation(repo.InstallationID) {
+		return storeErr(store.ErrNotFound, "run %s", runID)
+	}
+	return nil
 }
 
 func (s *Service) authorizeResult(ctx context.Context, p principal.Principal, run store.Run, repo store.Repo, row *store.RunStack) (int64, error) {
@@ -326,6 +340,9 @@ func (s *Service) blockDependents(ctx context.Context, run store.Run, failed sto
 func (s *Service) RecordCheck(ctx context.Context, p principal.Principal, runID, stackKey, name string, verdict v1.CheckVerdict) (*v1.Check, error) {
 	run, repo, err := s.loadRun(ctx, runID)
 	if err != nil {
+		return nil, err
+	}
+	if err := apiKeyReachesRun(p, repo, runID); err != nil {
 		return nil, err
 	}
 	if !validCheckName(name) {

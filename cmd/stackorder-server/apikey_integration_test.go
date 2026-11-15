@@ -99,3 +99,40 @@ func TestAPIKeyCommandIntegration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, keys, 1, "the over-long name created no key")
 }
+
+func TestAPIKeyCommandScopesIntegration(t *testing.T) {
+	ctx := context.Background()
+	dsn := pgtest.DSN(t)
+	st, err := store.Open(ctx, dsn)
+	require.NoError(t, err)
+	t.Cleanup(st.Close)
+	require.NoError(t, st.Migrate(ctx))
+	_, err = st.UpsertInstallation(ctx, store.Installation{ID: 7, Account: "acme", AccountType: "Organization"})
+	require.NoError(t, err)
+
+	env := envOf(map[string]string{"DATABASE_URL": dsn})
+
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 0, run([]string{"api-key", "create", "reader", "--read-only", "--installation", "7", "--expires", "24h"}, env, &stdout, &stderr), stderr.String())
+	secret := secretFrom(t, stdout.String())
+
+	key, err := st.VerifyAPIKey(ctx, secret)
+	require.NoError(t, err)
+	assert.True(t, key.ReadOnly)
+	require.NotNil(t, key.InstallationID)
+	assert.EqualValues(t, 7, *key.InstallationID)
+	require.NotNil(t, key.ExpiresAt)
+	assert.False(t, key.Admin(), "a scoped key is not an administrator")
+
+	stdout.Reset()
+	stderr.Reset()
+	require.Equal(t, 1, run([]string{"api-key", "create", "x", "--installation", "999"}, env, &stdout, &stderr),
+		"an unknown installation is refused")
+	assert.Contains(t, stderr.String(), "not installed")
+
+	stdout.Reset()
+	stderr.Reset()
+	require.Equal(t, 0, run([]string{"api-key", "list"}, env, &stdout, &stderr), stderr.String())
+	assert.Contains(t, stdout.String(), "read-only")
+	assert.Contains(t, stdout.String(), "ACCESS")
+}

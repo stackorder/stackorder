@@ -55,7 +55,7 @@ func (s *server) unlockByKey(w http.ResponseWriter, r *http.Request, id identity
 	case req.StackKey == "":
 		return &principal.InvalidError{Field: "stack_key", Reason: "is required"}
 	}
-	if id.Kind == principal.Session {
+	if id.Kind == principal.Session || id.scope != nil {
 		repo, err := s.db.GetRepoByName(r.Context(), req.Repo)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("get repository: %w", err)

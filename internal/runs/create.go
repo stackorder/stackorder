@@ -242,6 +242,9 @@ func (s *Service) createManualRun(ctx context.Context, p principal.Principal, re
 		return nil, &principal.InvalidError{Field: "sha", Reason: "is required"}
 	}
 	repo, err := s.st.GetRepoByName(ctx, req.Repo)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && !p.SeesInstallation(repo.InstallationID)) {
+		return nil, storeErr(store.ErrNotFound, "repository %s", req.Repo)
+	}
 	if err != nil {
 		return nil, storeErr(err, "repository %s", req.Repo)
 	}

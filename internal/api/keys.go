@@ -26,7 +26,24 @@ func (s *server) createKey(w http.ResponseWriter, r *http.Request, id identity) 
 	case utf8.RuneCountInString(name) > store.MaxAPIKeyNameLen:
 		return &principal.InvalidError{Field: "name", Reason: fmt.Sprintf("must be at most %d characters", store.MaxAPIKeyNameLen)}
 	}
-	secret, key, err := s.db.CreateAPIKey(r.Context(), name, id.Actor())
+	n := store.NewAPIKey{Name: name, CreatedBy: id.Actor(), ReadOnly: req.ReadOnly}
+	if req.InstallationID != 0 {
+		if _, err := s.db.GetInstallation(r.Context(), req.InstallationID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return &principal.InvalidError{Field: "installation_id", Reason: fmt.Sprintf("%d is not an installation of this server", req.InstallationID)}
+			}
+			return fmt.Errorf("look up installation: %w", err)
+		}
+		n.InstallationID = &req.InstallationID
+	}
+	if req.ExpiresAt != nil {
+		if !req.ExpiresAt.After(s.now()) {
+			return &principal.InvalidError{Field: "expires_at", Reason: "must be in the future"}
+		}
+		exp := req.ExpiresAt.UTC()
+		n.ExpiresAt = &exp
+	}
+	secret, key, err := s.db.CreateAPIKey(r.Context(), n)
 	if err != nil {
 		return fmt.Errorf("create api key: %w", err)
 	}

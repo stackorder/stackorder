@@ -25,7 +25,7 @@ var knownModes = []v1.RunMode{v1.ModePlan, v1.ModeApply, v1.ModeDrift}
 
 func (s *server) me(w http.ResponseWriter, r *http.Request, id identity) error {
 	if id.Kind == principal.APIKey {
-		s.writeJSON(w, r, http.StatusOK, v1.Whoami{Login: id.Actor(), Orgs: []string{}, Admin: true})
+		s.writeJSON(w, r, http.StatusOK, v1.Whoami{Login: id.Actor(), Orgs: []string{}, Admin: id.isAdmin()})
 		return nil
 	}
 	s.writeJSON(w, r, http.StatusOK, id.session.ToV1())
@@ -290,10 +290,10 @@ func (s *server) audit(w http.ResponseWriter, r *http.Request, id identity) erro
 }
 
 func auditVisible(id identity, e store.AuditEntry) bool {
-	if id.Kind == principal.APIKey {
+	if id.Kind == principal.APIKey && id.scope == nil {
 		return true
 	}
-	if !strings.EqualFold(e.Actor, store.SystemActor) && strings.EqualFold(e.Actor, id.Login) {
+	if id.Kind == principal.Session && !strings.EqualFold(e.Actor, store.SystemActor) && strings.EqualFold(e.Actor, id.Login) {
 		return true
 	}
 	scope := e.Target

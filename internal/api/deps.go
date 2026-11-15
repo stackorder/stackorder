@@ -175,7 +175,7 @@ type dataStore interface {
 	Ping(ctx context.Context) error
 	SeenJTI(ctx context.Context, jti string, exp time.Time) (bool, error)
 	VerifyAPIKey(ctx context.Context, plaintext string) (store.APIKey, error)
-	CreateAPIKey(ctx context.Context, name, createdBy string) (string, store.APIKey, error)
+	CreateAPIKey(ctx context.Context, n store.NewAPIKey) (string, store.APIKey, error)
 	GetAPIKey(ctx context.Context, id uuid.UUID) (store.APIKey, error)
 	ListAPIKeys(ctx context.Context) ([]store.APIKey, error)
 	RevokeAPIKey(ctx context.Context, id uuid.UUID, actor string) (store.APIKey, error)
@@ -183,6 +183,7 @@ type dataStore interface {
 	CreateSession(ctx context.Context, n store.NewSession) (string, store.Session, error)
 	DeleteSession(ctx context.Context, token string) error
 	ListInstallations(ctx context.Context) ([]store.Installation, error)
+	GetInstallation(ctx context.Context, id int64) (store.Installation, error)
 
 	GetRepo(ctx context.Context, id int64) (store.Repo, error)
 	GetRepoByName(ctx context.Context, fullName string) (store.Repo, error)

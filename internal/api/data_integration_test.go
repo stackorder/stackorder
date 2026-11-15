@@ -57,8 +57,6 @@ const (
 	prHeadSHA = "abcdef0222222222222222222222222222222222"
 )
 
-func ptr[T any](v T) *T { return &v }
-
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	ctx := t.Context()
@@ -183,7 +181,7 @@ func newWorld(t *testing.T) *world {
 	_, err = w.st.RecordAudit(ctx, store.AuditEntry{Actor: "apikey:ci", Action: "rerun", Target: w.globexRun.ID.String(), Details: map[string]any{"repo": "globex/platform"}})
 	require.NoError(t, err)
 
-	w.key, _, err = w.st.CreateAPIKey(ctx, "ci", "admin")
+	w.key, _, err = w.st.CreateAPIKey(ctx, store.NewAPIKey{Name: "ci", CreatedBy: "admin"})
 	require.NoError(t, err)
 	token, _, err := w.st.CreateSession(ctx, store.NewSession{Login: "octocat", UserID: 1, Orgs: []string{"acme"}, TTL: time.Hour})
 	require.NoError(t, err)
@@ -208,6 +206,12 @@ func (w *world) ok(target string, asSession bool) *httptest.ResponseRecorder {
 	w.t.Helper()
 	rec := w.get(target, asSession)
 	require.Equal(w.t, http.StatusOK, rec.Code, "%s: %s", target, rec.Body.String())
+	return rec
+}
+
+func (w *world) okRec(rec *httptest.ResponseRecorder) *httptest.ResponseRecorder {
+	w.t.Helper()
+	require.Equal(w.t, http.StatusOK, rec.Code, rec.Body.String())
 	return rec
 }
 
@@ -801,4 +805,91 @@ func TestAPIKeyEndpointsIntegration(t *testing.T) {
 	w.h.ServeHTTP(sessRec, sessReq)
 	require.Equal(t, http.StatusForbidden, sessRec.Code, "a signed-in user is not an administrator")
 	assert.Contains(t, errorOf(t, sessRec).Message, "administrator API key")
+}
+
+func TestScopedAPIKeysWithTheRealStore(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+
+	bearerGet := func(target, key string) *httptest.ResponseRecorder {
+		r := newRequest(t, http.MethodGet, target, nil)
+		r.Header.Set("Authorization", "Bearer "+key)
+		rec := httptest.NewRecorder()
+		w.h.ServeHTTP(rec, r)
+		return rec
+	}
+	bearerPost := func(target, key string, body any) *httptest.ResponseRecorder {
+		r := newRequest(t, http.MethodPost, target, body)
+		r.Header.Set("Origin", testBaseURL)
+		r.Header.Set("Authorization", "Bearer "+key)
+		rec := httptest.NewRecorder()
+		w.h.ServeHTTP(rec, r)
+		return rec
+	}
+
+	acmeInst := int64(1)
+	scoped, _, err := w.st.CreateAPIKey(ctx, store.NewAPIKey{Name: "acme-ci", CreatedBy: "admin", InstallationID: &acmeInst})
+	require.NoError(t, err)
+	readOnly, _, err := w.st.CreateAPIKey(ctx, store.NewAPIKey{Name: "reader", CreatedBy: "admin", ReadOnly: true})
+	require.NoError(t, err)
+
+	t.Run("installation-scoped key sees only its installation", func(t *testing.T) {
+		ov := decodeBody[v1.Overview](t, w.okRec(bearerGet("/v1/overview", scoped)))
+		assert.Equal(t, 2, ov.Repos, "only acme's two repos, not globex")
+
+		repos := decodeBody[v1.Page[v1.RepoSummary]](t, w.okRec(bearerGet("/v1/repos", scoped)))
+		for _, r := range repos.Items {
+			assert.True(t, strings.HasPrefix(r.FullName, "acme/"), r.FullName)
+		}
+		assert.Equal(t, 2, repos.Total)
+
+		stacks := decodeBody[v1.Page[v1.StackDetail]](t, w.okRec(bearerGet("/v1/stacks", scoped)))
+		for _, st := range stacks.Items {
+			assert.True(t, strings.HasPrefix(st.Repo, "acme/"), st.Repo)
+		}
+
+		audit := decodeBody[v1.Page[v1.AuditEntry]](t, w.okRec(bearerGet("/v1/audit", scoped)))
+		for _, e := range audit.Items {
+			if repo, ok := e.Details["repo"].(string); ok {
+				assert.True(t, strings.HasPrefix(repo, "acme/"), "audit entry of another installation: %s", repo)
+			}
+			assert.NotContains(t, e.Target, "globex", "no audit entry names a globex target")
+		}
+	})
+
+	t.Run("another installation is an oracle-free not-found", func(t *testing.T) {
+		assert.Equal(t, http.StatusNotFound, bearerGet("/v1/repos/globex/platform/stacks", scoped).Code)
+		assert.Equal(t, http.StatusNotFound, bearerGet("/v1/runs/"+w.globexRun.ID.String(), scoped).Code)
+		assert.Equal(t, http.StatusNotFound, bearerGet("/v1/stacks/"+w.globexStack.String()+"/resources", scoped).Code)
+		assert.Equal(t, http.StatusOK, bearerGet("/v1/runs/"+w.planRun.ID.String(), scoped).Code, "its own run is visible")
+
+		// A read-write installation-scoped key cannot unlock a stack of another installation.
+		unlock := bearerPost("/v1/unlock", scoped, v1.UnlockRequest{Repo: "globex/platform", StackKey: "stacks/app"})
+		assert.Equal(t, http.StatusNotFound, unlock.Code, unlock.Body.String())
+	})
+
+	t.Run("read-only key reads but never mutates", func(t *testing.T) {
+		assert.Equal(t, http.StatusOK, bearerGet("/v1/overview", readOnly).Code)
+		unlock := bearerPost("/v1/stacks/"+w.stacks["stacks/prod/eks"].String()+"/unlock", readOnly, v1.UnlockRequest{})
+		require.Equal(t, http.StatusForbidden, unlock.Code, unlock.Body.String())
+		assert.Contains(t, errorOf(t, unlock).Message, "read-only")
+
+		run := bearerPost("/v1/runs", readOnly, v1.CreateRunRequest{Repo: "acme/infra", Trigger: v1.TriggerManual, Mode: v1.ModeApply, SHA: mergedSHA, Stacks: []string{"stacks/prod/vpc"}})
+		assert.Equal(t, http.StatusForbidden, run.Code, "a read-only key cannot start a manual run")
+	})
+
+	t.Run("neither scoped key may manage keys", func(t *testing.T) {
+		for _, key := range []string{scoped, readOnly} {
+			assert.Equal(t, http.StatusForbidden, bearerGet("/v1/keys", key).Code)
+			assert.Equal(t, http.StatusForbidden, bearerPost("/v1/keys", key, v1.CreateAPIKeyRequest{Name: "x"}).Code)
+			assert.False(t, decodeBody[v1.Whoami](t, w.okRec(bearerGet("/v1/me", key))).Admin)
+		}
+	})
+
+	t.Run("an expired key is refused like a revoked one", func(t *testing.T) {
+		past := time.Now().Add(-time.Minute)
+		expired, _, err := w.st.CreateAPIKey(ctx, store.NewAPIKey{Name: "temp", CreatedBy: "admin", ExpiresAt: &past})
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, bearerGet("/v1/me", expired).Code)
+	})
 }

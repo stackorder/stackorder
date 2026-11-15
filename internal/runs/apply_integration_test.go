@@ -1079,6 +1079,26 @@ func TestManualRunLocks(t *testing.T) {
 	require.ErrorIs(t, err, principal.ErrInvalid)
 }
 
+func TestInstallationScopedKeyManualRun(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.planned(7, headSHA)
+	req := v1.CreateRunRequest{Repo: repoName, SHA: mainSHA, Mode: v1.ModeApply, Trigger: v1.TriggerManual, Stacks: []string{vpc}}
+
+	_, err := e.svc.CreateRun(e.ctx, scopedAPIKey(instID+1), req)
+	require.ErrorIs(t, err, principal.ErrNotFound, "a key of another installation cannot start a run and the repo looks absent")
+
+	run, err := e.svc.CreateRun(e.ctx, scopedAPIKey(instID), req)
+	require.NoError(t, err, "a key of the repository's installation may start a manual run")
+	require.Equal(t, v1.RunApplying, run.Status)
+
+	_, err = e.svc.RecordResult(e.ctx, scopedAPIKey(instID+1), run.RunID, vpc, applyResult(true))
+	require.ErrorIs(t, err, principal.ErrNotFound, "a key of another installation cannot report a result and the run looks absent")
+
+	row, err := e.svc.RecordResult(e.ctx, scopedAPIKey(instID), run.RunID, vpc, applyResult(true))
+	require.NoError(t, err)
+	assert.Equal(t, v1.StackApplied, row.Status)
+}
+
 func TestDeploymentProtectionRule(t *testing.T) {
 	cfg := baseConfig()
 	cfg.Apply.AllowedTeams = []string{"platform"}

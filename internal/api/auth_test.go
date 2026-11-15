@@ -16,9 +16,18 @@ import (
 
 func (e *testEnv) apiKey(name string) string {
 	e.t.Helper()
+	return e.scopedKey(name, nil)
+}
+
+func (e *testEnv) scopedKey(name string, mutate func(*store.APIKey)) string {
+	e.t.Helper()
 	plaintext := "sk_" + name + "_" + uuid.NewString()
+	k := store.APIKey{ID: uuid.New(), Name: name}
+	if mutate != nil {
+		mutate(&k)
+	}
 	e.db.mu.Lock()
-	e.db.keys[plaintext] = store.APIKey{ID: uuid.New(), Name: name}
+	e.db.keys[plaintext] = k
 	e.db.mu.Unlock()
 	return plaintext
 }
@@ -69,7 +78,7 @@ func TestMeWithAPIKey(t *testing.T) {
 	e.db.mu.Unlock()
 	rec = e.do(bearer(newRequest(t, http.MethodGet, "/v1/me", nil), revoked))
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	assert.Equal(t, "the API key is unknown or revoked", errorOf(t, rec).Message)
+	assert.Equal(t, "the API key is unknown, revoked or expired", errorOf(t, rec).Message)
 
 	rec = e.do(bearer(newRequest(t, http.MethodGet, "/v1/me", nil), "sk_never_issued"))
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
@@ -210,6 +219,8 @@ func TestIdentityVisibility(t *testing.T) {
 	key := identity{Principal: principal.Principal{Kind: principal.APIKey, Login: "ci"}}
 	assert.True(t, key.sees("anyone"))
 	assert.Nil(t, key.accounts())
+	assert.True(t, key.isAdmin())
+	assert.False(t, key.readOnly())
 
 	sess := identity{
 		Principal: principal.Principal{Kind: principal.Session, Login: "octocat"},
@@ -220,7 +231,34 @@ func TestIdentityVisibility(t *testing.T) {
 	assert.False(t, sess.sees("globex"))
 	assert.False(t, sess.sees(""))
 	assert.Equal(t, []string{"octocat", "acme"}, sess.accounts())
+	assert.False(t, sess.isAdmin())
 
 	runner := identity{Principal: principal.Principal{Kind: principal.OIDC, Login: "octocat"}}
 	assert.False(t, runner.sees("octocat"))
+	assert.False(t, runner.isAdmin())
+}
+
+func TestScopedKeyIdentity(t *testing.T) {
+	readOnly := identity{Principal: principal.Principal{Kind: principal.APIKey, Login: "ci", ReadOnly: true}}
+	assert.True(t, readOnly.readOnly())
+	assert.False(t, readOnly.isAdmin(), "a read-only key is not an administrator")
+	assert.True(t, readOnly.sees("anyone"), "a read-only, installation-wide key still sees every account")
+
+	scoped := identity{
+		Principal: principal.Principal{Kind: principal.APIKey, Login: "ci", Installation: 7},
+		scope:     &keyScope{account: "acme", known: true},
+	}
+	assert.True(t, scoped.sees("ACME"))
+	assert.False(t, scoped.sees("globex"))
+	assert.False(t, scoped.isAdmin(), "an installation-scoped key is not an administrator")
+	assert.Equal(t, []string{"acme"}, scoped.accounts())
+
+	gone := identity{
+		Principal: principal.Principal{Kind: principal.APIKey, Login: "ci", Installation: 7},
+		scope:     &keyScope{known: false},
+	}
+	assert.False(t, gone.sees("acme"), "a key whose installation is gone sees nothing")
+	assert.False(t, gone.sees(""))
+	assert.Equal(t, []string{noAccount}, gone.accounts(), "accounts() never collapses to the every-account filter")
+	assert.NotEmpty(t, gone.accounts()[0], "the sentinel is non-empty so it is not read as every account")
 }

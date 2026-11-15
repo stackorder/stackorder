@@ -132,7 +132,7 @@ func startControlPlane(t *testing.T, ls *localStack, prepare func(*ghfake.Server
 			`SELECT EXISTS (SELECT 1 FROM jobs WHERE kind = 'sync_installations' AND done_at IS NOT NULL)`).Scan(&ok)
 		return err == nil && ok
 	})
-	cp.apiKey, _, err = cp.store.CreateAPIKey(t.Context(), "e2e", "e2e")
+	cp.apiKey, _, err = cp.store.CreateAPIKey(t.Context(), store.NewAPIKey{Name: "e2e", CreatedBy: "e2e"})
 	require.NoError(t, err)
 	return cp
 }

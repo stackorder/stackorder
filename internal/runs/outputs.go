@@ -240,6 +240,8 @@ func (s *Service) outputsProducer(ctx context.Context, r *outputsRead) (store.Re
 		return store.Repo{}, r.notFound()
 	case r.p.Kind == principal.OIDC && repo.InstallationID != r.readerRepo.InstallationID:
 		return store.Repo{}, r.notFound()
+	case r.p.Kind == principal.APIKey && !r.p.SeesInstallation(repo.InstallationID):
+		return store.Repo{}, r.notFound()
 	}
 	if r.p.Kind == principal.APIKey {
 		r.readerRepo = repo

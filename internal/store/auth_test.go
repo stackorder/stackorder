@@ -84,7 +84,7 @@ func TestSessions(t *testing.T) {
 
 func TestAPIKeys(t *testing.T) {
 	f := newFixture(t)
-	plaintext, key, err := f.s.CreateAPIKey(f.ctx, "ci", "octocat")
+	plaintext, key, err := f.s.CreateAPIKey(f.ctx, store.NewAPIKey{Name: "ci", CreatedBy: "octocat"})
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(plaintext, store.APIKeyPrefix))
 	assert.True(t, strings.HasPrefix(plaintext, key.Prefix))
@@ -124,7 +124,7 @@ func TestAPIKeys(t *testing.T) {
 		})
 	}
 
-	second, _, err := f.s.CreateAPIKey(f.ctx, "deploy", "octocat")
+	second, _, err := f.s.CreateAPIKey(f.ctx, store.NewAPIKey{Name: "deploy", CreatedBy: "octocat"})
 	require.NoError(t, err)
 	require.NotEqual(t, plaintext, second)
 	first, err := f.s.RevokeAPIKey(f.ctx, key.ID, "octocat")
@@ -161,16 +161,66 @@ func TestAPIKeys(t *testing.T) {
 	}
 	assert.Equal(t, map[string]bool{"ci": true, "deploy": false}, names)
 
-	_, _, err = f.s.CreateAPIKey(f.ctx, "", "x")
+	_, _, err = f.s.CreateAPIKey(f.ctx, store.NewAPIKey{Name: "", CreatedBy: "x"})
 	require.ErrorIs(t, err, store.ErrInvalid)
 
-	_, _, err = f.s.CreateAPIKey(f.ctx, strings.Repeat("x", store.MaxAPIKeyNameLen+1), "x")
+	_, _, err = f.s.CreateAPIKey(f.ctx, store.NewAPIKey{Name: strings.Repeat("x", store.MaxAPIKeyNameLen+1), CreatedBy: "x"})
 	require.ErrorIs(t, err, store.ErrInvalid, "a name over the limit is refused")
 
 	atLimit := strings.Repeat("😀", store.MaxAPIKeyNameLen)
-	_, atLimitKey, err := f.s.CreateAPIKey(f.ctx, atLimit, "x")
+	_, atLimitKey, err := f.s.CreateAPIKey(f.ctx, store.NewAPIKey{Name: atLimit, CreatedBy: "x"})
 	require.NoError(t, err, "the limit counts characters, not bytes")
 	assert.Equal(t, atLimit, atLimitKey.Name)
+}
+
+func TestScopedAndExpiringAPIKeys(t *testing.T) {
+	f := newFixture(t)
+
+	unscoped, key, err := f.s.CreateAPIKey(f.ctx, store.NewAPIKey{Name: "admin", CreatedBy: "op"})
+	require.NoError(t, err)
+	assert.True(t, key.Admin(), "a key with no scope is an administrator")
+	assert.False(t, key.ReadOnly)
+	assert.Nil(t, key.InstallationID)
+	assert.Nil(t, key.ExpiresAt)
+	_, err = f.s.VerifyAPIKey(f.ctx, unscoped)
+	require.NoError(t, err)
+
+	inst := int64(42)
+	_, scoped, err := f.s.CreateAPIKey(f.ctx, store.NewAPIKey{Name: "ci", CreatedBy: "op", ReadOnly: true, InstallationID: &inst})
+	require.NoError(t, err)
+	assert.False(t, scoped.Admin(), "a scoped key is not an administrator")
+	assert.True(t, scoped.ReadOnly)
+	require.NotNil(t, scoped.InstallationID)
+	assert.Equal(t, inst, *scoped.InstallationID)
+
+	fetched, err := f.s.GetAPIKey(f.ctx, scoped.ID)
+	require.NoError(t, err)
+	assert.True(t, fetched.ReadOnly)
+	require.NotNil(t, fetched.InstallationID)
+	assert.Equal(t, inst, *fetched.InstallationID)
+
+	created, _, err := f.s.ListAudit(f.ctx, store.AuditFilter{Action: "api_key_created"})
+	require.NoError(t, err)
+	for _, e := range created {
+		if e.Target == "ci" {
+			assert.Equal(t, true, e.Details["read_only"])
+			assert.EqualValues(t, inst, e.Details["installation_id"])
+		}
+	}
+
+	past := time.Now().Add(-time.Minute)
+	expiredSecret, expired, err := f.s.CreateAPIKey(f.ctx, store.NewAPIKey{Name: "temp", CreatedBy: "op", ExpiresAt: &past})
+	require.NoError(t, err)
+	require.NotNil(t, expired.ExpiresAt)
+	_, err = f.s.VerifyAPIKey(f.ctx, expiredSecret)
+	require.ErrorIs(t, err, store.ErrNotFound, "an expired key is refused exactly like a revoked one")
+
+	future := time.Now().Add(time.Hour)
+	liveSecret, _, err := f.s.CreateAPIKey(f.ctx, store.NewAPIKey{Name: "live", CreatedBy: "op", ExpiresAt: &future})
+	require.NoError(t, err)
+	live, err := f.s.VerifyAPIKey(f.ctx, liveSecret)
+	require.NoError(t, err, "a key that has not expired still verifies")
+	require.NotNil(t, live.ExpiresAt)
 }
 
 func TestAPIKeyMutationsAreAtomicWithAudit(t *testing.T) {
@@ -179,7 +229,7 @@ func TestAPIKeyMutationsAreAtomicWithAudit(t *testing.T) {
 	_, err := f.s.Pool().Exec(f.ctx,
 		`ALTER TABLE audit ADD CONSTRAINT no_create_audit CHECK (action <> 'api_key_created')`)
 	require.NoError(t, err)
-	_, _, err = f.s.CreateAPIKey(f.ctx, "ci", "octocat")
+	_, _, err = f.s.CreateAPIKey(f.ctx, store.NewAPIKey{Name: "ci", CreatedBy: "octocat"})
 	require.Error(t, err, "creation fails when its audit entry cannot be written")
 	keys, err := f.s.ListAPIKeys(f.ctx)
 	require.NoError(t, err)
@@ -187,7 +237,7 @@ func TestAPIKeyMutationsAreAtomicWithAudit(t *testing.T) {
 
 	_, err = f.s.Pool().Exec(f.ctx, `ALTER TABLE audit DROP CONSTRAINT no_create_audit`)
 	require.NoError(t, err)
-	secret, key, err := f.s.CreateAPIKey(f.ctx, "ci", "octocat")
+	secret, key, err := f.s.CreateAPIKey(f.ctx, store.NewAPIKey{Name: "ci", CreatedBy: "octocat"})
 	require.NoError(t, err)
 	_, err = f.s.Pool().Exec(f.ctx,
 		`ALTER TABLE audit ADD CONSTRAINT no_revoke_audit CHECK (action <> 'api_key_revoked')`)

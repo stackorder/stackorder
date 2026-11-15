@@ -32,18 +32,43 @@ const (
 type identity struct {
 	principal.Principal
 	session *store.Session
+	scope   *keyScope
 }
 
-// isAdmin reports whether the caller may manage API keys. Today every API
-// key is an administrator; a later scoped key narrows this.
+// keyScope is the resolved installation scope of an installation-scoped API
+// key. account is the installation's current account, through which the key
+// reuses the session visibility machinery; known is false when the
+// installation is no longer installed, in which case the key sees nothing.
+type keyScope struct {
+	account string
+	known   bool
+}
+
+// noAccount is the scope account of an installation-scoped key whose
+// installation is gone: non-empty, so it is not read as "every account", and
+// equal to no real GitHub account, so it matches nothing.
+const noAccount = "\x00"
+
+// isAdmin reports whether the caller may manage API keys: an unscoped,
+// read-write, installation-wide API key. A scoped key is never an
+// administrator. This is the single chokepoint the adminKey mode enforces.
 func (id identity) isAdmin() bool {
-	return id.Kind == principal.APIKey
+	return id.Kind == principal.APIKey && !id.ReadOnly && id.Installation == 0
+}
+
+// readOnly reports whether the caller is a read-only API key, which the
+// with() middleware refuses every mutating route.
+func (id identity) readOnly() bool {
+	return id.Kind == principal.APIKey && id.ReadOnly
 }
 
 func (id identity) sees(account string) bool {
 	switch id.Kind {
 	case principal.APIKey:
-		return true
+		if id.scope == nil {
+			return true
+		}
+		return id.scope.known && strings.EqualFold(id.scope.account, account)
 	case principal.Session:
 		for _, a := range id.accounts() {
 			if strings.EqualFold(a, account) {
@@ -55,10 +80,22 @@ func (id identity) sees(account string) bool {
 }
 
 func (id identity) accounts() []string {
-	if id.Kind != principal.Session || id.session == nil {
-		return nil
+	switch id.Kind {
+	case principal.APIKey:
+		if id.scope == nil {
+			return nil
+		}
+		if !id.scope.known {
+			return []string{noAccount}
+		}
+		return []string{id.scope.account}
+	case principal.Session:
+		if id.session == nil {
+			return nil
+		}
+		return append([]string{id.session.Login}, id.session.Orgs...)
 	}
-	return append([]string{id.session.Login}, id.session.Orgs...)
+	return nil
 }
 
 type handler func(w http.ResponseWriter, r *http.Request, id identity) error
@@ -81,6 +118,10 @@ func (s *server) with(mode authMode, h handler) http.Handler {
 				return
 			}
 		}
+		if id.readOnly() && !safeMethod(r.Method) {
+			s.writeError(w, r, forbidden("this API key is read-only and cannot make "+r.Method+" requests"))
+			return
+		}
 		if mode&adminKey != 0 && !id.isAdmin() {
 			s.writeError(w, r, forbidden("managing API keys requires an administrator API key"))
 			return
@@ -94,6 +135,10 @@ func (s *server) with(mode authMode, h handler) http.Handler {
 func statusOf(err error) int {
 	e, _ := toAPIError(err)
 	return e.status
+}
+
+func safeMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
 }
 
 func (s *server) authenticate(r *http.Request, mode authMode) (identity, error) {
@@ -132,12 +177,30 @@ func (s *server) authenticate(r *http.Request, mode authMode) (identity, error) 
 func (s *server) apiKeyIdentity(ctx context.Context, raw string) (identity, error) {
 	key, err := s.db.VerifyAPIKey(ctx, raw)
 	if errors.Is(err, store.ErrNotFound) {
-		return identity{}, unauthorized("the API key is unknown or revoked")
+		return identity{}, unauthorized("the API key is unknown, revoked or expired")
 	}
 	if err != nil {
 		return identity{}, fmt.Errorf("verify api key: %w", err)
 	}
-	return identity{Principal: principal.Principal{Kind: principal.APIKey, Login: key.Name, APIKeyID: key.ID.String()}}, nil
+	id := identity{Principal: principal.Principal{
+		Kind:     principal.APIKey,
+		Login:    key.Name,
+		APIKeyID: key.ID.String(),
+		ReadOnly: key.ReadOnly,
+	}}
+	if key.InstallationID != nil {
+		id.Installation = *key.InstallationID
+		inst, err := s.db.GetInstallation(ctx, *key.InstallationID)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			id.scope = &keyScope{}
+		case err != nil:
+			return identity{}, fmt.Errorf("look up api key installation: %w", err)
+		default:
+			id.scope = &keyScope{account: inst.Account, known: true}
+		}
+	}
+	return id, nil
 }
 
 func (s *server) runnerIdentity(ctx context.Context, raw string) (identity, error) {

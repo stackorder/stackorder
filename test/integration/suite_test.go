@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/stackorder/stackorder/internal/gh"
+	"github.com/stackorder/stackorder/internal/store"
 	"github.com/stackorder/stackorder/internal/testutil/faketf"
 	"github.com/stackorder/stackorder/internal/testutil/ghfake"
 )
@@ -182,7 +183,7 @@ func startSuite(t *testing.T) {
 	suite.tfDir = faketf.Build(tb)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	key, _, err := env.Store.CreateAPIKey(ctx, "integration", "suite")
+	key, _, err := env.Store.CreateAPIKey(ctx, store.NewAPIKey{Name: "integration", CreatedBy: "suite"})
 	if err != nil {
 		t.Fatalf("integration: create the API key: %v", err)
 	}

@@ -128,6 +128,10 @@ func TestAPIKeyCommandArgs(t *testing.T) {
 		{"empty actor", []string{"api-key", "list", "--actor", ""}, withDB, 2, "--actor must not be empty"},
 		{"create needs database url", []string{"api-key", "create", "ci"}, envOf(nil), 1, "DATABASE_URL is required"},
 		{"revoke needs a uuid", []string{"api-key", "revoke", "nope"}, withDB, 2, "is not a key id"},
+		{"scope flags on list", []string{"api-key", "list", "--read-only"}, withDB, 2, "apply to create only"},
+		{"installation on revoke", []string{"api-key", "revoke", "--installation", "5", "id"}, withDB, 2, "apply to create only"},
+		{"negative installation", []string{"api-key", "create", "ci", "--installation", "-1"}, withDB, 2, "must not be negative"},
+		{"negative expiry", []string{"api-key", "create", "ci", "--expires", "-1h"}, withDB, 2, "must not be negative"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

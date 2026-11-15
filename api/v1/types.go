@@ -862,11 +862,25 @@ type APIKey struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	// ReadOnly is true when the key is refused every mutating route.
+	ReadOnly bool `json:"read_only,omitempty"`
+	// InstallationID, when set, is the one installation the key may see.
+	InstallationID *int64 `json:"installation_id,omitempty"`
+	// ExpiresAt, when set, is when the key stops authenticating.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
-// CreateAPIKeyRequest is the body of POST /v1/keys.
+// CreateAPIKeyRequest is the body of POST /v1/keys. A key is an unscoped
+// administrator unless the request narrows it: ReadOnly refuses it every
+// mutating route, InstallationID limits it to one installation (zero means
+// every installation), and ExpiresAt sets an expiry that must be in the
+// future. A restricted key can never create keys, so only an administrator
+// key reaches this endpoint.
 type CreateAPIKeyRequest struct {
-	Name string `json:"name"`
+	Name           string     `json:"name"`
+	ReadOnly       bool       `json:"read_only,omitempty"`
+	InstallationID int64      `json:"installation_id,omitempty"`
+	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
 }
 
 // CreatedAPIKey is the body of POST /v1/keys: the key's metadata and, in
