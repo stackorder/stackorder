@@ -48,6 +48,20 @@ Postgres holds the graphs, the run history, the locks, drift results, sessions, 
 - **RDS or Aurora:** turn on automated backups with point-in-time recovery.
 - **Elsewhere:** use your platform's snapshots or `pg_dump` on a schedule.
 
+### Data-only dumps {#data-only}
+
+A snapshot or a plain `pg_dump` restores the whole database, schema included. If instead you keep a data-only dump (`pg_dump --data-only`) to load into a database the server has already migrated, dump everything but the migration bookkeeping and restore it in a single transaction:
+
+```sh
+pg_dump --data-only --no-owner --no-privileges \
+  --exclude-table-data=schema_migrations "$SOURCE_URL" -f stackorder-data.sql
+psql --single-transaction -v ON_ERROR_STOP=1 "$TARGET_URL" -f stackorder-data.sql
+```
+
+`repos` and `graphs` reference each other, so no load order satisfies both foreign keys row by row. `repos.default_graph_id` is `DEFERRABLE INITIALLY DEFERRED`, so the cycle is checked once at commit instead: the whole dump must load in one transaction, which `--single-transaction` (or `pg_restore --single-transaction` for a custom-format dump) does. This needs no superuser, so it works on a managed Postgres where `pg_restore --disable-triggers` is not available.
+
+Restore into a database migrated to the same version the dump was taken at. `--exclude-table-data=schema_migrations` leaves out the migration bookkeeping row the target already has; without it the load fails on a duplicate key in `schema_migrations`.
+
 What a lost database costs you: history, drift results, locks, and the state locations [shared outputs](/configuration/outputs#state-location) read from and the resource lists, which each stack's next apply or drift job records again. Plans and applies keep working against your S3 state once a new database is in place, because nothing in the server is needed to operate Terraform, except by stacks that read shared outputs: their plans fail until each producer's next apply or drift job records its state location again.
 
 ## Restoring {#restore}

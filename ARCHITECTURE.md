@@ -1177,7 +1177,10 @@ only once every replica runs this code, since a v0.5.0 replica's
 already-removed stack during a rolling upgrade.
 Migration `0010_reconcile_removed_stacks` repairs existing rows once,
 marking removed a stack absent from its repository's current default graph
-unless a graph newer than that default still lists it. `ModuleConsumers` and `StackModules` read each repository's
+unless a graph newer than that default still lists it. `repos.default_graph_id`'s
+foreign key to `graphs` is `DEFERRABLE INITIALLY DEFERRED` so the
+`repos`/`graphs` cycle survives a data-only dump restored in one transaction.
+`ModuleConsumers` and `StackModules` read each repository's
 default-branch graph, falling back to its latest graph. `stacks.state_object`
 (`v1.StateObject` as jsonb, with `state_object_run_id` and `state_object_at`)
 is where an apply or drift job of the newest run that reported one found the
