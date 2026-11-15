@@ -18,6 +18,17 @@ type Installation struct {
 
 const installationColumns = `id, account, account_type, suspended_at, created_at`
 
+// Now returns the database's current time. The installation sync reads it
+// before it lists the installations, so a webhook delivery received after
+// the listing wins over the state the sync records; see SuspendInstallation.
+func (s *Store) Now(ctx context.Context) (time.Time, error) {
+	var now time.Time
+	if err := s.db.QueryRow(ctx, `SELECT now()`).Scan(&now); err != nil {
+		return time.Time{}, wrap("database time", err)
+	}
+	return now, nil
+}
+
 // UpsertInstallation creates the installation or refreshes its account
 // fields. The suspension state is left untouched.
 func (s *Store) UpsertInstallation(ctx context.Context, in Installation) (Installation, error) {
@@ -45,20 +56,33 @@ func (s *Store) ListInstallations(ctx context.Context) ([]Installation, error) {
 	return out, wrap("list installations", err)
 }
 
-// SuspendInstallation marks the installation suspended, keeping the first
-// suspension time, or clears the mark when suspended is false.
-func (s *Store) SuspendInstallation(ctx context.Context, id int64, suspended bool) error {
+// SuspendInstallation marks the installation suspended as observed at
+// observedAt, keeping the first suspension time, or clears the mark when
+// suspended is false. The change takes effect only when observedAt is no
+// earlier than the last observation applied, recorded in
+// suspend_observed_at; a single UPDATE makes the compare-and-set hold under
+// concurrent writers. So deliveries of one installation processed out of
+// order, by any worker or replica and across retries, and the daily sync,
+// converge on the most recently observed suspension. It reports whether the
+// change was applied; false means a later observation already won or the
+// installation is unknown. The caller passes a webhook delivery's
+// received_at, or the database time taken before the sync listed the
+// installations; a zero observedAt applies as of now.
+func (s *Store) SuspendInstallation(ctx context.Context, id int64, suspended bool, observedAt time.Time) (bool, error) {
+	var at *time.Time
+	if !observedAt.IsZero() {
+		at = &observedAt
+	}
 	tag, err := s.db.Exec(ctx, `
 		UPDATE installations
-		SET suspended_at = CASE WHEN $2 THEN COALESCE(suspended_at, now()) ELSE NULL END
-		WHERE id = $1`, id, suspended)
+		SET suspended_at = CASE WHEN $2 THEN COALESCE(suspended_at, COALESCE($3::timestamptz, now())) ELSE NULL END,
+			suspend_observed_at = COALESCE($3::timestamptz, now())
+		WHERE id = $1 AND (suspend_observed_at IS NULL OR suspend_observed_at <= COALESCE($3::timestamptz, now()))`,
+		id, suspended, at)
 	if err != nil {
-		return wrap("suspend installation", err)
+		return false, wrap("suspend installation", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return notFound("suspend installation")
-	}
-	return nil
+	return tag.RowsAffected() == 1, nil
 }
 
 // DeleteInstallation removes the installation together with its

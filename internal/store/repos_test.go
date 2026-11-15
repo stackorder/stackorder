@@ -24,13 +24,17 @@ func TestInstallations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "acme-renamed", in.Account)
 
-	require.NoError(t, f.s.SuspendInstallation(f.ctx, 1, true))
+	applied, err := f.s.SuspendInstallation(f.ctx, 1, true, time.Time{})
+	require.NoError(t, err)
+	assert.True(t, applied)
 	got, err := f.s.GetInstallation(f.ctx, 1)
 	require.NoError(t, err)
 	require.NotNil(t, got.SuspendedAt)
 	first := *got.SuspendedAt
 
-	require.NoError(t, f.s.SuspendInstallation(f.ctx, 1, true))
+	applied, err = f.s.SuspendInstallation(f.ctx, 1, true, time.Time{})
+	require.NoError(t, err)
+	assert.True(t, applied)
 	got, err = f.s.GetInstallation(f.ctx, 1)
 	require.NoError(t, err)
 	assert.Equal(t, first, *got.SuspendedAt, "suspending twice keeps the first time")
@@ -45,12 +49,16 @@ func TestInstallations(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, got.SuspendedAt, "upsert leaves suspension alone")
 
-	require.NoError(t, f.s.SuspendInstallation(f.ctx, 1, false))
+	applied, err = f.s.SuspendInstallation(f.ctx, 1, false, time.Time{})
+	require.NoError(t, err)
+	assert.True(t, applied)
 	got, err = f.s.GetInstallation(f.ctx, 1)
 	require.NoError(t, err)
 	assert.Nil(t, got.SuspendedAt)
 
-	require.ErrorIs(t, f.s.SuspendInstallation(f.ctx, 404, true), store.ErrNotFound)
+	applied, err = f.s.SuspendInstallation(f.ctx, 404, true, time.Time{})
+	require.NoError(t, err)
+	assert.False(t, applied, "an unknown installation is a no-op, not an error")
 	_, err = f.s.GetInstallation(f.ctx, 404)
 	require.ErrorIs(t, err, store.ErrNotFound)
 
@@ -68,7 +76,8 @@ func TestListInstallations(t *testing.T) {
 	f := newFixture(t)
 	f.addRepo(3, 300, "Globex", "Globex/platform")
 	f.addRepo(2, 200, "acme-labs", "acme-labs/sandbox")
-	require.NoError(t, f.s.SuspendInstallation(f.ctx, 2, true))
+	_, err := f.s.SuspendInstallation(f.ctx, 2, true, time.Time{})
+	require.NoError(t, err)
 
 	got, err := f.s.ListInstallations(f.ctx)
 	require.NoError(t, err)
