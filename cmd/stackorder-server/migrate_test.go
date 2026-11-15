@@ -17,7 +17,10 @@ func TestMigrateUsageErrors(t *testing.T) {
 		err  string
 	}{
 		{"status with to", []string{"migrate", "--status", "--to", "3"}, dsn, 1, "--status and --to cannot be combined"},
+		{"status with force", []string{"migrate", "--status", "--force", "3"}, dsn, 1, "--status and --force cannot be combined"},
+		{"to with force", []string{"migrate", "--to", "3", "--force", "2"}, dsn, 1, "--to and --force cannot be combined"},
 		{"negative to", []string{"migrate", "--to", "-1"}, dsn, 1, "must not be negative"},
+		{"negative force", []string{"migrate", "--force", "-1"}, dsn, 1, "--force must not be negative"},
 		{"zero to", []string{"migrate", "--to", "0"}, dsn, 1, "no migration numbered 0; the latest is"},
 		{"unexpected argument", []string{"migrate", "extra"}, dsn, 1, `unexpected argument "extra"`},
 		{"unknown flag", []string{"migrate", "--nope"}, dsn, 1, "flag provided but not defined"},

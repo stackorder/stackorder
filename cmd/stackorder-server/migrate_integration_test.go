@@ -128,6 +128,68 @@ func TestMigrateRefusesDatabaseAheadOfBinary(t *testing.T) {
 		fmt.Sprintf("database is at version 99, above the latest version %d this binary embeds", target))
 }
 
+func TestMigrateForceRecoversDirty(t *testing.T) {
+	target, err := store.LatestMigration()
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, target, uint(3), "test assumes at least three migrations")
+	dsn := pgtest.DSN(t)
+	env := envOf(map[string]string{"DATABASE_URL": dsn})
+
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 0, run([]string{"migrate", "--to", "2"}, env, &stdout, &stderr))
+
+	s, err := store.Open(t.Context(), dsn)
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+	_, err = s.Pool().Exec(t.Context(), `UPDATE schema_migrations SET version = 3, dirty = true`)
+	require.NoError(t, err)
+
+	stdout.Reset()
+	stderr.Reset()
+	assert.Equal(t, 1, run([]string{"migrate"}, env, &stdout, &stderr), "a dirty database refuses to migrate")
+	assert.Contains(t, stderr.String(), "schema is dirty at version 3")
+	assert.Contains(t, stderr.String(), "--force")
+
+	stdout.Reset()
+	stderr.Reset()
+	assert.Equal(t, 1, run([]string{"migrate", "--status"}, env, &stdout, &stderr))
+	assert.Equal(t, fmt.Sprintf("current=3\ntarget=%d\ndirty=true\n", target), stdout.String())
+	assert.Contains(t, stderr.String(), "--force")
+
+	stdout.Reset()
+	stderr.Reset()
+	assert.Equal(t, 0, run([]string{"migrate", "--force", "2"}, env, &stdout, &stderr))
+	assert.Equal(t, "cleared the dirty flag; recorded version 2 (was dirty at version 3)\n", stdout.String())
+	assert.Empty(t, stderr.String())
+
+	stdout.Reset()
+	stderr.Reset()
+	assert.Equal(t, 0, run([]string{"migrate"}, env, &stdout, &stderr), "migrate re-applies the failed migration and the rest")
+	assert.Equal(t, fmt.Sprintf("migrated database from version 2 to version %d\n", target), stdout.String())
+}
+
+func TestMigrateForceRefusesCleanDatabase(t *testing.T) {
+	dsn := pgtest.DSN(t)
+	env := envOf(map[string]string{"DATABASE_URL": dsn})
+
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 0, run([]string{"migrate", "--to", "2"}, env, &stdout, &stderr))
+
+	stderr.Reset()
+	assert.Equal(t, 1, run([]string{"migrate", "--force", "1"}, env, &stdout, &stderr))
+	assert.Contains(t, stderr.String(), "database is not dirty (version 2); --force only recovers a dirty database")
+}
+
+func TestMigrateForceAboveLatestRefused(t *testing.T) {
+	target, err := store.LatestMigration()
+	require.NoError(t, err)
+	env := envOf(map[string]string{"DATABASE_URL": pgtest.DSN(t)})
+
+	var stdout, stderr bytes.Buffer
+	assert.Equal(t, 1, run([]string{"migrate", "--force", fmt.Sprint(target + 1)}, env, &stdout, &stderr))
+	assert.Contains(t, stderr.String(), fmt.Sprintf("cannot force version %d; the latest this binary embeds is %d", target+1, target))
+}
+
 func TestMigrateStatusDoesNotMutate(t *testing.T) {
 	dsn := pgtest.DSN(t)
 	env := envOf(map[string]string{"DATABASE_URL": dsn})

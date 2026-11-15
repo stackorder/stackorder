@@ -14,7 +14,7 @@ import (
 	"github.com/stackorder/stackorder/internal/store"
 )
 
-const migrateUsage = `usage: stackorder-server migrate [--to N | --status]
+const migrateUsage = `usage: stackorder-server migrate [--to N | --status | --force N]
 
 Apply the embedded migrations to DATABASE_URL and exit, holding the same
 migration lock as start-up so it is safe next to starting servers. It needs
@@ -25,11 +25,19 @@ Flags:
   --status   print the current and target version, change nothing, and exit
              0 when up to date, 2 when migrations are pending, 1 when the
              database is dirty or ahead of the latest version this binary embeds
+  --force N  record version N and clear the dirty flag, without running any
+             migration; only for a dirty database. A failed migration rolls
+             back under this driver and leaves the schema at the previous
+             version, so after migration N fails use --force N-1 and run
+             migrate again to re-apply N. Use --force N only when you finished
+             migration N by hand. --force 0 means no migration is applied.
 
 Exit codes:
-  0  migrated, already up to date, or --status found the schema up to date
-  1  a usage, configuration, connection or migration error, a dirty database, or
-     a database ahead of the latest version this binary embeds
+  0  migrated, already up to date, --status found the schema up to date, or
+     --force recorded the version
+  1  a usage, configuration, connection or migration error, a dirty database
+     (without --force), or a database ahead of the latest version this binary
+     embeds
   2  --status found pending migrations
 `
 
@@ -40,9 +48,11 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 	var (
 		to     int
 		status bool
+		force  int
 	)
 	fs.IntVar(&to, "to", 0, "migrate up to this version instead of the latest")
 	fs.BoolVar(&status, "status", false, "report the current and target version without migrating")
+	fs.IntVar(&force, "force", 0, "record this version and clear the dirty flag without migrating")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -53,18 +63,32 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 		_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: unexpected argument %q\n\n%s", fs.Arg(0), migrateUsage)
 		return 1
 	}
-	toSet := false
+	var toSet, forceSet bool
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "to" {
+		switch f.Name {
+		case "to":
 			toSet = true
+		case "force":
+			forceSet = true
 		}
 	})
-	if status && toSet {
+	switch {
+	case status && toSet:
 		_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: --status and --to cannot be combined\n")
+		return 1
+	case status && forceSet:
+		_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: --status and --force cannot be combined\n")
+		return 1
+	case toSet && forceSet:
+		_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: --to and --force cannot be combined\n")
 		return 1
 	}
 	if toSet && to < 0 {
 		_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: --to must not be negative, got %d\n", to)
+		return 1
+	}
+	if forceSet && force < 0 {
+		_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: --force must not be negative, got %d\n", force)
 		return 1
 	}
 
@@ -87,6 +111,10 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 		}
 		dest = uint(to)
 	}
+	if forceSet && uint(force) > target {
+		_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: cannot force version %d; the latest this binary embeds is %d\n", force, target)
+		return 1
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -104,10 +132,24 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 		return 1
 	}
 
+	if forceSet {
+		if !dirty {
+			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: database is not dirty (version %d); --force only recovers a dirty database\n", current)
+			return 1
+		}
+		if err := st.ForceVersion(ctx, uint(force)); err != nil {
+			_, _ = fmt.Fprintln(stderr, "stackorder-server migrate:", err)
+			return 1
+		}
+		_, _ = fmt.Fprintf(stdout, "cleared the dirty flag; recorded version %d (was dirty at version %d)\n", force, current)
+		return 0
+	}
+
 	if status {
 		_, _ = fmt.Fprintf(stdout, "current=%d\ntarget=%d\ndirty=%t\n", current, target, dirty)
 		switch {
 		case dirty:
+			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: database is dirty at version %d; a migration did not finish. Repair the schema, then run `stackorder-server migrate --force` to record the recovered version\n", current)
 			return 1
 		case current > target:
 			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: database is at version %d, above the latest version %d this binary embeds; migrate does not revert migrations\n", current, target)
@@ -122,11 +164,15 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 	applied, err := st.MigrateUp(ctx, dest)
 	if err != nil {
 		var ahead *store.SchemaAheadError
-		if !toSet && errors.As(err, &ahead) {
+		var dirtyErr *store.SchemaDirtyError
+		switch {
+		case !toSet && errors.As(err, &ahead):
 			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: database is at version %d, above the latest version %d this binary embeds; migrate does not revert migrations\n", ahead.Current, ahead.Target)
-			return 1
+		case errors.As(err, &dirtyErr):
+			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: %v; run `stackorder-server migrate --force` to record the recovered version\n", dirtyErr)
+		default:
+			_, _ = fmt.Fprintln(stderr, "stackorder-server migrate:", err)
 		}
-		_, _ = fmt.Fprintln(stderr, "stackorder-server migrate:", err)
 		return 1
 	}
 	after, _, err := st.SchemaVersion(ctx)
