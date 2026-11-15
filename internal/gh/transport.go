@@ -171,8 +171,12 @@ func (t *transport) do(ctx context.Context, r request) (*response, error) {
 		resp, sent, err := t.once(ctx, r, target, token, payload, contentType)
 		if err != nil {
 			err = withoutURL(err)
-			if ctx.Err() != nil {
-				return nil, fmt.Errorf("gh: %s %s: %w", r.method, r.route, ctx.Err())
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				wrapped := fmt.Errorf("gh: %s %s: %w", r.method, r.route, ctxErr)
+				if sent && !idempotent {
+					return nil, unknownOutcome{wrapped}
+				}
+				return nil, wrapped
 			}
 			if attempt >= attempts || (sent && !idempotent) {
 				wrapped := fmt.Errorf("gh: %s %s: %w", r.method, r.route, err)

@@ -361,6 +361,52 @@ func TestNonIdempotentNotRetriedAfterSend(t *testing.T) {
 	assert.Empty(t, sl.all())
 }
 
+func cancelAfterSend(t *testing.T) (http.Handler, func(context.Context) context.Context) {
+	t.Helper()
+	var cancel context.CancelFunc
+	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		cancel()
+		time.Sleep(200 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"id":1}`))
+	})
+	return h, func(ctx context.Context) context.Context {
+		ctx, cancel = context.WithCancel(ctx)
+		return ctx
+	}
+}
+
+func TestNonIdempotentCanceledAfterSendIsUnknown(t *testing.T) {
+	h, withCancel := cancelAfterSend(t)
+	tr, _, _ := testTransport(t, h)
+	err := tr.call(withCancel(context.Background()), post("/thing"), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.ErrorIs(t, err, ErrUnknownOutcome, "a sent create cut by cancellation may have been applied")
+}
+
+func TestIdempotentCanceledAfterSendIsKnown(t *testing.T) {
+	h, withCancel := cancelAfterSend(t)
+	tr, _, _ := testTransport(t, h)
+	r := post("/thing")
+	r.idempotent = true
+	err := tr.call(withCancel(context.Background()), r, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.NotErrorIs(t, err, ErrUnknownOutcome, "an idempotent request is safe to repeat, so its outcome need not be flagged")
+}
+
+func TestNotSentCanceledIsKnown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	tr, _, _ := testTransport(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("the request must not be sent")
+	}))
+	err := tr.call(ctx, post("/thing"), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.NotErrorIs(t, err, ErrUnknownOutcome, "a request canceled before it was sent did not happen")
+}
+
 func TestNonIdempotentRetriedWhenNotSent(t *testing.T) {
 	var dials atomic.Int32
 	hc := &http.Client{Transport: &http.Transport{
