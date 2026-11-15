@@ -386,7 +386,7 @@ func compact(t *testing.T, data []byte) string {
 }
 
 var (
-	serverRoute  = regexp.MustCompile(`s\.handle\(mux, "([A-Z]+) (/[^"]*)"`)
+	serverRoute  = regexp.MustCompile(`"([A-Z]+) (/[^"]*)"`)
 	clientCall   = regexp.MustCompile("this\\.(get|text|send|request)\\((?:'([A-Z]+)', )?[`']([^`']+)")
 	segmentArg   = regexp.MustCompile(`\$\{segment\([^)]*\)\}`)
 	patternParam = regexp.MustCompile(`\{[^}]+\}`)

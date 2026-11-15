@@ -158,34 +158,10 @@ func (s *server) routes() http.Handler {
 	s.handle(mux, "GET /metrics", 0, http.HandlerFunc(s.serveMetrics))
 	s.handle(mux, "POST /webhooks/github", 0, http.HandlerFunc(s.serveWebhook))
 
-	s.handle(mux, "POST /v1/runs", maxBodyBytes, s.with(runnerAuth, s.createRun))
-	s.handle(mux, "POST /v1/runs/{id}/graph", maxGraphBytes, s.with(runnerAuth, s.uploadGraph))
-	s.handle(mux, "PUT /v1/repos/{owner}/{repo}/default-graph", maxGraphBytes, s.with(runnerAuth, s.recordDefaultGraph))
-	s.handle(mux, "POST /v1/runs/{id}/stacks/{key}/result", maxResultBytes, s.with(runnerAuth, s.recordResult))
-	s.handle(mux, "POST /v1/runs/{id}/stacks/{key}/checks/{name}", maxBodyBytes, s.with(runnerAuth, s.recordCheck))
-	s.handle(mux, "GET /v1/runs/{id}", 0, s.with(anyAuth, s.getRun))
-	s.handle(mux, "GET /v1/runs/{id}/stacks/{key}/plan", 0, s.with(humanAuth, s.planText))
-	s.handle(mux, "POST /v1/unlock", maxBodyBytes, s.with(humanAuth|sameOrigin, s.unlockByKey))
-	s.handle(mux, "POST /v1/stacks/{id}/unlock", maxBodyBytes, s.with(humanAuth|sameOrigin, s.unlockStack))
-	s.handle(mux, "POST /v1/runs/{id}/rerun", maxBodyBytes, s.with(humanAuth|sameOrigin, s.rerun))
+	for _, rt := range authRoutes(s) {
+		s.handle(mux, rt.pattern, rt.limit, s.with(rt.mode, rt.handler))
+	}
 
-	s.handle(mux, "GET /v1/me", 0, s.with(humanAuth, s.me))
-	s.handle(mux, "GET /v1/overview", 0, s.with(humanAuth, s.overview))
-	s.handle(mux, "GET /v1/repos", 0, s.with(humanAuth, s.repos))
-	s.handle(mux, "GET /v1/repos/{owner}/{repo}/graph", 0, s.with(humanAuth, s.repoGraph))
-	s.handle(mux, "GET /v1/repos/{owner}/{repo}/runs", 0, s.with(humanAuth, s.repoRuns))
-	s.handle(mux, "GET /v1/repos/{owner}/{repo}/stacks", 0, s.with(humanAuth, s.repoStacks))
-	s.handle(mux, "GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs", 0, s.with(runnerAuth, s.stackOutputs))
-	s.handle(mux, "GET /v1/stacks", 0, s.with(humanAuth, s.stacks))
-	s.handle(mux, "GET /v1/stacks/{id}", 0, s.with(humanAuth, s.stack))
-	s.handle(mux, "GET /v1/stacks/{id}/runs", 0, s.with(humanAuth, s.stackRuns))
-	s.handle(mux, "GET /v1/stacks/{id}/resources", 0, s.with(humanAuth, s.stackResources))
-	s.handle(mux, "GET /v1/modules", 0, s.with(humanAuth, s.modules))
-	s.handle(mux, "GET /v1/modules/{id}", 0, s.with(humanAuth, s.module))
-	s.handle(mux, "GET /v1/audit", 0, s.with(humanAuth, s.audit))
-	s.handle(mux, "GET /v1/keys", 0, s.with(humanAuth|adminKey, s.listKeys))
-	s.handle(mux, "POST /v1/keys", maxBodyBytes, s.with(humanAuth|sameOrigin|adminKey, s.createKey))
-	s.handle(mux, "DELETE /v1/keys/{id}", 0, s.with(humanAuth|sameOrigin|adminKey, s.revokeKey))
 	s.handle(mux, "GET /auth/login", 0, http.HandlerFunc(s.login))
 	s.handle(mux, "GET /auth/callback", 0, http.HandlerFunc(s.callback))
 	s.handle(mux, "POST /auth/logout", maxBodyBytes, http.HandlerFunc(s.logout))
@@ -194,6 +170,57 @@ func (s *server) routes() http.Handler {
 	s.handle(mux, "/auth/", 0, http.HandlerFunc(s.unknownEndpoint))
 	s.handle(mux, "/", 0, http.HandlerFunc(s.serveUI))
 	return s.observe(s.securityHeaders(mux))
+}
+
+// authRoute is one authenticated /v1 route. The read-only and installation
+// scope of an API key is enforced centrally in with() and, for routes that
+// reach the run service, in internal/runs, so the table is the full list a
+// test enumerates to assert that every mutating route an API key can present
+// refuses a read-only key, rather than a hand-written one that a new route
+// could escape.
+type authRoute struct {
+	pattern string
+	limit   int64
+	mode    authMode
+	handler handler
+}
+
+// method returns the HTTP method of the route's pattern.
+func (rt authRoute) method() string {
+	method, _, _ := strings.Cut(rt.pattern, " ")
+	return method
+}
+
+func authRoutes(s *server) []authRoute {
+	return []authRoute{
+		{"POST /v1/runs", maxBodyBytes, runnerAuth, s.createRun},
+		{"POST /v1/runs/{id}/graph", maxGraphBytes, runnerAuth, s.uploadGraph},
+		{"PUT /v1/repos/{owner}/{repo}/default-graph", maxGraphBytes, runnerAuth, s.recordDefaultGraph},
+		{"POST /v1/runs/{id}/stacks/{key}/result", maxResultBytes, runnerAuth, s.recordResult},
+		{"POST /v1/runs/{id}/stacks/{key}/checks/{name}", maxBodyBytes, runnerAuth, s.recordCheck},
+		{"GET /v1/runs/{id}", 0, anyAuth, s.getRun},
+		{"GET /v1/runs/{id}/stacks/{key}/plan", 0, humanAuth, s.planText},
+		{"POST /v1/unlock", maxBodyBytes, humanAuth | sameOrigin, s.unlockByKey},
+		{"POST /v1/stacks/{id}/unlock", maxBodyBytes, humanAuth | sameOrigin, s.unlockStack},
+		{"POST /v1/runs/{id}/rerun", maxBodyBytes, humanAuth | sameOrigin, s.rerun},
+		{"GET /v1/me", 0, humanAuth, s.me},
+		{"GET /v1/overview", 0, humanAuth, s.overview},
+		{"GET /v1/repos", 0, humanAuth, s.repos},
+		{"GET /v1/repos/{owner}/{repo}/graph", 0, humanAuth, s.repoGraph},
+		{"GET /v1/repos/{owner}/{repo}/runs", 0, humanAuth, s.repoRuns},
+		{"GET /v1/repos/{owner}/{repo}/stacks", 0, humanAuth, s.repoStacks},
+		{"GET /v1/repos/{owner}/{repo}/stacks/{key}/outputs", 0, runnerAuth, s.stackOutputs},
+		{"GET /v1/stacks", 0, humanAuth, s.stacks},
+		{"GET /v1/stacks/{id}", 0, humanAuth, s.stack},
+		{"GET /v1/stacks/{id}/runs", 0, humanAuth, s.stackRuns},
+		{"GET /v1/stacks/{id}/resources", 0, humanAuth, s.stackResources},
+		{"GET /v1/modules", 0, humanAuth, s.modules},
+		{"GET /v1/modules/{id}", 0, humanAuth, s.module},
+		{"GET /v1/audit", 0, humanAuth, s.audit},
+		{"GET /v1/keys", 0, humanAuth | adminKey, s.listKeys},
+		{"POST /v1/keys", maxBodyBytes, humanAuth | sameOrigin | adminKey, s.createKey},
+		{"DELETE /v1/keys/{id}", 0, humanAuth | sameOrigin | adminKey, s.revokeKey},
+	}
 }
 
 func (s *server) unknownEndpoint(w http.ResponseWriter, r *http.Request) {
