@@ -78,6 +78,7 @@ type Config struct {
 type GitHub interface {
 	Client(ctx context.Context, installationID int64) (*gh.Client, error)
 	ListInstallations(ctx context.Context) ([]gh.Installation, error)
+	Installation(ctx context.Context, installationID int64) (*gh.Installation, error)
 	InstallationRepos(ctx context.Context, installationID int64) ([]gh.Repository, error)
 }
 

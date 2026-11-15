@@ -390,10 +390,15 @@ func (s *Service) timeOut(ctx context.Context, d store.Dispatch) error {
 // current. It learns installations made while the server ran in setup mode
 // and repairs installation webhooks lost during downtime, deletion ones
 // included: when GitHub listed every installation and the repositories of
-// every active one, stored installations it no longer lists are forgotten,
-// and so are stored repositories of a listed installation that no listing
-// names. When any listing fails nothing is forgotten. An installation that
-// fails does not stop the others, and every failure is returned.
+// every active one, a stored installation the listing omits is forgotten
+// only after GET /app/installations/{id} confirms it with a 404, and a
+// stored repository a listed installation's listing omits is forgotten
+// when that listing is not degraded. A listing that omits a majority of
+// the stored installations, or a majority of an installation's stored
+// repositories, is treated as degraded and forgets nothing, so a single
+// short or empty 200 cannot cascade-delete an installation's history. When
+// any listing fails nothing is forgotten. An installation that fails does
+// not stop the others, and every failure is returned.
 func (s *Service) SyncInstallations(ctx context.Context) error {
 	observed, err := s.st.Now(ctx)
 	if err != nil {
@@ -463,28 +468,104 @@ func (s *Service) syncInstallation(ctx context.Context, inst gh.Installation, ob
 	return repos, true, s.recordRepos(ctx, inst.ID, repos, func(r store.Repo) bool { return r.Config == nil && r.ConfigSHA == "" })
 }
 
+// degradedListing reports whether a listing that omits omitted of total
+// stored records looks too incomplete to act on: a majority of a set of at
+// least two. A single short or empty 200, in front of the GitHub API or
+// from an incident, trips it and forgets nothing.
+func degradedListing(omitted, total int) bool {
+	return total >= 2 && 2*omitted > total
+}
+
 func (s *Service) forgetUnlisted(ctx context.Context, l installationListing) (int, error) {
 	stored, err := s.st.ListInstallations(ctx)
 	if err != nil {
 		return 0, storeErr(err, "installations")
 	}
-	forgotten := 0
+	var unlisted []store.Installation
 	for _, inst := range stored {
-		if l.installations[inst.ID] {
-			continue
+		if !l.installations[inst.ID] {
+			unlisted = append(unlisted, inst)
 		}
-		if err := s.st.DeleteInstallation(ctx, inst.ID); err != nil {
-			return forgotten, storeErr(err, "forget installation %d", inst.ID)
-		}
-		forgotten++
-		s.log.InfoContext(ctx, "forgot an installation GitHub no longer lists", "installation", inst.ID, "account", inst.Account)
 	}
+	var errs []error
+	forgotten := 0
+	if degradedListing(len(unlisted), len(stored)) {
+		s.log.WarnContext(ctx, "keeping installations GitHub did not list; the listing omitted too many to trust",
+			"omitted", len(unlisted), "stored", len(stored))
+	} else {
+		for _, inst := range unlisted {
+			gone, err := s.installationGone(ctx, inst.ID)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if !gone {
+				s.log.WarnContext(ctx, "keeping an installation GitHub did not list but still confirms",
+					"installation", inst.ID, "account", inst.Account)
+				continue
+			}
+			if err := s.st.DeleteInstallation(ctx, inst.ID); err != nil {
+				errs = append(errs, storeErr(err, "forget installation %d", inst.ID))
+				continue
+			}
+			forgotten++
+			s.log.InfoContext(ctx, "forgot an installation GitHub deleted", "installation", inst.ID, "account", inst.Account)
+		}
+	}
+	n, err := s.forgetUnlistedRepos(ctx, l)
+	forgotten += n
+	if err != nil {
+		errs = append(errs, err)
+	}
+	return forgotten, errors.Join(errs...)
+}
+
+// installationGone confirms a stored installation the listing omitted. It
+// reports true only for a 404 from GET /app/installations/{id}; a 200
+// keeps the installation, and any other answer is returned so the sync
+// retries at the next run.
+func (s *Service) installationGone(ctx context.Context, id int64) (bool, error) {
+	if _, err := s.gh.Installation(ctx, id); err != nil {
+		if errors.Is(err, gh.ErrNotFound) {
+			return true, nil
+		}
+		return false, fmt.Errorf("runs: confirm installation %d: %w", id, err)
+	}
+	return false, nil
+}
+
+func (s *Service) forgetUnlistedRepos(ctx context.Context, l installationListing) (int, error) {
 	repos, err := s.st.ListRepos(ctx)
 	if err != nil {
-		return forgotten, storeErr(err, "repositories")
+		return 0, storeErr(err, "repositories")
 	}
+	type tally struct{ total, omitted int }
+	perInstallation := map[int64]*tally{}
 	for _, r := range repos {
-		if !l.listed[r.InstallationID] || l.repos[r.ID] {
+		if !l.listed[r.InstallationID] {
+			continue
+		}
+		t := perInstallation[r.InstallationID]
+		if t == nil {
+			t = &tally{}
+			perInstallation[r.InstallationID] = t
+		}
+		t.total++
+		if !l.repos[r.ID] {
+			t.omitted++
+		}
+	}
+	degraded := map[int64]bool{}
+	for id, t := range perInstallation {
+		if degradedListing(t.omitted, t.total) {
+			degraded[id] = true
+			s.log.WarnContext(ctx, "keeping repositories an installation did not list; the listing omitted too many to trust",
+				"installation", id, "omitted", t.omitted, "stored", t.total)
+		}
+	}
+	forgotten := 0
+	for _, r := range repos {
+		if !l.listed[r.InstallationID] || l.repos[r.ID] || degraded[r.InstallationID] {
 			continue
 		}
 		if err := s.st.DeleteRepo(ctx, r.ID); err != nil {

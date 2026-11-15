@@ -167,3 +167,95 @@ func TestSyncInstallationsForgetsWhatGitHubNoLongerLists(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, gamma.SuspendedAt)
 }
+
+func TestSyncInstallationsKeepsAnInstallationTheListingOnlyOmitted(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.gh.SetRepo("beta/infra", gh.Repository{ID: 700, DefaultBranch: "main"})
+	e.gh.AddInstallation(2, "beta", "beta/infra")
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+	_, err := e.st.GetInstallation(e.ctx, 2)
+	require.NoError(t, err)
+
+	e.gh.HideInstallation(2)
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+
+	beta, err := e.st.GetInstallation(e.ctx, 2)
+	require.NoError(t, err, "GET /app/installations/{id} answered 200, so the installation the listing omitted is kept")
+	assert.Equal(t, "beta", beta.Account)
+	_, err = e.st.GetRepo(e.ctx, 700)
+	require.NoError(t, err, "with its repositories")
+}
+
+func TestSyncInstallationsForgetsAnInstallationGitHubConfirmsGone(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	_, err := e.st.UpsertInstallation(e.ctx, store.Installation{ID: 9, Account: "gone"})
+	require.NoError(t, err)
+	_, err = e.st.UpsertRepo(e.ctx, store.RepoParams{ID: 900, InstallationID: 9, FullName: "gone/infra"})
+	require.NoError(t, err)
+
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+
+	_, err = e.st.GetInstallation(e.ctx, 9)
+	require.ErrorIs(t, err, store.ErrNotFound, "GET /app/installations/9 answered 404, so the installation is forgotten")
+	_, err = e.st.GetRepo(e.ctx, 900)
+	require.ErrorIs(t, err, store.ErrNotFound, "with its repositories")
+}
+
+func TestSyncInstallationsRetriesWhenConfirmationFails(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	_, err := e.st.UpsertInstallation(e.ctx, store.Installation{ID: 9, Account: "gone"})
+	require.NoError(t, err)
+
+	e.gh.FailNext("GET /app/installations/9", 403, 1)
+	err = e.svc.SyncInstallations(e.ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "confirm installation 9")
+	_, err = e.st.GetInstallation(e.ctx, 9)
+	require.NoError(t, err, "a confirmation that is neither 404 nor 200 keeps the installation for the next sync")
+
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+	_, err = e.st.GetInstallation(e.ctx, 9)
+	require.ErrorIs(t, err, store.ErrNotFound, "the next sync confirms the 404 and forgets it")
+}
+
+func TestSyncInstallationsKeepsEverythingWhenListingOmitsMajority(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	for _, id := range []int64{8, 9} {
+		_, err := e.st.UpsertInstallation(e.ctx, store.Installation{ID: id, Account: "gone"})
+		require.NoError(t, err)
+	}
+	before := len(e.gh.Requests())
+
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+
+	for _, id := range []int64{8, 9} {
+		_, err := e.st.GetInstallation(e.ctx, id)
+		require.NoError(t, err, "a listing that omits a majority of installations forgets none, installation %d included", id)
+	}
+	for _, r := range e.gh.Requests()[before:] {
+		assert.NotContains(t, r.Path, "/app/installations/8", "a degraded listing is not confirmed one installation at a time")
+		assert.NotContains(t, r.Path, "/app/installations/9", "a degraded listing is not confirmed one installation at a time")
+	}
+}
+
+func TestSyncInstallationsKeepsRepositoriesWhenListingOmitsMajority(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	repos := map[int64]string{710: "beta/one", 711: "beta/two", 712: "beta/three", 713: "beta/four"}
+	names := make([]string, 0, len(repos))
+	for id, name := range repos {
+		e.gh.SetRepo(name, gh.Repository{ID: id, DefaultBranch: "main"})
+		names = append(names, name)
+	}
+	e.gh.AddInstallation(2, "beta", names...)
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+
+	for _, id := range []int64{710, 711, 712} {
+		e.gh.HideRepo(id)
+	}
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+
+	for id := range repos {
+		_, err := e.st.GetRepo(e.ctx, id)
+		require.NoError(t, err, "a listing that omits a majority of an installation's repositories forgets none, repository %d included", id)
+	}
+}
