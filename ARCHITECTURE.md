@@ -23,7 +23,7 @@ Change it in the same commit as the code it describes.
 ```text
 api/v1/                    wire types shared by CLI, server, UI and tooling (JSON + YAML tags, no logic)
 cmd/stackorder/            CLI main; binds internal/scan, internal/graph and internal/validate into internal/cli
-cmd/stackorder-server/     server main; wiring only, plus the `healthcheck` and `api-key` (create/list/revoke, needs DATABASE_URL) subcommands
+cmd/stackorder-server/     server main; wiring only, plus the `migrate`, `healthcheck` and `api-key` (create/list/revoke, needs DATABASE_URL) subcommands
 internal/config/           stackorder.yaml and .stackorder.yaml: defaults, validation, per-stack merge
 internal/scan/             HCL scanning: discover stacks, parse backends, module sources, remote state, stackorder_outputs reads; git diff
 internal/graph/            pure resolution algorithm: affected set, propagation, waves, cycles, DOT output
@@ -1117,7 +1117,11 @@ can then be pointed at the objects both cover.
 `stackorder-server healthcheck` GETs `/healthz` on the
 listen port (an unspecified host maps to `127.0.0.1`) and exits 0 on 200,
 for container health checks in images without a shell; the Dockerfile
-declares it as `HEALTHCHECK`. At start-up, and daily at 04:00 UTC, the server
+declares it as `HEALTHCHECK`. `stackorder-server migrate` applies the
+embedded migrations to `DATABASE_URL` and exits, under the migration lock,
+needing neither `STACKORDER_BASE_URL` nor the GitHub App settings; `--to N`
+stops at a version, `--status` reports the applied and target version and
+exits 0 up to date, 2 pending, 1 dirty. At start-up, and daily at 04:00 UTC, the server
 syncs installations and their repositories from the App API (adding and
 refreshing, reading `stackorder.yaml` only for repositories not seen before)
 so installations made in setup mode or lost webhooks are learned; when the
@@ -1133,8 +1137,15 @@ connections (`server.PoolConnsBeyondWorkers`) unless the DSN's
 
 ## Store notes
 
-`/migrations` is a Go package exposing `migrations.FS`. `store.Migrate` takes
-`store.MigrationLockKey`; the scheduler takes `store.SchedulerLockKey`
+`/migrations` is a Go package exposing `migrations.FS`;
+`store.LatestMigration` reports the highest embedded version without a
+database. `store.Migrate` takes `store.MigrationLockKey`; `store.MigrateUp`
+takes the same lock, reads the applied version under it and migrates up to a
+given version, refusing a dirty schema or one already above the target instead
+of reverting anything, and `store.SchemaVersion` reports the applied version
+and whether it is dirty. The `stackorder-server migrate` subcommand applies
+them up to the latest or a `--to` version, or reports `--status`, needing only
+`DATABASE_URL`. The scheduler takes `store.SchedulerLockKey`
 through `store.TryAdvisoryLock`, which returns `(*AdvisoryLock, acquired,
 err)` with `Held(ctx)` and `Release()`. Dispatches are unique per (run, wave,
 environment, mode) and a workflow run id belongs to at most one dispatch.

@@ -4,6 +4,7 @@
 // Usage:
 //
 //	stackorder-server              run the server, configured by the environment
+//	stackorder-server migrate      apply the embedded migrations to DATABASE_URL and exit
 //	stackorder-server healthcheck  exit 0 when GET /healthz on this host answers 200
 //	stackorder-server api-key      create, list and revoke API keys (DATABASE_URL)
 //	stackorder-server version      print the build information
@@ -31,6 +32,7 @@ const usage = `usage: stackorder-server [command]
 
 Commands:
   (none)       run the server; configuration comes from the environment
+  migrate      apply the embedded migrations to DATABASE_URL and exit
   healthcheck  GET http://127.0.0.1<STACKORDER_LISTEN>/healthz, exit 0 on 200
   api-key      create, list and revoke API keys; needs DATABASE_URL
   version      print the build information
@@ -48,6 +50,8 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	case "version", "--version":
 		_, _ = fmt.Fprintln(stdout, "stackorder-server", version.String())
 		return 0
+	case "migrate":
+		return migrateCmd(args[1:], getenv, stdout, stderr)
 	case "healthcheck":
 		return healthcheck(getenv, stdout, stderr)
 	case "api-key":

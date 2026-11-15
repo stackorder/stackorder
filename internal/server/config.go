@@ -341,6 +341,27 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	return cfg, nil
 }
 
+// MigrateConfig is the configuration the migrate command needs: the database
+// alone. Unlike Config it carries neither STACKORDER_BASE_URL nor the GitHub
+// App settings, so migrations run without them.
+type MigrateConfig struct {
+	// DatabaseURL is DATABASE_URL, the Postgres DSN. Required.
+	DatabaseURL string
+}
+
+// LoadMigrateConfig reads the configuration the migrate command needs from
+// getenv, normally os.Getenv: DATABASE_URL alone. It does not require
+// STACKORDER_BASE_URL or the GitHub App settings, so it loads for a database
+// that has only its connection string configured.
+func LoadMigrateConfig(getenv func(string) string) (MigrateConfig, error) {
+	e := &env{get: getenv}
+	cfg := MigrateConfig{DatabaseURL: e.databaseURL(EnvDatabaseURL)}
+	if err := errors.Join(e.errs...); err != nil {
+		return MigrateConfig{}, fmt.Errorf("server: invalid configuration:\n%w", err)
+	}
+	return cfg, nil
+}
+
 // PoolMaxConns is the size of the database pool the server asks for when
 // DATABASE_URL does not set pool_max_conns: one connection per worker plus
 // PoolConnsBeyondWorkers. Workers below one count as DefaultWorkers.

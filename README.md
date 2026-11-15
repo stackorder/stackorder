@@ -229,7 +229,7 @@ A directory deployed several times, such as a component with one var file per en
 ```text
 api/v1/                 wire types shared by the CLI, the server, the UI and tooling
 cmd/stackorder/         CLI main
-cmd/stackorder-server/  server main, with the healthcheck and version subcommands
+cmd/stackorder-server/  server main, with the migrate, healthcheck and version subcommands
 internal/
   config/               stackorder.yaml and .stackorder.yaml
   scan/                 HCL scanning: stacks, backends, module sources, remote state; git diff
