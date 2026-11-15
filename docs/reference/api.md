@@ -59,7 +59,7 @@ An API key is an unscoped administrator by default. [Creating a key](#create-key
 
 A scoped key is not an administrator: it can neither list, create nor revoke keys, so it can never mint itself a broader key. Only an unscoped (read-write, installation-wide) key that does not expire manages keys; an expiring key, even one otherwise unscoped, cannot create keys, so it cannot outlive itself by minting a permanent one.
 
-All three scopes are enforced only by a server on this release. A v0.5.0 replica honours any key as a full, never-expiring administrator, so during a rolling upgrade do not issue or distribute a scoped or expiring key until every replica runs this release, and revoke such keys before rolling back. See [Upgrades and backups](/operations/upgrades-and-backups#server).
+All three scopes are enforced only by a server on v0.6.0 or later. A v0.5.0 replica honours any key as a full, never-expiring administrator, so during a rolling upgrade do not issue or distribute a scoped or expiring key until every replica runs v0.6.0 or later, and revoke such keys before rolling back. See [Upgrades and backups](/operations/upgrades-and-backups#server).
 
 ## Errors {#errors}
 

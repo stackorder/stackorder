@@ -1336,7 +1336,7 @@ default branch, such as one an open pull request proposes, is left alone.
 Saving a non-default graph (`store.SaveGraph`, from any plan run) never
 clears `removed_at`, so a stack deleted from the default branch stays
 removed even while an open pull request's plan still lists it; this holds
-only once every replica runs this code, since a v0.5.0 replica's
+only once every replica runs v0.6.0 or later, since a v0.5.0 replica's
 `upsertStacks` still clears `removed_at` on every save and can revive an
 already-removed stack during a rolling upgrade.
 Migration `0010_reconcile_removed_stacks` repairs existing rows once,

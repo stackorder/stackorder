@@ -111,7 +111,7 @@ groups:
         for: 10m
 ```
 
-`StackorderGitHubRateLimitLow` matches `installation!=""` so that a v0.5.0 replica still running during a rolling upgrade, which exports the gauge unlabelled and at `0` while idle, does not group under an empty `installation` and trip the alert; once every replica is on this release the matcher is a no-op.
+`StackorderGitHubRateLimitLow` matches `installation!=""` so that a v0.5.0 replica still running during a rolling upgrade, which exports the gauge unlabelled and at `0` while idle, does not group under an empty `installation` and trip the alert; once every replica is on v0.6.0 or later the matcher is a no-op.
 
 Also alert on `/readyz`: it fails when the database is unreachable.
 
@@ -131,7 +131,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
 
 The resource's `service.name` is `stackorder-server`, with the build version as `service.version`. W3C trace context and baggage are propagated from incoming requests. `/healthz`, `/readyz` and `/metrics` are not traced.
 
-A webhook delivery and the worker that later handles it, and a job and the worker that runs it, are one trace: the trace context of the request or job that queued a row is stored with it and continued when the row is claimed, so the worker span is a child of the span that queued the work and shares its trace id. A retry is a new child span under the same trace, and a span that starts long after its parent ended shows the queue delay. Rows queued before this release, and rows queued while tracing is off, carry no context, and their worker spans are roots as before.
+A webhook delivery and the worker that later handles it, and a job and the worker that runs it, are one trace: the trace context of the request or job that queued a row is stored with it and continued when the row is claimed, so the worker span is a child of the span that queued the work and shares its trace id. A retry is a new child span under the same trace, and a span that starts long after its parent ended shows the queue delay. Rows queued before v0.6.0, and rows queued while tracing is off, carry no context, and their worker spans are roots as before.
 
 ## Logs {#logs}
 
