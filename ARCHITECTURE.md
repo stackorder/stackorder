@@ -181,6 +181,11 @@ dependencies.
   configured `env` variables for the mode (see
   [Stack instances](#stack-instances)). The design assigns hooks to the
   reusable workflow; the CLI owns them so local and CI behaviour match.
+  A hook that exits non-zero fails its job: a `pre-plan`, `post-plan` or
+  `pre-apply` hook fails before or instead of the tool, and a `post-apply`
+  hook fails the stack after a successful apply, reporting
+  `v1.ResultFailure` with the apply's resources and state still attached so
+  the server blocks the stack's dependents (the infrastructure did change).
 - Release assets on `stackorder/stackorder` tags `vX.Y.Z`:
   `stackorder_X.Y.Z_<os>_<arch>.tar.gz` (`.zip` on windows) containing the
   `stackorder` binary, `os` in `linux`, `darwin`, `windows`, `arch` in

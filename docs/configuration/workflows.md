@@ -208,7 +208,7 @@ If any of these files exist, the CLI runs them around plan and apply, in CI and 
 | `pre-plan.sh` | After the tool is detected, before `init` | Fails the plan |
 | `post-plan.sh` | After `plan` and `show -json` | Fails the plan |
 | `pre-apply.sh` | After `init` and the choice of plan file, before `apply` | Fails the apply; nothing is applied |
-| `post-apply.sh` | After a successful `apply` | The apply is reported as applied, with the hook's failure as its error text, and the command exits 1 |
+| `post-apply.sh` | After a successful `apply` | Fails the stack: the apply's resources and state are still reported, but the stack is recorded as `failed`, its dependents in later waves are blocked, and the command exits 1 |
 
 `stackorder drift` runs no hooks.
 
