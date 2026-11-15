@@ -122,6 +122,8 @@ The base is, in order: `--base`; the pull request's base SHA; the `before` commi
 
 In Actions, with a server, it registers the run (`POST /v1/runs`), uploads the graph (`POST /v1/runs/{id}/graph`) and writes the server's answer. Without a server, or when the server is unreachable, it resolves locally with the same algorithm and marks the result `unconfirmed`. Any other server error fails the command.
 
+On a push to the default branch in Actions, `resolve` does not resolve a pull request: it scans the repository and records the scanned graph as the repository's default-branch graph with [`PUT /v1/repos/{owner}/{repo}/default-graph`](/reference/api#default-graph), then prints whether it was recorded. It writes no matrix, diffs no paths, and never resolves locally. The server records the graph only when the pushed commit is still the branch head, so a superseded or force push records nothing. Without a server, or when the server is unreachable, it records nothing and succeeds.
+
 ::: warning Outside Actions
 Outside Actions, `resolve` asks the server only when both a server and `STACKORDER_API_KEY` are set, and the server refuses to register a plan run for an API key (`400 invalid`, "a manual run applies"), so the command exits 1. On a laptop, use [`affected`](#affected), which never talks to the server, or unset `STACKORDER_SERVER_URL` or `STACKORDER_API_KEY` for `resolve`.
 :::

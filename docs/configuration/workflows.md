@@ -35,6 +35,24 @@ jobs:
 - **Concurrency.** One group per PR with `cancel-in-progress: true`, so a new push cancels the plan of the previous one.
 - **Jobs.** The reusable `plan.yml` runs a `resolve` job, which checks out the full history, scans the repository, posts the graph and gets the matrix back, and a `plan` job with one matrix entry per affected stack, which checks out the entry's `sha`. Plan jobs declare no `environment`, so planning is never held behind an environment's reviewers. For a pull request from a fork it runs neither; see [Fork pull requests](#forks).
 
+### The default-branch graph {#default-graph}
+
+The server's picture of the default branch — the stack lists, the overview counts, which stacks are removed, and what drift checks and cross-repository plans schedule — comes from the graph of the default branch. A merged pull request that had a plan run moves it, but a direct push to the default branch, or a merge of a pull request that had no plan, leaves it stale until the next planned merge.
+
+To keep it current, the `resolve` job records the graph it scans as the default-branch graph when it runs on a push to the default branch (`PUT /v1/repos/{owner}/{repo}/default-graph`; see the [API reference](/reference/api#default-graph)). The server accepts it only from a `push` token whose ref is the default branch and whose commit is still the branch head, so an out-of-order or force push cannot record a stale graph.
+
+Triggering the plan workflow on such a push is a change to `stackorder/actions` and is not yet released; until then only merges move the default-branch graph, as before. A repository on an older `stackorder/actions` keeps working unchanged. When the trigger ships, add a `push` trigger on the default branch to `stackorder-plan.yml`:
+
+```yaml
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+```
+
+The push job needs the `resolve` job's permissions (`id-token: write`, `contents: read`). It plans nothing and dispatches nothing; it only records the graph.
+
 ## `stackorder-run.yml` {#run}
 
 ```yaml

@@ -96,6 +96,7 @@ The CLI maps these to [exit codes](/reference/exit-codes#server-answers).
 | --- | --- | --- | --- |
 | [`POST /v1/runs`](#create-run) | Runner; API key for manual runs | `CreateRunRequest` | `201` or `200`, `CreateRunResponse` |
 | [`POST /v1/runs/{id}/graph`](#upload-graph) | Runner | `GraphUploadRequest` | `ResolveResponse` |
+| [`PUT /v1/repos/{owner}/{repo}/default-graph`](#default-graph) | Runner (`push` token) | `RecordGraphRequest` | `RecordGraphResponse` |
 | [`POST /v1/runs/{id}/stacks/{key}/result`](#stack-result) | Runner; API key for manual runs | `StackResult` | `RunStack` |
 | [`POST /v1/runs/{id}/stacks/{key}/checks/{name}`](#check-verdict) | Runner; API key for manual runs | `CheckVerdict` | `Check` |
 | [`GET /v1/runs/{id}`](#get-run) | Runner, person, API key | | `Run` |
@@ -343,6 +344,28 @@ The uploaded `config`, the pull request's own `stackorder.yaml` after defaults a
 ```
 
 Other fields: `warnings`; `cycles`, set when resolution failed on a dependency cycle, each entry spelling one cycle (the response is still `200`, and the run fails); `external`, the cross-repository stacks with an ordering edge to a scheduled stack; `unconfirmed`, set only when the CLI produced the response locally; and `locked_by` on an affected stack another pull request holds a lock on. `reasons` are `changed`, `watch_path` (a file outside the stack directory that the stack reads changed), `module`, `reads_state`, `dependent` and `requested`, in that order. Affected stacks and matrix entries carry `instance` next to `workspace`.
+
+### `PUT /v1/repos/{owner}/{repo}/default-graph` {#default-graph}
+
+Records the graph a push-triggered resolve job scanned on the default branch as the repository's default-branch graph, so a direct push to the default branch updates the stack lists, [`/v1/overview`](#overview), removed stacks and drift scheduling at once, instead of waiting for the next merged pull request that had a plan. Only a merge and this endpoint move the default-branch graph.
+
+The token must be a GitHub Actions OIDC token of a `push` event: `event_name` is `push`, `repository` and `repository_id` are the repository's, and `ref` is `refs/heads/<default branch>`. The request's `graph.sha` must be the token's `sha` (leave it empty to take it from the token). The server then reads the current head of the default branch from GitHub and records the graph only when it still equals that commit. A pull-request token, a fork (which gets no OIDC token), or a push whose commit is no longer the head records nothing: the response is `200` with `recorded: false` and a `reason`. Recordings of one repository are serialised and the head is read inside that serialisation, so an out-of-order, superseded or force push cannot replace a newer graph, and the last push to reach the head wins. Recording the default-branch graph marks the stacks it no longer lists removed, and clears the mark on those it lists again, exactly as a merged pull request's plan does.
+
+```json
+{
+  "graph": { "repo": "acme/infra", "sha": "9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c", "stacks": [] }
+}
+```
+
+```json
+{
+  "recorded": true,
+  "sha": "9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
+  "head": "9b2f7c1d4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c"
+}
+```
+
+No reusable workflow posts here yet; the `resolve` job records the default-branch graph when it runs on a push to the default branch, which a future `stackorder/actions` release triggers. A repository that has not adopted that trigger keeps the previous behaviour, where only merges move the default-branch graph.
 
 ### `POST /v1/runs/{id}/stacks/{key}/result` {#stack-result}
 

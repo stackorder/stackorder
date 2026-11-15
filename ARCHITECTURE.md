@@ -574,6 +574,7 @@ decoded key.
 | --- | --- | --- |
 | `POST /v1/runs` | `v1.CreateRunRequest` | `v1.CreateRunResponse` |
 | `POST /v1/runs/{id}/graph` | `v1.GraphUploadRequest` | `v1.ResolveResponse` (200 with `cycles` set when resolution fails on a cycle) |
+| `PUT /v1/repos/{owner}/{repo}/default-graph` | `v1.RecordGraphRequest` | `v1.RecordGraphResponse` |
 | `POST /v1/runs/{id}/stacks/{key}/result` | `v1.StackResult` | `v1.RunStack` |
 | `POST /v1/runs/{id}/stacks/{key}/checks/{name}` | `v1.CheckVerdict` | `v1.Check` |
 | `GET /v1/runs/{id}` | | `v1.Run` |
@@ -584,6 +585,28 @@ A manual run (`POST /v1/runs` with an API key, `trigger: manual`, `mode:
 apply` and `stacks`) makes the server take the locks before answering and
 release them when the results arrive; this is how `stackorder apply --local`
 works.
+
+`PUT /v1/repos/{owner}/{repo}/default-graph` makes the graph a push-triggered
+resolve job scanned on the default branch the repository's default-branch
+graph, so a direct push to the default branch updates the stack lists,
+`/v1/overview`, removed stacks and drift scheduling at once instead of waiting
+for the next planned merge, which is the only other thing that moves
+`repos.default_graph_id` (`runs.recordDefaultGraph`). `runs.RecordDefaultGraph`
+accepts only a `push` token (`event_name` is `push`) whose `repository` and
+`repository_id` are the repository's and whose `ref` is
+`refs/heads/<default branch>`; the request graph's SHA must be the token's
+`sha` (it may be left empty to take it). It then reads the branch head from
+GitHub under the per-repository advisory lock `default-graph:<repo id>` and
+records the graph with `store.SaveGraph` and `store.SetDefaultGraph` only when
+the head still equals that SHA; otherwise the response has `recorded: false`
+and a `reason`, so an out-of-order, superseded or force push, whose commit is
+no longer the head, cannot replace a newer graph, and the last push to reach
+the head wins. `SetDefaultGraph` reconciles `stacks.removed_at` exactly as a
+merge does. A suspended installation records nothing. The server never scans a
+repository itself; the graph is always the one a resolve job uploads. No
+existing workflow posts here yet; a push trigger in `stackorder/actions` is a
+follow-up, and a repository that has not adopted it keeps the previous
+behaviour.
 
 `v1.StackResult.State` is a `v1.StateObject` (`bucket`, `key` with the
 workspace prefix, `region` unless the backend takes it from the
@@ -998,6 +1021,12 @@ per run kind:
   stored row. Superseding compares against the PR head
   fetched from GitHub, never against an event's SHA, and default-branch
   pushes load `stackorder.yaml` at the branch head.
+- Default-branch graph records: `event_name` is `push`, `ref` is
+  `refs/heads/<default branch>`, and the request graph's SHA is the token's
+  `sha`. The server then reads the branch head from GitHub and records the
+  graph only when the head still equals that SHA, so a PR token (`ref`
+  `refs/pull/<n>/merge`), a fork (which cannot mint a token for the base
+  repository), or a push whose commit is no longer the head records nothing.
 - Dispatched runs: `event_name` is `workflow_dispatch`, `ref` is
   `refs/heads/<default branch>`, `run_id` is the workflow run of the
   dispatch that carries the stack (binding it on first contact; in an
