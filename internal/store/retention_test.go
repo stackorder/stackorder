@@ -58,6 +58,47 @@ func TestPrunePlanText(t *testing.T) {
 	assert.Zero(t, n)
 }
 
+func TestPrunePlanTextReclaimsStrandedLink(t *testing.T) {
+	f := newFixture(t)
+	ids := f.stacks("stacks/a", "stacks/b")
+	r := f.run(store.CreateRunParams{})
+	require.NoError(t, f.s.UpsertRunStacks(f.ctx, r.ID, []store.RunStack{
+		{StackID: ids["stacks/a"]}, {StackID: ids["stacks/b"]},
+	}))
+	planned := v1.StackPlanned
+	for _, key := range []string{"stacks/a", "stacks/b"} {
+		_, err := f.s.UpdateRunStack(f.ctx, r.ID, ids[key], store.RunStackPatch{
+			Status: &planned, PlanText: ptr("+ resource"),
+			PlanURL: ptr("s3://bucket/runs/" + r.ID.String() + "/" + key + "/plan.txt"),
+		})
+		require.NoError(t, err)
+	}
+	f.exec(`UPDATE run_stacks SET plan_text = NULL, updated_at = now() - interval '40 days'
+		WHERE stack_id = $1`, ids["stacks/a"])
+
+	n, err := f.s.PrunePlanText(f.ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n, "the stranded row is reclaimed even though its plan text was already cleared")
+
+	a, err := f.s.GetRunStack(f.ctx, r.ID, ids["stacks/a"])
+	require.NoError(t, err)
+	assert.Empty(t, a.PlanURL, "the link an older pruner left is cleared")
+
+	pending, err := f.s.ClaimObjectDeletions(f.ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, pending, 1, "the stranded object is queued for removal")
+	assert.Equal(t, "stacks/a", pending[0].StackKey)
+
+	b, err := f.s.GetRunStack(f.ctx, r.ID, ids["stacks/b"])
+	require.NoError(t, err)
+	assert.Equal(t, "+ resource", b.PlanText, "a current row is untouched")
+	assert.NotEmpty(t, b.PlanURL)
+
+	n, err = f.s.PrunePlanText(f.ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	assert.Zero(t, n, "a reclaimed row is not queued again")
+}
+
 func TestPrune(t *testing.T) {
 	f := newFixture(t)
 	ids := f.stacks("stacks/a")

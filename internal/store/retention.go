@@ -41,15 +41,18 @@ type PruneResult struct {
 // cleared. A row that kept its full plan text in the artifact store loses
 // its plan_url in the same statement and its objects are queued for
 // removal, so the link is never served for an object about to be deleted.
-// The rows are locked with FOR UPDATE SKIP LOCKED so concurrent instances
-// clear disjoint batches.
+// A row an older server left with a plan_url after clearing only its plan
+// text is reclaimed the same way, so an upgrade or a mixed-version prune
+// cannot strand its objects. The rows are locked with FOR UPDATE SKIP
+// LOCKED so concurrent instances clear disjoint batches.
 func (s *Store) PrunePlanText(ctx context.Context, olderThan time.Duration) (int64, error) {
 	var n int64
 	err := s.db.QueryRow(ctx, `
 		WITH expired AS (
 			SELECT rs.run_id, rs.stack_id, s.key AS stack_key, rs.plan_url
 			FROM run_stacks rs JOIN stacks s ON s.id = rs.stack_id
-			WHERE rs.plan_text IS NOT NULL
+			WHERE (rs.plan_text IS NOT NULL
+			       OR (rs.plan_text IS NULL AND rs.plan_url <> ''))
 			  AND rs.updated_at < now() - $1::bigint * interval '1 microsecond'
 			FOR UPDATE OF rs SKIP LOCKED
 		),
