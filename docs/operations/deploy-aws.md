@@ -157,6 +157,7 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 | --- | --- | --- | --- |
 | `shared_outputs_state` | `list(object({ repository = string, bucket = string, prefix = optional(string, ""), kms_key_arn = optional(string) }))` | `[]` | State objects whose root outputs the server may serve to the readers a stack lists (STACKORDER_STATE_BUCKETS): each entry grants one repository, owner/repo, or every repository with `*`, the objects of an S3 bucket under an optional key prefix, with the KMS key of those objects. The server reads a stack's state only under an entry of the stack's own repository, and a prefix covers a key only at a path segment boundary. Unless shared_outputs_role_arn is set, the task role gets read-only access to the objects under each prefix, for every repository at once, and kms:Decrypt through S3 with each kms_key_arn. Empty turns shared outputs off. |
 | `shared_outputs_role_arn` | `string` | `null` | IAM role the server assumes to read the state objects of shared_outputs_state (STACKORDER_STATE_ROLE_ARN), such as a role in the account of the state buckets. The task role then gets only sts:AssumeRole on it, and the role's own policies must grant the reads and kms:Decrypt, so shared_outputs_state takes no kms_key_arn. Null reads with the task role. Requires shared_outputs_state. |
+| `shared_outputs_external_id` | `string` | `null` | External ID the server sends when it assumes shared_outputs_role_arn (STACKORDER_STATE_EXTERNAL_ID), for a role whose trust policy requires a matching sts:ExternalId, as a role in another account commonly does. Null sends none. Requires shared_outputs_role_arn. |
 
 ### What the module passes to the server {#server-environment}
 
@@ -170,6 +171,7 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 | `STACKORDER_ARTIFACT_BUCKET` | The artifact bucket, when `artifact_bucket_enabled` |
 | `STACKORDER_STATE_BUCKETS` | `shared_outputs_state`, as comma-separated `repository=bucket/prefix` entries, or `repository=bucket` without a prefix, when it is not empty |
 | `STACKORDER_STATE_ROLE_ARN` | `shared_outputs_role_arn`, when set |
+| `STACKORDER_STATE_EXTERNAL_ID` | `shared_outputs_external_id`, when set |
 | `STACKORDER_LOG_LEVEL` | `log_level` |
 | `DATABASE_URL` | The database secret: `postgres://stackorder:<password>@<endpoint>:5432/stackorder?sslmode=require` |
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | The App secret, when set |
@@ -251,6 +253,24 @@ The list reaches the server as `STACKORDER_STATE_BUCKETS`, which both turns the 
 The task role gets `s3:GetObject` on the objects under each prefix, `s3:ListBucket` limited to the same prefixes, and `kms:Decrypt` on each `kms_key_arn` through S3 only. Nothing grants write or delete access. Without `s3:ListBucket`, S3 answers a request for a missing object with access denied rather than not found; the prefix-limited grant is there so that a missing state object can show as missing, but treat an access-denied read as either a missing object or a missing grant. IAM cannot tell repositories apart: the policy covers every entry's prefix for the server as a whole, and the server's own check of the producer's repository is what keeps each repository to its entries. The server's role can read the whole state objects under the listed buckets and prefixes, secrets included, though the server returns only their outputs, so list the narrowest prefixes that hold the state of the stacks that share outputs rather than whole buckets, one per repository, and turn on CloudTrail data events for those buckets to audit the reads. See [Security model](/reference/security-model#shared-outputs) for what a compromised server can then read.
 
 To keep these reads apart from the task role, or to read buckets in another account, create a dedicated role that has only those read permissions and trusts the task role, `arn:aws:iam::<account>:role/<name>-task`, then set `shared_outputs_role_arn`. The task role then gets only `sts:AssumeRole` on that role, and the server reads through it, so the role's own policies grant `kms:Decrypt` and the entries of `shared_outputs_state` take no `kms_key_arn`. A bucket or KMS key in another account than the reading role must also allow that role in its bucket or key policy.
+
+When the role is in another account, its trust policy commonly requires an external ID to guard against a [confused deputy](https://docs.aws.amazon.com/IAM/latest/UserGuide/confused-deputy.html). Set `shared_outputs_external_id` to the value its `sts:ExternalId` condition expects, and the module passes it to the server as `STACKORDER_STATE_EXTERNAL_ID`:
+
+```hcl
+shared_outputs_role_arn    = "arn:aws:iam::210987654321:role/stackorder-state-reader"
+shared_outputs_external_id = "acme-stackorder"
+```
+
+The reader role's trust policy then admits the task role only with that external ID:
+
+```json
+{
+  "Effect": "Allow",
+  "Principal": { "AWS": "arn:aws:iam::123456789012:role/stackorder-task" },
+  "Action": "sts:AssumeRole",
+  "Condition": { "StringEquals": { "sts:ExternalId": "acme-stackorder" } }
+}
+```
 
 ## First deployment {#first-deploy}
 

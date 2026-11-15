@@ -190,6 +190,7 @@ repository where only its operators can push branches, and see
 | `STACKORDER_ARTIFACT_BUCKET` | the artifact bucket, when `artifact_bucket_enabled` |
 | `STACKORDER_STATE_BUCKETS` | `shared_outputs_state` as comma-separated `repository=bucket/prefix` entries, or `repository=bucket` without a prefix, when not empty |
 | `STACKORDER_STATE_ROLE_ARN` | `shared_outputs_role_arn`, when set |
+| `STACKORDER_STATE_EXTERNAL_ID` | `shared_outputs_external_id`, when set |
 | `STACKORDER_LOG_LEVEL` | `log_level` |
 | `DATABASE_URL` | database secret, `postgres://stackorder:<password>@<endpoint>:5432/stackorder?sslmode=require` |
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` | app secret, when set |
@@ -475,7 +476,9 @@ on that role, the server reads through it (`STACKORDER_STATE_ROLE_ARN`),
 and the role's own policies grant `kms:Decrypt`, so the entries of
 `shared_outputs_state` take no `kms_key_arn`. A bucket or KMS key in
 another account than the reading role must also allow that role in its
-bucket or key policy.
+bucket or key policy. When the role's trust policy requires an external
+ID, set `shared_outputs_external_id` (`STACKORDER_STATE_EXTERNAL_ID`) to
+the value its `sts:ExternalId` condition expects.
 
 ## IAM
 
@@ -824,6 +827,7 @@ No modules.
 | <a name="input_alarm_thresholds"></a> [alarm\_thresholds](#input\_alarm\_thresholds) | Alarm thresholds: target 5xx responses per 5 minutes, average service CPU percent, RDS free storage in bytes, and Aurora ACU utilization percent. | `object({ target_5xx_count = optional(number, 10) cpu_percent = optional(number, 80) db_free_storage_bytes = optional(number, 1073741824) db_acu_utilization_percent = optional(number, 90) })` | `{}` | no |
 | <a name="input_shared_outputs_state"></a> [shared\_outputs\_state](#input\_shared\_outputs\_state) | State objects whose root outputs the server may serve to the readers a stack lists (STACKORDER\_STATE\_BUCKETS): each entry grants one repository, owner/repo, or every repository with \*, the objects of an S3 bucket under an optional key prefix, with the KMS key of those objects. The server reads a stack's state only under an entry of the stack's own repository, and a prefix covers a key only at a path segment boundary. Unless shared\_outputs\_role\_arn is set, the task role gets read-only access to the objects under each prefix, for every repository at once, and kms:Decrypt through S3 with each kms\_key\_arn. Empty turns shared outputs off. | `list(object({ repository = string, bucket = string, prefix = optional(string, ""), kms_key_arn = optional(string) }))` | `[]` | no |
 | <a name="input_shared_outputs_role_arn"></a> [shared\_outputs\_role\_arn](#input\_shared\_outputs\_role\_arn) | IAM role the server assumes to read the state objects of shared\_outputs\_state (STACKORDER\_STATE\_ROLE\_ARN), such as a role in the account of the state buckets. The task role then gets only sts:AssumeRole on it, and the role's own policies must grant the reads and kms:Decrypt, so shared\_outputs\_state takes no kms\_key\_arn. Null reads with the task role. Requires shared\_outputs\_state. | `string` | `null` | no |
+| <a name="input_shared_outputs_external_id"></a> [shared\_outputs\_external\_id](#input\_shared\_outputs\_external\_id) | External ID the server sends when it assumes shared\_outputs\_role\_arn (STACKORDER\_STATE\_EXTERNAL\_ID), for a role whose trust policy requires a matching sts:ExternalId, as a role in another account commonly does. Null sends none. Requires shared\_outputs\_role\_arn. | `string` | `null` | no |
 
 ## Outputs
 

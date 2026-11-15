@@ -1044,6 +1044,7 @@ unbounded.
 | `STACKORDER_ARTIFACT_BUCKET`, `STACKORDER_ARTIFACT_PREFIX` | Optional S3 bucket (and key prefix) for full plan text |
 | `STACKORDER_STATE_BUCKETS` | Comma-separated `owner/repo=bucket` or `owner/repo=bucket/prefix` entries, `*` in place of `owner/repo` for every repository: the state objects the server may read to serve the stack outputs of each repository; unset turns shared outputs off |
 | `STACKORDER_STATE_ROLE_ARN` | Optional IAM role the server assumes to read those state objects; requires `STACKORDER_STATE_BUCKETS` |
+| `STACKORDER_STATE_EXTERNAL_ID` | Optional `sts:ExternalId` sent when assuming `STACKORDER_STATE_ROLE_ARN`; requires it |
 | `STACKORDER_SESSION_KEY` | 32 byte hex key for cookie signing; generated and logged as a warning when absent |
 | `STACKORDER_SESSION_TTL` | Session cookie and server-side lifetime, default `168h`, between `5m` and `8760h` |
 | `STACKORDER_METRICS_TOKEN` | When set, `/metrics` requires this bearer token |
@@ -1083,9 +1084,14 @@ valid S3 bucket name, optionally followed by `/` and a key prefix without a
 the accepted forms. A prefix covers a key that equals it or continues it
 past a `/` boundary, so `stacks/prod` does not cover `stacks/production/x`.
 `STACKORDER_STATE_ROLE_ARN` must be the ARN of one IAM role, and setting it
-without `STACKORDER_STATE_BUCKETS` is an error. With state buckets the
+without `STACKORDER_STATE_BUCKETS` is an error. `STACKORDER_STATE_EXTERNAL_ID`
+must be 2 to 1224 of the characters AWS allows in an STS external ID and is
+sent as the `ExternalId` of the role assumption; setting it without
+`STACKORDER_STATE_ROLE_ARN` is an error, and the server never logs its value.
+With state buckets the
 server builds a `stateread.Reader` for the listed grants, assuming
-`STACKORDER_STATE_ROLE_ARN` when set, passes it to the run service and logs
+`STACKORDER_STATE_ROLE_ARN` when set, with `STACKORDER_STATE_EXTERNAL_ID` as
+its external ID, passes it to the run service and logs
 once at start-up, at info level, that shared outputs are on, with the
 number of grants, the entries as `repository=bucket/prefix` and the role,
 then, at warn level, each pair of grants of different repositories that

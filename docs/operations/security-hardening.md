@@ -245,6 +245,7 @@ With the [Terraform module](/operations/deploy-aws), set `required_workflow_ref`
 
 - **List narrow prefixes, one per repository.** Give each entry of `STACKORDER_STATE_BUCKETS`, or of the module's `shared_outputs_state`, the repository whose state it holds and the narrowest prefix that holds the state of that repository's stacks that share outputs, never a whole bucket. Grant `*` only for state that every repository may expose: any of them can point its stacks at it. End each prefix with `/`: the server covers keys only at a path segment boundary, but IAM compares resource ARNs as plain strings, so the role's grant for `stacks/prod` also covers `stacks/production/`. Keep the state of stacks that share nothing outside those prefixes, so that no stack of the repository can be pointed at it, and keep the prefixes of different repositories apart: an entry whose prefix contains another repository's grants its repository that state too, which the server warns about at start-up.
 - **Read through a dedicated role.** Create a role that only reads state and that only the server's role may assume, and set it as `STACKORDER_STATE_ROLE_ARN`, or as `shared_outputs_role_arn` in the [module](/operations/deploy-aws#shared-outputs), which then grants the task role nothing but `sts:AssumeRole` on it. Give the role `s3:GetObject` on the prefixes, `s3:ListBucket` on each bucket limited to the same prefixes by `s3:prefix`, and `kms:Decrypt` on the state key only through S3, and nothing else: no `s3:PutObject`, no `s3:DeleteObject` and no access to a lock table. The server reads through it under the session name `stackorder-stateread`.
+- **Require an external ID on a cross-account role.** When the role lives in another account, require an external ID in its trust policy with an `sts:ExternalId` condition, so another principal of the server's account cannot assume it on the server's behalf (a [confused deputy](https://docs.aws.amazon.com/IAM/latest/UserGuide/confused-deputy.html)). Set `STACKORDER_STATE_EXTERNAL_ID` (`shared_outputs_external_id`) to the value the condition expects; the server sends it when it assumes the role. The external ID is an identifier, not a secret, and the server never logs its value.
 - **Log the reads in AWS.** Turn on CloudTrail data events for the state buckets. The server's [audit log](/configuration/outputs#audit) records the reads it serves; CloudTrail records every read of the objects, a compromised server's included.
 - **Pin the workflow.** With [`STACKORDER_REQUIRED_WORKFLOW_REF`](#workflow-ref) set, the server accepts a read with a runner token only from a job of the canonical reusable workflows, so a copy of the workflow edited in a pull request cannot read outputs.
 - **Apply one stack per dispatch.** A dispatched apply job proves only that its reader is a stack of its dispatch. With `apply.max_parallel: 1` in `stackorder.yaml`, every dispatch holds one stack, so a read at apply time names its reader exactly. Each dispatch is gated on its own, so an environment with required reviewers then asks for one approval per stack. A pull request's plan jobs bind only to the repository; see [Who may read](/configuration/outputs#who-may-read).
@@ -291,6 +292,24 @@ Its trust policy admits only the server's task role, `stackorder-task` with the 
       "Effect": "Allow",
       "Principal": { "AWS": "arn:aws:iam::123456789012:role/stackorder-task" },
       "Action": "sts:AssumeRole"
+    }
+  ]
+}
+```
+
+When the role is in another account, require an external ID so only an assumption that carries it succeeds. Set `STACKORDER_STATE_EXTERNAL_ID` (`shared_outputs_external_id`) to the same value:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::123456789012:role/stackorder-task" },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": { "sts:ExternalId": "acme-stackorder" }
+      }
     }
   ]
 }
