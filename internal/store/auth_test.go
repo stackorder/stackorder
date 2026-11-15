@@ -216,11 +216,46 @@ func TestScopedAndExpiringAPIKeys(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrNotFound, "an expired key is refused exactly like a revoked one")
 
 	future := time.Now().Add(time.Hour)
-	liveSecret, _, err := f.s.CreateAPIKey(f.ctx, store.NewAPIKey{Name: "live", CreatedBy: "op", ExpiresAt: &future})
+	liveSecret, live, err := f.s.CreateAPIKey(f.ctx, store.NewAPIKey{Name: "live", CreatedBy: "op", ExpiresAt: &future})
 	require.NoError(t, err)
-	live, err := f.s.VerifyAPIKey(f.ctx, liveSecret)
+	assert.False(t, live.Admin(), "an expiring key is not an administrator and cannot mint a permanent key")
+	verified, err := f.s.VerifyAPIKey(f.ctx, liveSecret)
 	require.NoError(t, err, "a key that has not expired still verifies")
-	require.NotNil(t, live.ExpiresAt)
+	require.NotNil(t, verified.ExpiresAt)
+}
+
+// TestOldReplicaAccceptsScopedKey pins the mixed-version boundary the upgrade
+// notes warn about: migration 0012 stores a scoped or expiring key in the same
+// row, under the same key_hash, that a v0.5.0 replica accepts, and that
+// replica authenticates on key_hash and revoked_at alone, reading neither the
+// scope columns nor the expiry. So a v0.5.0 replica still serving during a
+// rolling upgrade honours a read-only, installation-scoped, already-expired
+// key as a full, never-expiring administrator. If this test ever fails, the
+// storage format changed and the upgrade and rollback guidance must change
+// with it.
+func TestOldReplicaAcceptsScopedKey(t *testing.T) {
+	f := newFixture(t)
+
+	inst := int64(42)
+	past := time.Now().Add(-time.Hour)
+	secret, key, err := f.s.CreateAPIKey(f.ctx, store.NewAPIKey{
+		Name: "restricted", CreatedBy: "op", ReadOnly: true, InstallationID: &inst, ExpiresAt: &past,
+	})
+	require.NoError(t, err)
+
+	_, err = f.s.VerifyAPIKey(f.ctx, secret)
+	require.ErrorIs(t, err, store.ErrNotFound, "this release refuses the expired key")
+
+	var hash string
+	require.NoError(t, f.s.Pool().QueryRow(f.ctx,
+		`SELECT key_hash FROM api_keys WHERE id = $1`, key.ID).Scan(&hash))
+
+	var gotID uuid.UUID
+	err = f.s.Pool().QueryRow(f.ctx,
+		`UPDATE api_keys SET last_used_at = now() WHERE key_hash = $1 AND revoked_at IS NULL RETURNING id`,
+		hash).Scan(&gotID)
+	require.NoError(t, err, "a v0.5.0 replica's predicate still accepts the scoped, expired key")
+	assert.Equal(t, key.ID, gotID)
 }
 
 func TestAPIKeyMutationsAreAtomicWithAudit(t *testing.T) {

@@ -33,6 +33,7 @@ type identity struct {
 	principal.Principal
 	session *store.Session
 	scope   *keyScope
+	expires bool
 }
 
 // keyScope is the resolved installation scope of an installation-scoped API
@@ -49,11 +50,13 @@ type keyScope struct {
 // equal to no real GitHub account, so it matches nothing.
 const noAccount = "\x00"
 
-// isAdmin reports whether the caller may manage API keys: an unscoped,
-// read-write, installation-wide API key. A scoped key is never an
-// administrator. This is the single chokepoint the adminKey mode enforces.
+// isAdmin reports whether the caller may manage API keys: a read-write,
+// installation-wide, non-expiring API key. A key narrowed by read-only
+// access, an installation scope or an expiry is never an administrator, so it
+// cannot mint a broader key. This is the single chokepoint the adminKey mode
+// enforces, and it matches store.APIKey.Admin.
 func (id identity) isAdmin() bool {
-	return id.Kind == principal.APIKey && !id.ReadOnly && id.Installation == 0
+	return id.Kind == principal.APIKey && !id.ReadOnly && id.scope == nil && !id.expires
 }
 
 // readOnly reports whether the caller is a read-only API key, which the
@@ -182,14 +185,17 @@ func (s *server) apiKeyIdentity(ctx context.Context, raw string) (identity, erro
 	if err != nil {
 		return identity{}, fmt.Errorf("verify api key: %w", err)
 	}
-	id := identity{Principal: principal.Principal{
-		Kind:     principal.APIKey,
-		Login:    key.Name,
-		APIKeyID: key.ID.String(),
-		ReadOnly: key.ReadOnly,
-	}}
+	id := identity{
+		Principal: principal.Principal{
+			Kind:           principal.APIKey,
+			Login:          key.Name,
+			APIKeyID:       key.ID.String(),
+			ReadOnly:       key.ReadOnly,
+			InstallationID: key.InstallationID,
+		},
+		expires: key.ExpiresAt != nil,
+	}
 	if key.InstallationID != nil {
-		id.Installation = *key.InstallationID
 		inst, err := s.db.GetInstallation(ctx, *key.InstallationID)
 		switch {
 		case errors.Is(err, store.ErrNotFound):

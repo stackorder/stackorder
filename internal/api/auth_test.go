@@ -245,7 +245,7 @@ func TestScopedKeyIdentity(t *testing.T) {
 	assert.True(t, readOnly.sees("anyone"), "a read-only, installation-wide key still sees every account")
 
 	scoped := identity{
-		Principal: principal.Principal{Kind: principal.APIKey, Login: "ci", Installation: 7},
+		Principal: principal.Principal{Kind: principal.APIKey, Login: "ci", InstallationID: ptr(int64(7))},
 		scope:     &keyScope{account: "acme", known: true},
 	}
 	assert.True(t, scoped.sees("ACME"))
@@ -254,7 +254,7 @@ func TestScopedKeyIdentity(t *testing.T) {
 	assert.Equal(t, []string{"acme"}, scoped.accounts())
 
 	gone := identity{
-		Principal: principal.Principal{Kind: principal.APIKey, Login: "ci", Installation: 7},
+		Principal: principal.Principal{Kind: principal.APIKey, Login: "ci", InstallationID: ptr(int64(7))},
 		scope:     &keyScope{known: false},
 	}
 	assert.False(t, gone.sees("acme"), "a key whose installation is gone sees nothing")

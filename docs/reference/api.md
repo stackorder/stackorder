@@ -57,7 +57,9 @@ An API key is an unscoped administrator by default. [Creating a key](#create-key
 - **Installation-scoped** (`installation_id`). The key sees only the one installation and nothing of any other: repository and stack lists, overview counts, runs, plan text, shared outputs, resources and the audit log are all filtered, and a repository, run or stack of another installation answers `404 not_found` exactly as one that does not exist, with no `403`-versus-`404` difference to probe. A key whose installation is later uninstalled sees nothing.
 - **Expiring** (`expires_at`). After that time the key stops authenticating and is refused exactly like a revoked one (`401 unauthorized`). Expiry is checked on every request.
 
-A scoped key is not an administrator: it can neither list, create nor revoke keys, so it can never mint itself a broader key. Only an unscoped (read-write, installation-wide) key manages keys.
+A scoped key is not an administrator: it can neither list, create nor revoke keys, so it can never mint itself a broader key. Only an unscoped (read-write, installation-wide) key that does not expire manages keys; an expiring key, even one otherwise unscoped, cannot create keys, so it cannot outlive itself by minting a permanent one.
+
+All three scopes are enforced only by a server on this release. A v0.5.0 replica honours any key as a full, never-expiring administrator, so during a rolling upgrade do not issue or distribute a scoped or expiring key until every replica runs this release, and revoke such keys before rolling back. See [Upgrades and backups](/operations/upgrades-and-backups#server).
 
 ## Errors {#errors}
 

@@ -892,4 +892,14 @@ func TestScopedAPIKeysWithTheRealStore(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusUnauthorized, bearerGet("/v1/me", expired).Code)
 	})
+
+	t.Run("an expiring key cannot mint a permanent one", func(t *testing.T) {
+		future := time.Now().Add(time.Hour)
+		expiring, key, err := w.st.CreateAPIKey(ctx, store.NewAPIKey{Name: "time-boxed", CreatedBy: "admin", ExpiresAt: &future})
+		require.NoError(t, err)
+		assert.False(t, key.Admin(), "a key with an expiry is not an administrator")
+		assert.Equal(t, http.StatusForbidden, bearerGet("/v1/keys", expiring).Code)
+		assert.Equal(t, http.StatusForbidden, bearerPost("/v1/keys", expiring, v1.CreateAPIKeyRequest{Name: "perma"}).Code)
+		assert.False(t, decodeBody[v1.Whoami](t, w.okRec(bearerGet("/v1/me", expiring))).Admin)
+	})
 }

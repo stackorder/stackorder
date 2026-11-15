@@ -448,7 +448,7 @@ func apiKey() principal.Principal {
 
 func scopedAPIKey(installation int64) principal.Principal {
 	p := apiKey()
-	p.Installation = installation
+	p.InstallationID = &installation
 	return p
 }
 

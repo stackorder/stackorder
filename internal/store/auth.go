@@ -129,9 +129,10 @@ func (s *Store) PruneSessions(ctx context.Context) (int64, error) {
 
 // APIKey is an automation key. Only the SHA-256 of the key is stored;
 // Prefix is its first characters, for display. A key is an administrator
-// unless it is scoped: ReadOnly refuses it every mutating route, and a
-// non-nil InstallationID limits it to one installation. ExpiresAt, when
-// set, is when the key stops authenticating.
+// unless it is scoped: ReadOnly refuses it every mutating route, a non-nil
+// InstallationID limits it to one installation, and a non-nil ExpiresAt, the
+// instant it stops authenticating, bars it from managing keys so a time-boxed
+// key cannot mint a permanent one.
 type APIKey struct {
 	ID             uuid.UUID  `db:"id"`
 	Name           string     `db:"name"`
@@ -148,9 +149,10 @@ type APIKey struct {
 const keyColumns = `id, name, prefix, created_by, created_at, last_used_at, revoked_at, read_only, installation_id, expires_at`
 
 // Admin reports whether the key may manage API keys: an unrestricted key,
-// read-write and installation-wide. Expiry does not affect it.
+// read-write, installation-wide and non-expiring. A key narrowed on any of
+// those three axes cannot mint a broader key.
 func (k APIKey) Admin() bool {
-	return !k.ReadOnly && k.InstallationID == nil
+	return !k.ReadOnly && k.InstallationID == nil && k.ExpiresAt == nil
 }
 
 // ToV1 converts the key's metadata for the management API; it never carries

@@ -777,7 +777,7 @@ membership change takes effect at the next sign-in. For a person,
 `GET /v1/audit` keeps the entries they made and those whose `details.repo`,
 or `target` (`owner/repo…` or `kind:owner/repo…`), names a repository they
 see, so a page may hold fewer than `limit` items and still carry
-`next_cursor`; `GET /v1/modules` sets `total` only for API keys.
+`next_cursor`; `GET /v1/modules` sets `total` only for unscoped API keys.
 
 A key is scoped in three independent ways (`migrations/0016_api_key_scopes`,
 columns `read_only`, `installation_id`, `expires_at`, all permissive by
@@ -793,11 +793,12 @@ State-changing human endpoints require the session cookie plus a same-origin
 `Origin` or `Sec-Fetch-Site` check. The `/v1/keys` endpoints are the one
 administrator-only surface: they carry the `adminKey` auth mode, which `with`
 enforces after authentication, so a session is `403 forbidden`, a runner
-token `401`, and only an *unscoped* API key — `identity.isAdmin`, read-write
-and installation-wide — manages keys. A read-only or installation-scoped key
-is refused, so a restricted key can neither list, create nor revoke keys, and
-therefore can never obtain a broader key. `isAdmin` is the single chokepoint
-the scope narrows. Creating and revoking a key is audited as `api_key_created`
+token `401`, and only an *unscoped* API key — `identity.isAdmin`, read-write,
+installation-wide and non-expiring — manages keys. A read-only,
+installation-scoped or expiring key is refused, so a restricted key can
+neither list, create nor revoke keys, and therefore can never obtain a broader
+key, and a time-boxed key can never mint a permanent one. `isAdmin` matches
+`store.APIKey.Admin` and is the single chokepoint the scope narrows. Creating and revoking a key is audited as `api_key_created`
 and `api_key_revoked` with the key name as the target and the scope in
 `details`; the store writes the mutation and its audit entry in one
 transaction, so a key never exists without its creation entry and the audit

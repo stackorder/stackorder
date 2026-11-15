@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
+	"github.com/stackorder/stackorder/internal/principal"
 	"github.com/stackorder/stackorder/internal/store"
 )
 
@@ -139,6 +140,43 @@ func TestScopedKeyCannotManageKeys(t *testing.T) {
 		assert.False(t, me.Admin)
 	}
 	assert.Empty(t, e.db.auditLog(), "a scoped key creates no keys")
+}
+
+func TestExpiringKeyCannotManageKeys(t *testing.T) {
+	e := newEnv(t)
+	e.db.addRepo(100, 7, "acme", "acme/infra")
+	exp := time.Now().Add(time.Hour)
+	expiring := e.scopedKey("temporary", func(k *store.APIKey) { k.ExpiresAt = &exp })
+
+	rec := e.do(bearer(newRequest(t, http.MethodGet, "/v1/keys", nil), expiring))
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	assert.Contains(t, errorOf(t, rec).Message, "administrator")
+
+	rec = e.do(bearer(sameOriginPost(t, "/v1/keys", v1.CreateAPIKeyRequest{Name: "perma"}), expiring))
+	require.Equal(t, http.StatusForbidden, rec.Code, "a time-boxed key cannot mint a permanent one")
+
+	me := decodeBody[v1.Whoami](t, e.do(bearer(newRequest(t, http.MethodGet, "/v1/me", nil), expiring)))
+	assert.False(t, me.Admin, "an expiring key is not an administrator")
+	assert.Empty(t, e.db.auditLog(), "an expiring key creates no keys")
+}
+
+// TestHandInsertedInstallationZeroIsScoped guards the ambiguity between the
+// NULL installation_id that means "unscoped" and a real zero id: a key
+// hand-inserted with installation_id = 0 must be treated as scoped, so it is
+// neither an administrator nor able to act on any installation, matching the
+// read paths that already see nothing.
+func TestHandInsertedInstallationZeroIsScoped(t *testing.T) {
+	zero := int64(0)
+	id := identity{
+		Principal: principal.Principal{Kind: principal.APIKey, InstallationID: &zero},
+		scope:     &keyScope{known: false},
+	}
+	assert.False(t, id.isAdmin(), "a zero-installation key must not be an administrator")
+	assert.False(t, id.SeesInstallation(999), "a zero-installation key sees no other installation")
+	assert.False(t, id.sees("acme"), "a zero-installation key is blind on read paths")
+
+	scoped := store.APIKey{InstallationID: &zero}
+	assert.False(t, scoped.Admin(), "store and server agree a zero-installation key is scoped")
 }
 
 func TestCreateScopedKey(t *testing.T) {
