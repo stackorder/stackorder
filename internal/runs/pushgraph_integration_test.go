@@ -4,6 +4,7 @@ package runs_test
 
 import (
 	"fmt"
+	"net/http"
 	"slices"
 	"testing"
 
@@ -150,4 +151,23 @@ func TestRecordDefaultGraphSurvivesDelayedMerge(t *testing.T) {
 	after, _, err := e.st.GetDefaultGraph(e.ctx, repoID)
 	require.NoError(t, err)
 	assert.Equal(t, newHeadSHA, after.SHA, "a delayed merge must not replace the newer pushed graph")
+}
+
+func TestMergeReleasesLocksWhenHeadReadFails(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	planRun := e.planned(7, headSHA)
+	e.stalledApply(7, planRun)
+	require.NotEmpty(t, e.locks(), "the before_merge apply holds the pull request's locks")
+
+	e.gh.SetRef(repoName, "heads/main", mergeSHA)
+	// The default-branch head read is down; recording the merged graph is retried
+	// on webhook redelivery, but releasing the locks must not wait for it.
+	e.gh.FailNext("GET /repos/{owner}/{repo}/git/ref/{ref...}", http.StatusInternalServerError, 20)
+
+	merged := e.gh.PullRequestEvent("closed", repoName, gh.PullRequest{
+		Number: 7, State: gh.IssueClosed, Merged: true, MergeCommitSHA: mergeSHA, HeadSHA: headSHA, BaseSHA: baseSHA, User: gh.User{Login: author},
+	})
+	err := e.svc.HandlePullRequest(e.ctx, merged)
+	require.Error(t, err, "the handler reports the failed head read so the merge webhook is redelivered")
+	assert.Empty(t, e.locks(), "the merge releases the pull request's locks even when the default-graph head read fails")
 }

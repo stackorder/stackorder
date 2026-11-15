@@ -101,12 +101,20 @@ func (s *Service) forkNotice(ctx context.Context, repo store.Repo, sha string) e
 
 func (s *Service) onMerged(ctx context.Context, repo store.Repo, ev *gh.PullRequestEvent) error {
 	pr := &ev.PullRequest
-	if err := s.recordDefaultGraph(ctx, repo, pr); err != nil {
-		return err
-	}
 	if repoConfig(repo).Apply.Mode == v1.ApplyOnMerge {
+		if err := s.recordDefaultGraph(ctx, repo, pr); err != nil {
+			return err
+		}
 		return s.applyOnMerge(ctx, repo, ev)
 	}
+	if err := s.releaseMergeLocks(ctx, repo, ev); err != nil {
+		return err
+	}
+	return s.recordDefaultGraph(ctx, repo, pr)
+}
+
+func (s *Service) releaseMergeLocks(ctx context.Context, repo store.Repo, ev *gh.PullRequestEvent) error {
+	pr := &ev.PullRequest
 	released, err := s.st.ReleaseLocksForPR(ctx, repo.ID, pr.Number)
 	if err != nil {
 		return storeErr(err, "release locks of #%d", pr.Number)
