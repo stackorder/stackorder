@@ -32,6 +32,7 @@ type server struct {
 
 	origin     string
 	secure     bool
+	hsts       string
 	webURL     string
 	apiURL     string
 	sessionKey []byte
@@ -111,6 +112,7 @@ func newServer(cfg Config, d Deps, db dataStore) *server {
 		s.log.Warn("no session key configured; generated one, so sessions end when the server restarts")
 	}
 	s.csp = s.defaultCSP()
+	s.hsts = hstsHeader(cfg)
 	return s
 }
 

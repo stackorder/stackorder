@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -144,8 +145,30 @@ func (s *server) securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("X-Frame-Options", "DENY")
+		if s.secure && s.hsts != "" {
+			h.Set("Strict-Transport-Security", s.hsts)
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// hstsHeader builds the Strict-Transport-Security value from the HSTS
+// configuration, or returns the empty string when no header should be sent.
+func hstsHeader(cfg Config) string {
+	secs := int64(cfg.HSTSMaxAge / time.Second)
+	if secs <= 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("max-age=")
+	b.WriteString(strconv.FormatInt(secs, 10))
+	if cfg.HSTSIncludeSubdomains {
+		b.WriteString("; includeSubDomains")
+	}
+	if cfg.HSTSPreload {
+		b.WriteString("; preload")
+	}
+	return b.String()
 }
 
 func (s *server) handle(mux *http.ServeMux, pattern string, limit int64, h http.Handler) {

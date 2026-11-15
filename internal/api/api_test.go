@@ -25,11 +25,53 @@ func TestHealthz(t *testing.T) {
 	assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
 	assert.Equal(t, "same-origin", rec.Header().Get("Referrer-Policy"))
 	assert.Equal(t, "DENY", rec.Header().Get("X-Frame-Options"))
+	assert.Empty(t, rec.Header().Get("Strict-Transport-Security"), "no HSTS header unless configured")
 	assert.Empty(t, rec.Header().Get("Content-Security-Policy"), "JSON responses carry no CSP")
 
 	rec = e.do(newRequest(t, http.MethodHead, "/healthz", nil))
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Empty(t, rec.Body.String())
+}
+
+func TestHSTS(t *testing.T) {
+	t.Run("header", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			mutate func(*Config)
+			want   string
+		}{
+			"max-age only": {func(c *Config) { c.HSTSMaxAge = 365 * 24 * time.Hour }, "max-age=31536000"},
+			"subdomains": {func(c *Config) {
+				c.HSTSMaxAge = 48 * time.Hour
+				c.HSTSIncludeSubdomains = true
+			}, "max-age=172800; includeSubDomains"},
+			"preload": {func(c *Config) {
+				c.HSTSMaxAge = 365 * 24 * time.Hour
+				c.HSTSIncludeSubdomains = true
+				c.HSTSPreload = true
+			}, "max-age=31536000; includeSubDomains; preload"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				e := newEnv(t, func(c *Config, _ *Deps) { tc.mutate(c) })
+				rec := e.do(newRequest(t, http.MethodGet, "/healthz", nil))
+				assert.Equal(t, tc.want, rec.Header().Get("Strict-Transport-Security"))
+			})
+		}
+	})
+
+	t.Run("not sent over http", func(t *testing.T) {
+		e := newEnv(t, func(c *Config, _ *Deps) {
+			c.BaseURL = "http://stackorder.test"
+			c.HSTSMaxAge = 365 * 24 * time.Hour
+		})
+		rec := e.do(newRequest(t, http.MethodGet, "/healthz", nil))
+		assert.Empty(t, rec.Header().Get("Strict-Transport-Security"), "the header is withheld when the base URL is http")
+	})
+
+	t.Run("sub-second max-age sends nothing", func(t *testing.T) {
+		e := newEnv(t, func(c *Config, _ *Deps) { c.HSTSMaxAge = 500 * time.Millisecond })
+		rec := e.do(newRequest(t, http.MethodGet, "/healthz", nil))
+		assert.Empty(t, rec.Header().Get("Strict-Transport-Security"))
+	})
 }
 
 func TestReadyz(t *testing.T) {

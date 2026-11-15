@@ -69,6 +69,14 @@ type Config struct {
 	RequiredWorkflowRef string
 	// MetricsToken, when set, is the bearer token GET /metrics requires.
 	MetricsToken string
+	// HSTSMaxAge, when positive, is the max-age of the
+	// Strict-Transport-Security header sent on every response, but only
+	// when BaseURL is https. Zero sends no header.
+	HSTSMaxAge time.Duration
+	// HSTSIncludeSubdomains adds includeSubDomains to that header.
+	HSTSIncludeSubdomains bool
+	// HSTSPreload adds preload to that header.
+	HSTSPreload bool
 }
 
 // RunService is the part of the run state machine the API delegates to.
