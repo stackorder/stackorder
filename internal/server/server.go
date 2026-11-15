@@ -285,6 +285,9 @@ func (s *Server) stateReader(ctx context.Context) (*stateread.Reader, error) {
 	if cfg.StateRoleARN != "" {
 		opts = append(opts, stateread.WithRoleARN(cfg.StateRoleARN))
 	}
+	if cfg.StateExternalID != "" {
+		opts = append(opts, stateread.WithExternalID(cfg.StateExternalID))
+	}
 	reader, err := stateread.New(ctx, cfg.StateGrants, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("server: state reader: %w", err)

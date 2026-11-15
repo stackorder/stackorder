@@ -68,6 +68,8 @@ var setupTokenChars = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
 
 var iamRoleARN = regexp.MustCompile(`^arn:[a-z-]+:iam::[0-9]{12}:role/([A-Za-z0-9+=,.@_-]+/)*[A-Za-z0-9+=,.@_-]+$`)
 
+var stsExternalID = regexp.MustCompile(`^[A-Za-z0-9+=,.@:/_-]+$`)
+
 // Environment variables LoadConfig reads.
 const (
 	EnvBaseURL             = "STACKORDER_BASE_URL"
@@ -89,6 +91,7 @@ const (
 	EnvArtifactEndpoint    = "AWS_ENDPOINT_URL_S3"
 	EnvStateBuckets        = "STACKORDER_STATE_BUCKETS"
 	EnvStateRoleARN        = "STACKORDER_STATE_ROLE_ARN"
+	EnvStateExternalID     = "STACKORDER_STATE_EXTERNAL_ID"
 	EnvSessionKey          = "STACKORDER_SESSION_KEY"
 	EnvSessionTTL          = "STACKORDER_SESSION_TTL"
 	EnvMetricsToken        = "STACKORDER_METRICS_TOKEN"
@@ -181,6 +184,10 @@ type Config struct {
 	// reader assumes to read state objects; it requires state buckets.
 	// Empty reads them with the server's own credentials.
 	StateRoleARN string
+	// StateExternalID is STACKORDER_STATE_EXTERNAL_ID, the sts:ExternalId
+	// the state reader sends when it assumes StateRoleARN, for a role whose
+	// trust policy requires one; it requires StateRoleARN. Empty sends none.
+	StateExternalID string
 
 	// SessionKey is STACKORDER_SESSION_KEY decoded from hex,
 	// SessionKeySize bytes that sign cookies.
@@ -278,6 +285,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		ArtifactPrefix:        e.str(EnvArtifactPrefix),
 		StateGrants:           e.stateGrants(EnvStateBuckets),
 		StateRoleARN:          e.roleARN(EnvStateRoleARN),
+		StateExternalID:       e.externalID(EnvStateExternalID),
 		MetricsToken:          e.str(EnvMetricsToken),
 		SessionTTL:            e.sessionTTL(EnvSessionTTL),
 		HSTSMaxAge:            e.hstsMaxAge(EnvHSTSMaxAge),
@@ -311,6 +319,9 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	stateBuckets := e.str(EnvStateBuckets) != ""
 	if !stateBuckets && e.str(EnvStateRoleARN) != "" {
 		e.fail(EnvStateRoleARN, "is set without %s", EnvStateBuckets)
+	}
+	if e.str(EnvStateRoleARN) == "" && e.str(EnvStateExternalID) != "" {
+		e.fail(EnvStateExternalID, "is set without %s", EnvStateRoleARN)
 	}
 	if cfg.ArtifactBucket != "" || stateBuckets {
 		cfg.ArtifactEndpoint = e.absoluteURL(EnvArtifactEndpoint, "")
@@ -574,6 +585,15 @@ func formatDuration(d time.Duration) string {
 		s = s[:len(s)-2]
 	}
 	return s
+}
+
+func (e *env) externalID(name string) string {
+	v := e.str(name)
+	if v != "" && (len(v) < 2 || len(v) > 1224 || !stsExternalID.MatchString(v)) {
+		e.fail(name, "must be 2 to 1224 of the characters AWS allows in an STS external ID (letters, digits and +=,.@:/_-), got %q", v)
+		return ""
+	}
+	return v
 }
 
 func (e *env) duration(name string, def time.Duration) time.Duration {

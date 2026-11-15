@@ -27,13 +27,15 @@ func TestComposeWiresTheStateReaderOnlyWithBuckets(t *testing.T) {
 	t.Setenv("AWS_PROFILE", "")
 	const (
 		role     = "arn:aws:iam::000000000000:role/stackorder-state-reader"
+		extID    = "acme-stackorder-42"
 		endpoint = "http://localstack:4566"
 	)
 	tests := []struct {
-		name    string
-		vars    []string
-		buckets []any
-		role    string
+		name       string
+		vars       []string
+		buckets    []any
+		role       string
+		externalID string
 	}{
 		{
 			name: "no state buckets",
@@ -49,6 +51,13 @@ func TestComposeWiresTheStateReaderOnlyWithBuckets(t *testing.T) {
 			vars:    []string{EnvStateBuckets, "acme/infra=acme-state/stacks/prod/, *=acme-shared", EnvStateRoleARN, role, EnvArtifactEndpoint, endpoint},
 			buckets: []any{"acme/infra=acme-state/stacks/prod/", "*=acme-shared"},
 			role:    role,
+		},
+		{
+			name:       "a role with an external ID",
+			vars:       []string{EnvStateBuckets, "acme/infra=acme-state", EnvStateRoleARN, role, EnvStateExternalID, extID},
+			buckets:    []any{"acme/infra=acme-state"},
+			role:       role,
+			externalID: extID,
 		},
 	}
 	for _, tt := range tests {
@@ -80,6 +89,9 @@ func TestComposeWiresTheStateReaderOnlyWithBuckets(t *testing.T) {
 			assert.InDelta(t, len(tt.buckets), lines[0]["grants"], 0)
 			assert.Equal(t, tt.buckets, lines[0]["state_buckets"])
 			assert.Equal(t, tt.role, lines[0]["role_arn"])
+			if tt.externalID != "" {
+				assert.NotContains(t, logs.String(), tt.externalID, "the external ID is not logged")
+			}
 		})
 	}
 }

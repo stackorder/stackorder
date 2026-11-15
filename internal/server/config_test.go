@@ -140,6 +140,7 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 		EnvArtifactEndpoint:      "http://localstack:4566",
 		EnvStateBuckets:          "acme/infra=acme-state/stacks/prod/",
 		EnvStateRoleARN:          "arn:aws:iam::123456789012:role/stackorder-state-reader",
+		EnvStateExternalID:       " acme-stackorder-42\n",
 		EnvSessionKey:            " " + sessionKey + "\n",
 		EnvSessionTTL:            "48h",
 		EnvMetricsToken:          "metrics-token",
@@ -182,6 +183,7 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 	assert.Equal(t, "http://localstack:4566", cfg.ArtifactEndpoint)
 	assert.Equal(t, []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state", Prefix: "stacks/prod/"}}, cfg.StateGrants)
 	assert.Equal(t, "arn:aws:iam::123456789012:role/stackorder-state-reader", cfg.StateRoleARN)
+	assert.Equal(t, "acme-stackorder-42", cfg.StateExternalID, "surrounding white space is trimmed")
 	assert.Equal(t, wantKey, cfg.SessionKey, "surrounding white space is trimmed")
 	assert.False(t, cfg.SessionKeyGenerated)
 	assert.Equal(t, 48*time.Hour, cfg.SessionTTL)
@@ -324,18 +326,20 @@ func TestLoadConfigInvalid(t *testing.T) {
 func TestLoadConfigStateBuckets(t *testing.T) {
 	const (
 		role     = "arn:aws:iam::123456789012:role/stackorder-state-reader"
+		extID    = "acme-stackorder-42"
 		endpoint = "http://localstack:4566"
 		format   = EnvStateBuckets + " is not a valid list of state grants"
 		forms    = "; write owner/repo=bucket or owner/repo=bucket/prefix, or *=bucket[/prefix] for every repository"
 		infra    = "acme/infra=acme-state"
 	)
 	tests := []struct {
-		name     string
-		env      map[string]string
-		grants   []stateread.Grant
-		role     string
-		endpoint string
-		err      string
+		name       string
+		env        map[string]string
+		grants     []stateread.Grant
+		role       string
+		externalID string
+		endpoint   string
+		err        string
 	}{
 		{
 			name: "unset",
@@ -371,6 +375,13 @@ func TestLoadConfigStateBuckets(t *testing.T) {
 			env:    with(minimalEnv(), EnvStateBuckets, infra, EnvStateRoleARN, "arn:aws-us-gov:iam::123456789012:role/stackorder/state-reader"),
 			grants: []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state"}},
 			role:   "arn:aws-us-gov:iam::123456789012:role/stackorder/state-reader",
+		},
+		{
+			name:       "a role with an external ID, spaces trimmed",
+			env:        with(minimalEnv(), EnvStateBuckets, infra, EnvStateRoleARN, role, EnvStateExternalID, " "+extID+"\n"),
+			grants:     []stateread.Grant{{Repository: "acme/infra", Bucket: "acme-state"}},
+			role:       role,
+			externalID: extID,
 		},
 		{
 			name:     "the endpoint applies with state buckets alone",
@@ -433,6 +444,21 @@ func TestLoadConfigStateBuckets(t *testing.T) {
 			err:  EnvStateRoleARN + " must be the ARN of one IAM role",
 		},
 		{
+			name: "an external ID without a role",
+			env:  with(minimalEnv(), EnvStateBuckets, infra, EnvStateExternalID, extID),
+			err:  EnvStateExternalID + " is set without " + EnvStateRoleARN,
+		},
+		{
+			name: "an external ID with an illegal character",
+			env:  with(minimalEnv(), EnvStateBuckets, infra, EnvStateRoleARN, role, EnvStateExternalID, "has a space"),
+			err:  EnvStateExternalID + " must be 2 to 1224 of the characters AWS allows",
+		},
+		{
+			name: "an external ID that is too short",
+			env:  with(minimalEnv(), EnvStateBuckets, infra, EnvStateRoleARN, role, EnvStateExternalID, "x"),
+			err:  EnvStateExternalID + " must be 2 to 1224 of the characters AWS allows",
+		},
+		{
 			name: "a relative endpoint with state buckets",
 			env:  with(minimalEnv(), EnvStateBuckets, infra, EnvArtifactEndpoint, "localstack:4566"),
 			err:  EnvArtifactEndpoint + " must be an absolute",
@@ -451,6 +477,7 @@ func TestLoadConfigStateBuckets(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.grants, cfg.StateGrants)
 			assert.Equal(t, tt.role, cfg.StateRoleARN)
+			assert.Equal(t, tt.externalID, cfg.StateExternalID)
 			assert.Equal(t, tt.endpoint, cfg.ArtifactEndpoint)
 		})
 	}
