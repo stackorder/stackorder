@@ -109,7 +109,7 @@ func TestSweepAttemptsEachObjectOncePerSweep(t *testing.T) {
 
 func TestPruneKeepsObjectsWhenDeleteIsRefused(t *testing.T) {
 	e := newEnv(t, baseConfig(), withArtifacts())
-	_, txtKey, _, _ := storePlanWithArtifact(t, e, 7, headSHA)
+	runID, txtKey, _, stackID := storePlanWithArtifact(t, e, 7, headSHA)
 	e.artifacts.mu.Lock()
 	e.artifacts.deleteErr = errors.New("AccessDenied: s3:DeleteObject")
 	e.artifacts.mu.Unlock()
@@ -119,7 +119,11 @@ func TestPruneKeepsObjectsWhenDeleteIsRefused(t *testing.T) {
 
 	require.NoError(t, e.svc.Prune(e.ctx, 30*24*time.Hour, 0, 0), "a refused delete does not fail pruning")
 
-	assert.True(t, e.hasArtifact(txtKey), "the object stays until the delete succeeds")
+	full, err := e.st.GetRunStack(e.ctx, uuid.MustParse(runID), uuid.MustParse(stackID))
+	require.NoError(t, err)
+	assert.Empty(t, full.PlanURL, "the link is cleared at retention even when the delete is refused, so the endpoint no longer serves the full text")
+
+	assert.True(t, e.hasArtifact(txtKey), "the object stays in the bucket until the delete succeeds; only the space is not reclaimed")
 	n, err := e.st.CountObjectDeletions(e.ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), n, "the object is still tracked for retry")
