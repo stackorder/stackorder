@@ -1019,6 +1019,23 @@ func TestClosedUnmergedKeepsLocks(t *testing.T) {
 	assert.Len(t, e.comments(7), n+2, "and again the next day")
 }
 
+func TestStaleLockReminderNotDuplicatedAfterUnknownCreate(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.planned(7, headSHA)
+	e.comment(7, applier, "stackorder apply")
+	require.Len(t, e.locks(), 4)
+	closed := e.gh.PullRequestEvent("closed", repoName, gh.PullRequest{Number: 7, State: gh.IssueClosed, HeadSHA: headSHA, User: gh.User{Login: author}})
+	require.NoError(t, e.svc.HandlePullRequest(e.ctx, closed))
+	n := len(e.comments(7))
+
+	e.clock.Advance(25 * time.Hour)
+	e.gh.ApplyThenFailNext("POST /repos/{owner}/{repo}/issues/{issue_number}/comments", http.StatusBadGateway, 1)
+	require.Error(t, e.svc.RemindStaleLocks(e.ctx), "a reminder GitHub applied but answered 502 surfaces the error")
+	assert.Len(t, e.comments(7), n+1, "GitHub applied the reminder once")
+	require.NoError(t, e.svc.RemindStaleLocks(e.ctx))
+	assert.Len(t, e.comments(7), n+1, "the same day's reminder is not posted a second time after an unknown-outcome create")
+}
+
 func TestManualRunLocks(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.planned(7, headSHA)

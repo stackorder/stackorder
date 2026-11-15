@@ -554,11 +554,11 @@ func (s *Service) remind(ctx context.Context, repoID int64, pr int, locks []stor
 	if err != nil {
 		return err
 	}
-	if _, err := c.CreateIssueComment(ctx, repo.FullName, pr, report.LockWarningComment(lockInfos(locks), opts)); err != nil {
-		return fmt.Errorf("runs: remind %s#%d of its locks: %w", repo.FullName, pr, err)
-	}
 	for _, l := range locks {
 		s.audit(ctx, "", "lock_reminder", reminderTarget(l, s.now()), map[string]any{"repo": repo.FullName, "pr": pr, "stack": l.StackKey})
+	}
+	if _, err := c.CreateIssueComment(ctx, repo.FullName, pr, report.LockWarningComment(lockInfos(locks), opts)); err != nil {
+		return fmt.Errorf("runs: remind %s#%d of its locks: %w", repo.FullName, pr, err)
 	}
 	return nil
 }
