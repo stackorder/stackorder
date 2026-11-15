@@ -18,6 +18,7 @@ func TestMigrateUsageErrors(t *testing.T) {
 	}{
 		{"status with to", []string{"migrate", "--status", "--to", "3"}, dsn, 1, "--status and --to cannot be combined"},
 		{"negative to", []string{"migrate", "--to", "-1"}, dsn, 1, "must not be negative"},
+		{"zero to", []string{"migrate", "--to", "0"}, dsn, 1, "no migration numbered 0; the latest is"},
 		{"unexpected argument", []string{"migrate", "extra"}, dsn, 1, `unexpected argument "extra"`},
 		{"unknown flag", []string{"migrate", "--nope"}, dsn, 1, "flag provided but not defined"},
 		{"missing database url", []string{"migrate"}, nil, 1, "DATABASE_URL is required"},

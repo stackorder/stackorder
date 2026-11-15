@@ -77,6 +77,15 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 		return 1
 	}
 
+	dest := target
+	if toSet {
+		if to == 0 || uint(to) > target {
+			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: no migration numbered %d; the latest is %d\n", to, target)
+			return 1
+		}
+		dest = uint(to)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -102,15 +111,6 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 			return 2
 		default:
 			return 0
-		}
-	}
-
-	dest := target
-	if toSet {
-		dest = uint(to)
-		if dest > target {
-			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: no migration numbered %d; the latest is %d\n", dest, target)
-			return 1
 		}
 	}
 
