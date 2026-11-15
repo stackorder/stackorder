@@ -1205,9 +1205,13 @@ syncs installations and their repositories from the App API (adding and
 refreshing, reading `stackorder.yaml` only for repositories not seen before)
 so installations made in setup mode or lost webhooks are learned; when the
 installation listing and the repository listing of every unsuspended
-installation succeed, it also forgets stored installations the App no
-longer lists and stored repositories of an unsuspended installation that
-no listing names, and when any listing fails it forgets nothing. Traces
+installation succeed, it also forgets a stored installation the App no
+longer lists, but only after `GET /app/installations/{id}` confirms it with
+a `404` (a `200` or any other answer keeps it), and stored repositories of
+an unsuspended installation that no listing names. A listing that omits a
+majority of the stored installations, or a majority of an installation's
+repositories, is treated as degraded and forgets nothing, and when any
+listing fails it forgets nothing. Traces
 carry `stackorder.run_id`, `stackorder.event`, `stackorder.delivery`,
 `stackorder.job` and `stackorder.job_id`; `/healthz`, `/readyz` and
 `/metrics` are not traced. A queued row keeps the W3C trace context of the
