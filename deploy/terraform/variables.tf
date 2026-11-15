@@ -398,17 +398,17 @@ variable "capacity_provider_strategy" {
   }
 
   validation {
-    condition     = alltrue([for s in var.capacity_provider_strategy : s.weight == null || (s.weight >= 0 && s.weight <= 1000 && floor(s.weight) == s.weight)])
+    condition     = alltrue([for s in var.capacity_provider_strategy : coalesce(s.weight, 0) >= 0 && coalesce(s.weight, 0) <= 1000 && floor(coalesce(s.weight, 0)) == coalesce(s.weight, 0)])
     error_message = "capacity_provider_strategy weight must be a whole number between 0 and 1000."
   }
 
   validation {
-    condition     = alltrue([for s in var.capacity_provider_strategy : s.base == null || (s.base >= 0 && s.base <= 100000 && floor(s.base) == s.base)])
+    condition     = alltrue([for s in var.capacity_provider_strategy : coalesce(s.base, 0) >= 0 && coalesce(s.base, 0) <= 100000 && floor(coalesce(s.base, 0)) == coalesce(s.base, 0)])
     error_message = "capacity_provider_strategy base must be a whole number between 0 and 100000."
   }
 
   validation {
-    condition     = length([for s in var.capacity_provider_strategy : s if s.base != null && s.base > 0]) <= 1
+    condition     = length([for s in var.capacity_provider_strategy : s if coalesce(s.base, 0) > 0]) <= 1
     error_message = "capacity_provider_strategy may set base on at most one provider, as ECS places the base on a single provider."
   }
 }
