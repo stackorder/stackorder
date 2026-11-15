@@ -185,12 +185,6 @@ func (f *fakeStore) RevokeAPIKey(_ context.Context, id uuid.UUID, actor string) 
 	return k, nil
 }
 
-func (f *fakeStore) RecordAudit(_ context.Context, e store.AuditEntry) (store.AuditEntry, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.recordAuditLocked(e), nil
-}
-
 func (f *fakeStore) recordAuditLocked(e store.AuditEntry) store.AuditEntry {
 	e.ID = int64(len(f.audits) + 1)
 	e.At = time.Now().UTC()
