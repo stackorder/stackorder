@@ -815,13 +815,13 @@ variable "oidc_audience" {
 }
 
 variable "artifact_bucket_enabled" {
-  description = "Create an S3 bucket for full plan text (STACKORDER_ARTIFACT_BUCKET) and grant the task role access to it. It is the only bucket the task role can write to."
+  description = "Create an S3 bucket for full plan text (STACKORDER_ARTIFACT_BUCKET) and grant the task role s3:GetObject, s3:PutObject and s3:DeleteObject on it, and s3:ListBucket. It is the only bucket the task role can write to."
   type        = bool
   default     = false
 }
 
 variable "artifact_retention_days" {
-  description = "Days after which objects in the artifact bucket expire."
+  description = "Days after which objects in the artifact bucket expire. The server already deletes a plan's objects when its plan text is pruned or its repository removed, so this lifecycle rule is a backstop."
   type        = number
   default     = 90
 

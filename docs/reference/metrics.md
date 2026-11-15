@@ -21,9 +21,10 @@ Every metric is defined in `internal/metrics` and carries the `stackorder_` pref
 | `stackorder_dispatches_total` | counter | `mode`, `result` | `workflow_dispatch` calls to `stackorder-run.yml`; `result` is `ok` or `error` |
 | `stackorder_drifted_stacks` | gauge | | Stacks whose latest drift check found drift |
 | `stackorder_locks_held` | gauge | | Orchestration locks held |
+| `stackorder_pending_object_deletions` | gauge | | Plan objects waiting to be removed from the [artifact bucket](/reference/server-configuration#artifact-bucket) after the last prune; stays above zero when the server's role lacks `s3:DeleteObject` |
 | `stackorder_commands_total` | counter | `verb`, `accepted` | Pull request comment commands; `verb` is `plan`, `apply`, `unlock`, `help` or `other`, `accepted` is `true` or `false` |
 
-`stackorder_drifted_stacks` and `stackorder_locks_held` are read from the database by the instance that records a drift result or takes or releases a lock. An instance that has done neither since it started reports `0`, so aggregate them with `max()` across instances.
+`stackorder_drifted_stacks`, `stackorder_locks_held` and `stackorder_pending_object_deletions` are read from the database by the instance that records a drift result, takes or releases a lock, or last ran the prune job. An instance that has not done so since it started reports `0`, so aggregate them with `max()` across instances.
 
 ### Artifact store {#artifacts}
 

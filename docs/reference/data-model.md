@@ -6,7 +6,7 @@ description: 'The Postgres schema behind the Stackorder server: graph, run, queu
 
 Postgres is the server's only stateful dependency. It holds the graphs, the run history, the locks, the audit log and the work queue. Nothing in it is needed to operate Terraform, except by stacks that read [shared outputs](/configuration/outputs): wiping the database loses history and locks, never state. It also loses where each stack's state lives, so shared outputs answer `state_location_unknown` for a stack until its next apply or drift job, and the plans of the stacks that read its outputs fail until then. Each stack's resource list is gone too until its next apply or drift job reports it again.
 
-All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.id`, `modules.id`, `graphs.id`, `dispatches.id`) are UUIDs; `installations.id` and `repos.id` are GitHub's numeric ids. The schema is created by the migrations in `migrations/`, `0001_graph` to `0011_deferrable_default_graph_fk`. `repos` and `graphs` reference each other (`repos.default_graph_id` → `graphs`, `graphs.repo_id` → `repos`), and `repos.default_graph_id` is `DEFERRABLE INITIALLY DEFERRED` so a data-only dump of both tables restores in a single transaction; see [Upgrades and backups](/operations/upgrades-and-backups#data-only).
+All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.id`, `modules.id`, `graphs.id`, `dispatches.id`) are UUIDs; `installations.id` and `repos.id` are GitHub's numeric ids. The schema is created by the migrations in `migrations/`, `0001_graph` to `0013_reclaim_stranded_plan_objects`. `repos` and `graphs` reference each other (`repos.default_graph_id` → `graphs`, `graphs.repo_id` → `repos`), and `repos.default_graph_id` is `DEFERRABLE INITIALLY DEFERRED` so a data-only dump of both tables restores in a single transaction; see [Upgrades and backups](/operations/upgrades-and-backups#data-only).
 
 ## Tables {#tables}
 
@@ -42,6 +42,7 @@ All timestamps are UTC `timestamptz`. Stackorder's own ids (`runs.id`, `stacks.i
 | --- | --- | --- |
 | `events` | `id` (the delivery id), `kind`, `payload`, `received_at`, `claimed_by`, `claimed_at`, `attempts`, `run_after`, `done_at`, `last_error` | Webhook deliveries; the delivery id as primary key deduplicates redeliveries |
 | `jobs` | `id`, `kind`, `payload`, `dedupe_key` (unique), `run_after`, `claimed_by`, `claimed_at`, `attempts`, `done_at`, `last_error`, `created_at` | Scheduled and internal work |
+| `object_deletions` | `run_id`, `stack_key`, `enqueued_at`, `attempts`, `last_error` | Plan objects (`plan.txt` and `plan.json`) waiting to be removed from the [artifact bucket](/reference/server-configuration#artifact-bucket) after pruning plan text or removing a repository (migration 0012). No foreign key, so a row outlives the run it names; the prune job sweeps it and the [`stackorder_pending_object_deletions`](/reference/metrics) gauge counts it |
 | `oidc_jtis` | `jti`, `expires_at` | Runner token ids already accepted, so a token is used once |
 | `sessions` | `id`, `login`, `user_id`, `avatar_url`, `orgs`, `created_at`, `expires_at` | `id` is the SHA-256 of the session token |
 | `api_keys` | `id`, `name`, `key_hash` (unique), `prefix`, `created_by`, `created_at`, `last_used_at`, `revoked_at` | `key_hash` is the SHA-256 of the key, `prefix` its first 10 characters |
@@ -92,7 +93,7 @@ An hourly `prune` job applies the retention settings:
 
 | Data | Kept | Setting |
 | --- | --- | --- |
-| Plan text in `run_stacks` | 30 days after the row last changed; the summary stays | `STACKORDER_PLAN_TEXT_RETENTION`, default `720h` |
+| Plan text in `run_stacks` | 30 days after the row last changed; the summary stays. With an [artifact bucket](/reference/server-configuration#artifact-bucket), `plan_url` is cleared and the stack's `plan.txt` and `plan.json` objects are queued in `object_deletions` and deleted by the same prune job | `STACKORDER_PLAN_TEXT_RETENTION`, default `720h` |
 | Webhook events | 7 days after they were received, once done or never claimed | `STACKORDER_EVENT_RETENTION`, default `168h` |
 | Finished jobs | 7 days after they finished | `STACKORDER_EVENT_RETENTION` |
 | Drift history | 90 days, always keeping the latest result of each stack | `STACKORDER_DRIFT_RETENTION`, default `2160h` |

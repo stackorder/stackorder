@@ -31,7 +31,7 @@ Set exactly one of `route53_zone_id`, to have the module issue a DNS-validated c
 | Execution role and task role | The task role has no permissions unless the artifact bucket, [shared outputs](#shared-outputs) or ECS Exec is enabled |
 | Security groups | Load balancer: 80 and 443 from `ingress_cidrs`, 8080 to the tasks, and 443 out to `alb_https_egress_cidrs`, or anywhere with single sign-on. Tasks: 8080 from the load balancer, 443 out, Postgres to the database. Database: Postgres from the tasks |
 | CloudWatch log group | The server's logs, 30 days by default |
-| Artifact bucket, with `artifact_bucket_enabled` | Full plan text, expiring after `artifact_retention_days` |
+| Artifact bucket, with `artifact_bucket_enabled` | Full plan text, deleted by the server when its plan text is pruned or its repository removed, and expiring after `artifact_retention_days` as a backstop |
 | CloudWatch alarms, with `alarms_enabled` | Target 5xx, unhealthy targets, CPU, and database free storage or ACU utilization |
 
 The server needs nothing else. It holds no AWS credentials for your infrastructure; with [shared outputs](#shared-outputs) on, it can read the state objects you list, or, with `shared_outputs_role_arn`, whatever that role allows, so give the role only those reads.
@@ -151,8 +151,8 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 
 | Input | Type | Default | Description |
 | --- | --- | --- | --- |
-| `artifact_bucket_enabled` | `bool` | `false` | Create an S3 bucket for full plan text (STACKORDER_ARTIFACT_BUCKET) and grant the task role access to it. It is the only bucket the task role can write to. |
-| `artifact_retention_days` | `number` | `90` | Days after which objects in the artifact bucket expire. |
+| `artifact_bucket_enabled` | `bool` | `false` | Create an S3 bucket for full plan text (STACKORDER_ARTIFACT_BUCKET) and grant the task role `s3:GetObject`, `s3:PutObject` and `s3:DeleteObject` on it, and `s3:ListBucket`. It is the only bucket the task role can write to. |
+| `artifact_retention_days` | `number` | `90` | Days after which objects in the artifact bucket expire. The server already deletes a plan's objects when its plan text is pruned or its repository removed, so this lifecycle rule is a backstop. |
 | `alarms_enabled` | `bool` | `false` | Create CloudWatch alarms for target 5xx responses, unhealthy targets and service CPU, plus database free storage (RDS) or ACU utilization (Aurora, whose storage grows on its own). |
 | `alarm_sns_topic_arn` | `string` | `null` | SNS topic notified when an alarm changes state. Required when alarms_enabled is true. |
 | `alarm_thresholds` | `object` | `{}` | Alarm thresholds: target 5xx responses per 5 minutes, average service CPU percent, RDS free storage in bytes, and Aurora ACU utilization percent. |
