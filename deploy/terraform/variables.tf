@@ -432,7 +432,7 @@ variable "extra_environment" {
       for k in keys(var.extra_environment) : can(regex("^[A-Za-z_][A-Za-z0-9_]*$", k)) && !contains([
         "STACKORDER_BASE_URL", "STACKORDER_LISTEN", "GITHUB_API_URL", "STACKORDER_OIDC_AUDIENCE",
         "STACKORDER_REQUIRED_WORKFLOW_REF", "STACKORDER_ARTIFACT_BUCKET", "STACKORDER_LOG_LEVEL",
-        "STACKORDER_STATE_BUCKETS", "STACKORDER_STATE_ROLE_ARN",
+        "STACKORDER_STATE_BUCKETS", "STACKORDER_STATE_ROLE_ARN", "STACKORDER_STATE_EXTERNAL_ID",
         "DATABASE_URL", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_WEBHOOK_SECRET",
         "GITHUB_OAUTH_CLIENT_ID", "GITHUB_OAUTH_CLIENT_SECRET", "STACKORDER_SESSION_KEY", "STACKORDER_METRICS_TOKEN",
       ], k)
@@ -849,5 +849,26 @@ variable "shared_outputs_role_arn" {
   validation {
     condition     = var.shared_outputs_role_arn == null || alltrue([for s in var.shared_outputs_state : s.kms_key_arn == null])
     error_message = "With shared_outputs_role_arn, leave kms_key_arn out of shared_outputs_state and grant kms:Decrypt in the role's own policies: the task role does not read the state itself."
+  }
+}
+
+variable "shared_outputs_external_id" {
+  description = "External ID the server sends when it assumes shared_outputs_role_arn (STACKORDER_STATE_EXTERNAL_ID), for a role whose trust policy requires a matching sts:ExternalId, as a role in another account commonly does. Null sends none. Requires shared_outputs_role_arn."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.shared_outputs_external_id == null || can(regex("^[A-Za-z0-9+=,.@:/_-]+$", var.shared_outputs_external_id))
+    error_message = "shared_outputs_external_id must use only the characters AWS allows in an STS external ID: letters, digits and +=,.@:/_-."
+  }
+
+  validation {
+    condition     = var.shared_outputs_external_id == null || (length(var.shared_outputs_external_id) >= 2 && length(var.shared_outputs_external_id) <= 1224)
+    error_message = "shared_outputs_external_id must be 2 to 1224 characters, the length AWS allows for an STS external ID."
+  }
+
+  validation {
+    condition     = var.shared_outputs_external_id == null || var.shared_outputs_role_arn != null
+    error_message = "shared_outputs_external_id needs shared_outputs_role_arn: an external ID is only sent when the server assumes a role."
   }
 }

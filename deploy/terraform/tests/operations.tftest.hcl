@@ -308,8 +308,9 @@ run "shared_outputs_through_role" {
   command = plan
 
   variables {
-    shared_outputs_state    = [{ repository = "acme/infra", bucket = "acme-tfstate", prefix = "stacks/prod/" }]
-    shared_outputs_role_arn = "arn:aws:iam::210987654321:role/stackorder/state-reader"
+    shared_outputs_state       = [{ repository = "acme/infra", bucket = "acme-tfstate", prefix = "stacks/prod/" }]
+    shared_outputs_role_arn    = "arn:aws:iam::210987654321:role/stackorder/state-reader"
+    shared_outputs_external_id = "acme-stackorder-42"
   }
 
   assert {
@@ -317,10 +318,11 @@ run "shared_outputs_through_role" {
       for e in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].environment : e.name => e.value
       if startswith(e.name, "STACKORDER_STATE_")
       } == {
-      STACKORDER_STATE_BUCKETS  = "acme/infra=acme-tfstate/stacks/prod/"
-      STACKORDER_STATE_ROLE_ARN = "arn:aws:iam::210987654321:role/stackorder/state-reader"
+      STACKORDER_STATE_BUCKETS     = "acme/infra=acme-tfstate/stacks/prod/"
+      STACKORDER_STATE_ROLE_ARN    = "arn:aws:iam::210987654321:role/stackorder/state-reader"
+      STACKORDER_STATE_EXTERNAL_ID = "acme-stackorder-42"
     }
-    error_message = "The role must reach the server as STACKORDER_STATE_ROLE_ARN beside the buckets."
+    error_message = "The role and its external ID must reach the server as STACKORDER_STATE_ROLE_ARN and STACKORDER_STATE_EXTERNAL_ID beside the buckets."
   }
 
   assert {

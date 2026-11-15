@@ -47,6 +47,7 @@ locals {
       STACKORDER_STATE_BUCKETS = join(",", distinct([for s in var.shared_outputs_state : s.prefix == "" ? "${s.repository}=${s.bucket}" : "${s.repository}=${s.bucket}/${s.prefix}"]))
     },
     var.shared_outputs_role_arn == null ? {} : { STACKORDER_STATE_ROLE_ARN = var.shared_outputs_role_arn },
+    var.shared_outputs_external_id == null ? {} : { STACKORDER_STATE_EXTERNAL_ID = var.shared_outputs_external_id },
     var.extra_environment,
   )
 

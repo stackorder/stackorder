@@ -205,6 +205,18 @@ run "extra_environment_state_role_arn" {
   expect_failures = [var.extra_environment]
 }
 
+run "extra_environment_state_external_id" {
+  command = plan
+
+  variables {
+    extra_environment = {
+      STACKORDER_STATE_EXTERNAL_ID = "acme-stackorder-42"
+    }
+  }
+
+  expect_failures = [var.extra_environment]
+}
+
 run "metrics_token_too_short" {
   command = plan
 
@@ -746,4 +758,39 @@ run "shared_outputs_role_with_kms_key" {
   }
 
   expect_failures = [var.shared_outputs_role_arn]
+}
+
+run "shared_outputs_external_id_without_role" {
+  command = plan
+
+  variables {
+    shared_outputs_state       = [{ repository = "acme/infra", bucket = "acme-tfstate" }]
+    shared_outputs_external_id = "acme-stackorder-42"
+  }
+
+  expect_failures = [var.shared_outputs_external_id]
+}
+
+run "shared_outputs_external_id_illegal_character" {
+  command = plan
+
+  variables {
+    shared_outputs_state       = [{ repository = "acme/infra", bucket = "acme-tfstate" }]
+    shared_outputs_role_arn    = "arn:aws:iam::210987654321:role/stackorder-state-reader"
+    shared_outputs_external_id = "has a space"
+  }
+
+  expect_failures = [var.shared_outputs_external_id]
+}
+
+run "shared_outputs_external_id_too_short" {
+  command = plan
+
+  variables {
+    shared_outputs_state       = [{ repository = "acme/infra", bucket = "acme-tfstate" }]
+    shared_outputs_role_arn    = "arn:aws:iam::210987654321:role/stackorder-state-reader"
+    shared_outputs_external_id = "x"
+  }
+
+  expect_failures = [var.shared_outputs_external_id]
 }
