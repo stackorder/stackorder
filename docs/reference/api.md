@@ -716,7 +716,7 @@ Counts over the repositories the caller sees.
 }
 ```
 
-`runs_by_status` and `stacks_by_status` are always present, `{}` when empty. `recent_runs` has the same [run list fields](#repo-runs) as the runs of a repository.
+`runs_by_status` and `stacks_by_status` are always present, `{}` when empty. `recent_runs` has the same [run list fields](#repo-runs) as the runs of a repository. `stacks` and `drifted` count only the stacks the default branch still has: a stack whose directory a merged pull request deletes stops being counted once the merge updates the default-branch graph.
 
 ### `GET /v1/repos` {#repos}
 
@@ -807,7 +807,7 @@ Instead of `stacks`, each run sums up its stacks, leaving out those an apply ski
 
 ### `GET /v1/repos/{owner}/{repo}/stacks` {#repo-stacks}
 
-A page of the repository's current stacks, ordered by key, each in the [`StackDetail`](#stack) shape, with `total`.
+A page of the repository's current stacks, ordered by key, each in the [`StackDetail`](#stack) shape, with `total`. A stack the default branch no longer has, because a merged pull request deleted its directory, is left out once the merge updates the default-branch graph; its id still resolves at [`GET /v1/stacks/{id}`](#stack).
 
 ```json
 {

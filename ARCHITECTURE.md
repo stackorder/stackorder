@@ -1129,8 +1129,16 @@ transaction-level advisory lock on the lowercased full name so two workers
 recording the same new repository do not race the unique index.
 `store.SetDefaultGraph` records `repos.default_graph_id` (the runs service
 calls it when a PR merges) and `store.GetDefaultGraph` reads it back;
-`ModuleConsumers` and `StackModules` read each repository's default-branch
-graph, falling back to its latest graph. `stacks.state_object`
+in the same transaction `SetDefaultGraph` reconciles `stacks.removed_at` to
+the change, stamping removed a stack the previous default graph listed and
+the new one does not, and clearing `removed_at` on a stack the new one
+lists, so the stack lists and `/v1/overview`, which filter on
+`removed_at IS NULL`, follow the default branch; a stack never on the
+default branch, such as one an open pull request proposes, is left alone.
+Migration `0010_reconcile_removed_stacks` repairs existing rows once,
+marking removed a stack absent from its repository's current default graph
+unless a graph newer than that default still lists it. `ModuleConsumers` and `StackModules` read each repository's
+default-branch graph, falling back to its latest graph. `stacks.state_object`
 (`v1.StateObject` as jsonb, with `state_object_run_id` and `state_object_at`)
 is where an apply or drift job of the newest run that reported one found the
 stack's state; only `store.SetStackStateObject` writes it, and
