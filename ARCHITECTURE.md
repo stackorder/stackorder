@@ -608,8 +608,8 @@ the merge commit is still the branch head, so a delayed or redelivered merge
 webhook that arrives after a newer push cannot revert the default branch to the
 pull request's older graph. In `before_merge` mode the merge releases the pull
 request's orchestration locks (`runs.releaseMergeLocks`) before this recording,
-so a failed head read, which makes `runs.onMerged` return and the merge webhook
-be redelivered, never keeps those locks held. `SetDefaultGraph` reconciles
+so a failed head read, which makes `runs.onMerged` return an error and the
+queue retry the merge event, never keeps those locks held. `SetDefaultGraph` reconciles
 `stacks.removed_at` in both paths. A suspended installation's runner token is refused at
 authentication with 403 before the handler runs (`internal/api/auth.go`, like
 every runner endpoint), so a suspended installation records nothing. The server
