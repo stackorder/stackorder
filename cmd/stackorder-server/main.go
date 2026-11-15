@@ -5,6 +5,7 @@
 //
 //	stackorder-server              run the server, configured by the environment
 //	stackorder-server healthcheck  exit 0 when GET /healthz on this host answers 200
+//	stackorder-server api-key      create, list and revoke API keys (DATABASE_URL)
 //	stackorder-server version      print the build information
 package main
 
@@ -31,6 +32,7 @@ const usage = `usage: stackorder-server [command]
 Commands:
   (none)       run the server; configuration comes from the environment
   healthcheck  GET http://127.0.0.1<STACKORDER_LISTEN>/healthz, exit 0 on 200
+  api-key      create, list and revoke API keys; needs DATABASE_URL
   version      print the build information
 `
 
@@ -48,6 +50,8 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		return 0
 	case "healthcheck":
 		return healthcheck(getenv, stdout, stderr)
+	case "api-key":
+		return apiKey(args[1:], getenv, stdout, stderr)
 	case "help", "-h", "--help":
 		_, _ = fmt.Fprint(stdout, usage)
 		return 0

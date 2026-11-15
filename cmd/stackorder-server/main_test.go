@@ -106,3 +106,37 @@ func TestCommands(t *testing.T) {
 	assert.Contains(t, stderr.String(), "DATABASE_URL is required")
 	assert.Contains(t, stderr.String(), "STACKORDER_BASE_URL is required")
 }
+
+func TestAPIKeyCommandArgs(t *testing.T) {
+	withDB := envOf(map[string]string{"DATABASE_URL": "postgres://localhost/x"})
+
+	tests := []struct {
+		name   string
+		args   []string
+		getenv func(string) string
+		code   int
+		stderr string
+	}{
+		{"no subcommand", []string{"api-key"}, envOf(nil), 2, "usage: stackorder-server api-key"},
+		{"unknown subcommand", []string{"api-key", "rotate"}, envOf(nil), 2, `unknown command "rotate"`},
+		{"help", []string{"api-key", "help"}, envOf(nil), 0, ""},
+		{"create without name", []string{"api-key", "create"}, withDB, 2, "a single name is required"},
+		{"create blank name", []string{"api-key", "create", "  "}, withDB, 2, "a single name is required"},
+		{"create extra args", []string{"api-key", "create", "a", "b"}, withDB, 2, "a single name is required"},
+		{"revoke without id", []string{"api-key", "revoke"}, withDB, 2, "a single key id is required"},
+		{"list with args", []string{"api-key", "list", "x"}, withDB, 2, "takes no arguments"},
+		{"empty actor", []string{"api-key", "list", "--actor", ""}, withDB, 2, "--actor must not be empty"},
+		{"create needs database url", []string{"api-key", "create", "ci"}, envOf(nil), 1, "DATABASE_URL is required"},
+		{"revoke needs a uuid", []string{"api-key", "revoke", "nope"}, withDB, 2, "is not a key id"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := run(tt.args, tt.getenv, &stdout, &stderr)
+			assert.Equal(t, tt.code, code, stderr.String())
+			if tt.stderr != "" {
+				assert.Contains(t, stderr.String()+stdout.String(), tt.stderr)
+			}
+		})
+	}
+}
