@@ -19,11 +19,34 @@ import (
 // Migrate applies every pending up migration. It holds the session-level
 // advisory lock MigrationLockKey on a dedicated connection outside the pool
 // for the duration, so servers starting at the same time run the migrations
-// one after the other and a pool of one connection is enough.
+// one after the other and a pool of one connection is enough. It refuses a
+// dirty schema with a *SchemaDirtyError rather than a bare driver error.
 func (s *Store) Migrate(ctx context.Context) error {
 	return s.withMigrator(ctx, "migrate up", func(m *migrate.Migrate) error {
+		current, dirty, err := migratorVersion(m)
+		if err != nil {
+			return err
+		}
+		if dirty {
+			return &SchemaDirtyError{Version: current}
+		}
 		return m.Up()
 	})
+}
+
+// SchemaDirtyError reports that schema_migrations marks a migration as still in
+// progress: golang-migrate records (version, dirty = true) before it runs a
+// migration and clears the flag after, so a migration that fails leaves the
+// row dirty and every later migration and server start refuses the database
+// until the flag is cleared. Version is the version the failed migration was
+// applying. Recover with (*Store).ForceVersion once the schema is at a known
+// version.
+type SchemaDirtyError struct {
+	Version uint
+}
+
+func (e *SchemaDirtyError) Error() string {
+	return fmt.Sprintf("schema is dirty at version %d: a previous migration did not finish and left the schema marked unfinished; repair the schema and clear the dirty flag before migrating", e.Version)
 }
 
 // SchemaAheadError reports that the database is at a migration version above
@@ -50,15 +73,12 @@ func (e *SchemaAheadError) Error() string {
 // database already migrated.
 func (s *Store) MigrateUp(ctx context.Context, version uint) (applied bool, err error) {
 	err = s.withMigrator(ctx, fmt.Sprintf("migrate up to %d", version), func(m *migrate.Migrate) error {
-		current, dirty, verr := m.Version()
-		switch {
-		case errors.Is(verr, migrate.ErrNilVersion):
-			current = 0
-		case verr != nil:
+		current, dirty, verr := migratorVersion(m)
+		if verr != nil {
 			return verr
 		}
 		if dirty {
-			return fmt.Errorf("schema is dirty at version %d; repair it before migrating", current)
+			return &SchemaDirtyError{Version: current}
 		}
 		if current > version {
 			return &SchemaAheadError{Current: current, Target: version}
@@ -114,6 +134,32 @@ func (s *Store) MigrateDown(ctx context.Context) error {
 	return s.withMigrator(ctx, "migrate down", func(m *migrate.Migrate) error {
 		return m.Down()
 	})
+}
+
+// ForceVersion records version as the applied migration version and clears the
+// dirty flag, without running any migration, taking MigrationLockKey as Migrate
+// does. It recovers a dirty schema (see SchemaDirtyError): the operator brings
+// the schema to a known version by hand, then records that version. version 0
+// means no migration is applied, the state before the first migration. It does
+// not check what version asserts, so the caller is responsible for the schema
+// matching it; a wrong version makes the next migration run against a schema it
+// does not expect.
+func (s *Store) ForceVersion(ctx context.Context, version uint) error {
+	return s.withMigrator(ctx, fmt.Sprintf("force version %d", version), func(m *migrate.Migrate) error {
+		target := -1
+		if version > 0 {
+			target = int(version)
+		}
+		return m.Force(target)
+	})
+}
+
+func migratorVersion(m *migrate.Migrate) (current uint, dirty bool, err error) {
+	current, dirty, err = m.Version()
+	if errors.Is(err, migrate.ErrNilVersion) {
+		return 0, false, nil
+	}
+	return current, dirty, err
 }
 
 // SchemaVersion returns the applied migration version and whether the last

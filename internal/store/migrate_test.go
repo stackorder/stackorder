@@ -135,7 +135,7 @@ func TestSchemaVersionDoesNotCreateTable(t *testing.T) {
 	assert.False(t, present, "reporting the version must not create schema_migrations on a fresh database")
 }
 
-func TestMigrateUpRefusesDirty(t *testing.T) {
+func TestMigrateRefusesDirty(t *testing.T) {
 	ctx := t.Context()
 	s, err := store.Open(ctx, pgtest.DSN(t))
 	require.NoError(t, err)
@@ -145,8 +145,80 @@ func TestMigrateUpRefusesDirty(t *testing.T) {
 	_, err = s.Pool().Exec(ctx, `UPDATE schema_migrations SET dirty = true`)
 	require.NoError(t, err)
 
-	_, err = s.MigrateUp(ctx, 9)
-	require.ErrorContains(t, err, "dirty")
+	target, err := store.LatestMigration()
+	require.NoError(t, err)
+
+	_, upErr := s.MigrateUp(ctx, target)
+	var upDirty *store.SchemaDirtyError
+	require.ErrorAs(t, upErr, &upDirty, "MigrateUp refuses a dirty schema with a typed error")
+	assert.Equal(t, target, upDirty.Version)
+
+	startErr := s.Migrate(ctx)
+	var startDirty *store.SchemaDirtyError
+	require.ErrorAs(t, startErr, &startDirty, "Migrate refuses a dirty schema with a typed error")
+	assert.Equal(t, target, startDirty.Version)
+}
+
+func TestForceVersionRecoversDirtyRollback(t *testing.T) {
+	ctx := t.Context()
+	target, err := store.LatestMigration()
+	require.NoError(t, err)
+	s, err := store.Open(ctx, pgtest.DSN(t))
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	applied, err := s.MigrateUp(ctx, 2)
+	require.NoError(t, err)
+	require.True(t, applied)
+	_, err = s.Pool().Exec(ctx, `UPDATE schema_migrations SET version = 3, dirty = true`)
+	require.NoError(t, err)
+
+	var dirtyErr *store.SchemaDirtyError
+	require.ErrorAs(t, s.Migrate(ctx), &dirtyErr)
+	assert.Equal(t, uint(3), dirtyErr.Version)
+
+	require.NoError(t, s.ForceVersion(ctx, 2), "record the version the rolled-back schema is really at")
+	ver, dirty, err := s.SchemaVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint(2), ver)
+	assert.False(t, dirty)
+
+	require.NoError(t, s.Migrate(ctx), "re-applies the migration that failed, and the rest")
+	assert.Equal(t, 22, tableCount(t, s))
+	ver, dirty, err = s.SchemaVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, target, ver)
+	assert.False(t, dirty)
+}
+
+func TestForceVersionZeroResetsToPristine(t *testing.T) {
+	ctx := t.Context()
+	target, err := store.LatestMigration()
+	require.NoError(t, err)
+	s, err := store.Open(ctx, pgtest.DSN(t))
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	_, err = s.Pool().Exec(ctx, `
+		CREATE TABLE schema_migrations (version bigint not null primary key, dirty boolean not null);
+		INSERT INTO schema_migrations (version, dirty) VALUES (1, true)`)
+	require.NoError(t, err, "simulate the first migration failing and rolling back, leaving only the dirty flag")
+
+	var dirtyErr *store.SchemaDirtyError
+	require.ErrorAs(t, s.Migrate(ctx), &dirtyErr)
+	assert.Equal(t, uint(1), dirtyErr.Version)
+
+	require.NoError(t, s.ForceVersion(ctx, 0), "no migration is applied after the first one rolled back")
+	ver, dirty, err := s.SchemaVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint(0), ver)
+	assert.False(t, dirty)
+
+	require.NoError(t, s.Migrate(ctx), "migrate runs from the first migration")
+	assert.Equal(t, 22, tableCount(t, s))
+	ver, _, err = s.SchemaVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, target, ver)
 }
 
 func TestMigrateConcurrentServers(t *testing.T) {
