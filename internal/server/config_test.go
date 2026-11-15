@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stackorder/stackorder/internal/api"
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/oidc"
 	"github.com/stackorder/stackorder/internal/stateread"
@@ -99,6 +100,10 @@ func TestLoadConfigDefaults(t *testing.T) {
 	assert.Len(t, cfg.SessionKey, SessionKeySize)
 	assert.True(t, cfg.SessionKeyGenerated)
 	assert.Empty(t, cfg.MetricsToken)
+	assert.Equal(t, api.DefaultSessionTTL, cfg.SessionTTL, "the session TTL defaults to seven days")
+	assert.Zero(t, cfg.HSTSMaxAge, "HSTS is off by default")
+	assert.False(t, cfg.HSTSIncludeSubdomains)
+	assert.False(t, cfg.HSTSPreload)
 	assert.Equal(t, 720*time.Hour, cfg.PlanTextRetention)
 	assert.Equal(t, 168*time.Hour, cfg.EventRetention)
 	assert.Equal(t, 2160*time.Hour, cfg.DriftRetention)
@@ -116,36 +121,40 @@ func TestLoadConfigDefaults(t *testing.T) {
 func TestLoadConfigEveryVariable(t *testing.T) {
 	sessionKey := strings.Repeat("ab", SessionKeySize)
 	env := map[string]string{
-		EnvBaseURL:             "https://stackorder.example.com/",
-		EnvListen:              "0.0.0.0:9090",
-		EnvDatabaseURL:         testDSN,
-		EnvAppID:               "12345",
-		EnvAppPrivateKey:       appKeyPEM(t),
-		EnvWebhookSecret:       "webhook-secret",
-		EnvOAuthClientID:       "Iv1.client",
-		EnvOAuthClientSecret:   "oauth-secret",
-		EnvGitHubAPIURL:        "https://github.example.com/api/v3/",
-		EnvGitHubWebURL:        "https://github.example.com",
-		EnvOIDCIssuer:          "https://github.example.com/_services/token",
-		EnvOIDCJWKSURL:         "https://github.example.com/_services/token/.well-known/jwks",
-		EnvOIDCAudience:        "sts.stackorder.example.com",
-		EnvRequiredWorkflowRef: oidc.DefaultWorkflowRefPattern,
-		EnvArtifactBucket:      "acme-stackorder-artifacts",
-		EnvArtifactPrefix:      "plans/",
-		EnvArtifactEndpoint:    "http://localstack:4566",
-		EnvStateBuckets:        "acme/infra=acme-state/stacks/prod/",
-		EnvStateRoleARN:        "arn:aws:iam::123456789012:role/stackorder-state-reader",
-		EnvSessionKey:          " " + sessionKey + "\n",
-		EnvMetricsToken:        "metrics-token",
-		EnvPlanTextRetention:   "240h",
-		EnvEventRetention:      "72h",
-		EnvDriftRetention:      "1h30m",
-		EnvSchedulerCatchUp:    "26h",
-		EnvWorkers:             "16",
-		EnvLogLevel:            "DEBUG",
-		EnvLogFormat:           "Text",
-		EnvOTLPEndpoint:        "http://otel-collector:4318/",
-		EnvSetupToken:          " " + testSetupToken + "\n",
+		EnvBaseURL:               "https://stackorder.example.com/",
+		EnvListen:                "0.0.0.0:9090",
+		EnvDatabaseURL:           testDSN,
+		EnvAppID:                 "12345",
+		EnvAppPrivateKey:         appKeyPEM(t),
+		EnvWebhookSecret:         "webhook-secret",
+		EnvOAuthClientID:         "Iv1.client",
+		EnvOAuthClientSecret:     "oauth-secret",
+		EnvGitHubAPIURL:          "https://github.example.com/api/v3/",
+		EnvGitHubWebURL:          "https://github.example.com",
+		EnvOIDCIssuer:            "https://github.example.com/_services/token",
+		EnvOIDCJWKSURL:           "https://github.example.com/_services/token/.well-known/jwks",
+		EnvOIDCAudience:          "sts.stackorder.example.com",
+		EnvRequiredWorkflowRef:   oidc.DefaultWorkflowRefPattern,
+		EnvArtifactBucket:        "acme-stackorder-artifacts",
+		EnvArtifactPrefix:        "plans/",
+		EnvArtifactEndpoint:      "http://localstack:4566",
+		EnvStateBuckets:          "acme/infra=acme-state/stacks/prod/",
+		EnvStateRoleARN:          "arn:aws:iam::123456789012:role/stackorder-state-reader",
+		EnvSessionKey:            " " + sessionKey + "\n",
+		EnvSessionTTL:            "48h",
+		EnvMetricsToken:          "metrics-token",
+		EnvHSTSMaxAge:            "8760h",
+		EnvHSTSIncludeSubdomains: "true",
+		EnvHSTSPreload:           "true",
+		EnvPlanTextRetention:     "240h",
+		EnvEventRetention:        "72h",
+		EnvDriftRetention:        "1h30m",
+		EnvSchedulerCatchUp:      "26h",
+		EnvWorkers:               "16",
+		EnvLogLevel:              "DEBUG",
+		EnvLogFormat:             "Text",
+		EnvOTLPEndpoint:          "http://otel-collector:4318/",
+		EnvSetupToken:            " " + testSetupToken + "\n",
 	}
 	cfg, err := LoadConfig(envOf(env))
 	require.NoError(t, err)
@@ -175,7 +184,11 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 	assert.Equal(t, "arn:aws:iam::123456789012:role/stackorder-state-reader", cfg.StateRoleARN)
 	assert.Equal(t, wantKey, cfg.SessionKey, "surrounding white space is trimmed")
 	assert.False(t, cfg.SessionKeyGenerated)
+	assert.Equal(t, 48*time.Hour, cfg.SessionTTL)
 	assert.Equal(t, "metrics-token", cfg.MetricsToken)
+	assert.Equal(t, 8760*time.Hour, cfg.HSTSMaxAge)
+	assert.True(t, cfg.HSTSIncludeSubdomains)
+	assert.True(t, cfg.HSTSPreload)
 	assert.Equal(t, 240*time.Hour, cfg.PlanTextRetention)
 	assert.Equal(t, 72*time.Hour, cfg.EventRetention)
 	assert.Equal(t, 90*time.Minute, cfg.DriftRetention)
@@ -286,6 +299,17 @@ func TestLoadConfigInvalid(t *testing.T) {
 		{"setup token with a space", with(minimalEnv(), EnvSetupToken, strings.Repeat("a", 32)+" b"), EnvSetupToken + " must be at least 32"},
 		{"setup token with a query character", with(minimalEnv(), EnvSetupToken, strings.Repeat("a", 32)+"&force=1"), EnvSetupToken + " must be at least 32"},
 		{"otlp endpoint relative", with(minimalEnv(), EnvOTLPEndpoint, "collector:4318"), EnvOTLPEndpoint + " must be an absolute"},
+		{"session ttl zero", with(minimalEnv(), EnvSessionTTL, "0s"), EnvSessionTTL + " must be a positive Go duration"},
+		{"session ttl not a duration", with(minimalEnv(), EnvSessionTTL, "7d"), EnvSessionTTL + " must be a positive Go duration"},
+		{"session ttl too short", with(minimalEnv(), EnvSessionTTL, "1m"), EnvSessionTTL + " must be between 5m0s and 8760h0m0s"},
+		{"session ttl too long", with(minimalEnv(), EnvSessionTTL, "9000h"), EnvSessionTTL + " must be between 5m0s and 8760h0m0s"},
+		{"hsts max-age not a duration", with(minimalEnv(), EnvHSTSMaxAge, "1year"), EnvHSTSMaxAge + " must be a positive Go duration"},
+		{"hsts max-age sub-second", with(minimalEnv(), EnvHSTSMaxAge, "500ms"), EnvHSTSMaxAge + " must be at least one second"},
+		{"hsts max-age over http", with(minimalEnv(), EnvBaseURL, "http://stackorder.example.com", EnvHSTSMaxAge, "8760h"), EnvHSTSMaxAge + " is set but " + EnvBaseURL + " is not https"},
+		{"hsts subdomains without max-age", with(minimalEnv(), EnvHSTSIncludeSubdomains, "true"), EnvHSTSIncludeSubdomains + " is set without " + EnvHSTSMaxAge},
+		{"hsts preload without max-age", with(minimalEnv(), EnvHSTSPreload, "true"), EnvHSTSPreload + " is set without " + EnvHSTSMaxAge},
+		{"hsts preload without subdomains", with(minimalEnv(), EnvHSTSMaxAge, "8760h", EnvHSTSPreload, "true"), EnvHSTSPreload + " requires " + EnvHSTSIncludeSubdomains},
+		{"hsts preload max-age too short", with(minimalEnv(), EnvHSTSMaxAge, "720h", EnvHSTSIncludeSubdomains, "true", EnvHSTSPreload, "true"), EnvHSTSPreload + " requires " + EnvHSTSMaxAge + " of at least 8760h"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -545,6 +569,19 @@ func TestAllowResetup(t *testing.T) {
 
 	s := &Server{cfg: Config{BaseURL: testBaseURL, AllowResetup: true}}
 	assert.True(t, s.apiConfig().AllowResetup, "the flag reaches the API")
+
+	s = &Server{cfg: Config{
+		BaseURL:               testBaseURL,
+		SessionTTL:            48 * time.Hour,
+		HSTSMaxAge:            8760 * time.Hour,
+		HSTSIncludeSubdomains: true,
+		HSTSPreload:           true,
+	}}
+	ac := s.apiConfig()
+	assert.Equal(t, 48*time.Hour, ac.SessionTTL, "the session TTL reaches the API")
+	assert.Equal(t, 8760*time.Hour, ac.HSTSMaxAge, "the HSTS max-age reaches the API")
+	assert.True(t, ac.HSTSIncludeSubdomains)
+	assert.True(t, ac.HSTSPreload)
 }
 
 const testSetupToken = "acme-setup-token-0123456789abcdefghijklmnop"

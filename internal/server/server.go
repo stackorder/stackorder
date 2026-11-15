@@ -313,18 +313,22 @@ func (s *Server) warnOverlappingGrants(ctx context.Context) {
 
 func (s *Server) apiConfig() api.Config {
 	return api.Config{
-		BaseURL:             s.cfg.BaseURL,
-		SessionKey:          s.cfg.SessionKey,
-		OAuthClientID:       s.cfg.OAuthClientID,
-		OAuthClientSecret:   s.cfg.OAuthClientSecret,
-		GitHubWebURL:        s.cfg.GitHubWebURL,
-		GitHubAPIURL:        s.cfg.GitHubAPIURL,
-		SetupMode:           s.cfg.SetupMode,
-		AllowResetup:        s.cfg.AllowResetup,
-		SetupToken:          s.cfg.SetupToken,
-		OIDCAudience:        s.cfg.OIDCAudience,
-		RequiredWorkflowRef: s.cfg.RequiredWorkflowRef,
-		MetricsToken:        s.cfg.MetricsToken,
+		BaseURL:               s.cfg.BaseURL,
+		SessionKey:            s.cfg.SessionKey,
+		OAuthClientID:         s.cfg.OAuthClientID,
+		OAuthClientSecret:     s.cfg.OAuthClientSecret,
+		GitHubWebURL:          s.cfg.GitHubWebURL,
+		GitHubAPIURL:          s.cfg.GitHubAPIURL,
+		SetupMode:             s.cfg.SetupMode,
+		AllowResetup:          s.cfg.AllowResetup,
+		SetupToken:            s.cfg.SetupToken,
+		OIDCAudience:          s.cfg.OIDCAudience,
+		RequiredWorkflowRef:   s.cfg.RequiredWorkflowRef,
+		MetricsToken:          s.cfg.MetricsToken,
+		SessionTTL:            s.cfg.SessionTTL,
+		HSTSMaxAge:            s.cfg.HSTSMaxAge,
+		HSTSIncludeSubdomains: s.cfg.HSTSIncludeSubdomains,
+		HSTSPreload:           s.cfg.HSTSPreload,
 	}
 }
 

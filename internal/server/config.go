@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/stackorder/stackorder/internal/api"
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/oidc"
 	"github.com/stackorder/stackorder/internal/sched"
@@ -89,6 +90,7 @@ const (
 	EnvStateBuckets        = "STACKORDER_STATE_BUCKETS"
 	EnvStateRoleARN        = "STACKORDER_STATE_ROLE_ARN"
 	EnvSessionKey          = "STACKORDER_SESSION_KEY"
+	EnvSessionTTL          = "STACKORDER_SESSION_TTL"
 	EnvMetricsToken        = "STACKORDER_METRICS_TOKEN"
 	EnvPlanTextRetention   = "STACKORDER_PLAN_TEXT_RETENTION"
 	EnvEventRetention      = "STACKORDER_EVENT_RETENTION"
@@ -100,6 +102,20 @@ const (
 	EnvLogLevel            = "STACKORDER_LOG_LEVEL"
 	EnvLogFormat           = "STACKORDER_LOG_FORMAT"
 	EnvOTLPEndpoint        = "OTEL_EXPORTER_OTLP_ENDPOINT"
+
+	EnvHSTSMaxAge            = "STACKORDER_HSTS_MAX_AGE"
+	EnvHSTSIncludeSubdomains = "STACKORDER_HSTS_INCLUDE_SUBDOMAINS"
+	EnvHSTSPreload           = "STACKORDER_HSTS_PRELOAD"
+)
+
+// Session TTL and HSTS bounds LoadConfig enforces.
+const (
+	// MinSessionTTL and MaxSessionTTL bound STACKORDER_SESSION_TTL.
+	MinSessionTTL = 5 * time.Minute
+	MaxSessionTTL = 8760 * time.Hour
+	// MinHSTSPreloadMaxAge is the shortest max-age the HSTS preload list
+	// accepts, so STACKORDER_HSTS_PRELOAD requires at least this.
+	MinHSTSPreloadMaxAge = 365 * 24 * time.Hour
 )
 
 // Config is the server configuration. LoadConfig reads it from the
@@ -177,6 +193,24 @@ type Config struct {
 	// requires it as a bearer token.
 	MetricsToken string
 
+	// SessionTTL is STACKORDER_SESSION_TTL, how long a browser session
+	// lasts; api.DefaultSessionTTL when unset, between MinSessionTTL and
+	// MaxSessionTTL. A change applies only to sessions created afterwards.
+	SessionTTL time.Duration
+
+	// HSTSMaxAge is STACKORDER_HSTS_MAX_AGE, the max-age of the
+	// Strict-Transport-Security header; unset or zero sends no header. The
+	// header is sent only when BaseURL is https; setting it with an http
+	// BaseURL is an error.
+	HSTSMaxAge time.Duration
+	// HSTSIncludeSubdomains is STACKORDER_HSTS_INCLUDE_SUBDOMAINS, adding
+	// includeSubDomains to the header.
+	HSTSIncludeSubdomains bool
+	// HSTSPreload is STACKORDER_HSTS_PRELOAD, adding preload to the header.
+	// It requires includeSubDomains and a max-age of at least
+	// MinHSTSPreloadMaxAge.
+	HSTSPreload bool
+
 	// PlanTextRetention, EventRetention and DriftRetention are
 	// STACKORDER_PLAN_TEXT_RETENTION, STACKORDER_EVENT_RETENTION and
 	// STACKORDER_DRIFT_RETENTION, applied by the hourly prune job.
@@ -229,32 +263,36 @@ type Config struct {
 func LoadConfig(getenv func(string) string) (Config, error) {
 	e := &env{get: getenv}
 	cfg := Config{
-		BaseURL:             e.absoluteURL(EnvBaseURL, ""),
-		Listen:              e.listen(EnvListen),
-		DatabaseURL:         e.databaseURL(EnvDatabaseURL),
-		OAuthClientID:       e.str(EnvOAuthClientID),
-		OAuthClientSecret:   e.str(EnvOAuthClientSecret),
-		GitHubAPIURL:        e.absoluteURL(EnvGitHubAPIURL, gh.DefaultBaseURL),
-		GitHubWebURL:        e.absoluteURL(EnvGitHubWebURL, gh.DefaultWebURL),
-		OIDCIssuer:          e.absoluteURL(EnvOIDCIssuer, oidc.DefaultIssuer),
-		OIDCJWKSURL:         e.absoluteURL(EnvOIDCJWKSURL, ""),
-		OIDCAudience:        e.str(EnvOIDCAudience),
-		RequiredWorkflowRef: e.workflowRef(EnvRequiredWorkflowRef),
-		ArtifactBucket:      e.bucket(EnvArtifactBucket),
-		ArtifactPrefix:      e.str(EnvArtifactPrefix),
-		StateGrants:         e.stateGrants(EnvStateBuckets),
-		StateRoleARN:        e.roleARN(EnvStateRoleARN),
-		MetricsToken:        e.str(EnvMetricsToken),
-		PlanTextRetention:   e.duration(EnvPlanTextRetention, DefaultPlanTextRetention),
-		EventRetention:      e.duration(EnvEventRetention, DefaultEventRetention),
-		DriftRetention:      e.duration(EnvDriftRetention, DefaultDriftRetention),
-		SchedulerCatchUp:    e.duration(EnvSchedulerCatchUp, DefaultSchedulerCatchUp),
-		Workers:             e.positiveInt(EnvWorkers, DefaultWorkers),
-		AllowResetup:        e.boolean(EnvAllowResetup),
-		SetupToken:          e.setupToken(EnvSetupToken),
-		LogLevel:            e.logLevel(EnvLogLevel),
-		LogFormat:           e.logFormat(EnvLogFormat),
-		OTLPEndpoint:        e.absoluteURL(EnvOTLPEndpoint, ""),
+		BaseURL:               e.absoluteURL(EnvBaseURL, ""),
+		Listen:                e.listen(EnvListen),
+		DatabaseURL:           e.databaseURL(EnvDatabaseURL),
+		OAuthClientID:         e.str(EnvOAuthClientID),
+		OAuthClientSecret:     e.str(EnvOAuthClientSecret),
+		GitHubAPIURL:          e.absoluteURL(EnvGitHubAPIURL, gh.DefaultBaseURL),
+		GitHubWebURL:          e.absoluteURL(EnvGitHubWebURL, gh.DefaultWebURL),
+		OIDCIssuer:            e.absoluteURL(EnvOIDCIssuer, oidc.DefaultIssuer),
+		OIDCJWKSURL:           e.absoluteURL(EnvOIDCJWKSURL, ""),
+		OIDCAudience:          e.str(EnvOIDCAudience),
+		RequiredWorkflowRef:   e.workflowRef(EnvRequiredWorkflowRef),
+		ArtifactBucket:        e.bucket(EnvArtifactBucket),
+		ArtifactPrefix:        e.str(EnvArtifactPrefix),
+		StateGrants:           e.stateGrants(EnvStateBuckets),
+		StateRoleARN:          e.roleARN(EnvStateRoleARN),
+		MetricsToken:          e.str(EnvMetricsToken),
+		SessionTTL:            e.sessionTTL(EnvSessionTTL),
+		HSTSMaxAge:            e.hstsMaxAge(EnvHSTSMaxAge),
+		HSTSIncludeSubdomains: e.boolean(EnvHSTSIncludeSubdomains),
+		HSTSPreload:           e.boolean(EnvHSTSPreload),
+		PlanTextRetention:     e.duration(EnvPlanTextRetention, DefaultPlanTextRetention),
+		EventRetention:        e.duration(EnvEventRetention, DefaultEventRetention),
+		DriftRetention:        e.duration(EnvDriftRetention, DefaultDriftRetention),
+		SchedulerCatchUp:      e.duration(EnvSchedulerCatchUp, DefaultSchedulerCatchUp),
+		Workers:               e.positiveInt(EnvWorkers, DefaultWorkers),
+		AllowResetup:          e.boolean(EnvAllowResetup),
+		SetupToken:            e.setupToken(EnvSetupToken),
+		LogLevel:              e.logLevel(EnvLogLevel),
+		LogFormat:             e.logFormat(EnvLogFormat),
+		OTLPEndpoint:          e.absoluteURL(EnvOTLPEndpoint, ""),
 	}
 	if cfg.BaseURL == "" && e.str(EnvBaseURL) == "" {
 		e.fail(EnvBaseURL, "is required: the public URL of the server, such as https://stackorder.example.com")
@@ -285,6 +323,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		}
 		cfg.SessionKey, cfg.SessionKeyGenerated = key, true
 	}
+	e.hsts(&cfg)
 	if err := errors.Join(e.errs...); err != nil {
 		return Config{}, fmt.Errorf("server: invalid configuration:\n%w", err)
 	}
@@ -374,6 +413,9 @@ func (c *Config) withDefaults() {
 	}
 	if c.Workers <= 0 {
 		c.Workers = DefaultWorkers
+	}
+	if c.SessionTTL <= 0 {
+		c.SessionTTL = api.DefaultSessionTTL
 	}
 	if c.LogFormat == "" {
 		c.LogFormat = DefaultLogFormat
@@ -545,6 +587,64 @@ func (e *env) duration(name string, def time.Duration) time.Duration {
 		return 0
 	}
 	return d
+}
+
+func (e *env) sessionTTL(name string) time.Duration {
+	v := e.str(name)
+	if v == "" {
+		return api.DefaultSessionTTL
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		e.fail(name, "must be a positive Go duration such as 168h, got %q", v)
+		return 0
+	}
+	if d < MinSessionTTL || d > MaxSessionTTL {
+		e.fail(name, "must be between %s and %s, got %s", MinSessionTTL, MaxSessionTTL, d)
+		return 0
+	}
+	return d
+}
+
+func (e *env) hstsMaxAge(name string) time.Duration {
+	v := e.str(name)
+	if v == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		e.fail(name, "must be a positive Go duration such as 8760h, got %q", v)
+		return 0
+	}
+	if d < time.Second {
+		e.fail(name, "must be at least one second, got %s", d)
+		return 0
+	}
+	return d
+}
+
+// hsts checks the parsed HSTS settings against one another and the base URL.
+func (e *env) hsts(cfg *Config) {
+	if cfg.HSTSMaxAge <= 0 {
+		if cfg.HSTSIncludeSubdomains {
+			e.fail(EnvHSTSIncludeSubdomains, "is set without %s", EnvHSTSMaxAge)
+		}
+		if cfg.HSTSPreload {
+			e.fail(EnvHSTSPreload, "is set without %s", EnvHSTSMaxAge)
+		}
+		return
+	}
+	if u, err := url.Parse(cfg.BaseURL); err != nil || u.Scheme != "https" {
+		e.fail(EnvHSTSMaxAge, "is set but %s is not https, so the header must not be sent", EnvBaseURL)
+	}
+	if cfg.HSTSPreload {
+		if !cfg.HSTSIncludeSubdomains {
+			e.fail(EnvHSTSPreload, "requires %s", EnvHSTSIncludeSubdomains)
+		}
+		if cfg.HSTSMaxAge < MinHSTSPreloadMaxAge {
+			e.fail(EnvHSTSPreload, "requires %s of at least %s", EnvHSTSMaxAge, MinHSTSPreloadMaxAge)
+		}
+	}
 }
 
 func (e *env) positiveInt(name string, def int) int {
