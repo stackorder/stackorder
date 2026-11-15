@@ -897,8 +897,10 @@ with `ErrUnknownOutcome` so a caller can tell that GitHub may have applied the
 create. Only the App-manifest conversion is never retried at all, because a
 code converts once.
 
-Callers then retry whole operations, so the change removes duplicates end to
-end rather than moving them into the worker. When a check-run create's outcome
+Callers then retry whole operations, so the change removes the duplicate
+object rather than moving it into the worker; where a surplus cannot be
+prevented, as with a resent dispatch's workflow run, binding makes it harmless
+(see Waves and dispatch). When a check-run create's outcome
 is unknown, the renderer looks for a check run carrying the run's `external_id`
 and adopts it before giving up. The run comment and sticky comment are found
 again by their marker, a drift issue by its title and a fork notice by its
