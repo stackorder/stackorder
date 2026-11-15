@@ -130,7 +130,7 @@ func (s *Store) SchemaVersion(ctx context.Context) (version uint, dirty bool, er
 			version, dirty = 0, false
 			return nil
 		}
-		var v int64
+		var v uint64
 		switch err := conn.QueryRow(ctx, `SELECT version, dirty FROM schema_migrations`).Scan(&v, &dirty); {
 		case errors.Is(err, pgx.ErrNoRows):
 			version, dirty = 0, false
