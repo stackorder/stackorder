@@ -155,7 +155,7 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 		_, _ = fmt.Fprintf(stdout, "current=%d\ntarget=%d\ndirty=%t\n", current, target, dirty)
 		switch {
 		case dirty:
-			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: database is dirty at version %d; a migration did not finish. Repair the schema, then run `stackorder-server migrate --force` to record the recovered version\n", current)
+			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: database is dirty at version %d; a migration did not finish. Repair the schema, then run `stackorder-server migrate --force N` with the recovered version N; see docs/operations/troubleshooting.md\n", current)
 			return 1
 		case current > target:
 			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: database is at version %d, above the latest version %d this binary embeds; migrate does not revert migrations\n", current, target)
@@ -175,7 +175,7 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 		case !toSet && errors.As(err, &ahead):
 			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: database is at version %d, above the latest version %d this binary embeds; migrate does not revert migrations\n", ahead.Current, ahead.Target)
 		case errors.As(err, &dirtyErr):
-			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: %v; run `stackorder-server migrate --force` to record the recovered version\n", dirtyErr)
+			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: %v; run `stackorder-server migrate --force N` with the recovered version N; see docs/operations/troubleshooting.md\n", dirtyErr)
 		default:
 			_, _ = fmt.Fprintln(stderr, "stackorder-server migrate:", err)
 		}

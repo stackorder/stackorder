@@ -177,7 +177,7 @@ func New(ctx context.Context, cfg Config, opts ...Option) (_ *Server, err error)
 	if err := s.st.Migrate(ctx); err != nil {
 		var dirty *store.SchemaDirtyError
 		if errors.As(err, &dirty) {
-			return nil, fmt.Errorf("server: cannot start: %w. Repair the schema at the version named, then run `stackorder-server migrate --force` to record it before starting; see the dirty-migration recovery steps in docs/operations/troubleshooting.md", dirty)
+			return nil, fmt.Errorf("server: cannot start: %w. Repair the schema at the version named, then run `stackorder-server migrate --force N` with the recovered version N before starting; see the dirty-migration recovery steps in docs/operations/troubleshooting.md", dirty)
 		}
 		return nil, fmt.Errorf("server: migrate the database: %w", err)
 	}
