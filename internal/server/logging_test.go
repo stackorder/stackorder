@@ -47,6 +47,45 @@ func TestTraceLogHandlerKeepsWithAttrsAndGroups(t *testing.T) {
 	assert.Equal(t, sc.TraceID().String(), rec["trace_id"])
 }
 
+type withAttrsCounter struct {
+	slog.Handler
+	count *int
+}
+
+func (c withAttrsCounter) WithAttrs(attrs []slog.Attr) slog.Handler {
+	*c.count++
+	return withAttrsCounter{Handler: c.Handler.WithAttrs(attrs), count: c.count}
+}
+
+func (c withAttrsCounter) WithGroup(name string) slog.Handler {
+	return withAttrsCounter{Handler: c.Handler.WithGroup(name), count: c.count}
+}
+
+func TestTraceLogHandlerStampsSpanIDsWithoutRebuilding(t *testing.T) {
+	tr, _ := memoryTracing(t)
+	var buf bytes.Buffer
+	var count int
+	base := withAttrsCounter{Handler: slog.NewJSONHandler(&buf, nil), count: &count}
+	log := slog.New(newTraceLogHandler(base)).With("component", "worker")
+
+	built := count
+	ctx, sc := producerSpan(t, &Server{tracing: tr})
+	log.InfoContext(ctx, "one")
+	log.InfoContext(ctx, "two")
+
+	assert.Equal(t, built, count, "a spanned record must not rebuild the handler chain")
+
+	lines := bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n"))
+	require.Len(t, lines, 2)
+	for _, line := range lines {
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal(line, &rec))
+		assert.Equal(t, "worker", rec["component"])
+		assert.Equal(t, sc.TraceID().String(), rec["trace_id"])
+		assert.Equal(t, sc.SpanID().String(), rec["span_id"])
+	}
+}
+
 func TestTraceLogHandlerKeepsTraceIDsTopLevelUnderGroup(t *testing.T) {
 	tr, _ := memoryTracing(t)
 	var buf bytes.Buffer
