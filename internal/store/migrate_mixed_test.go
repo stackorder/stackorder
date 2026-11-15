@@ -74,7 +74,7 @@ func TestMigrate0015OnPopulatedQueue(t *testing.T) {
 
 	ver, dirty, err := s.SchemaVersion(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, uint(15), ver)
+	assert.Equal(t, uint(16), ver)
 	assert.False(t, dirty)
 
 	ev, err := s.GetEvent(ctx, "delivery-1")
@@ -105,7 +105,7 @@ func TestOldServerCannotStartAfter0015(t *testing.T) {
 	require.NoError(t, s.Migrate(ctx), "migrate to the current schema, 0015 included")
 
 	err = newMigrator(t, s, migrationsThrough(t, 9)).Up()
-	require.Error(t, err, "a server whose migration source ends at 0009 cannot start once 0015 is applied")
+	require.Error(t, err, "a server whose migration source ends at 0009 cannot start once a newer schema is applied")
 	assert.NotErrorIs(t, err, migrate.ErrNoChange)
-	assert.Contains(t, err.Error(), "15")
+	assert.Contains(t, err.Error(), "16")
 }
