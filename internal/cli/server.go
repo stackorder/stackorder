@@ -27,10 +27,10 @@ func (a *app) newClient(gh *Context, apiKey bool) (*client.Client, error) {
 }
 
 // oidcAudience returns the audience for the runner's GitHub OIDC token. It is
-// STACKORDER_OIDC_AUDIENCE when set, which the server reads verbatim and so is
-// passed through unchanged; otherwise it is the server URL with trailing
-// slashes removed, matching the audience the server derives from
-// STACKORDER_BASE_URL.
+// STACKORDER_OIDC_AUDIENCE when set, trimmed of surrounding whitespace to
+// match how the server reads it and with any trailing slash kept; otherwise
+// it is the server URL with trailing slashes removed, matching the audience
+// the server derives from STACKORDER_BASE_URL.
 func (a *app) oidcAudience() string {
 	if audience := strings.TrimSpace(os.Getenv(EnvOIDCAudience)); audience != "" {
 		return audience

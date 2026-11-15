@@ -447,7 +447,7 @@ stackorder 1.0.0 (a1b2c3d, 2026-09-28T09:00:00Z, go1.26.0, linux/amd64)
 | --- | --- |
 | `STACKORDER_SERVER_URL` | Server base URL, the default of `--server`; unset means local mode. |
 | `STACKORDER_API_KEY` | Automation key for `apply --local`, `unlock`, `check`, and result posting outside Actions. |
-| `STACKORDER_OIDC_AUDIENCE` | Audience requested for the runner token; defaults to the server URL with any trailing slash removed. When set, it is used exactly as given. It must equal the server's `STACKORDER_OIDC_AUDIENCE`. |
+| `STACKORDER_OIDC_AUDIENCE` | Audience requested for the runner token; defaults to the server URL with any trailing slash removed. When set, it is used as given, trimmed only of surrounding whitespace, with any trailing slash kept. It must equal the server's `STACKORDER_OIDC_AUDIENCE`. |
 | `STACKORDER_RUN_ID` | Run id from the resolve step or the dispatch input, the default of `--run-id`. |
 | `STACKORDER_TOOL`, `STACKORDER_TOOL_VERSION` | Override the configured tool and the expected version. |
 | `STACKORDER_TERRAFORM_BIN`, `STACKORDER_TOFU_BIN` | The binary to run, as a name on `PATH` or a path. |

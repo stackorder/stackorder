@@ -1145,7 +1145,7 @@ plan text and keeps them.
 | --- | --- |
 | `STACKORDER_SERVER_URL` | Server base URL; unset means local mode. The CLI sets it for the tool and the hooks to the `--server` value, empty in local mode |
 | `STACKORDER_API_KEY` | Automation key for local `apply`, `unlock` and result posting outside Actions |
-| `STACKORDER_OIDC_AUDIENCE` | Audience requested for the runner token; defaults to the server URL exactly as given |
+| `STACKORDER_OIDC_AUDIENCE` | Audience requested for the runner token; a set value is used as given (surrounding whitespace trimmed, any trailing slash kept), else the server URL with any trailing slash removed |
 | `STACKORDER_RUN_ID` | Run id from the resolve step or the dispatch input. The CLI sets it for the tool and the hooks to the run id it uses, empty when there is none |
 | `STACKORDER_REPOSITORY` | Not read. The CLI sets it for the tool and the hooks to `owner/repo`, from `GITHUB_REPOSITORY`, the event payload or the `origin` remote; empty when none tells it |
 | `STACKORDER_TOOL`, `STACKORDER_TOOL_VERSION` | Override the configured tool |
