@@ -98,6 +98,7 @@ usage: stackorder-server [command]
 
 Commands:
   (none)       run the server; configuration comes from the environment
+  migrate      apply the embedded migrations to DATABASE_URL and exit
   healthcheck  GET http://127.0.0.1<STACKORDER_LISTEN>/healthz, exit 0 on 200
   api-key      create, list and revoke API keys; needs DATABASE_URL
   version      print the build information
@@ -106,6 +107,33 @@ Commands:
 `stackorder-server healthcheck` requests `/healthz` on the listen port, mapping an unspecified host to `127.0.0.1`, with a 3 s timeout, and exits 0 on `200` and 1 otherwise. It is for container health checks in images without a shell: the published image declares it as its `HEALTHCHECK`. An unknown command exits 2.
 
 `stackorder-server api-key` manages [API keys](#api-keys) from a shell with `DATABASE_URL` set, which an operator uses to mint the first key when none exists. It needs no App credentials, and the published image can run it (`docker run … api-key create ci`). An unknown subcommand, a missing or extra argument exits 2.
+
+### Migrating {#migrate}
+
+The server applies pending migrations at [start-up](#lifecycle), so you normally never run migrations by hand. `stackorder-server migrate` applies them without starting a server, for operators who migrate as a separate deploy step or from a one-off job:
+
+```text
+$ stackorder-server migrate --help
+usage: stackorder-server migrate [--to N | --status]
+
+Apply the embedded migrations to DATABASE_URL and exit, holding the same
+migration lock as start-up so it is safe next to starting servers. It needs
+only DATABASE_URL, not STACKORDER_BASE_URL or the GitHub App settings.
+```
+
+- `stackorder-server migrate` applies every pending migration and exits `0`; it prints `migrated database from version X to version Y`, or `database already at version N` when nothing was pending.
+- `stackorder-server migrate --to N` applies migrations only up to version `N`. It refuses with exit `1` when `N` is below the applied version, because this command only migrates up, or when there is no migration numbered `N`.
+- `stackorder-server migrate --status` changes nothing and prints the applied and target version for a script to read:
+
+  ```text
+  current=5
+  target=11
+  dirty=false
+  ```
+
+  It exits `0` when the database is already at the target version, `2` when migrations are pending, and `1` when the database is `dirty` — left half way by a migration that failed, which a human must repair before it can be migrated or started.
+
+It takes the same migration lock as start-up, so it is safe to run while servers are starting: they wait for each other and apply each migration once. It needs only `DATABASE_URL`, so it runs before `STACKORDER_BASE_URL` and the GitHub App are configured. Server start still migrates automatically; running `migrate` first does not change that.
 
 ## Generating the session key {#session-key}
 

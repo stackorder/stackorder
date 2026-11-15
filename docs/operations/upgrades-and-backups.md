@@ -28,6 +28,15 @@ The API between the CLI and the server is `v1`. Fields are only ever added and b
 
 On AWS with the Terraform module, this is a change of the image tag and an apply. See [Deploy on AWS](./deploy-aws#upgrades).
 
+To apply the migrations as a separate step before the server rolls — so a schema change lands under your control, not as a side effect of the first new instance starting — run the new image's `migrate` command against the same database first:
+
+```sh
+docker run --rm -e DATABASE_URL="$DATABASE_URL" \
+  ghcr.io/stackorder/stackorder:X.Y.Z migrate
+```
+
+It takes the same migration lock as start-up, so it is safe while the old instances keep serving, and `stackorder-server migrate --status` reports whether a database is already at the image's version (exit `0`), has migrations pending (exit `2`) or is `dirty` (exit `1`). This is optional; without it the new instance migrates at start-up as before. See [Migrating](/reference/server-configuration#migrate).
+
 In-flight runs survive an upgrade. Work is queued in Postgres and every handler is idempotent: on `SIGTERM` an instance hands unstarted work back to the queue and gives running handlers 30 s, and anything a killed instance had claimed is claimed again after 10 minutes. The per-minute reconciliation catches any wave that finished during the switch. GitHub does not retry a failed webhook delivery by itself; redeliver it from the App's delivery log if needed.
 
 Upgrading from v0.5.0 crosses a window where old and new replicas share the database. A v0.5.0 replica clears a stack's `removed_at` on every plan save; a replica on this release clears it only when a merge moves the default-branch graph. So while a v0.5.0 replica is still serving, an open pull request it replans can revive a stack that a merged pull request already deleted from the default branch, and because that stack is no longer on the default branch no later merge re-marks it — it stays in the stack lists and the overview count until its directory returns to the default branch. Complete the rollout promptly to keep the window short; the effect is cosmetic (a deleted stack counted as live) and touches no run or state.

@@ -15,6 +15,15 @@ The server is one image, `ghcr.io/stackorder/stackorder`, plus a Postgres databa
 - Declares `HEALTHCHECK CMD ["/stackorder-server", "healthcheck"]`, which requests `/healthz` on the listen port, so `docker ps` shows the container's health. Platforms that ignore image health checks, such as ECS and Kubernetes, can run the same command.
 - The web UI is embedded; there is no separate frontend to deploy.
 
+The image's entrypoint is `/stackorder-server`, so any argument after the image name is a [subcommand](/reference/server-configuration#commands). The server migrates at start-up, but you can apply the migrations as a separate step first, from the same image and against the same database:
+
+```sh
+docker run --rm -e DATABASE_URL='postgres://stackorder:change-me@db.internal:5432/stackorder?sslmode=require' \
+  ghcr.io/stackorder/stackorder:X.Y.Z migrate
+```
+
+`migrate` needs only `DATABASE_URL`, takes the same lock as start-up so it is safe beside running instances, and `migrate --status` reports whether the database is up to date (exit `0`), has migrations pending (exit `2`) or is dirty (exit `1`). Platforms with an init container or a pre-deploy job can run it there; see [Upgrades and backups](./upgrades-and-backups#server) and [Migrating](/reference/server-configuration#migrate).
+
 ## `docker run` {#docker-run}
 
 ```sh
