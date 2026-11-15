@@ -668,3 +668,27 @@ func TestAPIErrorMessage(t *testing.T) {
 	e = &APIError{Method: "GET", Route: "/x", Status: 418}
 	assert.Equal(t, "gh: GET /x: 418", e.Error())
 }
+
+func TestErrEditRefused(t *testing.T) {
+	refused := []*APIError{
+		{Status: http.StatusForbidden},
+		{Status: http.StatusNotFound},
+		{Status: http.StatusGone},
+	}
+	for _, e := range refused {
+		assert.ErrorIs(t, e, ErrEditRefused, "status %d", e.Status)
+	}
+	transient := []*APIError{
+		{Status: http.StatusForbidden, rateLimited: true},
+		{Status: http.StatusTooManyRequests, rateLimited: true},
+		{Status: http.StatusInternalServerError},
+		{Status: http.StatusBadGateway},
+		{Status: http.StatusUnprocessableEntity},
+		{Status: http.StatusConflict},
+	}
+	for _, e := range transient {
+		assert.NotErrorIs(t, e, ErrEditRefused, "status %d rateLimited %v", e.Status, e.rateLimited)
+	}
+	assert.ErrorIs(t, &APIError{Status: http.StatusNotFound}, ErrNotFound)
+	assert.NotErrorIs(t, &APIError{Status: http.StatusGone}, ErrNotFound)
+}

@@ -34,6 +34,15 @@ const (
 var (
 	// ErrNotFound is matched by errors.Is for any 404 response.
 	ErrNotFound = errors.New("gh: not found")
+	// ErrEditRefused is matched by errors.Is when GitHub will not apply an
+	// edit to an existing object and the refusal is not transient: the object
+	// is gone (404 or 410) or editing it is not permitted (a 403 that is not a
+	// rate limit, as when another GitHub App owns the check run or the comment
+	// after the App of a deployment was replaced). Callers that update an
+	// object and fall back to creating a new one switch to the create on this
+	// error. A rate-limit 403, a 429 and a 5xx are transient and never match,
+	// so a retryable failure never makes a caller create a duplicate.
+	ErrEditRefused = errors.New("gh: edit refused")
 	// ErrRateLimited is matched by errors.Is when GitHub refused a request
 	// for rate limiting and retrying did not help within the allowed wait.
 	ErrRateLimited = errors.New("gh: rate limited")
@@ -129,11 +138,19 @@ func (e *APIError) Error() string {
 	return b.String()
 }
 
-// Is lets errors.Is match ErrNotFound and ErrRateLimited.
+// Is lets errors.Is match ErrNotFound, ErrEditRefused and ErrRateLimited.
 func (e *APIError) Is(target error) bool {
 	switch target {
 	case ErrNotFound:
 		return e.Status == http.StatusNotFound
+	case ErrEditRefused:
+		switch e.Status {
+		case http.StatusNotFound, http.StatusGone:
+			return true
+		case http.StatusForbidden:
+			return !e.rateLimited
+		}
+		return false
 	case ErrRateLimited:
 		return e.rateLimited
 	}
