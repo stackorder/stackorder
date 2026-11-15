@@ -1207,7 +1207,15 @@ longer lists and stored repositories of an unsuspended installation that
 no listing names, and when any listing fails it forgets nothing. Traces
 carry `stackorder.run_id`, `stackorder.event`, `stackorder.delivery`,
 `stackorder.job` and `stackorder.job_id`; `/healthz`, `/readyz` and
-`/metrics` are not traced. The pgx pool has `STACKORDER_WORKERS` + 8
+`/metrics` are not traced. A queued row keeps the W3C trace context of the
+request or job that enqueued it in its `trace_context` jsonb column
+(migration 0015, nil when tracing is off); the webhook handler and
+`worker.Pool.Enqueue` capture it through `Server.injectTrace`, and
+`Server.extractTrace` makes each worker span a child of that remote parent,
+so a delivery or job and its handler share one trace id, a retry is a new
+child, and rows from before the upgrade stay root spans. `server.NewLogger`
+wraps the slog handler so records logged with a span in context also carry
+`trace_id` and `span_id`. The pgx pool has `STACKORDER_WORKERS` + 8
 connections (`server.PoolConnsBeyondWorkers`) unless the DSN's
 `pool_max_conns` sizes it; the scheduler's leader lock takes one further
 connection outside the pool (`store.TryAdvisoryLock` opens its own

@@ -131,6 +131,10 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
 
 The resource's `service.name` is `stackorder-server`, with the build version as `service.version`. W3C trace context and baggage are propagated from incoming requests. `/healthz`, `/readyz` and `/metrics` are not traced.
 
+A webhook delivery and the worker that later handles it, and a job and the worker that runs it, are one trace: the trace context of the request or job that queued a row is stored with it and continued when the row is claimed, so the worker span is a child of the span that queued the work and shares its trace id. A retry is a new child span under the same trace, and a span that starts long after its parent ended shows the queue delay. Rows queued before this release, and rows queued while tracing is off, carry no context, and their worker spans are roots as before.
+
 ## Logs {#logs}
 
 The server logs with `log/slog` to standard error: JSON by default, text with `STACKORDER_LOG_FORMAT=text`. `STACKORDER_LOG_LEVEL` sets the level, `info` by default. Every request is logged once, as `http request`, with its `request_id` (also returned in `X-Request-Id`), route, status, duration and the kind of caller (`oidc`, `apikey`, `session` or `none`).
+
+When tracing is on, every log record written inside a span, the access log and the event and job handlers included, also carries `trace_id` and `span_id`, so a log line can be matched to its trace and, through the stored trace context, to the request or job that queued the work. Records written outside any span, such as start-up and shutdown lines, carry neither.
