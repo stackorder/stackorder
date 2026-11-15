@@ -37,6 +37,9 @@ All notable changes to this repository are documented here. The format follows [
 ### Changed
 
 - The documentation of `stackorder_runs_total` now says it counts each status a run enters, a transition count rather than a run count, and points at the new `stackorder_runs_created_total` for counting runs. The metric itself is unchanged.
+### Added
+
+- An authenticated way to create, list and revoke API keys, so operators no longer insert rows into `api_keys` by hand. The new `stackorder-server api-key create|list|revoke` subcommand manages keys from a shell with `DATABASE_URL` set and needs no App credentials, so an operator mints the first key when none exists; `create` prints the secret once, and `--actor` (default `operator`) records the creator and the audit actor. Over HTTP, [`POST /v1/keys`](docs/reference/api.md#create-key) (`201` with the secret shown once), [`GET /v1/keys`](docs/reference/api.md#list-keys) and [`DELETE /v1/keys/{id}`](docs/reference/api.md#revoke-key) do the same for a caller that already holds a key. Managing keys is administrator-only: a signed-in browser user is `403 forbidden` and a runner token `401`, so only an API key manages keys. Creating and revoking a key, by either route, is written to the audit log as `api_key_created` and `api_key_revoked`; the secret is a SHA-256 hash at rest and never reaches the logs. There is no new migration and no new setting, and rows inserted into `api_keys` before this release keep working. See [API keys](docs/reference/server-configuration.md#api-keys).
 
 ## [0.5.0] - 2026-11-02
 

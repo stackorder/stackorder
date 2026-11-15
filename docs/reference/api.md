@@ -117,6 +117,9 @@ The CLI maps these to [exit codes](/reference/exit-codes#server-answers).
 | [`GET /v1/modules`](#modules) | Person, API key | `?q=` | `Page` of `ModuleDetail` |
 | [`GET /v1/modules/{id}`](#module) | Person, API key | | `ModuleDetail` |
 | [`GET /v1/audit`](#audit) | Person, API key | | `Page` of `AuditEntry` |
+| [`GET /v1/keys`](#list-keys) | API key | | `APIKeyList` |
+| [`POST /v1/keys`](#create-key) | API key | `CreateAPIKeyRequest` | `201`, `CreatedAPIKey` |
+| [`DELETE /v1/keys/{id}`](#revoke-key) | API key | | `APIKey` |
 | [`GET /auth/login`](#sign-in) | Browser | `?next=` | `302` to GitHub |
 | [`GET /auth/callback`](#sign-in) | Browser, from GitHub | | `302` to `next`, sets the session cookie |
 | [`POST /auth/logout`](#sign-in) | Person | | `204` |
@@ -1042,6 +1045,49 @@ A page of audited actions, newest first: unlocks (`unlock`), re-runs (`rerun`), 
 ```
 
 Unlocks target the qualified stack key `owner/repo//key` and keep the stack's id in `details.stack_id`; re-runs and comment commands target `owner/repo` and keep the pull request in `details.pr`. Reads of a stack's outputs target the producer's qualified key and keep `details.stack`, `details.reader_repo`, `details.reader` and `details.run_id`; `outputs_read` adds the counts `details.outputs`, `details.sensitive` and `details.withheld`, and `outputs_refused` the error code as `details.reason`. Their `details.repo` is the producer, or the runner's own repository when a runner was refused before the producer was found. Every one of them carries `details.repo`. A person sees the entries they made and those whose `details.repo`, or whose `target` (`owner/repo…` or `kind:owner/repo…`), names a repository they see.
+
+## API keys {#keys}
+
+These endpoints create, list and revoke [API keys](/reference/server-configuration#api-keys). Only an API key may call them: it is an administrator. A session cookie is `403 forbidden` ("managing API keys requires an administrator API key"), and a runner token is `401 unauthorized`. The first key, when none exists, is minted with the [`stackorder-server api-key`](/reference/server-configuration#api-keys-bootstrap) subcommand instead.
+
+### `POST /v1/keys` {#create-key}
+
+Creates a key and returns its metadata together with the full secret, which is shown only here and stored only as a SHA-256 hash afterwards. `name` is required, is trimmed, and must be at most 100 characters. The key's `created_by` is the calling key's actor (`apikey:<name>`). The creation is audited as `api_key_created`.
+
+```json
+{
+  "id": "3d6f0a2e-1b4c-4d8e-9f10-2a3b4c5d6e7f",
+  "name": "deploy",
+  "prefix": "sk_7f3a9c1",
+  "created_by": "apikey:ci",
+  "created_at": "2026-11-15T09:20:00Z",
+  "secret": "sk_7f3a9c1d…"
+}
+```
+
+### `GET /v1/keys` {#list-keys}
+
+Every key, revoked ones included, newest first. The secret is never returned; only `prefix` identifies a key by sight.
+
+```json
+{
+  "keys": [
+    {
+      "id": "3d6f0a2e-1b4c-4d8e-9f10-2a3b4c5d6e7f",
+      "name": "deploy",
+      "prefix": "sk_7f3a9c1",
+      "created_by": "apikey:ci",
+      "created_at": "2026-11-15T09:20:00Z",
+      "last_used_at": "2026-11-15T10:05:00Z",
+      "revoked_at": null
+    }
+  ]
+}
+```
+
+### `DELETE /v1/keys/{id}` {#revoke-key}
+
+Revokes the key with `id`, a UUID, and returns its metadata with `revoked_at` set. A revoked key no longer authenticates. Revoking an already-revoked key keeps the first revocation time and still answers `200`. An unknown or malformed id is `404 not_found`. The revocation is audited as `api_key_revoked`. A key may revoke itself.
 
 ## Sign-in {#sign-in}
 

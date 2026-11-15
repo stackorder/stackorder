@@ -99,10 +99,13 @@ usage: stackorder-server [command]
 Commands:
   (none)       run the server; configuration comes from the environment
   healthcheck  GET http://127.0.0.1<STACKORDER_LISTEN>/healthz, exit 0 on 200
+  api-key      create, list and revoke API keys; needs DATABASE_URL
   version      print the build information
 ```
 
 `stackorder-server healthcheck` requests `/healthz` on the listen port, mapping an unspecified host to `127.0.0.1`, with a 3 s timeout, and exits 0 on `200` and 1 otherwise. It is for container health checks in images without a shell: the published image declares it as its `HEALTHCHECK`. An unknown command exits 2.
+
+`stackorder-server api-key` manages [API keys](#api-keys) from a shell with `DATABASE_URL` set, which an operator uses to mint the first key when none exists. It needs no App credentials, and the published image can run it (`docker run … api-key create ci`). An unknown subcommand, a missing or extra argument exits 2.
 
 ## Generating the session key {#session-key}
 
@@ -116,7 +119,38 @@ Keep the key stable across restarts and instances. Every instance must use the s
 
 Automation, `stackorder apply --local` and `stackorder unlock` authenticate with an API key, `sk_` followed by random characters, sent as `Authorization: Bearer sk_…`. An API key sees every repository and is treated as an administrator. The server stores only the SHA-256 of a key and its first 10 characters, for display.
 
-This release has no endpoint or command that creates API keys. Create one with a row in the `api_keys` table, from a shell that can reach the database:
+### Bootstrap a key from the command line {#api-keys-bootstrap}
+
+When no key exists yet, mint the first one with the `api-key` subcommand, from a shell that can reach the database. It prints the secret once; store it and discard the output.
+
+```sh
+stackorder-server api-key create ci --actor alice
+```
+
+`--actor` (default `operator`) is recorded as the creator and as the audit actor; it also sets the key's `created_by`. List and revoke keys the same way:
+
+```sh
+stackorder-server api-key list
+stackorder-server api-key revoke <key-id>
+```
+
+### Manage keys over the API {#api-keys-api}
+
+Once you hold a key, manage the rest over HTTP without database access; see [API keys](/reference/api#keys) for the request and response shapes.
+
+```sh
+curl -sS -H "Authorization: Bearer $STACKORDER_API_KEY" \
+  -H 'Content-Type: application/json' -d '{"name":"deploy"}' \
+  https://stackorder.example.com/v1/keys        # create; the secret is in the response once
+curl -sS -H "Authorization: Bearer $STACKORDER_API_KEY" https://stackorder.example.com/v1/keys        # list
+curl -sS -X DELETE -H "Authorization: Bearer $STACKORDER_API_KEY" https://stackorder.example.com/v1/keys/<key-id>   # revoke
+```
+
+Only an API key may manage keys; a signed-in browser user is not an administrator and is refused. Creating and revoking a key, by either route, is written to the [audit log](/reference/api#audit) as `api_key_created` and `api_key_revoked`. The `name` becomes the actor of a key's own later calls, as `apikey:ci`.
+
+### Keys inserted by hand still work {#api-keys-manual}
+
+Rows added directly to `api_keys` before this release keep working, and you can still insert one when you cannot run the subcommand:
 
 ```sh
 key="sk_$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')"
@@ -127,7 +161,7 @@ SQL
 echo "$key"   # shown once; store it in your secret store
 ```
 
-The `name` becomes the actor in audit entries, as `apikey:ci`. Revoke a key by setting its `revoked_at`:
+Revoke such a key by setting its `revoked_at`, or by its id with the subcommand or the API:
 
 ```sh
 psql "$DATABASE_URL" -c "UPDATE api_keys SET revoked_at = now() WHERE name = 'ci' AND revoked_at IS NULL"

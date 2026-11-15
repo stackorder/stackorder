@@ -23,7 +23,7 @@ Change it in the same commit as the code it describes.
 ```text
 api/v1/                    wire types shared by CLI, server, UI and tooling (JSON + YAML tags, no logic)
 cmd/stackorder/            CLI main; binds internal/scan, internal/graph and internal/validate into internal/cli
-cmd/stackorder-server/     server main; wiring only, plus the `healthcheck` subcommand
+cmd/stackorder-server/     server main; wiring only, plus the `healthcheck` and `api-key` (create/list/revoke, needs DATABASE_URL) subcommands
 internal/config/           stackorder.yaml and .stackorder.yaml: defaults, validation, per-stack merge
 internal/scan/             HCL scanning: discover stacks, parse backends, module sources, remote state, stackorder_outputs reads; git diff
 internal/graph/            pure resolution algorithm: affected set, propagation, waves, cycles, DOT output
@@ -716,6 +716,9 @@ with `next_cursor`.
 | `POST /v1/stacks/{id}/unlock` | `v1.UnlockResponse` |
 | `POST /v1/runs/{id}/rerun` | `v1.CreateRunResponse` |
 | `GET /v1/audit` | `v1.Page[v1.AuditEntry]` |
+| `GET /v1/keys` | `v1.APIKeyList`; administrator API key only |
+| `POST /v1/keys` | `v1.CreatedAPIKey` (201), the secret shown once; `v1.CreateAPIKeyRequest`; administrator API key only |
+| `DELETE /v1/keys/{id}` | `v1.APIKey` with `revoked_at` set; administrator API key only |
 | `GET /auth/login?next=`, `GET /auth/callback` | redirects |
 | `POST /auth/logout` | 204 |
 | `GET /setup`, `GET /setup/callback`, `GET /setup/installed` | HTML |
@@ -731,6 +734,14 @@ or `kind:owner/repo…`), names a repository they see, so a page may hold
 fewer than `limit` items and still carry `next_cursor`; `GET /v1/modules`
 sets `total` only for API keys. State-changing human endpoints require the
 session cookie plus a same-origin `Origin` or `Sec-Fetch-Site` check.
+The `/v1/keys` endpoints are the one administrator-only surface: they carry
+the `adminKey` auth mode, which `with` enforces after authentication, so a
+session is `403 forbidden` and a runner token `401` and only an API key
+manages keys. `identity.isAdmin` is the single chokepoint a later scoped
+key narrows. Creating and revoking a key is audited as `api_key_created` and
+`api_key_revoked` with the key name as the target; the secret is returned
+once at creation and never stored in the clear. The same operations are
+available offline through `stackorder-server api-key`.
 Unknown `/v1/*` and `/auth/*` paths return a JSON 404, not the UI.
 Everything else under `/` serves the embedded UI with SPA fallback to
 `index.html`. `GET /metrics` is open unless

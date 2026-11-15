@@ -120,7 +120,7 @@ The server is not in the path of `terraform plan`, except for a stack that reads
 
 ## Human access {#human-access}
 
-People sign in with GitHub through the App's OAuth client, with the `read:org` scope only. A session is issued only to a user whose own account, or one of whose organisations, has the App installed, and the UI shows only those accounts' repositories. API keys, created by an operator, see every repository. The UI is read-only except for unlock and re-run, which go through the API and are audited.
+People sign in with GitHub through the App's OAuth client, with the `read:org` scope only. A session is issued only to a user whose own account, or one of whose organisations, has the App installed, and the UI shows only those accounts' repositories. API keys see every repository and are administrators; a signed-in user is not. An operator mints the first key with `stackorder-server api-key`, and an administrator key then creates, lists and revokes keys through [`/v1/keys`](/reference/api#keys); a session cannot. The UI is read-only except for unlock and re-run, which go through the API and are audited, as creating and revoking a key are.
 
 ## Reporting a vulnerability {#reporting}
 
