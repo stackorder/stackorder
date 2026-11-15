@@ -840,3 +840,39 @@ type AuditEntry struct {
 	Target  string         `json:"target,omitempty"`
 	Details map[string]any `json:"details,omitempty"`
 }
+
+// DiagnosticSeverity is the severity of a configuration or graph Diagnostic.
+type DiagnosticSeverity string
+
+const (
+	// SeverityError marks a problem that makes the configuration invalid:
+	// the same problems the graph and affected commands reject.
+	SeverityError DiagnosticSeverity = "error"
+	// SeverityWarning marks a problem that leaves the configuration usable,
+	// the same warnings a scan reports.
+	SeverityWarning DiagnosticSeverity = "warning"
+)
+
+// Diagnostic is one problem the validate command found in the configuration
+// files or the dependency graph. File is repository relative with forward
+// slashes, empty when the problem belongs to no single file. Line and Column
+// are 1 based and 0 when the loader does not know them.
+type Diagnostic struct {
+	Severity DiagnosticSeverity `json:"severity"`
+	Message  string             `json:"message"`
+	File     string             `json:"file,omitempty"`
+	Line     int                `json:"line,omitempty"`
+	Column   int                `json:"column,omitempty"`
+}
+
+// ValidationReport is the result of validating a repository: every
+// Diagnostic the validate command found, sorted by file, line, column,
+// severity then message, with the error and warning counts. Valid is true
+// when there are no error diagnostics. It is the stable shape of
+// `stackorder validate --format json`.
+type ValidationReport struct {
+	Valid       bool         `json:"valid"`
+	Errors      int          `json:"errors"`
+	Warnings    int          `json:"warnings"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
+}

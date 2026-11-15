@@ -195,6 +195,7 @@ func (a *app) commands() []*cobra.Command {
 		a.versionCommand(),
 		a.graphCommand(),
 		a.affectedCommand(),
+		a.validateCommand(),
 		a.resolveCommand(),
 		a.planCommand(),
 		a.applyCommand(),

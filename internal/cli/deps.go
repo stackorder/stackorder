@@ -32,6 +32,9 @@ type Deps struct {
 	// RenderDOT renders the graph as Graphviz DOT, highlighting the given
 	// stack keys with their wave.
 	RenderDOT func(g *v1.Graph, highlight map[string]int) string
+	// Validate checks the repository's configuration files and dependency
+	// graph and returns every problem it found as a report.
+	Validate func(ctx context.Context, root, repo, sha string) (*v1.ValidationReport, error)
 }
 
 // Bind replaces the scanning and resolution functions with d's non-nil
@@ -49,6 +52,9 @@ func Bind(d Deps) {
 	if d.RenderDOT != nil {
 		renderDOT = d.RenderDOT
 	}
+	if d.Validate != nil {
+		validateRepo = d.Validate
+	}
 }
 
 var (
@@ -63,5 +69,8 @@ var (
 	}
 	renderDOT = func(*v1.Graph, map[string]int) string {
 		return ""
+	}
+	validateRepo = func(context.Context, string, string, string) (*v1.ValidationReport, error) {
+		return nil, ErrScanNotLinked
 	}
 )

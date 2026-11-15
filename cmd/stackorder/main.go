@@ -10,6 +10,7 @@ import (
 	"github.com/stackorder/stackorder/internal/cli"
 	"github.com/stackorder/stackorder/internal/graph"
 	"github.com/stackorder/stackorder/internal/scan"
+	"github.com/stackorder/stackorder/internal/validate"
 )
 
 func main() {
@@ -22,6 +23,9 @@ func main() {
 			return graph.Resolve(g, graph.Input{ChangedPaths: changed, Config: cfg, Requested: requested})
 		},
 		RenderDOT: graph.ToDOT,
+		Validate: func(ctx context.Context, root, repo, sha string) (*v1.ValidationReport, error) {
+			return validate.Run(ctx, root, validate.Options{Repo: repo, SHA: sha, GitHubURL: os.Getenv("GITHUB_SERVER_URL")})
+		},
 	})
 	os.Exit(cli.ExitCode(cli.Execute()))
 }

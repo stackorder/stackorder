@@ -22,16 +22,17 @@ Change it in the same commit as the code it describes.
 
 ```text
 api/v1/                    wire types shared by CLI, server, UI and tooling (JSON + YAML tags, no logic)
-cmd/stackorder/            CLI main; binds internal/scan and internal/graph into internal/cli
+cmd/stackorder/            CLI main; binds internal/scan, internal/graph and internal/validate into internal/cli
 cmd/stackorder-server/     server main; wiring only, plus the `healthcheck` subcommand
 internal/config/           stackorder.yaml and .stackorder.yaml: defaults, validation, per-stack merge
 internal/scan/             HCL scanning: discover stacks, parse backends, module sources, remote state, stackorder_outputs reads; git diff
 internal/graph/            pure resolution algorithm: affected set, propagation, waves, cycles, DOT output
+internal/validate/         composes config, scan and graph into the `validate` command's diagnostics report
 internal/report/           pure rendering of check-run output, the sticky PR comment, refusals, drift issues
 internal/command/          parsing of `stackorder …` PR comment commands
 internal/tf/               terraform / tofu process wrapper, plan JSON summary, metadata-only resource list from state, redaction, hooks
 internal/client/           HTTP client for the server API used by the CLI, incl. runner OIDC token fetch
-internal/cli/              cobra commands: resolve, plan, apply, drift, check, graph, affected, unlock, version
+internal/cli/              cobra commands: resolve, plan, apply, drift, check, graph, affected, validate, unlock, version
 internal/store/            pgx queries; migrations embedded from /migrations (package `migrations`, `migrations.FS`)
 internal/gh/               GitHub App client: JWT, installation tokens, checks, comments, dispatch, reviews, teams
 internal/gh/codeowners/    CODEOWNERS parsing with GitHub's matching semantics
@@ -63,7 +64,10 @@ docker-compose.yml         local Postgres and LocalStack for development and tes
 ```
 
 Dependency direction: `api/v1` <- `config` <- `scan`, `graph`, `command`,
-`report`, `tf` <- `client`, `cli` (runner side); `api/v1` <- `store`, `gh`,
+`report`, `tf` <- `client`, `cli` (runner side); `internal/validate` composes
+`config`, `scan` and `graph`, and `cmd/stackorder` binds it into `cli` with
+the scanner and the graph, so `cli` imports none of the three; `api/v1` <-
+`store`, `gh`,
 `oidc` <- `principal` <- `runs` <- `webhook`, `worker`, `sched`, `api` <-
 `server` <- `cmd`; `runs` also imports `stateread` for its `Location` and
 `State` types. `runs` talks to GitHub through its `GitHub` interface

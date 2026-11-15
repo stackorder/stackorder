@@ -282,3 +282,30 @@ func TestStackResourceCarriesNoValues(t *testing.T) {
 	assert.Equal(t, []string{"Address", "Type", "Module", "Provider", "Tainted", "Deposed", "LastChange"}, fields,
 		"a resource is metadata only; a new field must not carry anything read from an attribute or output")
 }
+
+func TestValidationReportJSONShape(t *testing.T) {
+	report := v1.ValidationReport{
+		Valid:    false,
+		Errors:   1,
+		Warnings: 1,
+		Diagnostics: []v1.Diagnostic{
+			{Severity: v1.SeverityError, Message: `unknown field "bogus"`, File: "stackorder.yaml", Line: 3},
+			{Severity: v1.SeverityWarning, Message: "a warning with no file"},
+		},
+	}
+	data, err := json.Marshal(report)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"valid": false,
+		"errors": 1,
+		"warnings": 1,
+		"diagnostics": [
+			{"severity": "error", "message": "unknown field \"bogus\"", "file": "stackorder.yaml", "line": 3},
+			{"severity": "warning", "message": "a warning with no file"}
+		]
+	}`, string(data))
+
+	var back v1.ValidationReport
+	require.NoError(t, json.Unmarshal(data, &back))
+	assert.Equal(t, report, back)
+}
