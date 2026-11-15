@@ -596,13 +596,18 @@ accepts only a `push` token (`event_name` is `push`) whose `repository` and
 `repository_id` are the repository's and whose `ref` is
 `refs/heads/<default branch>`; the request graph's SHA must be the token's
 `sha` (it may be left empty to take it). It then reads the branch head from
-GitHub under the per-repository advisory lock `default-graph:<repo id>` and
-records the graph with `store.SaveGraph` and `store.SetDefaultGraph` only when
-the head still equals that SHA; otherwise the response has `recorded: false`
-and a `reason`, so an out-of-order, superseded or force push, whose commit is
-no longer the head, cannot replace a newer graph, and the last push to reach
-the head wins. `SetDefaultGraph` reconciles `stacks.removed_at` exactly as a
-merge does. A suspended installation's runner token is refused at
+GitHub under the per-repository advisory lock `default-graph:<repo id>`
+(`runs.atDefaultHead`) and records the graph with `store.SaveGraph` and
+`store.SetDefaultGraph` only when the head still equals that SHA; otherwise the
+response has `recorded: false` and a `reason`, so an out-of-order, superseded or
+force push, whose commit is no longer the head, cannot replace a newer graph,
+and the last push to reach the head wins. The merge path
+(`runs.recordDefaultGraph`) shares this ordering through the same
+`runs.atDefaultHead`: it records the merged pull request's plan graph only while
+the merge commit is still the branch head, so a delayed or redelivered merge
+webhook that arrives after a newer push cannot revert the default branch to the
+pull request's older graph. `SetDefaultGraph` reconciles `stacks.removed_at` in
+both paths. A suspended installation's runner token is refused at
 authentication with 403 before the handler runs (`internal/api/auth.go`, like
 every runner endpoint), so a suspended installation records nothing. The server
 never scans a repository itself; the graph is always the one a resolve job

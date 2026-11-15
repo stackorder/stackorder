@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
+	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/principal"
 	"github.com/stackorder/stackorder/internal/store"
 )
@@ -124,4 +125,29 @@ func TestRecordDefaultGraphReconcilesRemovedStacks(t *testing.T) {
 	ov, err := e.st.Overview(e.ctx)
 	require.NoError(t, err)
 	assert.Equal(t, len(live), ov.Stacks, "the overview counts only live stacks")
+}
+
+func TestRecordDefaultGraphSurvivesDelayedMerge(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	// An earlier pull request planned a graph at headSHA and is about to merge.
+	e.planned(7, headSHA)
+
+	// A direct push moves the default branch to newHeadSHA and records its graph.
+	e.gh.SetRef(repoName, "heads/main", newHeadSHA)
+	resp, err := e.svc.RecordDefaultGraph(e.ctx, e.pushJob("main", newHeadSHA), repoName, v1.RecordGraphRequest{Graph: testGraph(newHeadSHA)})
+	require.NoError(t, err)
+	require.True(t, resp.Recorded)
+	g, _, err := e.st.GetDefaultGraph(e.ctx, repoID)
+	require.NoError(t, err)
+	require.Equal(t, newHeadSHA, g.SHA, "the pushed graph is the default-branch graph")
+
+	// The earlier pull request's merge webhook arrives late, after the push.
+	merged := e.gh.PullRequestEvent("closed", repoName, gh.PullRequest{
+		Number: 7, State: gh.IssueClosed, Merged: true, MergeCommitSHA: mergeSHA, HeadSHA: headSHA, BaseSHA: baseSHA, User: gh.User{Login: author},
+	})
+	require.NoError(t, e.svc.HandlePullRequest(e.ctx, merged))
+
+	after, _, err := e.st.GetDefaultGraph(e.ctx, repoID)
+	require.NoError(t, err)
+	assert.Equal(t, newHeadSHA, after.SHA, "a delayed merge must not replace the newer pushed graph")
 }

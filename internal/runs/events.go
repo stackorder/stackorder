@@ -146,10 +146,14 @@ func (s *Service) recordDefaultGraph(ctx context.Context, repo store.Repo, pr *g
 	if graphID == nil {
 		return nil
 	}
-	if err := s.st.SetDefaultGraph(ctx, repo.ID, *graphID); err != nil && !errors.Is(err, store.ErrNotFound) {
-		return storeErr(err, "record default graph of %s", repo.FullName)
-	}
-	return nil
+	mergeCommit := firstNonEmpty(pr.MergeCommitSHA, pr.HeadSHA)
+	_, _, err = s.atDefaultHead(ctx, repo, mergeCommit, func(tx *store.Store) error {
+		if err := tx.SetDefaultGraph(ctx, repo.ID, *graphID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return storeErr(err, "record default graph of %s", repo.FullName)
+		}
+		return nil
+	})
+	return err
 }
 
 func (s *Service) applyOnMerge(ctx context.Context, repo store.Repo, ev *gh.PullRequestEvent) error {

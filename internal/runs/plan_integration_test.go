@@ -742,6 +742,7 @@ func TestMergeMarksVanishedStacksRemoved(t *testing.T) {
 	require.True(t, has(before, gone), "the stack is live before it is dropped")
 
 	planRun := e.planned(7, headSHA)
+	e.gh.SetRef(repoName, "heads/main", mergeSHA)
 	merged := e.gh.PullRequestEvent("closed", repoName, gh.PullRequest{
 		Number: 7, State: gh.IssueClosed, Merged: true, MergeCommitSHA: mergeSHA, HeadSHA: headSHA, BaseSHA: baseSHA, User: gh.User{Login: author},
 	})

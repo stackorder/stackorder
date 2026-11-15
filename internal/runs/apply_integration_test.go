@@ -435,6 +435,7 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	}
 	assert.Equal(t, 1, announced, "a duplicate last result posts no second reply")
 
+	e.gh.SetRef(repoName, "heads/main", mergeSHA)
 	merged := e.gh.PullRequestEvent("closed", repoName, gh.PullRequest{
 		Number: 7, State: gh.IssueClosed, Merged: true, MergeCommitSHA: mergeSHA, HeadSHA: headSHA, BaseSHA: baseSHA, User: gh.User{Login: author},
 	})
