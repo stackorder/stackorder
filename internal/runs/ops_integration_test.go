@@ -879,6 +879,29 @@ func TestInstallationSuspendBeforeCreated(t *testing.T) {
 	assert.NotNil(t, in.SuspendedAt, "the suspend was received latest; the installation stays suspended")
 }
 
+func TestInstallationCreatedRecordsReposAfterLosingToUnsuspend(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.gh.SetRepo("delta/infra", gh.Repository{ID: 900, DefaultBranch: "main"})
+	e.gh.AddInstallation(4, "delta", "delta/infra")
+	e.gh.SetContents("delta/infra", "main", "stackorder.yaml", []byte("version: 1\ntool: tofu\n"))
+	e.gh.SetRef("delta/infra", "heads/main", headSHA)
+
+	base := time.Now().UTC()
+	created := e.gh.InstallationEvent("created", 4)
+	unsuspend := e.gh.InstallationEvent("unsuspend", 4)
+	unsuspend.Repositories = nil
+
+	require.NoError(t, e.svc.HandleInstallation(runs.WithReceivedAt(e.ctx, base.Add(time.Minute)), unsuspend))
+	require.NoError(t, e.svc.HandleInstallation(runs.WithReceivedAt(e.ctx, base), created))
+
+	in, err := e.st.GetInstallation(e.ctx, 4)
+	require.NoError(t, err)
+	assert.Nil(t, in.SuspendedAt, "the installation is not suspended")
+	repo, err := e.st.GetRepo(e.ctx, 900)
+	require.NoError(t, err, "a created that lost to a later unsuspend still records the repositories it carries")
+	assert.Equal(t, "main", repo.DefaultBranch)
+}
+
 func TestPrune(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	runID := e.planned(7, headSHA)

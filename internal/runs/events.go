@@ -785,7 +785,16 @@ func (s *Service) HandleInstallation(ctx context.Context, ev *gh.InstallationEve
 		return err
 	}
 	if !applied {
-		return nil
+		cur, err := s.st.GetInstallation(ctx, inst.ID)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return storeErr(err, "get installation %d", inst.ID)
+		}
+		if cur.SuspendedAt != nil {
+			return nil
+		}
 	}
 	return s.addRepos(ctx, inst.ID, ev.Repositories)
 }
