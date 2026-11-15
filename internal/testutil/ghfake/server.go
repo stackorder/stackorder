@@ -119,6 +119,8 @@ type Server struct {
 	nextRepoID     int64
 	nextAccountID  int64
 	suspendedInsts map[int64]bool
+	hiddenInsts    map[int64]bool
+	hiddenRepos    map[int64]bool
 }
 
 type installation struct {
@@ -203,6 +205,8 @@ func New(t testing.TB) *Server {
 		teams:          map[string]string{},
 		reactions:      map[int64][]reaction{},
 		suspendedInsts: map[int64]bool{},
+		hiddenInsts:    map[int64]bool{},
+		hiddenRepos:    map[int64]bool{},
 		nextID:         1000,
 		nextRepoID:     5000,
 		nextAccountID:  9000,
@@ -335,6 +339,24 @@ func (s *Server) AddInstallation(id int64, account string, repos ...string) {
 			in.repos = append(in.repos, rs.repo.FullName)
 		}
 	}
+}
+
+// HideInstallation drops an installation from GET /app/installations while
+// keeping GET /app/installations/{id} answering 200, to mimic an
+// incomplete installation listing.
+func (s *Server) HideInstallation(id int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hiddenInsts[id] = true
+}
+
+// HideRepo drops a repository from GET /installation/repositories while
+// keeping the installation intact, to mimic an incomplete repository
+// listing.
+func (s *Server) HideRepo(id int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hiddenRepos[id] = true
 }
 
 // SuspendInstallation makes token exchanges for the installation fail.
@@ -1007,9 +1029,12 @@ func (s *Server) sortedInstallations() []gh.Installation {
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	out := make([]gh.Installation, len(ids))
-	for i, id := range ids {
-		out[i] = s.installations[id].inst
+	out := make([]gh.Installation, 0, len(ids))
+	for _, id := range ids {
+		if s.hiddenInsts[id] {
+			continue
+		}
+		out = append(out, s.installations[id].inst)
 	}
 	return out
 }

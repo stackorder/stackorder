@@ -441,7 +441,11 @@ func (s *Server) installationRepos(w http.ResponseWriter, r *http.Request, c *ca
 	}
 	repos := make([]gh.Repository, 0, len(in.repos))
 	for _, full := range in.repos {
-		repos = append(repos, s.repos[strings.ToLower(full)].repo)
+		rs := s.repos[strings.ToLower(full)]
+		if s.hiddenRepos[rs.repo.ID] {
+			continue
+		}
+		repos = append(repos, rs.repo)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(repos), "repositories": pageOf(s, w, r, repos)})
 }
