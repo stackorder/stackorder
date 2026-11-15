@@ -108,7 +108,7 @@ func (s *Store) SchemaVersion(ctx context.Context) (version uint, dirty bool, er
 	return version, dirty, err
 }
 
-func (s *Store) withMigrator(ctx context.Context, op string, fn func(*migrate.Migrate) error) (err error) {
+func (s *Store) withLock(ctx context.Context, op string, fn func(context.Context, *pgx.Conn) error) (err error) {
 	conn, err := pgx.ConnectConfig(ctx, s.pool.Config().ConnConfig.Copy())
 	if err != nil {
 		return wrap(op+": connect", err)
@@ -126,27 +126,32 @@ func (s *Store) withMigrator(ctx context.Context, op string, fn func(*migrate.Mi
 			err = errors.Join(err, wrap(op+": unlock", uerr))
 		}
 	}()
+	return fn(ctx, conn)
+}
 
-	src, err := iofs.New(migrations.FS, ".")
-	if err != nil {
-		return wrap(op+": source", err)
-	}
-	drv, err := migratepgx.WithInstance(stdlib.OpenDBFromPool(s.pool), &migratepgx.Config{})
-	if err != nil {
-		return errors.Join(wrap(op+": driver", err), src.Close())
-	}
-	m, err := migrate.NewWithInstance("iofs", src, "pgx5", drv)
-	if err != nil {
-		return errors.Join(wrap(op, err), src.Close(), drv.Close())
-	}
-	defer func() {
-		srcErr, dbErr := m.Close()
-		if srcErr != nil || dbErr != nil {
-			err = errors.Join(err, fmt.Errorf("store: %s: close: %w", op, errors.Join(srcErr, dbErr)))
+func (s *Store) withMigrator(ctx context.Context, op string, fn func(*migrate.Migrate) error) error {
+	return s.withLock(ctx, op, func(_ context.Context, _ *pgx.Conn) (err error) {
+		src, err := iofs.New(migrations.FS, ".")
+		if err != nil {
+			return wrap(op+": source", err)
 		}
-	}()
-	if err := fn(m); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return wrap(op, err)
-	}
-	return nil
+		drv, err := migratepgx.WithInstance(stdlib.OpenDBFromPool(s.pool), &migratepgx.Config{})
+		if err != nil {
+			return errors.Join(wrap(op+": driver", err), src.Close())
+		}
+		m, err := migrate.NewWithInstance("iofs", src, "pgx5", drv)
+		if err != nil {
+			return errors.Join(wrap(op, err), src.Close(), drv.Close())
+		}
+		defer func() {
+			srcErr, dbErr := m.Close()
+			if srcErr != nil || dbErr != nil {
+				err = errors.Join(err, fmt.Errorf("store: %s: close: %w", op, errors.Join(srcErr, dbErr)))
+			}
+		}()
+		if ferr := fn(m); ferr != nil && !errors.Is(ferr, migrate.ErrNoChange) {
+			return wrap(op, ferr)
+		}
+		return nil
+	})
 }
