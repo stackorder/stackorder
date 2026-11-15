@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -18,8 +19,11 @@ import (
 const (
 	// APIKeyPrefix starts every automation key.
 	APIKeyPrefix = "sk_"
-	apiKeyShown  = 10
-	tokenBytes   = 32
+	// MaxAPIKeyNameLen is the longest an API key name may be, in characters
+	// (Unicode code points), enforced on every path that creates a key.
+	MaxAPIKeyNameLen = 100
+	apiKeyShown      = 10
+	tokenBytes       = 32
 
 	actionAPIKeyCreated = "api_key_created"
 	actionAPIKeyRevoked = "api_key_revoked"
@@ -157,8 +161,11 @@ func (k APIKey) ToV1() v1.APIKey {
 // once. createdBy is the key's creator and the actor of the audit entry.
 func (s *Store) CreateAPIKey(ctx context.Context, name, createdBy string) (string, APIKey, error) {
 	const op = "create api key"
-	if name == "" {
+	switch {
+	case name == "":
 		return "", APIKey{}, invalid(op, "name is required")
+	case utf8.RuneCountInString(name) > MaxAPIKeyNameLen:
+		return "", APIKey{}, invalid(op, fmt.Sprintf("name must be at most %d characters", MaxAPIKeyNameLen))
 	}
 	token, err := randomToken()
 	if err != nil {

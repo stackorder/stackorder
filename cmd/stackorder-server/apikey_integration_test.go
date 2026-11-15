@@ -88,4 +88,14 @@ func TestAPIKeyCommandIntegration(t *testing.T) {
 	missing := "00000000-0000-0000-0000-000000000000"
 	require.Equal(t, 1, run([]string{"api-key", "revoke", missing}, env, &stdout, &stderr))
 	assert.Contains(t, stderr.String(), "not found")
+
+	stdout.Reset()
+	stderr.Reset()
+	require.Equal(t, 1, run([]string{"api-key", "create", strings.Repeat("x", store.MaxAPIKeyNameLen+1)}, env, &stdout, &stderr),
+		"a name over the limit is refused, as over HTTP")
+	assert.Contains(t, stderr.String(), "at most")
+
+	keys, err := st.ListAPIKeys(ctx)
+	require.NoError(t, err)
+	assert.Len(t, keys, 1, "the over-long name created no key")
 }

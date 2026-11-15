@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -12,8 +13,6 @@ import (
 	"github.com/stackorder/stackorder/internal/principal"
 	"github.com/stackorder/stackorder/internal/store"
 )
-
-const maxAPIKeyNameLen = 100
 
 func (s *server) createKey(w http.ResponseWriter, r *http.Request, id identity) error {
 	var req v1.CreateAPIKeyRequest
@@ -24,8 +23,8 @@ func (s *server) createKey(w http.ResponseWriter, r *http.Request, id identity) 
 	switch {
 	case name == "":
 		return &principal.InvalidError{Field: "name", Reason: "is required"}
-	case len(name) > maxAPIKeyNameLen:
-		return &principal.InvalidError{Field: "name", Reason: fmt.Sprintf("must be at most %d characters", maxAPIKeyNameLen)}
+	case utf8.RuneCountInString(name) > store.MaxAPIKeyNameLen:
+		return &principal.InvalidError{Field: "name", Reason: fmt.Sprintf("must be at most %d characters", store.MaxAPIKeyNameLen)}
 	}
 	secret, key, err := s.db.CreateAPIKey(r.Context(), name, id.Actor())
 	if err != nil {

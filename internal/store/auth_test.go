@@ -163,6 +163,14 @@ func TestAPIKeys(t *testing.T) {
 
 	_, _, err = f.s.CreateAPIKey(f.ctx, "", "x")
 	require.ErrorIs(t, err, store.ErrInvalid)
+
+	_, _, err = f.s.CreateAPIKey(f.ctx, strings.Repeat("x", store.MaxAPIKeyNameLen+1), "x")
+	require.ErrorIs(t, err, store.ErrInvalid, "a name over the limit is refused")
+
+	atLimit := strings.Repeat("😀", store.MaxAPIKeyNameLen)
+	_, atLimitKey, err := f.s.CreateAPIKey(f.ctx, atLimit, "x")
+	require.NoError(t, err, "the limit counts characters, not bytes")
+	assert.Equal(t, atLimit, atLimitKey.Name)
 }
 
 func TestAPIKeyMutationsAreAtomicWithAudit(t *testing.T) {

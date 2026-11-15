@@ -38,6 +38,16 @@ func TestCreateAPIKey(t *testing.T) {
 	assert.Equal(t, got.ID, entries[0].Details["key_id"])
 }
 
+func TestCreateAPIKeyNameLimitCountsCharacters(t *testing.T) {
+	e := newEnv(t)
+	admin := e.apiKey("admin")
+
+	name := strings.Repeat("😀", store.MaxAPIKeyNameLen)
+	rec := e.do(bearer(sameOriginPost(t, "/v1/keys", v1.CreateAPIKeyRequest{Name: name}), admin))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	assert.Equal(t, name, decodeBody[v1.CreatedAPIKey](t, rec).Name)
+}
+
 func TestCreateAPIKeyValidation(t *testing.T) {
 	e := newEnv(t)
 	admin := e.apiKey("admin")
@@ -47,7 +57,8 @@ func TestCreateAPIKeyValidation(t *testing.T) {
 		body any
 	}{
 		{"empty name", v1.CreateAPIKeyRequest{Name: "   "}},
-		{"long name", v1.CreateAPIKeyRequest{Name: strings.Repeat("x", maxAPIKeyNameLen+1)}},
+		{"long name", v1.CreateAPIKeyRequest{Name: strings.Repeat("x", store.MaxAPIKeyNameLen+1)}},
+		{"long multibyte name", v1.CreateAPIKeyRequest{Name: strings.Repeat("😀", store.MaxAPIKeyNameLen+1)}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
