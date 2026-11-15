@@ -900,10 +900,13 @@ code converts once.
 Callers then retry whole operations, so the change removes duplicates end to
 end rather than moving them into the worker. When a check-run create's outcome
 is unknown, the renderer looks for a check run carrying the run's `external_id`
-and adopts it before giving up. Comments, sticky comments, drift issues and
-fork notices are already found again by their marker, title or `external_id`
-before a create. A workflow dispatch left unsent is resent once by Reconcile,
-and run binding refuses a surplus workflow run (see Waves and dispatch).
+and adopts it before giving up. The run comment and sticky comment are found
+again by their marker, a drift issue by its title and a fork notice by its
+check-run name before a create; the stale-lock reminder records its dedup
+audit row, and a resolved drift issue is closed, before the comment is posted,
+so a lost response to either cannot post it twice. A workflow dispatch left
+unsent is resent once by Reconcile, and run binding refuses a surplus workflow
+run (see Waves and dispatch).
 
 ## Waves and dispatch
 
