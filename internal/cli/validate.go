@@ -44,7 +44,7 @@ func (a *app) runValidate(ctx context.Context, strict bool) error {
 		if err := a.writeJSON(report); err != nil {
 			return err
 		}
-	} else if err := writeValidateText(a.stdout, report); err != nil {
+	} else if err := writeValidateText(a.stdout, report, strict); err != nil {
 		return err
 	}
 	if report.Errors > 0 || (strict && report.Warnings > 0) {
@@ -76,7 +76,7 @@ func (a *app) annotateDiagnostic(d v1.Diagnostic) {
 	_, _ = fmt.Fprintln(a.stderr, b.String())
 }
 
-func writeValidateText(w io.Writer, report *v1.ValidationReport) error {
+func writeValidateText(w io.Writer, report *v1.ValidationReport, strict bool) error {
 	var b strings.Builder
 	for _, d := range report.Diagnostics {
 		b.WriteString(formatDiagnostic(d))
@@ -85,6 +85,8 @@ func writeValidateText(w io.Writer, report *v1.ValidationReport) error {
 	switch {
 	case report.Errors == 0 && report.Warnings == 0:
 		b.WriteString("valid: no problems found\n")
+	case report.Errors == 0 && strict && report.Warnings > 0:
+		fmt.Fprintf(&b, "failing: %s (--strict)\n", countsText(report))
 	case report.Errors == 0:
 		fmt.Fprintf(&b, "valid: %s\n", countsText(report))
 	default:

@@ -434,7 +434,7 @@ In GitHub Actions `validate` also writes each diagnostic as a [workflow annotati
 - run: stackorder validate
 ```
 
-`validate` exits 0 when there are no errors, and 1 when there is at least one error. Warnings do not fail the command unless `--strict` is given, which also exits 1 when there are only warnings.
+`validate` exits 0 when there are no errors, and 1 when there is at least one error. Warnings do not fail the command unless `--strict` is given, which also exits 1 when there are only warnings; the summary line then reads `failing: 0 errors, N warnings (--strict)` so the last line agrees with the exit code.
 
 ## `unlock` {#unlock}
 

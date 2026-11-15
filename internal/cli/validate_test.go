@@ -70,7 +70,8 @@ func TestValidateWarningsExitZeroUnlessStrict(t *testing.T) {
 	bindValidate(t, warn, nil)
 	r2 := h2.run("validate", "--strict")
 	require.Equal(t, 1, r2.code)
-	assert.Contains(t, r2.stdout, "valid: 0 errors, 1 warning")
+	assert.Contains(t, r2.stdout, "failing: 0 errors, 1 warning (--strict)")
+	assert.NotContains(t, r2.stdout, "valid:")
 }
 
 func TestValidateJSON(t *testing.T) {
