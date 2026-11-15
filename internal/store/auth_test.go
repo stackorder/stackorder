@@ -100,6 +100,14 @@ func TestAPIKeys(t *testing.T) {
 	assert.Equal(t, key.ID, verified.ID)
 	assert.NotNil(t, verified.LastUsedAt)
 
+	fetched, err := f.s.GetAPIKey(f.ctx, key.ID)
+	require.NoError(t, err)
+	assert.Equal(t, key.Name, fetched.Name)
+	assert.Equal(t, "octocat", fetched.CreatedBy)
+	assert.Nil(t, fetched.RevokedAt)
+	_, err = f.s.GetAPIKey(f.ctx, uuid.New())
+	require.ErrorIs(t, err, store.ErrNotFound)
+
 	cases := []struct {
 		name      string
 		plaintext string
@@ -123,6 +131,9 @@ func TestAPIKeys(t *testing.T) {
 	require.NoError(t, f.s.RevokeAPIKey(f.ctx, key.ID))
 	_, err = f.s.VerifyAPIKey(f.ctx, plaintext)
 	require.ErrorIs(t, err, store.ErrNotFound, "revoked keys no longer verify")
+	revoked, err := f.s.GetAPIKey(f.ctx, key.ID)
+	require.NoError(t, err)
+	require.NotNil(t, revoked.RevokedAt, "GetAPIKey still returns a revoked key")
 	_, err = f.s.VerifyAPIKey(f.ctx, second)
 	require.NoError(t, err)
 	require.ErrorIs(t, f.s.RevokeAPIKey(f.ctx, uuid.New()), store.ErrNotFound)

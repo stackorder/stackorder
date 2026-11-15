@@ -134,6 +134,20 @@ type APIKey struct {
 
 const keyColumns = `id, name, prefix, created_by, created_at, last_used_at, revoked_at`
 
+// ToV1 converts the key's metadata for the management API; it never carries
+// the secret, which exists only at creation.
+func (k APIKey) ToV1() v1.APIKey {
+	return v1.APIKey{
+		ID:         k.ID.String(),
+		Name:       k.Name,
+		Prefix:     k.Prefix,
+		CreatedBy:  k.CreatedBy,
+		CreatedAt:  k.CreatedAt.UTC(),
+		LastUsedAt: utc(k.LastUsedAt),
+		RevokedAt:  utc(k.RevokedAt),
+	}
+}
+
 // CreateAPIKey creates a key and returns its plaintext, which starts with
 // APIKeyPrefix and is shown once.
 func (s *Store) CreateAPIKey(ctx context.Context, name, createdBy string) (string, APIKey, error) {
@@ -153,6 +167,12 @@ func (s *Store) CreateAPIKey(ctx context.Context, name, createdBy string) (strin
 		return "", APIKey{}, wrap(op, err)
 	}
 	return plaintext, out, nil
+}
+
+// GetAPIKey returns the key with id, revoked or not, or ErrNotFound.
+func (s *Store) GetAPIKey(ctx context.Context, id uuid.UUID) (APIKey, error) {
+	out, err := queryOne[APIKey](ctx, s.db, `SELECT `+keyColumns+` FROM api_keys WHERE id = $1`, id)
+	return out, wrap("get api key", err)
 }
 
 // VerifyAPIKey returns the unrevoked key matching plaintext and stamps its
