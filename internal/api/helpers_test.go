@@ -123,6 +123,12 @@ func (f *fakeStore) CreateAPIKey(_ context.Context, name, createdBy string) (str
 	}
 	f.keys[secret] = key
 	f.keysByID[key.ID] = key
+	f.recordAuditLocked(store.AuditEntry{
+		Actor:   createdBy,
+		Action:  "api_key_created",
+		Target:  key.Name,
+		Details: map[string]any{"key_id": key.ID.String(), "prefix": key.Prefix},
+	})
 	return secret, key, nil
 }
 
@@ -152,12 +158,12 @@ func (f *fakeStore) ListAPIKeys(_ context.Context) ([]store.APIKey, error) {
 	return out, nil
 }
 
-func (f *fakeStore) RevokeAPIKey(_ context.Context, id uuid.UUID) error {
+func (f *fakeStore) RevokeAPIKey(_ context.Context, id uuid.UUID, actor string) (store.APIKey, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	k, ok := f.keysByID[id]
 	if !ok {
-		return store.ErrNotFound
+		return store.APIKey{}, store.ErrNotFound
 	}
 	if k.RevokedAt == nil {
 		now := time.Now().UTC()
@@ -169,17 +175,27 @@ func (f *fakeStore) RevokeAPIKey(_ context.Context, id uuid.UUID) error {
 				f.keys[secret] = sk
 			}
 		}
+		f.recordAuditLocked(store.AuditEntry{
+			Actor:   actor,
+			Action:  "api_key_revoked",
+			Target:  k.Name,
+			Details: map[string]any{"key_id": k.ID.String(), "prefix": k.Prefix},
+		})
 	}
-	return nil
+	return k, nil
 }
 
 func (f *fakeStore) RecordAudit(_ context.Context, e store.AuditEntry) (store.AuditEntry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	return f.recordAuditLocked(e), nil
+}
+
+func (f *fakeStore) recordAuditLocked(e store.AuditEntry) store.AuditEntry {
 	e.ID = int64(len(f.audits) + 1)
 	e.At = time.Now().UTC()
 	f.audits = append(f.audits, e)
-	return e, nil
+	return e
 }
 
 func (f *fakeStore) auditLog() []store.AuditEntry {

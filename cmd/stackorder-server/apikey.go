@@ -118,7 +118,6 @@ func apiKeyCreate(ctx context.Context, st *store.Store, rawName, actor string, s
 		_, _ = fmt.Fprintln(stderr, "stackorder-server api-key create:", err)
 		return 1
 	}
-	auditKey(ctx, st, actor, "api_key_created", key, stderr)
 	_, _ = fmt.Fprintf(stdout, "Created API key %q (id %s).\nStore this secret now; it is not shown again:\n\n  %s\n\n", key.Name, key.ID, secret)
 	return 0
 }
@@ -140,30 +139,13 @@ func apiKeyList(ctx context.Context, st *store.Store, stdout, stderr io.Writer) 
 }
 
 func apiKeyRevoke(ctx context.Context, st *store.Store, id uuid.UUID, actor string, stdout, stderr io.Writer) int {
-	if err := st.RevokeAPIKey(ctx, id); err != nil {
-		_, _ = fmt.Fprintln(stderr, "stackorder-server api-key revoke:", err)
-		return 1
-	}
-	key, err := st.GetAPIKey(ctx, id)
+	key, err := st.RevokeAPIKey(ctx, id, actor)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "stackorder-server api-key revoke:", err)
 		return 1
 	}
-	auditKey(ctx, st, actor, "api_key_revoked", key, stderr)
 	_, _ = fmt.Fprintf(stdout, "Revoked API key %q (id %s).\n", key.Name, key.ID)
 	return 0
-}
-
-func auditKey(ctx context.Context, st *store.Store, actor, action string, key store.APIKey, stderr io.Writer) {
-	_, err := st.RecordAudit(ctx, store.AuditEntry{
-		Actor:   actor,
-		Action:  action,
-		Target:  key.Name,
-		Details: map[string]any{"key_id": key.ID.String(), "prefix": key.Prefix},
-	})
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "stackorder-server api-key: the action succeeded but the audit entry failed: %v\n", err)
-	}
 }
 
 func stamp(t *time.Time) string {

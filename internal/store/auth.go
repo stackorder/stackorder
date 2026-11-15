@@ -20,6 +20,9 @@ const (
 	APIKeyPrefix = "sk_"
 	apiKeyShown  = 10
 	tokenBytes   = 32
+
+	actionAPIKeyCreated = "api_key_created"
+	actionAPIKeyRevoked = "api_key_revoked"
 )
 
 // SeenJTI records an OIDC token id until exp and reports whether it had
@@ -148,8 +151,10 @@ func (k APIKey) ToV1() v1.APIKey {
 	}
 }
 
-// CreateAPIKey creates a key and returns its plaintext, which starts with
-// APIKeyPrefix and is shown once.
+// CreateAPIKey creates a key and records an api_key_created audit entry in the
+// same transaction, so a usable key never exists without its audit record. It
+// returns the key's plaintext, which starts with APIKeyPrefix and is shown
+// once. createdBy is the key's creator and the actor of the audit entry.
 func (s *Store) CreateAPIKey(ctx context.Context, name, createdBy string) (string, APIKey, error) {
 	const op = "create api key"
 	if name == "" {
@@ -160,13 +165,31 @@ func (s *Store) CreateAPIKey(ctx context.Context, name, createdBy string) (strin
 		return "", APIKey{}, wrap(op, err)
 	}
 	plaintext := APIKeyPrefix + token
-	out, err := queryOne[APIKey](ctx, s.db, `
-		INSERT INTO api_keys (name, key_hash, prefix, created_by) VALUES ($1, $2, $3, $4)
-		RETURNING `+keyColumns, name, hashToken(plaintext), plaintext[:apiKeyShown], createdBy)
+	var out APIKey
+	err = s.InTx(ctx, func(tx *Store) error {
+		created, err := queryOne[APIKey](ctx, tx.db, `
+			INSERT INTO api_keys (name, key_hash, prefix, created_by) VALUES ($1, $2, $3, $4)
+			RETURNING `+keyColumns, name, hashToken(plaintext), plaintext[:apiKeyShown], createdBy)
+		if err != nil {
+			return wrap(op, err)
+		}
+		out = created
+		_, err = tx.RecordAudit(ctx, keyAudit(createdBy, actionAPIKeyCreated, created))
+		return err
+	})
 	if err != nil {
-		return "", APIKey{}, wrap(op, err)
+		return "", APIKey{}, err
 	}
 	return plaintext, out, nil
+}
+
+func keyAudit(actor, action string, key APIKey) AuditEntry {
+	return AuditEntry{
+		Actor:   actor,
+		Action:  action,
+		Target:  key.Name,
+		Details: map[string]any{"key_id": key.ID.String(), "prefix": key.Prefix},
+	}
 }
 
 // GetAPIKey returns the key with id, revoked or not, or ErrNotFound.
@@ -189,11 +212,37 @@ func (s *Store) VerifyAPIKey(ctx context.Context, plaintext string) (APIKey, err
 	return out, wrap(op, err)
 }
 
-// RevokeAPIKey revokes a key. Revoking it again keeps the first revocation
-// time.
-func (s *Store) RevokeAPIKey(ctx context.Context, id uuid.UUID) error {
-	return s.execOne(ctx, "revoke api key",
-		`UPDATE api_keys SET revoked_at = COALESCE(revoked_at, now()) WHERE id = $1`, id)
+// RevokeAPIKey revokes a key and returns its metadata. Only the call that
+// actually revokes the key records an api_key_revoked audit entry, in the same
+// transaction as the revocation; revoking an already-revoked key keeps the
+// first revocation time and records no further entry. actor is the audit
+// actor. An unknown id is ErrNotFound.
+func (s *Store) RevokeAPIKey(ctx context.Context, id uuid.UUID, actor string) (APIKey, error) {
+	const op = "revoke api key"
+	var out APIKey
+	err := s.InTx(ctx, func(tx *Store) error {
+		var revokedAt *time.Time
+		if err := tx.db.QueryRow(ctx,
+			`SELECT revoked_at FROM api_keys WHERE id = $1 FOR UPDATE`, id).Scan(&revokedAt); err != nil {
+			return wrap(op, err)
+		}
+		updated, err := queryOne[APIKey](ctx, tx.db, `
+			UPDATE api_keys SET revoked_at = COALESCE(revoked_at, now()) WHERE id = $1
+			RETURNING `+keyColumns, id)
+		if err != nil {
+			return wrap(op, err)
+		}
+		out = updated
+		if revokedAt != nil {
+			return nil
+		}
+		_, err = tx.RecordAudit(ctx, keyAudit(actor, actionAPIKeyRevoked, updated))
+		return err
+	})
+	if err != nil {
+		return APIKey{}, err
+	}
+	return out, nil
 }
 
 // ListAPIKeys returns every key, revoked ones included, newest first.

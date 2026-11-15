@@ -102,6 +102,28 @@ func TestRevokeAPIKey(t *testing.T) {
 	assert.Equal(t, created.ID, entries[1].Details["key_id"])
 }
 
+func TestRevokeAPIKeyIsAuditedOnce(t *testing.T) {
+	e := newEnv(t)
+	admin := e.apiKey("admin")
+
+	rec := e.do(bearer(sameOriginPost(t, "/v1/keys", v1.CreateAPIKeyRequest{Name: "ci"}), admin))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	created := decodeBody[v1.CreatedAPIKey](t, rec)
+
+	for i := 0; i < 3; i++ {
+		rec = e.do(bearer(deleteReq(t, "/v1/keys/"+created.ID), admin))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var revokes int
+	for _, entry := range e.db.auditLog() {
+		if entry.Action == "api_key_revoked" {
+			revokes++
+		}
+	}
+	assert.Equal(t, 1, revokes, "only the call that revokes the key is audited")
+}
+
 func TestRevokeAPIKeyErrors(t *testing.T) {
 	e := newEnv(t)
 	admin := e.apiKey("admin")

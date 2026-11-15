@@ -606,14 +606,16 @@ func TestModules(t *testing.T) {
 func TestAuditLog(t *testing.T) {
 	w := newWorld(t)
 	all := decodeBody[v1.Page[v1.AuditEntry]](t, w.ok("/v1/audit", false))
-	require.Len(t, all.Items, 2)
-	assert.Equal(t, "rerun", all.Items[0].Action, "newest first")
-	assert.Equal(t, "apikey:ci", all.Items[0].Actor)
-	assert.Equal(t, map[string]any{"repo": "globex/platform"}, all.Items[0].Details)
-	assert.Equal(t, time.UTC, all.Items[1].At.Location())
+	require.Len(t, all.Items, 3)
+	assert.Equal(t, "api_key_created", all.Items[0].Action, "newest first")
+	assert.Equal(t, "ci", all.Items[0].Target)
+	assert.Equal(t, "rerun", all.Items[1].Action)
+	assert.Equal(t, "apikey:ci", all.Items[1].Actor)
+	assert.Equal(t, map[string]any{"repo": "globex/platform"}, all.Items[1].Details)
+	assert.Equal(t, time.UTC, all.Items[2].At.Location())
 
 	mine := decodeBody[v1.Page[v1.AuditEntry]](t, w.ok("/v1/audit", true))
-	require.Len(t, mine.Items, 1, "an acme member does not see globex entries")
+	require.Len(t, mine.Items, 1, "an acme member sees neither globex nor key-management entries")
 	assert.Equal(t, v1.AuditEntry{At: mine.Items[0].At, Actor: "octocat", Action: "unlock", Target: "acme/infra//stacks/prod/eks", Details: map[string]any{"reason": "reverted"}}, mine.Items[0])
 
 	first := decodeBody[v1.Page[v1.AuditEntry]](t, w.ok("/v1/audit?limit=1", false))
@@ -621,7 +623,7 @@ func TestAuditLog(t *testing.T) {
 	require.NotEmpty(t, first.NextCursor)
 	second := decodeBody[v1.Page[v1.AuditEntry]](t, w.ok("/v1/audit?limit=1&cursor="+first.NextCursor, false))
 	require.Len(t, second.Items, 1)
-	assert.Equal(t, "unlock", second.Items[0].Action)
+	assert.Equal(t, "rerun", second.Items[0].Action)
 	assert.Equal(t, http.StatusBadRequest, w.get("/v1/audit?cursor=abc", false).Code)
 }
 
@@ -656,7 +658,8 @@ func TestRunnerAuthWithTheRealStore(t *testing.T) {
 	keys, err := w.st.ListAPIKeys(t.Context())
 	require.NoError(t, err)
 	revoked = keys[0]
-	require.NoError(t, w.st.RevokeAPIKey(t.Context(), revoked.ID))
+	_, err = w.st.RevokeAPIKey(t.Context(), revoked.ID, "operator")
+	require.NoError(t, err)
 	rec = post(w.key)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 

@@ -170,7 +170,7 @@ type dataStore interface {
 	CreateAPIKey(ctx context.Context, name, createdBy string) (string, store.APIKey, error)
 	GetAPIKey(ctx context.Context, id uuid.UUID) (store.APIKey, error)
 	ListAPIKeys(ctx context.Context) ([]store.APIKey, error)
-	RevokeAPIKey(ctx context.Context, id uuid.UUID) error
+	RevokeAPIKey(ctx context.Context, id uuid.UUID, actor string) (store.APIKey, error)
 	RecordAudit(ctx context.Context, e store.AuditEntry) (store.AuditEntry, error)
 	GetSession(ctx context.Context, token string) (store.Session, error)
 	CreateSession(ctx context.Context, n store.NewSession) (string, store.Session, error)

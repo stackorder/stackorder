@@ -127,8 +127,14 @@ func TestAPIKeys(t *testing.T) {
 	second, _, err := f.s.CreateAPIKey(f.ctx, "deploy", "octocat")
 	require.NoError(t, err)
 	require.NotEqual(t, plaintext, second)
-	require.NoError(t, f.s.RevokeAPIKey(f.ctx, key.ID))
-	require.NoError(t, f.s.RevokeAPIKey(f.ctx, key.ID))
+	first, err := f.s.RevokeAPIKey(f.ctx, key.ID, "octocat")
+	require.NoError(t, err)
+	require.NotNil(t, first.RevokedAt)
+	firstRevokedAt := *first.RevokedAt
+	again, err := f.s.RevokeAPIKey(f.ctx, key.ID, "octocat")
+	require.NoError(t, err)
+	require.NotNil(t, again.RevokedAt)
+	assert.True(t, firstRevokedAt.Equal(*again.RevokedAt), "revoking again keeps the first revocation time")
 	_, err = f.s.VerifyAPIKey(f.ctx, plaintext)
 	require.ErrorIs(t, err, store.ErrNotFound, "revoked keys no longer verify")
 	revoked, err := f.s.GetAPIKey(f.ctx, key.ID)
@@ -136,7 +142,15 @@ func TestAPIKeys(t *testing.T) {
 	require.NotNil(t, revoked.RevokedAt, "GetAPIKey still returns a revoked key")
 	_, err = f.s.VerifyAPIKey(f.ctx, second)
 	require.NoError(t, err)
-	require.ErrorIs(t, f.s.RevokeAPIKey(f.ctx, uuid.New()), store.ErrNotFound)
+	_, err = f.s.RevokeAPIKey(f.ctx, uuid.New(), "octocat")
+	require.ErrorIs(t, err, store.ErrNotFound)
+
+	revokes, _, err := f.s.ListAudit(f.ctx, store.AuditFilter{Action: "api_key_revoked"})
+	require.NoError(t, err)
+	assert.Len(t, revokes, 1, "only the call that revokes the key is audited")
+	creates, _, err := f.s.ListAudit(f.ctx, store.AuditFilter{Action: "api_key_created"})
+	require.NoError(t, err)
+	assert.Len(t, creates, 2, "each created key is audited once")
 
 	keys, err := f.s.ListAPIKeys(f.ctx)
 	require.NoError(t, err)
@@ -149,6 +163,33 @@ func TestAPIKeys(t *testing.T) {
 
 	_, _, err = f.s.CreateAPIKey(f.ctx, "", "x")
 	require.ErrorIs(t, err, store.ErrInvalid)
+}
+
+func TestAPIKeyMutationsAreAtomicWithAudit(t *testing.T) {
+	f := newFixture(t)
+
+	_, err := f.s.Pool().Exec(f.ctx,
+		`ALTER TABLE audit ADD CONSTRAINT no_create_audit CHECK (action <> 'api_key_created')`)
+	require.NoError(t, err)
+	_, _, err = f.s.CreateAPIKey(f.ctx, "ci", "octocat")
+	require.Error(t, err, "creation fails when its audit entry cannot be written")
+	keys, err := f.s.ListAPIKeys(f.ctx)
+	require.NoError(t, err)
+	assert.Empty(t, keys, "no key exists when its audit entry could not be written")
+
+	_, err = f.s.Pool().Exec(f.ctx, `ALTER TABLE audit DROP CONSTRAINT no_create_audit`)
+	require.NoError(t, err)
+	secret, key, err := f.s.CreateAPIKey(f.ctx, "ci", "octocat")
+	require.NoError(t, err)
+	_, err = f.s.Pool().Exec(f.ctx,
+		`ALTER TABLE audit ADD CONSTRAINT no_revoke_audit CHECK (action <> 'api_key_revoked')`)
+	require.NoError(t, err)
+
+	_, err = f.s.RevokeAPIKey(f.ctx, key.ID, "octocat")
+	require.Error(t, err, "revocation fails when its audit entry cannot be written")
+	verified, err := f.s.VerifyAPIKey(f.ctx, secret)
+	require.NoError(t, err, "the key is not revoked when its revocation could not be audited")
+	assert.Equal(t, key.ID, verified.ID)
 }
 
 func TestAudit(t *testing.T) {

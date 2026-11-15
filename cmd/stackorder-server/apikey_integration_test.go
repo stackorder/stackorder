@@ -79,6 +79,10 @@ func TestAPIKeyCommandIntegration(t *testing.T) {
 	stderr.Reset()
 	require.Equal(t, 0, run([]string{"api-key", "revoke", verified.ID.String()}, env, &stdout, &stderr), "revoking twice still succeeds")
 
+	entries, _, err = st.ListAudit(ctx, store.AuditFilter{Action: "api_key_revoked"})
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "revoking an already-revoked key records no further audit entry")
+
 	stdout.Reset()
 	stderr.Reset()
 	missing := "00000000-0000-0000-0000-000000000000"
