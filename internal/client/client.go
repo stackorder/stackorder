@@ -28,20 +28,26 @@ const (
 	DefaultRetries = 3
 	// DefaultTimeout bounds each attempt, including obtaining its token.
 	DefaultTimeout = 30 * time.Second
+	// DefaultMaxRetryWait caps a single wait before a retry. A Retry-After
+	// header that asks for longer stops the retries rather than hang a job.
+	DefaultMaxRetryWait = time.Minute
 )
 
 var defaultBackoff = []time.Duration{200 * time.Millisecond, 800 * time.Millisecond, 2 * time.Second}
 
 // Client calls the stackorder server API. It is safe for concurrent use.
 type Client struct {
-	baseURL   string
-	ts        TokenSource
-	http      *http.Client
-	userAgent string
-	retries   int
-	backoff   []time.Duration
-	timeout   time.Duration
-	logger    *slog.Logger
+	baseURL      string
+	ts           TokenSource
+	http         *http.Client
+	userAgent    string
+	retries      int
+	backoff      []time.Duration
+	timeout      time.Duration
+	maxRetryWait time.Duration
+	now          func() time.Time
+	sleep        func(context.Context, time.Duration) error
+	logger       *slog.Logger
 }
 
 // Option configures a Client.
@@ -91,6 +97,17 @@ func WithTimeout(d time.Duration) Option {
 	}
 }
 
+// WithMaxRetryWait caps a single wait before a retry; a 429 or 5xx whose
+// Retry-After asks for longer stops the retries. The default is
+// DefaultMaxRetryWait.
+func WithMaxRetryWait(d time.Duration) Option {
+	return func(c *Client) {
+		if d > 0 {
+			c.maxRetryWait = d
+		}
+	}
+}
+
 // WithLogger sets the logger that records retries at debug level.
 func WithLogger(l *slog.Logger) Option {
 	return func(c *Client) {
@@ -105,14 +122,17 @@ func WithLogger(l *slog.Logger) Option {
 // calls.
 func New(baseURL string, ts TokenSource, opts ...Option) *Client {
 	c := &Client{
-		baseURL:   strings.TrimRight(baseURL, "/"),
-		ts:        ts,
-		http:      &http.Client{},
-		userAgent: "stackorder/" + version.Version,
-		retries:   DefaultRetries,
-		backoff:   defaultBackoff,
-		timeout:   DefaultTimeout,
-		logger:    slog.New(slog.DiscardHandler),
+		baseURL:      strings.TrimRight(baseURL, "/"),
+		ts:           ts,
+		http:         &http.Client{},
+		userAgent:    "stackorder/" + version.Version,
+		retries:      DefaultRetries,
+		backoff:      defaultBackoff,
+		timeout:      DefaultTimeout,
+		maxRetryWait: DefaultMaxRetryWait,
+		now:          time.Now,
+		sleep:        sleepContext,
+		logger:       slog.New(slog.DiscardHandler),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -259,16 +279,32 @@ func (c *Client) do(ctx context.Context, method, path string, auth bool, in, out
 			return fmt.Errorf("client: %s %s: %d attempts: %w", method, path, attempts, err)
 		}
 		delay := c.delay(attempts - 1)
+		if after, ok := retryAfter(err); ok {
+			if after > c.maxRetryWait {
+				return fmt.Errorf("client: %s %s: Retry-After %s over the %s cap: %w", method, path, after, c.maxRetryWait, err)
+			}
+			delay = max(after, delay)
+		}
 		c.logger.DebugContext(ctx, "retrying server request",
 			slog.String("method", method), slog.String("path", path),
 			slog.Int("attempt", attempts), slog.Duration("delay", delay), slog.Any("error", err))
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return fmt.Errorf("client: %s %s: %w", method, path, ctx.Err())
-		case <-timer.C:
+		if serr := c.sleep(ctx, delay); serr != nil {
+			return fmt.Errorf("client: %s %s: %w", method, path, serr)
 		}
+	}
+}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
@@ -277,6 +313,14 @@ func (c *Client) delay(retry int) time.Duration {
 		return c.backoff[retry]
 	}
 	return c.backoff[len(c.backoff)-1]
+}
+
+func retryAfter(err error) (time.Duration, bool) {
+	var e *Error
+	if errors.As(err, &e) && e.RetryAfterSet {
+		return e.RetryAfter, true
+	}
+	return 0, false
 }
 
 func (c *Client) attempt(ctx context.Context, method, path string, auth bool, body []byte, out any) error {
@@ -310,8 +354,8 @@ func (c *Client) attempt(ctx context.Context, method, path string, auth bool, bo
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		apiErr := decodeError(resp)
-		if resp.StatusCode >= http.StatusInternalServerError {
+		apiErr := decodeError(resp, c.now())
+		if resp.StatusCode >= http.StatusInternalServerError || resp.StatusCode == http.StatusTooManyRequests {
 			return fmt.Errorf("%w: %w", ErrUnreachable, apiErr)
 		}
 		return apiErr

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -93,7 +94,7 @@ func TestDecodeError(t *testing.T) {
 			rec := httptest.NewRecorder()
 			rec.WriteHeader(tt.status)
 			_, _ = rec.WriteString(tt.body)
-			e := decodeError(rec.Result())
+			e := decodeError(rec.Result(), time.Time{})
 			assert.Equal(t, tt.status, e.Status)
 			assert.Equal(t, tt.wantCode, e.Code)
 			assert.Equal(t, tt.wantMessage, e.Message)

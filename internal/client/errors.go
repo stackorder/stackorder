@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	v1 "github.com/stackorder/stackorder/api/v1"
@@ -38,10 +40,11 @@ const (
 const maxErrorBody = 1 << 20
 
 var (
-	// ErrUnreachable matches network errors, timeouts and 5xx answers that
-	// persisted through every retry, from the server or from the runner's
-	// OIDC token endpoint. The CLI degrades on it for plans and fails closed
-	// for applies.
+	// ErrUnreachable matches network errors, timeouts, 429 answers from a
+	// rate limiter in front of the server, and 5xx answers that persisted
+	// through every retry, from the server or from the runner's OIDC token
+	// endpoint. The CLI degrades on it for plans and fails closed for
+	// applies.
 	ErrUnreachable = errors.New("server unreachable")
 	// ErrUnauthorized matches a 401 or an unauthorized code.
 	ErrUnauthorized = errors.New("unauthorized")
@@ -73,6 +76,12 @@ type Error struct {
 	Message string
 	// Details is the decoded details value, when the server sent one.
 	Details any
+	// RetryAfter is the delay the response's Retry-After header asked for,
+	// valid only when RetryAfterSet is true.
+	RetryAfter time.Duration
+	// RetryAfterSet reports whether the response carried a usable Retry-After
+	// header.
+	RetryAfterSet bool
 }
 
 // Error implements the error interface.
@@ -116,9 +125,12 @@ func (e *Error) Is(target error) bool {
 // IsUnreachable reports whether err means the server could not be reached.
 func IsUnreachable(err error) bool { return errors.Is(err, ErrUnreachable) }
 
-func decodeError(resp *http.Response) *Error {
+func decodeError(resp *http.Response, now time.Time) *Error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 	e := &Error{Status: resp.StatusCode}
+	if d, ok := parseRetryAfter(resp.Header.Get("Retry-After"), now); ok {
+		e.RetryAfter, e.RetryAfterSet = d, true
+	}
 	var wire v1.Error
 	if err := json.Unmarshal(body, &wire); err == nil && wire.Code != "" {
 		e.Code, e.Message, e.Details = wire.Code, wire.Message, wire.Details
@@ -130,6 +142,28 @@ func decodeError(resp *http.Response) *Error {
 		e.Message = http.StatusText(resp.StatusCode)
 	}
 	return e
+}
+
+// parseRetryAfter reads a Retry-After header in its delay-seconds or HTTP-date
+// form and returns the non-negative delay it asks for.
+func parseRetryAfter(v string, now time.Time) (time.Duration, bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, false
+	}
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs < 0 {
+			return 0, false
+		}
+		if int64(secs) > int64(math.MaxInt64)/int64(time.Second) {
+			return time.Duration(math.MaxInt64), true
+		}
+		return time.Duration(secs) * time.Second, true
+	}
+	if when, err := http.ParseTime(v); err == nil {
+		return max(when.Sub(now), 0), true
+	}
+	return 0, false
 }
 
 func codeForStatus(status int) string {
