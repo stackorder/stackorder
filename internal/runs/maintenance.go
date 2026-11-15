@@ -395,6 +395,10 @@ func (s *Service) timeOut(ctx context.Context, d store.Dispatch) error {
 // names. When any listing fails nothing is forgotten. An installation that
 // fails does not stop the others, and every failure is returned.
 func (s *Service) SyncInstallations(ctx context.Context) error {
+	observed, err := s.st.Now(ctx)
+	if err != nil {
+		return fmt.Errorf("runs: database time: %w", err)
+	}
 	insts, err := s.gh.ListInstallations(ctx)
 	if err != nil {
 		return fmt.Errorf("runs: list installations: %w", err)
@@ -407,7 +411,7 @@ func (s *Service) SyncInstallations(ctx context.Context) error {
 			continue
 		}
 		listing.installations[inst.ID] = true
-		repos, listed, err := s.syncInstallation(ctx, inst)
+		repos, listed, err := s.syncInstallation(ctx, inst, observed)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -441,12 +445,12 @@ type installationListing struct {
 	repos         map[int64]bool
 }
 
-func (s *Service) syncInstallation(ctx context.Context, inst gh.Installation) ([]gh.Repository, bool, error) {
+func (s *Service) syncInstallation(ctx context.Context, inst gh.Installation, observed time.Time) ([]gh.Repository, bool, error) {
 	if _, err := s.st.UpsertInstallation(ctx, store.Installation{ID: inst.ID, Account: inst.Account.Login, AccountType: inst.Account.Type}); err != nil {
 		return nil, false, storeErr(err, "record installation %d", inst.ID)
 	}
 	suspended := inst.SuspendedAt != nil
-	if err := s.st.SuspendInstallation(ctx, inst.ID, suspended); err != nil {
+	if _, err := s.st.SuspendInstallation(ctx, inst.ID, suspended, observed); err != nil {
 		return nil, false, storeErr(err, "record suspension of installation %d", inst.ID)
 	}
 	if suspended {

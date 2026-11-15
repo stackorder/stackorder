@@ -3,8 +3,11 @@
 package integration
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -79,4 +82,46 @@ func TestInstallationLifecycle(t *testing.T) {
 	var n int
 	require.NoError(t, e.Store.Pool().QueryRow(t.Context(), `SELECT count(*) FROM runs WHERE repo_id = $1`, network.id).Scan(&n))
 	assert.Zero(t, n, "no run is created for a suspended installation")
+}
+
+func TestInstallationEventsAppliedInReceiveOrder(t *testing.T) {
+	e := shared(t)
+	const inst, account = 42, "umbrella"
+	f := newFixture(t, e, "infra", withInstallation(inst, account), notInstalled())
+	e.GH.AddInstallation(inst, account, f.name)
+	f.deliver(gh.EventInstallation, e.GH.InstallationEvent("created", inst))
+	in, err := e.Store.GetInstallation(t.Context(), inst)
+	require.NoError(t, err)
+	require.Nil(t, in.SuspendedAt)
+
+	received := time.Now().UTC()
+	suspendID := "wh-order-suspend-" + account
+	unsuspendID := "wh-order-unsuspend-" + account
+	queueEvent(t, e, suspendID, e.GH.InstallationEvent("suspend", inst), received)
+	queueEvent(t, e, unsuspendID, e.GH.InstallationEvent("unsuspend", inst), received.Add(time.Second))
+
+	e.WaitFor(func() bool {
+		s, se := e.EventDone(suspendID)
+		u, ue := e.EventDone(unsuspendID)
+		require.Empty(t, se)
+		require.Empty(t, ue)
+		return s && u
+	}, waitFor, "both installation deliveries are processed by the worker pool")
+
+	in, err = e.Store.GetInstallation(t.Context(), inst)
+	require.NoError(t, err)
+	assert.Nil(t, in.SuspendedAt, "the later unsuspend wins however the claimers interleave")
+	repo, err := e.Store.GetRepo(t.Context(), f.id)
+	require.NoError(t, err)
+	assert.False(t, repo.Suspended)
+}
+
+func queueEvent(t *testing.T, e *Env, id string, payload any, receivedAt time.Time) {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+	_, err = e.Store.Pool().Exec(context.Background(),
+		`INSERT INTO events (id, kind, payload, received_at) VALUES ($1, $2, $3::jsonb, $4)`,
+		id, gh.EventInstallation, body, receivedAt)
+	require.NoError(t, err)
 }

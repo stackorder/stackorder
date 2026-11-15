@@ -647,7 +647,8 @@ func TestRunnerAuthWithTheRealStore(t *testing.T) {
 	rec = post(w.issuer.Token(w.issuer.PlanClaims("acme/unknown", "999", 7, testSHA)))
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 
-	require.NoError(t, w.st.SuspendInstallation(t.Context(), 1, true))
+	_, err := w.st.SuspendInstallation(t.Context(), 1, true, time.Time{})
+	require.NoError(t, err)
 	rec = post(w.issuer.Token(w.issuer.PlanClaims("acme/infra", "100", 7, testSHA)))
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	assert.Contains(t, errorOf(t, rec).Message, "suspended")

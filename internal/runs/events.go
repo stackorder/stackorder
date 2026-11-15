@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -757,6 +758,7 @@ func (s *Service) HandleInstallation(ctx context.Context, ev *gh.InstallationEve
 	if inst == nil || inst.ID == 0 {
 		return nil
 	}
+	observed := receivedAt(ctx)
 	switch ev.Action {
 	case "deleted":
 		if err := s.st.DeleteInstallation(ctx, inst.ID); err != nil {
@@ -764,8 +766,8 @@ func (s *Service) HandleInstallation(ctx context.Context, ev *gh.InstallationEve
 		}
 		return nil
 	case "suspend":
-		if err := s.st.SuspendInstallation(ctx, inst.ID, true); err != nil && !errors.Is(err, store.ErrNotFound) {
-			return storeErr(err, "suspend installation %d", inst.ID)
+		if _, err := s.setSuspended(ctx, inst.ID, true, observed); err != nil {
+			return err
 		}
 		return nil
 	case "created", "unsuspend", "new_permissions_accepted":
@@ -775,10 +777,26 @@ func (s *Service) HandleInstallation(ctx context.Context, ev *gh.InstallationEve
 	if _, err := s.st.UpsertInstallation(ctx, store.Installation{ID: inst.ID, Account: inst.Account.Login, AccountType: inst.Account.Type}); err != nil {
 		return storeErr(err, "record installation %d", inst.ID)
 	}
-	if err := s.st.SuspendInstallation(ctx, inst.ID, false); err != nil {
-		return storeErr(err, "unsuspend installation %d", inst.ID)
+	applied, err := s.setSuspended(ctx, inst.ID, false, observed)
+	if err != nil {
+		return err
+	}
+	if !applied {
+		return nil
 	}
 	return s.addRepos(ctx, inst.ID, ev.Repositories)
+}
+
+func (s *Service) setSuspended(ctx context.Context, id int64, suspended bool, observedAt time.Time) (bool, error) {
+	applied, err := s.st.SuspendInstallation(ctx, id, suspended, observedAt)
+	if err != nil {
+		return false, storeErr(err, "suspend installation %d", id)
+	}
+	if !applied {
+		s.log.InfoContext(ctx, "a later installation delivery already applied; ignoring this one",
+			"installation", id, "suspended", suspended)
+	}
+	return applied, nil
 }
 
 // HandleInstallationRepositories records repositories added to an

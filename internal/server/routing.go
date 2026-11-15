@@ -99,6 +99,7 @@ func (s *Server) registerOn(h handlers, svc runService) {
 
 func (s *Server) eventHandler(kind string, r eventRoute) worker.EventHandler {
 	return func(ctx context.Context, ev store.Event) error {
+		ctx = runs.WithReceivedAt(ctx, ev.ReceivedAt)
 		return s.traced(ctx, "event "+kind, func(ctx context.Context) error {
 			parsed, err := gh.ParseEvent(kind, ev.Payload)
 			if err != nil {

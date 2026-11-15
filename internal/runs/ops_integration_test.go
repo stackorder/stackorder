@@ -830,6 +830,38 @@ func TestInstallationEvents(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrNotFound)
 }
 
+func TestInstallationEventOrder(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.gh.SetRepo("beta/infra", gh.Repository{ID: 700, DefaultBranch: "trunk"})
+	e.gh.AddInstallation(2, "beta", "beta/infra")
+	e.gh.SetContents("beta/infra", "trunk", "stackorder.yaml", []byte("version: 1\ntool: tofu\n"))
+	e.gh.SetRef("beta/infra", "heads/trunk", headSHA)
+
+	base := time.Now().UTC()
+	require.NoError(t, e.svc.HandleInstallation(runs.WithReceivedAt(e.ctx, base), e.gh.InstallationEvent("created", 2)))
+
+	suspend := e.gh.InstallationEvent("suspend", 2)
+	unsuspend := e.gh.InstallationEvent("unsuspend", 2)
+	suspendAt := base.Add(time.Minute)
+	unsuspendAt := base.Add(2 * time.Minute)
+
+	require.NoError(t, e.svc.HandleInstallation(runs.WithReceivedAt(e.ctx, unsuspendAt), unsuspend))
+	require.NoError(t, e.svc.HandleInstallation(runs.WithReceivedAt(e.ctx, suspendAt), suspend))
+
+	repo, err := e.st.GetRepo(e.ctx, 700)
+	require.NoError(t, err)
+	assert.False(t, repo.Suspended, "the most recently received delivery wins, not the last processed")
+	in, err := e.st.GetInstallation(e.ctx, 2)
+	require.NoError(t, err)
+	assert.Nil(t, in.SuspendedAt)
+
+	reSuspend := e.gh.InstallationEvent("suspend", 2)
+	require.NoError(t, e.svc.HandleInstallation(runs.WithReceivedAt(e.ctx, base.Add(3*time.Minute)), reSuspend))
+	repo, err = e.st.GetRepo(e.ctx, 700)
+	require.NoError(t, err)
+	assert.True(t, repo.Suspended, "a later delivery still takes effect")
+}
+
 func TestPrune(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	runID := e.planned(7, headSHA)
