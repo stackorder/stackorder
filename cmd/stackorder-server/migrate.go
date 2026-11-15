@@ -137,11 +137,17 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: database is not dirty (version %d); --force only recovers a dirty database\n", current)
 			return 1
 		}
-		if err := st.ForceVersion(ctx, uint(force)); err != nil {
+		previous, err := st.ForceVersion(ctx, uint(force))
+		if err != nil {
+			var notDirty *store.SchemaNotDirtyError
+			if errors.As(err, &notDirty) {
+				_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: database is not dirty (version %d); --force only recovers a dirty database\n", notDirty.Version)
+				return 1
+			}
 			_, _ = fmt.Fprintln(stderr, "stackorder-server migrate:", err)
 			return 1
 		}
-		_, _ = fmt.Fprintf(stdout, "cleared the dirty flag; recorded version %d (was dirty at version %d)\n", force, current)
+		_, _ = fmt.Fprintf(stdout, "cleared the dirty flag; recorded version %d (was dirty at version %d)\n", force, previous)
 		return 0
 	}
 

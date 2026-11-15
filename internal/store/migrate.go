@@ -49,6 +49,19 @@ func (e *SchemaDirtyError) Error() string {
 	return fmt.Sprintf("schema is dirty at version %d: a previous migration did not finish and left the schema marked unfinished; repair the schema and clear the dirty flag before migrating", e.Version)
 }
 
+// SchemaNotDirtyError reports that ForceVersion was asked to recover a schema
+// that is not dirty. Forcing a clean database would rewind the recorded version
+// without reverting the schema, so ForceVersion refuses it rather than let a
+// delayed or duplicate recovery overwrite an already-repaired database. Version
+// is the applied version found clean.
+type SchemaNotDirtyError struct {
+	Version uint
+}
+
+func (e *SchemaNotDirtyError) Error() string {
+	return fmt.Sprintf("schema is not dirty (version %d); force only recovers a dirty schema", e.Version)
+}
+
 // SchemaAheadError reports that the database is at a migration version above
 // the one MigrateUp was asked to reach. MigrateUp never reverts a migration,
 // so it returns this rather than migrating down. Target is the version asked
@@ -138,20 +151,33 @@ func (s *Store) MigrateDown(ctx context.Context) error {
 
 // ForceVersion records version as the applied migration version and clears the
 // dirty flag, without running any migration, taking MigrationLockKey as Migrate
-// does. It recovers a dirty schema (see SchemaDirtyError): the operator brings
-// the schema to a known version by hand, then records that version. version 0
+// does. It recovers a dirty schema (see SchemaDirtyError) and nothing else: it
+// reads the dirty flag and forces the version in one locked operation, and
+// refuses a schema that is not dirty with a *SchemaNotDirtyError, so two
+// concurrent recoveries cannot both rewind the bookkeeping of an already-clean
+// database. It returns the version the schema was dirty at. The operator brings
+// the schema to a known version by hand, then records that version; version 0
 // means no migration is applied, the state before the first migration. It does
 // not check what version asserts, so the caller is responsible for the schema
 // matching it; a wrong version makes the next migration run against a schema it
 // does not expect.
-func (s *Store) ForceVersion(ctx context.Context, version uint) error {
-	return s.withMigrator(ctx, fmt.Sprintf("force version %d", version), func(m *migrate.Migrate) error {
+func (s *Store) ForceVersion(ctx context.Context, version uint) (previous uint, err error) {
+	err = s.withMigrator(ctx, fmt.Sprintf("force version %d", version), func(m *migrate.Migrate) error {
+		current, dirty, verr := migratorVersion(m)
+		if verr != nil {
+			return verr
+		}
+		if !dirty {
+			return &SchemaNotDirtyError{Version: current}
+		}
+		previous = current
 		target := -1
 		if version > 0 {
 			target = int(version)
 		}
 		return m.Force(target)
 	})
+	return previous, err
 }
 
 func migratorVersion(m *migrate.Migrate) (current uint, dirty bool, err error) {

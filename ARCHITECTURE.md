@@ -1237,11 +1237,14 @@ given version, reporting whether it applied anything and refusing a dirty
 schema with a `store.SchemaDirtyError`, or one already above the target with a
 `store.SchemaAheadError`, instead of reverting anything; `store.Migrate` (the
 start-up path) refuses a dirty schema the same way. `store.ForceVersion`
-records a version and clears the dirty flag under the lock without running a
-migration (version 0 means no migration applied), for recovering a dirty
-schema after the operator has brought it to a known version; a migration file
-runs as one implicit transaction under the `pgx/v5` driver, so a failed
-migration rolls back and leaves only the dirty flag at the previous version.
+reads the dirty flag and records a version, clearing the flag, in one locked
+operation without running a migration (version 0 means no migration applied),
+returning the version the schema was dirty at, for recovering a dirty schema
+after the operator has brought it to a known version; it refuses a schema that
+is not dirty with a `store.SchemaNotDirtyError` so a delayed or concurrent
+recovery cannot rewind an already-clean database. A migration file runs as one
+implicit transaction under the `pgx/v5` driver, so a failed migration rolls
+back and leaves only the dirty flag at the previous version.
 `store.SchemaVersion` reports the applied
 version and whether it is dirty, reading `schema_migrations` under the lock
 without creating it. The `stackorder-server migrate` subcommand applies

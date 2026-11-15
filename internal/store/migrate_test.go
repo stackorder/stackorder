@@ -177,7 +177,9 @@ func TestForceVersionRecoversDirtyRollback(t *testing.T) {
 	require.ErrorAs(t, s.Migrate(ctx), &dirtyErr)
 	assert.Equal(t, uint(3), dirtyErr.Version)
 
-	require.NoError(t, s.ForceVersion(ctx, 2), "record the version the rolled-back schema is really at")
+	previous, err := s.ForceVersion(ctx, 2)
+	require.NoError(t, err, "record the version the rolled-back schema is really at")
+	assert.Equal(t, uint(3), previous, "it reports the version the schema was dirty at")
 	ver, dirty, err := s.SchemaVersion(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, uint(2), ver)
@@ -208,7 +210,9 @@ func TestForceVersionZeroResetsToPristine(t *testing.T) {
 	require.ErrorAs(t, s.Migrate(ctx), &dirtyErr)
 	assert.Equal(t, uint(1), dirtyErr.Version)
 
-	require.NoError(t, s.ForceVersion(ctx, 0), "no migration is applied after the first one rolled back")
+	previous, err := s.ForceVersion(ctx, 0)
+	require.NoError(t, err, "no migration is applied after the first one rolled back")
+	assert.Equal(t, uint(1), previous, "it reports the version the schema was dirty at")
 	ver, dirty, err := s.SchemaVersion(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, uint(0), ver)
@@ -219,6 +223,72 @@ func TestForceVersionZeroResetsToPristine(t *testing.T) {
 	ver, _, err = s.SchemaVersion(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, target, ver)
+}
+
+func TestForceVersionRefusesCleanSchema(t *testing.T) {
+	ctx := t.Context()
+	s, err := store.Open(ctx, pgtest.DSN(t))
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	applied, err := s.MigrateUp(ctx, 2)
+	require.NoError(t, err)
+	require.True(t, applied)
+
+	_, err = s.ForceVersion(ctx, 1)
+	var notDirty *store.SchemaNotDirtyError
+	require.ErrorAs(t, err, &notDirty, "forcing a clean schema is refused with a typed error")
+	assert.Equal(t, uint(2), notDirty.Version)
+
+	ver, dirty, err := s.SchemaVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint(2), ver, "a refused force leaves the recorded version untouched")
+	assert.False(t, dirty)
+}
+
+func TestForceVersionConcurrentRecoversOnce(t *testing.T) {
+	ctx := t.Context()
+	dsn := pgtest.DSN(t)
+	seed, err := store.Open(ctx, dsn)
+	require.NoError(t, err)
+	t.Cleanup(seed.Close)
+
+	applied, err := seed.MigrateUp(ctx, 2)
+	require.NoError(t, err)
+	require.True(t, applied)
+	_, err = seed.Pool().Exec(ctx, `UPDATE schema_migrations SET version = 3, dirty = true`)
+	require.NoError(t, err)
+
+	const recoveries = 8
+	stores := make([]*store.Store, recoveries)
+	for i := range stores {
+		st, err := store.Open(ctx, dsn)
+		require.NoError(t, err)
+		t.Cleanup(st.Close)
+		stores[i] = st
+	}
+	var wg sync.WaitGroup
+	errs := make([]error, recoveries)
+	for i, st := range stores {
+		wg.Go(func() { _, errs[i] = st.ForceVersion(ctx, 2) })
+	}
+	wg.Wait()
+
+	succeeded := 0
+	for _, err := range errs {
+		if err == nil {
+			succeeded++
+			continue
+		}
+		var notDirty *store.SchemaNotDirtyError
+		require.ErrorAs(t, err, &notDirty, "every losing recovery refuses the already-clean schema")
+	}
+	assert.Equal(t, 1, succeeded, "exactly one concurrent recovery clears the dirty flag")
+
+	ver, dirty, err := seed.SchemaVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint(2), ver)
+	assert.False(t, dirty)
 }
 
 func TestMigrateConcurrentServers(t *testing.T) {

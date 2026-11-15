@@ -168,6 +168,54 @@ func TestMigrateForceRecoversDirty(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("migrated database from version 2 to version %d\n", target), stdout.String())
 }
 
+func TestMigrateForceConcurrentRecoversOnce(t *testing.T) {
+	target, err := store.LatestMigration()
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, target, uint(3), "test assumes at least three migrations")
+	dsn := pgtest.DSN(t)
+	env := envOf(map[string]string{"DATABASE_URL": dsn})
+
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 0, run([]string{"migrate", "--to", "2"}, env, &stdout, &stderr))
+
+	s, err := store.Open(t.Context(), dsn)
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+	_, err = s.Pool().Exec(t.Context(), `UPDATE schema_migrations SET version = 3, dirty = true`)
+	require.NoError(t, err)
+
+	const n = 8
+	codes := make([]int, n)
+	outs := make([]string, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			var out, errb bytes.Buffer
+			codes[i] = run([]string{"migrate", "--force", "2"}, env, &out, &errb)
+			outs[i] = out.String()
+		}(i)
+	}
+	wg.Wait()
+
+	recovered := 0
+	for i := range n {
+		if codes[i] == 0 {
+			recovered++
+			assert.Equal(t, "cleared the dirty flag; recorded version 2 (was dirty at version 3)\n", outs[i])
+		} else {
+			assert.Equal(t, 1, codes[i], "a losing recovery exits 1")
+		}
+	}
+	assert.Equal(t, 1, recovered, "exactly one concurrent --force clears the dirty flag")
+
+	ver, dirty, err := s.SchemaVersion(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, uint(2), ver)
+	assert.False(t, dirty)
+}
+
 func TestMigrateForceRefusesCleanDatabase(t *testing.T) {
 	dsn := pgtest.DSN(t)
 	env := envOf(map[string]string{"DATABASE_URL": dsn})
