@@ -1052,7 +1052,7 @@ These endpoints create, list and revoke [API keys](/reference/server-configurati
 
 ### `POST /v1/keys` {#create-key}
 
-Creates a key and returns its metadata together with the full secret, which is shown only here and stored only as a SHA-256 hash afterwards. `name` is required, is trimmed, and must be at most 100 characters. The key's `created_by` is the calling key's actor (`apikey:<name>`). The creation is audited as `api_key_created`.
+Creates a key and returns its metadata together with the full secret, which is shown only here and stored only as a SHA-256 hash afterwards. `name` is required, is trimmed, and must be at most 100 characters. The key's `created_by` is the calling key's actor (`apikey:<name>`). The creation is audited as `api_key_created`; the key and its audit entry are written in one transaction, so the call fails and creates no key if the entry cannot be recorded.
 
 ```json
 {
@@ -1087,7 +1087,7 @@ Every key, revoked ones included, newest first. The secret is never returned; on
 
 ### `DELETE /v1/keys/{id}` {#revoke-key}
 
-Revokes the key with `id`, a UUID, and returns its metadata with `revoked_at` set. A revoked key no longer authenticates. Revoking an already-revoked key keeps the first revocation time and still answers `200`. An unknown or malformed id is `404 not_found`. The revocation is audited as `api_key_revoked`. A key may revoke itself.
+Revokes the key with `id`, a UUID, and returns its metadata with `revoked_at` set. A revoked key no longer authenticates. Revoking an already-revoked key keeps the first revocation time and still answers `200`. An unknown or malformed id is `404 not_found`. Only the call that actually revokes the key is audited as `api_key_revoked`, in the same transaction as the revocation, so the call fails and the key stays as it was if the entry cannot be recorded, and a repeated revoke records no further entry. A key may revoke itself.
 
 ## Sign-in {#sign-in}
 

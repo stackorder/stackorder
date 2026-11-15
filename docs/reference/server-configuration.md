@@ -146,7 +146,7 @@ curl -sS -H "Authorization: Bearer $STACKORDER_API_KEY" https://stackorder.examp
 curl -sS -X DELETE -H "Authorization: Bearer $STACKORDER_API_KEY" https://stackorder.example.com/v1/keys/<key-id>   # revoke
 ```
 
-Only an API key may manage keys; a signed-in browser user is not an administrator and is refused. Creating and revoking a key, by either route, is written to the [audit log](/reference/api#audit) as `api_key_created` and `api_key_revoked`. The `name` becomes the actor of a key's own later calls, as `apikey:ci`.
+Only an API key may manage keys; a signed-in browser user is not an administrator and is refused. Creating and revoking a key, by either route, is written to the [audit log](/reference/api#audit) as `api_key_created` and `api_key_revoked`, each in the same transaction as the change it records, so a key never exists without its creation entry and a revocation is never recorded unless it took effect; revoking an already-revoked key keeps the first revocation time and adds no further entry. The `name` becomes the actor of a key's own later calls, as `apikey:ci`.
 
 ### Keys inserted by hand still work {#api-keys-manual}
 

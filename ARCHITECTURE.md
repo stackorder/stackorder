@@ -739,9 +739,13 @@ the `adminKey` auth mode, which `with` enforces after authentication, so a
 session is `403 forbidden` and a runner token `401` and only an API key
 manages keys. `identity.isAdmin` is the single chokepoint a later scoped
 key narrows. Creating and revoking a key is audited as `api_key_created` and
-`api_key_revoked` with the key name as the target; the secret is returned
-once at creation and never stored in the clear. The same operations are
-available offline through `stackorder-server api-key`.
+`api_key_revoked` with the key name as the target; the store writes the
+mutation and its audit entry in one transaction, so a key never exists without
+its creation entry and the audit record is only ever written by the call that
+takes effect, which means a repeated revoke of an already-revoked key records
+nothing. The secret is returned once at creation and never stored in the
+clear. The same operations are available offline through
+`stackorder-server api-key`.
 Unknown `/v1/*` and `/auth/*` paths return a JSON 404, not the UI.
 Everything else under `/` serves the embedded UI with SPA fallback to
 `index.html`. `GET /metrics` is open unless
