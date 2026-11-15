@@ -198,9 +198,11 @@ repository where only its operators can push branches, and see
 | `STACKORDER_METRICS_TOKEN` | app secret, `metrics_token` or generated |
 
 Anything else the server reads (`STACKORDER_WORKERS`, the retention
-durations, `STACKORDER_LOG_FORMAT`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
-`GITHUB_OIDC_ISSUER`, `GITHUB_OIDC_JWKS_URL`) goes through
-`extra_environment`, which rejects the names above.
+durations, `STACKORDER_SESSION_TTL`, the `STACKORDER_HSTS_*` settings,
+`STACKORDER_LOG_FORMAT`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `GITHUB_OIDC_ISSUER`,
+`GITHUB_OIDC_JWKS_URL`) goes through `extra_environment`, which rejects the
+names above. The module's base URL is `https`, so `STACKORDER_HSTS_MAX_AGE`
+takes effect once set.
 
 `sslmode=require` encrypts the connection without verifying the server
 certificate, because the distroless image carries only public CAs. The

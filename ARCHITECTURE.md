@@ -1032,7 +1032,9 @@ unbounded.
 | `STACKORDER_STATE_BUCKETS` | Comma-separated `owner/repo=bucket` or `owner/repo=bucket/prefix` entries, `*` in place of `owner/repo` for every repository: the state objects the server may read to serve the stack outputs of each repository; unset turns shared outputs off |
 | `STACKORDER_STATE_ROLE_ARN` | Optional IAM role the server assumes to read those state objects; requires `STACKORDER_STATE_BUCKETS` |
 | `STACKORDER_SESSION_KEY` | 32 byte hex key for cookie signing; generated and logged as a warning when absent |
+| `STACKORDER_SESSION_TTL` | Session cookie and server-side lifetime, default `168h`, between `5m` and `8760h` |
 | `STACKORDER_METRICS_TOKEN` | When set, `/metrics` requires this bearer token |
+| `STACKORDER_HSTS_MAX_AGE`, `STACKORDER_HSTS_INCLUDE_SUBDOMAINS`, `STACKORDER_HSTS_PRELOAD` | Optional `Strict-Transport-Security`; max-age unset sends no header, sent only when the base URL is https, and set with an http base URL is an error; preload needs includeSubDomains and a max-age of at least `8760h` |
 | `STACKORDER_ALLOW_RESETUP` | `true` lets a server with App credentials create another App through `/setup?force=1`; default `false`, and then `/setup?force=1` and `/setup/callback` answer 404 outside setup mode |
 | `STACKORDER_SETUP_TOKEN` | One-time bootstrap token `/setup` requires, at least 32 URL-safe characters; when unset and `/setup` can create an App, 32 random bytes, base64url encoded, generated at start |
 | `STACKORDER_PLAN_TEXT_RETENTION`, `STACKORDER_EVENT_RETENTION`, `STACKORDER_DRIFT_RETENTION` | Durations, defaults `720h`, `168h`, `2160h` |
@@ -1043,9 +1045,11 @@ unbounded.
 
 The server refuses to start without `DATABASE_URL` and `STACKORDER_BASE_URL`;
 retentions must be positive durations, as must `STACKORDER_SCHEDULER_CATCH_UP`,
-which is also at most `168h`; `STACKORDER_ARTIFACT_PREFIX` without a
-bucket is an error; a partial set of the three `GITHUB_APP_*` variables is an
-error. Without all three it starts in setup mode, runs migrations, and serves
+which is also at most `168h`; `STACKORDER_SESSION_TTL` must be a duration between
+`5m` and `8760h`; `STACKORDER_HSTS_MAX_AGE` set with an `http` base URL, or the
+HSTS sub-settings set without it, are errors; `STACKORDER_ARTIFACT_PREFIX`
+without a bucket is an error; a partial set of the three `GITHUB_APP_*` variables
+is an error. Without all three it starts in setup mode, runs migrations, and serves
 only `/setup*`, `/healthz` and `/readyz`. Whenever `/setup` can create an
 App, in setup mode or with `STACKORDER_ALLOW_RESETUP`, the server logs
 `setup_url` at warn level once at start-up: the setup URL with the

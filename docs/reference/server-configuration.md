@@ -31,7 +31,11 @@ Values are trimmed of surrounding white space, and an empty value counts as unse
 | `STACKORDER_STATE_BUCKETS` | unset | Comma-separated `owner/repo=bucket` or `owner/repo=bucket/prefix` entries, the state objects the server may read to serve the [shared outputs](/configuration/outputs) of each repository's stacks; `*=bucket[/prefix]` grants an entry to every repository. Unset turns shared outputs off. Each entry must name a repository, or `*`, and a valid S3 bucket name. See [below](#shared-outputs). |
 | `STACKORDER_STATE_ROLE_ARN` | unset | The ARN of one IAM role, such as `arn:aws:iam::123456789012:role/stackorder-state-reader`, that the server assumes to read those state objects. Setting it without `STACKORDER_STATE_BUCKETS` is an error. |
 | `STACKORDER_SESSION_KEY` | generated | 32 bytes, hex encoded (64 characters), that sign session, sign-in and setup cookies. When unset the server generates one at each start and logs a warning, so sessions end at every restart and are not shared between instances. |
+| `STACKORDER_SESSION_TTL` | `168h` | How long a browser session lasts (7 days), a Go duration between `5m` and `8760h`. It fixes both the session cookie's lifetime and the server-side expiry at sign-in; a change applies only to sessions created afterwards. |
 | `STACKORDER_METRICS_TOKEN` | unset | When set, `GET /metrics` requires `Authorization: Bearer <token>`. |
+| `STACKORDER_HSTS_MAX_AGE` | unset | When set, the `max-age` of the `Strict-Transport-Security` header the server adds to every response, a positive Go duration such as `8760h`. The header is sent only when `STACKORDER_BASE_URL` is `https`; setting this with an `http` base URL is an error. Unset sends no header. See [HSTS](#hsts). |
+| `STACKORDER_HSTS_INCLUDE_SUBDOMAINS` | `false` | Adds `includeSubDomains` to the header. Only meaningful with `STACKORDER_HSTS_MAX_AGE`. |
+| `STACKORDER_HSTS_PRELOAD` | `false` | Adds `preload` to the header. Requires `STACKORDER_HSTS_INCLUDE_SUBDOMAINS` and a `STACKORDER_HSTS_MAX_AGE` of at least `8760h` (one year), what the preload list demands. |
 | `STACKORDER_PLAN_TEXT_RETENTION` | `720h` | How long stored plan text is kept (30 days). |
 | `STACKORDER_EVENT_RETENTION` | `168h` | How long webhook events and finished jobs are kept (7 days). |
 | `STACKORDER_DRIFT_RETENTION` | `2160h` | How long drift history is kept (90 days); the latest result of each stack is always kept. |
@@ -176,6 +180,20 @@ GITHUB_OIDC_ISSUER=https://github.example.com/_services/token
 ```
 
 `GITHUB_OIDC_JWKS_URL` defaults to the issuer followed by `/.well-known/jwks`. The App manifest flow is the same, except that the manifest leaves out the `deployment_protection_rule` event and the Deployments permission, which not every Enterprise Server release offers; add them in the App settings if your instance supports custom deployment protection rules. The page shown after the App is created also prints `GITHUB_API_URL` and `GITHUB_WEB_URL`.
+
+## HSTS {#hsts}
+
+`Strict-Transport-Security` tells a browser to reach this origin over HTTPS only, for the `max-age` it names. The server does not send it by default: a self-hoster on plain HTTP, or on a parent domain shared with other services, must not be locked into HTTPS by an upgrade. Turn it on only once HTTPS is in place to stay, with `STACKORDER_HSTS_MAX_AGE`:
+
+```sh
+STACKORDER_HSTS_MAX_AGE=8760h            # one year
+STACKORDER_HSTS_INCLUDE_SUBDOMAINS=true  # optional, covers every subdomain
+```
+
+- The header is added to every response, but only when `STACKORDER_BASE_URL` is `https`, the same signal that marks the session cookie `Secure`. TLS is terminated in front of the server (see [Server secrets and network](/operations/security-hardening#server)), so the base URL scheme, not the request's own transport, decides this. Setting `STACKORDER_HSTS_MAX_AGE` with an `http` base URL is a start-up error.
+- `includeSubDomains` applies the policy to every subdomain of the host. Set it only when every subdomain is served over HTTPS, since a browser that has seen it refuses plain HTTP for all of them.
+- `preload` (`STACKORDER_HSTS_PRELOAD`) marks the policy for the browser preload list and requires `includeSubDomains` and a `max-age` of at least one year. Submitting a host to the list is a lasting, hard-to-reverse commitment for the whole domain; set it only if you have read [hstspreload.org](https://hstspreload.org) and intend to submit.
+- Start low (for example `STACKORDER_HSTS_MAX_AGE=300s`) to confirm HTTPS holds, then raise it.
 
 ## Network {#network}
 
