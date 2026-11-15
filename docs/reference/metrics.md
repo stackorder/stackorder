@@ -83,7 +83,7 @@ groups:
         expr: histogram_quantile(0.95, sum by (le) (rate(stackorder_webhook_lag_seconds_bucket[10m]))) > 60
         for: 10m
       - alert: StackorderGitHubRateLimitLow
-        expr: min by (installation) (stackorder_github_rate_limit_remaining) < 500
+        expr: min by (installation) (stackorder_github_rate_limit_remaining{installation!=""}) < 500
         for: 5m
       - alert: StackorderQueueBacklog
         expr: max by (queue) (stackorder_queue_depth) > 100
@@ -96,6 +96,8 @@ groups:
         expr: max(stackorder_scheduler_leader) < 1
         for: 10m
 ```
+
+`StackorderGitHubRateLimitLow` matches `installation!=""` so that a v0.5.0 replica still running during a rolling upgrade, which exports the gauge unlabelled and at `0` while idle, does not group under an empty `installation` and trip the alert; once every replica is on this release the matcher is a no-op.
 
 Also alert on `/readyz`: it fails when the database is unreachable.
 
