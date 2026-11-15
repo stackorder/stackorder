@@ -225,6 +225,8 @@ func TestSetupCallbackPrintsTheCredentialsOnce(t *testing.T) {
 		`href="/setup/logo.png"`,
 		"Next steps",
 		"audience " + testBaseURL,
+		"requiring the stackorder/plan check, and stackorder/apply too where apply.mode is before_merge",
+		"in on_merge mode the apply runs after the merge",
 	} {
 		assert.Contains(t, body, want)
 	}

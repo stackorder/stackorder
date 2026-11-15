@@ -375,7 +375,7 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 		"Add .github/workflows/stackorder-plan.yml and .github/workflows/stackorder-run.yml to each repository with stacks, calling the reusable plan.yml and run.yml of stackorder/actions with server-url " + s.cfg.BaseURL + ".",
 		"Runner jobs authenticate with their GitHub OIDC token requested for the audience " + audience + "; no secret is shared with the runners.",
 		"Create the AWS plan role and one apply role per environment, trusting token.actions.githubusercontent.com with sub pinned to the repository and, for applies, the environment.",
-		"Protect the default branch by requiring the stackorder/plan and stackorder/apply checks.",
+		"Protect the default branch by requiring the stackorder/plan check, and stackorder/apply too where apply.mode is before_merge, the default; in on_merge mode the apply runs after the merge, so a required stackorder/apply check would block every merge.",
 		"Sign in at " + s.cfg.BaseURL + " with GitHub to see the repositories of the organisations the App is installed on.",
 	}
 	w.Header().Set("Referrer-Policy", "no-referrer")

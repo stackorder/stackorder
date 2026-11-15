@@ -590,7 +590,7 @@ Through `Contents: Read`, a compromised server, or whoever holds a leaked App pr
 
 **Controls that belong to GitHub, not to Stackorder**
 
-- Branch protection requires the `stackorder/plan` and `stackorder/apply` checks and the configured approvals; Stackorder only reports, GitHub enforces the merge.
+- Branch protection requires the `stackorder/plan` check, the `stackorder/apply` check in `before_merge` mode, and the configured approvals; Stackorder only reports, GitHub enforces the merge.
 - GitHub Environments with required reviewers on the apply job add a human gate that the server cannot skip, because the server cannot approve deployments.
 - The AWS role trust policy restricts `sub` to `repo:org/repo:environment:prod` or to the `job_workflow_ref` of the canonical reusable workflow, so only that workflow in that repo can obtain credentials.
 - Runner OIDC tokens are short-lived and bound to a run; there is nothing to rotate on the runner side.
@@ -742,7 +742,7 @@ jobs:
 As written, the two files do not run: both reusable workflows require `server-url`, the calling jobs must grant the permissions, and the dispatch wrapper must declare the `sha` input, set `run-name` and pass `aws-plan-role-arn`. The complete files are on [Workflows](/configuration/workflows). `secrets: inherit` passes nothing to a reusable workflow in another organization, so the files do not use it; provider credentials go in the workflows' [`env` secret](/configuration/workflows#env).
 :::
 
-Branch protection on the default branch requires the `stackorder/plan` and `stackorder/apply` checks. The plan role needs read access to state and the read-only permissions the providers need to plan; the apply role has the write permissions. Both trust the GitHub OIDC provider with `sub` restricted to the repo and, for apply, the environment.
+Branch protection on the default branch requires the `stackorder/plan` check, and the `stackorder/apply` check in `before_merge` mode, where the apply finishes before the merge; in `on_merge` mode the apply runs after the merge, so a required `stackorder/apply` check would block every merge. The plan role needs read access to state and the read-only permissions the providers need to plan; the apply role has the write permissions. Both trust the GitHub OIDC provider with `sub` restricted to the repo and, for apply, the environment.
 
 **S3 backend.** Each stack's `backend "s3"` block is the source of truth for its state location. The CLI reads `bucket`, `key` and `region` from it, both to run `init` and to report them to the server so the UI can link a stack to its state object. With Terraform or OpenTofu 1.10 and later, `use_lockfile = true` gives S3-native locking with no DynamoDB table; older versions keep using `dynamodb_table`. Stackorder never touches either lock; its own orchestration lock sits above them.
 

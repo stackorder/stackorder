@@ -8,6 +8,10 @@ All notable changes to this repository are documented here. The format follows [
 
 - The CLI retries `429 Too Many Requests` from a rate limiter or reverse proxy in front of the server, which it failed on at once before, alongside the network errors, timeouts and 5xx answers it already retried, and honours a `Retry-After` header in either its seconds or its HTTP-date form on any retried answer, capped at one minute (a header asking for longer stops the retries). A `429` or 5xx that persists through the three retries is now *unreachable*, so `resolve`, `plan` and `drift` degrade to an `unconfirmed` result and `apply` fails closed (exit 3) where a `429` failed with exit 1 before. Upgrading needs no configuration: the attempt count, the 200 ms/800 ms/2 s backoff when no `Retry-After` is sent, and the 30 s per-attempt timeout are unchanged, and each attempt still requests a fresh OIDC token so a retry never replays one. See the [CLI reference](docs/reference/cli.md#server) and [Exit codes](docs/reference/exit-codes.md#server-answers).
 
+### Fixed
+
+- The `/setup` done page no longer tells everyone to require both the `stackorder/plan` and `stackorder/apply` checks in branch protection. Requiring `stackorder/apply` is right only where `apply.mode` is `before_merge`, the default; in `on_merge` mode the apply runs after the merge, so a required `stackorder/apply` check would block every merge. The page now states that condition, matching the [GitHub App reference](docs/reference/github-app.md#checks). The same correction is made in the README and the design notes, which gave the advice unconditionally.
+
 ## [0.5.0] - 2026-11-02
 
 ### Added
