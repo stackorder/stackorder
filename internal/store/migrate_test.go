@@ -184,7 +184,7 @@ func TestForceVersionRecoversDirtyRollback(t *testing.T) {
 	assert.False(t, dirty)
 
 	require.NoError(t, s.Migrate(ctx), "re-applies the migration that failed, and the rest")
-	assert.Equal(t, 22, tableCount(t, s))
+	assert.Equal(t, 23, tableCount(t, s))
 	ver, dirty, err = s.SchemaVersion(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, target, ver)
@@ -215,7 +215,7 @@ func TestForceVersionZeroResetsToPristine(t *testing.T) {
 	assert.False(t, dirty)
 
 	require.NoError(t, s.Migrate(ctx), "migrate runs from the first migration")
-	assert.Equal(t, 22, tableCount(t, s))
+	assert.Equal(t, 23, tableCount(t, s))
 	ver, _, err = s.SchemaVersion(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, target, ver)
