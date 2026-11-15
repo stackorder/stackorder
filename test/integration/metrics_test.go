@@ -59,6 +59,8 @@ func TestMetricsAfterTheFlows(t *testing.T) {
 		`stackorder_runs_total{mode="apply",status="pending",trigger="comment"}`:      2,
 		`stackorder_runs_total{mode="apply",status="applying",trigger="comment"}`:     2,
 		`stackorder_runs_total{mode="apply",status="applied",trigger="comment"}`:      1,
+		`stackorder_runs_created_total{mode="plan",trigger="pull_request"}`:           2,
+		`stackorder_runs_created_total{mode="apply",trigger="comment"}`:               2,
 		`stackorder_stack_finished_total{mode="plan",status="planned"}`:               10,
 		`stackorder_stack_finished_total{mode="apply",status="applied"}`:              2,
 		`stackorder_dispatches_total{mode="apply",result="ok"}`:                       4,

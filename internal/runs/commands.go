@@ -336,6 +336,7 @@ func (s *Service) startServerPlan(ctx context.Context, req serverPlan) (store.Ru
 	if err != nil {
 		return store.Run{}, "", storeErr(err, "plan run on %s", req.repo.FullName)
 	}
+	s.m.RunCreated(run.Trigger, run.Mode)
 	s.m.RunStatusChanged(run.Status, run.Trigger, run.Mode)
 	if err := s.dispatchWave(ctx, run.ID, 0); err != nil {
 		return store.Run{}, "", err
@@ -523,6 +524,7 @@ func (s *Service) startApply(ctx context.Context, req applyRequest) (store.Run, 
 	if err != nil {
 		return store.Run{}, nil, storeErr(err, "apply run on %s", req.repo.FullName)
 	}
+	s.m.RunCreated(run.Trigger, run.Mode)
 	s.m.RunStatusChanged(run.Status, run.Trigger, run.Mode)
 	s.refreshLocksGauge(ctx)
 	if err := s.dispatchWave(ctx, run.ID, 0); err != nil {

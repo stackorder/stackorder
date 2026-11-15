@@ -89,6 +89,7 @@ func (s *Service) createPlanRun(ctx context.Context, c *oidc.Claims, req v1.Crea
 		return nil, err
 	}
 	if created {
+		s.m.RunCreated(run.Trigger, run.Mode)
 		s.m.RunStatusChanged(run.Status, run.Trigger, run.Mode)
 		s.supersede(ctx, repo, pr, head)
 	} else if wr != 0 && (run.WorkflowRunID != wr || run.WorkflowRunAttempt != attempt) {
@@ -308,6 +309,7 @@ func (s *Service) createManualRun(ctx context.Context, p principal.Principal, re
 	if err != nil {
 		return nil, storeErr(err, "manual run on %s", repo.FullName)
 	}
+	s.m.RunCreated(run.Trigger, run.Mode)
 	s.m.RunStatusChanged(v1.RunPending, run.Trigger, run.Mode)
 	s.m.RunStatusChanged(run.Status, run.Trigger, run.Mode)
 	s.refreshLocksGauge(ctx)

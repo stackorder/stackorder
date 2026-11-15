@@ -85,6 +85,7 @@ type GitHub interface {
 // safe for concurrent use.
 type Metrics interface {
 	RunStatusChanged(status v1.RunStatus, trigger v1.Trigger, mode v1.RunMode)
+	RunCreated(trigger v1.Trigger, mode v1.RunMode)
 	StackFinished(mode v1.RunMode, status v1.StackStatus, d time.Duration)
 	Dispatched(mode v1.RunMode, ok bool)
 	SetDriftedStacks(n int)
@@ -98,6 +99,9 @@ type NopMetrics struct{}
 
 // RunStatusChanged implements Metrics.
 func (NopMetrics) RunStatusChanged(v1.RunStatus, v1.Trigger, v1.RunMode) {}
+
+// RunCreated implements Metrics.
+func (NopMetrics) RunCreated(v1.Trigger, v1.RunMode) {}
 
 // StackFinished implements Metrics.
 func (NopMetrics) StackFinished(v1.RunMode, v1.StackStatus, time.Duration) {}

@@ -107,6 +107,8 @@ func TestDriftOpensAndClosesIssue(t *testing.T) {
 	assert.Contains(t, cs[0].Body, "found no drift")
 	_, drift, _ = e.m.snapshot()
 	assert.Zero(t, drift)
+	assert.Equal(t, []string{"drift/schedule", "drift/schedule", "drift/schedule"}, e.m.createdRuns(),
+		"one created count per drift run row, three hours, the reused run never counted")
 
 	_, err = e.svc.RecordResult(e.ctx, e.dispatchJob(ds[2].RunID, "production"), ds[2].Inputs["run_id"], vpc, clean)
 	require.ErrorIs(t, err, principal.ErrForbidden, "drift jobs must run under the default environment")

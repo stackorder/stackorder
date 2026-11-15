@@ -79,6 +79,7 @@ func (c *fakeClock) Set(t time.Time) {
 type recMetrics struct {
 	mu             sync.Mutex
 	runs           []string
+	created        []string
 	stacks         map[v1.StackStatus]int
 	dispatched     map[bool]int
 	drifted        int
@@ -95,6 +96,18 @@ func (m *recMetrics) RunStatusChanged(s v1.RunStatus, t v1.Trigger, mode v1.RunM
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.runs = append(m.runs, fmt.Sprintf("%s/%s/%s", mode, t, s))
+}
+
+func (m *recMetrics) RunCreated(t v1.Trigger, mode v1.RunMode) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.created = append(m.created, fmt.Sprintf("%s/%s", mode, t))
+}
+
+func (m *recMetrics) createdRuns() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.created)
 }
 
 func (m *recMetrics) StackFinished(_ v1.RunMode, s v1.StackStatus, _ time.Duration) {

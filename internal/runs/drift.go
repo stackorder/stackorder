@@ -99,8 +99,12 @@ func (s *Service) RunDriftStack(ctx context.Context, repoID int64, stackID strin
 	}
 	now := s.now()
 	hour := now.Truncate(time.Hour)
-	var run store.Run
+	var (
+		run     store.Run
+		created bool
+	)
 	err = s.st.InTx(ctx, func(tx *store.Store) error {
+		created = false
 		if err := tx.LockKey(ctx, "drift:"+stack.ID.String()+":"+now.Format(hourSlot)); err != nil {
 			return err
 		}
@@ -119,6 +123,7 @@ func (s *Service) RunDriftStack(ctx context.Context, repoID int64, stackID strin
 		if err != nil {
 			return err
 		}
+		created = true
 		if err := tx.UpsertRunStacks(ctx, run.ID, []store.RunStack{{
 			StackID: stack.ID, Mode: v1.ModeDrift, Status: v1.StackPending, Environment: stack.Environment,
 		}}); err != nil {
@@ -131,6 +136,9 @@ func (s *Service) RunDriftStack(ctx context.Context, repoID int64, stackID strin
 	})
 	if err != nil {
 		return storeErr(err, "drift run of %s", stack.Key)
+	}
+	if created {
+		s.m.RunCreated(run.Trigger, run.Mode)
 	}
 	return s.dispatchWave(ctx, run.ID, 0)
 }
