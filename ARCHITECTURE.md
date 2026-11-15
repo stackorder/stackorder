@@ -1129,12 +1129,18 @@ transaction-level advisory lock on the lowercased full name so two workers
 recording the same new repository do not race the unique index.
 `store.SetDefaultGraph` records `repos.default_graph_id` (the runs service
 calls it when a PR merges) and `store.GetDefaultGraph` reads it back;
-in the same transaction `SetDefaultGraph` reconciles `stacks.removed_at` to
-the change, stamping removed a stack the previous default graph listed and
-the new one does not, and clearing `removed_at` on a stack the new one
+in the same transaction `SetDefaultGraph` takes the repository row with
+`SELECT ... FOR UPDATE` before reading the previous default graph, so two
+merges to one repository reconcile against each other's committed result
+rather than a shared stale predecessor, and reconciles `stacks.removed_at`
+to the change, stamping removed a stack the previous default graph listed
+and the new one does not, and clearing `removed_at` on a stack the new one
 lists, so the stack lists and `/v1/overview`, which filter on
 `removed_at IS NULL`, follow the default branch; a stack never on the
 default branch, such as one an open pull request proposes, is left alone.
+Saving a non-default graph (`store.SaveGraph`, from any plan run) never
+clears `removed_at`, so a stack deleted from the default branch stays
+removed even while an open pull request's plan still lists it.
 Migration `0010_reconcile_removed_stacks` repairs existing rows once,
 marking removed a stack absent from its repository's current default graph
 unless a graph newer than that default still lists it. `ModuleConsumers` and `StackModules` read each repository's
