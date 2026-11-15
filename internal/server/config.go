@@ -590,7 +590,7 @@ func formatDuration(d time.Duration) string {
 func (e *env) externalID(name string) string {
 	v := e.str(name)
 	if v != "" && (len(v) < 2 || len(v) > 1224 || !stsExternalID.MatchString(v)) {
-		e.fail(name, "must be 2 to 1224 of the characters AWS allows in an STS external ID (letters, digits and +=,.@:/_-), got %q", v)
+		e.fail(name, "must be 2 to 1224 of the characters AWS allows in an STS external ID (letters, digits and +=,.@:/_-); its value is not shown here because the external ID is never logged")
 		return ""
 	}
 	return v

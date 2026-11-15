@@ -503,6 +503,20 @@ func TestLoadConfigKeepsSecretsOutOfErrors(t *testing.T) {
 	}
 }
 
+func TestLoadConfigKeepsRejectedExternalIDOutOfErrors(t *testing.T) {
+	const (
+		role     = "arn:aws:iam::123456789012:role/stackorder-state-reader"
+		rejected = "rejected external identifier"
+	)
+	_, err := LoadConfig(envOf(with(appEnv(t),
+		EnvStateBuckets, "acme/infra=acme-state",
+		EnvStateRoleARN, role,
+		EnvStateExternalID, rejected)))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), EnvStateExternalID+" must be 2 to 1224 of the characters AWS allows")
+	assert.NotContains(t, err.Error(), rejected, "the rejected external ID value is never echoed")
+}
+
 func TestConfigDefaultsAndValidation(t *testing.T) {
 	cfg := Config{BaseURL: testBaseURL + "/", DatabaseURL: testDSN, SetupMode: true}
 	cfg.withDefaults()
