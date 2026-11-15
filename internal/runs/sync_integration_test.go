@@ -318,3 +318,30 @@ func TestSyncInstallationsFailsOnShortRepositoryListing(t *testing.T) {
 		require.NoError(t, err, "a failed repository listing forgets nothing, repository %d included", id)
 	}
 }
+
+func TestSyncInstallationsShortRepositoryListingForgetsNothingAnywhere(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.gh.SetRepo("beta/one", gh.Repository{ID: 710, DefaultBranch: "main"})
+	e.gh.SetRepo("beta/two", gh.Repository{ID: 711, DefaultBranch: "main"})
+	e.gh.AddInstallation(2, "beta", "beta/one", "beta/two")
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+
+	_, err := e.st.UpsertInstallation(e.ctx, store.Installation{ID: 9, Account: "gone"})
+	require.NoError(t, err)
+	_, err = e.st.UpsertRepo(e.ctx, store.RepoParams{ID: 900, InstallationID: 9, FullName: "gone/infra"})
+	require.NoError(t, err)
+
+	e.gh.HideRepo(711)
+	require.Error(t, e.svc.SyncInstallations(e.ctx), "a short repository listing fails the whole sync")
+	_, err = e.st.GetInstallation(e.ctx, 9)
+	require.NoError(t, err, "a short repository listing for one installation keeps every stored record, including an unrelated installation GitHub no longer lists")
+	_, err = e.st.GetRepo(e.ctx, 900)
+	require.NoError(t, err, "with its repositories")
+
+	e.gh.UnhideRepo(711)
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+	_, err = e.st.GetInstallation(e.ctx, 9)
+	require.ErrorIs(t, err, store.ErrNotFound, "once every listing succeeds the unrelated installation is confirmed gone and forgotten")
+	_, err = e.st.GetRepo(e.ctx, 900)
+	require.ErrorIs(t, err, store.ErrNotFound, "with its repositories")
+}

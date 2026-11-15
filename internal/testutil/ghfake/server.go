@@ -359,6 +359,14 @@ func (s *Server) HideRepo(id int64) {
 	s.hiddenRepos[id] = true
 }
 
+// UnhideRepo restores a repository that HideRepo dropped, so a later
+// listing reports its full set again.
+func (s *Server) UnhideRepo(id int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.hiddenRepos, id)
+}
+
 // SuspendInstallation makes token exchanges for the installation fail.
 func (s *Server) SuspendInstallation(id int64) {
 	s.mu.Lock()
