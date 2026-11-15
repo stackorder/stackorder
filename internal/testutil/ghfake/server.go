@@ -350,9 +350,9 @@ func (s *Server) HideInstallation(id int64) {
 	s.hiddenInsts[id] = true
 }
 
-// HideRepo drops a repository from GET /installation/repositories while
-// keeping the installation intact, to mimic an incomplete repository
-// listing.
+// HideRepo drops a repository from the GET /installation/repositories
+// pages while keeping it in the reported total_count, to mimic a truncated
+// repository listing whose pages hold fewer repositories than GitHub says.
 func (s *Server) HideRepo(id int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

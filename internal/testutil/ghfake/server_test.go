@@ -546,6 +546,23 @@ func TestAppHelpers(t *testing.T) {
 	assert.Equal(t, 404, r.status)
 }
 
+func TestInstallationReposFailsWhenPagesAreShortOfTotalCount(t *testing.T) {
+	fake := ghfake.New(t)
+	fake.SetRepo("acme/one", gh.Repository{ID: 810, DefaultBranch: "main"})
+	fake.SetRepo("acme/two", gh.Repository{ID: 811, DefaultBranch: "main"})
+	fake.AddInstallation(5, "acme", "acme/one", "acme/two")
+	app := fake.NewApp()
+
+	repos, err := app.InstallationRepos(context.Background(), 5)
+	require.NoError(t, err)
+	assert.Len(t, repos, 2)
+
+	fake.HideRepo(811)
+	_, err = app.InstallationRepos(context.Background(), 5)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "1 of 2 repositories")
+}
+
 func TestMatchCreatedFilters(t *testing.T) {
 	fake := ghfake.New(t)
 	fake.AddInstallation(1, "acme", repo)

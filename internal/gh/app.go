@@ -276,14 +276,25 @@ func (a *App) ListInstallations(ctx context.Context) ([]Installation, error) {
 	}, "", 0)
 }
 
-// InstallationRepos returns the repositories an installation can access.
+// InstallationRepos returns the repositories an installation can access. It
+// fails when its pages hold fewer repositories than the total_count GitHub
+// reports, so a truncated listing, from a dropped page or a repository
+// removed while the pages are read, is a failed listing rather than a short
+// one a caller might mistake for a complete one.
 func (a *App) InstallationRepos(ctx context.Context, id int64) ([]Repository, error) {
-	return getAll[Repository](ctx, a.t, request{
+	repos, total, err := getAllCounted[Repository](ctx, a.t, request{
 		method: http.MethodGet,
 		route:  "/installation/repositories",
 		path:   "/installation/repositories",
 		auth:   installationAuth{app: a, id: id},
-	}, "repositories", 0)
+	}, "repositories")
+	if err != nil {
+		return nil, err
+	}
+	if len(repos) < total {
+		return nil, fmt.Errorf("gh: GET /installation/repositories: listing holds %d of %d repositories", len(repos), total)
+	}
+	return repos, nil
 }
 
 // ParsePrivateKey decodes the App's PEM private key, PKCS#1 or PKCS#8. It

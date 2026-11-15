@@ -432,6 +432,67 @@ func getAll[T any](ctx context.Context, t *transport, r request, key string, lim
 	return nil, fmt.Errorf("gh: %s %s: more than %d pages", r.method, r.route, maxPages)
 }
 
+// getAllCounted is getAll for a listing wrapped in an object with a
+// total_count field, returning that count from the last page alongside the
+// items so a caller can detect a listing that is short of what GitHub says
+// it holds.
+func getAllCounted[T any](ctx context.Context, t *transport, r request, key string) ([]T, int, error) {
+	q := url.Values{}
+	for k, v := range r.query {
+		q[k] = append([]string(nil), v...)
+	}
+	if q.Get("per_page") == "" {
+		q.Set("per_page", "100")
+	}
+	r.query = q
+	var out []T
+	total := 0
+	for range maxPages {
+		resp, err := t.do(ctx, r)
+		if err != nil {
+			return nil, 0, err
+		}
+		items, n, err := decodeCounted[T](resp.body, key)
+		if err != nil {
+			return nil, 0, fmt.Errorf("gh: %s %s: decode response: %w", r.method, r.route, err)
+		}
+		out = append(out, items...)
+		total = n
+		next := nextLink(resp.header.Get("Link"))
+		if next == "" {
+			return out, total, nil
+		}
+		if err := t.sameOrigin(next); err != nil {
+			return nil, 0, fmt.Errorf("gh: %s %s: %w", r.method, r.route, err)
+		}
+		r.rawURL = next
+		r.query = nil
+	}
+	return nil, 0, fmt.Errorf("gh: %s %s: more than %d pages", r.method, r.route, maxPages)
+}
+
+func decodeCounted[T any](body []byte, key string) ([]T, int, error) {
+	var wrapper map[string]json.RawMessage
+	if err := json.Unmarshal(body, &wrapper); err != nil {
+		return nil, 0, err
+	}
+	total := 0
+	if raw, ok := wrapper["total_count"]; ok && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &total); err != nil {
+			return nil, 0, err
+		}
+	}
+	raw, ok := wrapper[key]
+	if !ok || string(raw) == "null" {
+		return nil, total, nil
+	}
+	var items []T
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
+}
+
 func decodeItems[T any](body []byte, key string) ([]T, error) {
 	var items []T
 	if key == "" {

@@ -447,7 +447,7 @@ func (s *Server) installationRepos(w http.ResponseWriter, r *http.Request, c *ca
 		}
 		repos = append(repos, rs.repo)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(repos), "repositories": pageOf(s, w, r, repos)})
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(in.repos), "repositories": pageOf(s, w, r, repos)})
 }
 
 func (s *Server) getRepo(w http.ResponseWriter, r *http.Request, c *caller) {
