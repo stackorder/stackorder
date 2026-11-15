@@ -1,0 +1,1 @@
+-- No schema change to reverse; the one-time stacks.removed_at reconcile cannot be undone.

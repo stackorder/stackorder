@@ -15,6 +15,7 @@ import (
 
 	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/store"
+	"github.com/stackorder/stackorder/migrations"
 )
 
 func sortedGraph(g *v1.Graph) *v1.Graph {
@@ -270,4 +271,98 @@ func TestMarkStacksRemoved(t *testing.T) {
 	n, err = f.s.MarkStacksRemoved(f.ctx, f.repo.ID, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 2, n, "nil keep list removes every live stack")
+}
+
+func TestSetDefaultGraphReconcilesRemoved(t *testing.T) {
+	f := newFixture(t)
+	graph := func(sha string, keys ...string) uuid.UUID {
+		g := &v1.Graph{Repo: f.repo.FullName, SHA: sha}
+		for _, k := range keys {
+			g.Stacks = append(g.Stacks, v1.Stack{Key: k, Path: k})
+		}
+		id, _ := f.saveGraph(f.repo.ID, g)
+		return id
+	}
+	liveKeys := func() []string {
+		stacks, err := f.s.ListStacks(f.ctx, f.repo.ID, false)
+		require.NoError(t, err)
+		keys := make([]string, len(stacks))
+		for i, s := range stacks {
+			keys[i] = s.Key
+		}
+		return keys
+	}
+
+	full := graph("full", "a", "b", "c")
+	trimmed := graph("trimmed", "a", "b")
+
+	require.NoError(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, full))
+	assert.Equal(t, []string{"a", "b", "c"}, liveKeys(), "every stack is live under the full graph")
+
+	require.NoError(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, trimmed))
+	assert.Equal(t, []string{"a", "b"}, liveKeys(), "a stack gone from the default graph is marked removed")
+
+	all, err := f.s.ListStacks(f.ctx, f.repo.ID, true)
+	require.NoError(t, err)
+	assert.Len(t, all, 3, "the removed stack is kept, only hidden from the live list")
+	c, err := f.s.GetStackByKey(f.ctx, f.repo.ID, "c")
+	require.NoError(t, err)
+	require.NotNil(t, c.RemovedAt)
+	removedAt := *c.RemovedAt
+
+	require.NoError(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, trimmed), "setting the same default again is idempotent")
+	c, err = f.s.GetStackByKey(f.ctx, f.repo.ID, "c")
+	require.NoError(t, err)
+	require.NotNil(t, c.RemovedAt)
+	assert.Equal(t, removedAt, *c.RemovedAt, "a stack that stays removed keeps its original removal time")
+
+	require.NoError(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, full))
+	assert.Equal(t, []string{"a", "b", "c"}, liveKeys(), "a stack back in the default graph is revived")
+	c, err = f.s.GetStackByKey(f.ctx, f.repo.ID, "c")
+	require.NoError(t, err)
+	assert.Nil(t, c.RemovedAt)
+}
+
+func TestReconcileRemovedStacksMigrationRepairsStaleRows(t *testing.T) {
+	f := newFixture(t)
+	graph := func(sha string, keys ...string) uuid.UUID {
+		g := &v1.Graph{Repo: f.repo.FullName, SHA: sha}
+		for _, k := range keys {
+			g.Stacks = append(g.Stacks, v1.Stack{Key: k, Path: k})
+		}
+		id, _ := f.saveGraph(f.repo.ID, g)
+		return id
+	}
+	liveKeys := func() []string {
+		live, err := f.s.ListStacks(f.ctx, f.repo.ID, false)
+		require.NoError(t, err)
+		keys := make([]string, len(live))
+		for i, s := range live {
+			keys[i] = s.Key
+		}
+		return keys
+	}
+
+	old := graph("old", "a", "b", "gone")
+	kept := graph("kept", "a", "b")
+	graph("proposed", "a", "b", "new")
+	f.exec(`UPDATE graphs SET created_at = now() - interval '2 hours' WHERE id = $1`, old)
+	f.exec(`UPDATE graphs SET created_at = now() - interval '1 hour' WHERE id = $1`, kept)
+	f.exec(`UPDATE repos SET default_graph_id = $1 WHERE id = $2`, kept, f.repo.ID)
+
+	require.ElementsMatch(t, []string{"a", "b", "gone", "new"}, liveKeys(),
+		"a v0.5.0 database still lists a stack gone from the default graph")
+
+	sql, err := migrations.FS.ReadFile("0010_reconcile_removed_stacks.up.sql")
+	require.NoError(t, err)
+	f.exec(string(sql))
+
+	assert.ElementsMatch(t, []string{"a", "b", "new"}, liveKeys(),
+		"the migration removes the deleted stack but spares one an open pull request still proposes")
+	gone, err := f.s.GetStackByKey(f.ctx, f.repo.ID, "gone")
+	require.NoError(t, err)
+	assert.NotNil(t, gone.RemovedAt)
+
+	f.exec(string(sql))
+	assert.ElementsMatch(t, []string{"a", "b", "new"}, liveKeys(), "running the migration again changes nothing")
 }

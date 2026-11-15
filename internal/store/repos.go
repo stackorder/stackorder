@@ -122,13 +122,27 @@ func (s *Store) UpdateRepoConfig(ctx context.Context, id int64, cfg *v1.RepoConf
 }
 
 // SetDefaultGraph records the graph that stands for the repository's
-// default branch. The graph must belong to the repository, or ErrNotFound
-// is returned.
+// default branch and reconciles stacks.removed_at to the change: a stack
+// the previous default graph listed and this one does not is stamped
+// removed, and a stack this graph lists has removed_at cleared, so the
+// stack lists and /v1/overview follow the default branch. The graph must
+// belong to the repository, or ErrNotFound is returned and no stack is
+// touched.
 func (s *Store) SetDefaultGraph(ctx context.Context, repoID int64, graphID uuid.UUID) error {
-	return s.execOne(ctx, "set default graph", `
-		UPDATE repos SET default_graph_id = $2, updated_at = now()
-		WHERE id = $1 AND EXISTS (SELECT 1 FROM graphs g WHERE g.id = $2 AND g.repo_id = $1)`,
-		repoID, graphID)
+	const op = "set default graph"
+	return s.InTx(ctx, func(tx *Store) error {
+		var old *uuid.UUID
+		if err := tx.db.QueryRow(ctx, `SELECT default_graph_id FROM repos WHERE id = $1`, repoID).Scan(&old); err != nil {
+			return wrap(op, err)
+		}
+		if err := tx.execOne(ctx, op, `
+			UPDATE repos SET default_graph_id = $2, updated_at = now()
+			WHERE id = $1 AND EXISTS (SELECT 1 FROM graphs g WHERE g.id = $2 AND g.repo_id = $1)`,
+			repoID, graphID); err != nil {
+			return err
+		}
+		return tx.reconcileRemovedStacks(ctx, repoID, old, graphID)
+	})
 }
 
 // GetDefaultGraph returns the repository's default-branch graph and its id,

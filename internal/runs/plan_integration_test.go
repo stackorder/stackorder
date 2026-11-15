@@ -724,3 +724,47 @@ func TestNothingAffected(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, applies)
 }
+
+func TestMergeMarksVanishedStacksRemoved(t *testing.T) {
+	const gone = "stacks/prod/legacy"
+	e := newEnv(t, baseConfig())
+	onMain := testGraph(mainSHA)
+	onMain.Stacks = append(onMain.Stacks, v1.Stack{Key: gone, Path: gone, Backend: &v1.Backend{Type: "s3", Bucket: "state", Key: gone + ".tfstate"}})
+	id, _, err := e.st.SaveGraph(e.ctx, repoID, &onMain)
+	require.NoError(t, err)
+	require.NoError(t, e.st.SetDefaultGraph(e.ctx, repoID, id))
+
+	has := func(stacks []store.Stack, key string) bool {
+		return slices.ContainsFunc(stacks, func(s store.Stack) bool { return s.Key == key })
+	}
+	before, err := e.st.ListStacks(e.ctx, repoID, false)
+	require.NoError(t, err)
+	require.True(t, has(before, gone), "the stack is live before it is dropped")
+
+	planRun := e.planned(7, headSHA)
+	merged := e.gh.PullRequestEvent("closed", repoName, gh.PullRequest{
+		Number: 7, State: gh.IssueClosed, Merged: true, MergeCommitSHA: mergeSHA, HeadSHA: headSHA, BaseSHA: baseSHA, User: gh.User{Login: author},
+	})
+	require.NoError(t, e.svc.HandlePullRequest(e.ctx, merged))
+
+	_, gid, err := e.st.GetDefaultGraph(e.ctx, repoID)
+	require.NoError(t, err)
+	planStored, err := e.st.GetRun(e.ctx, uuid.MustParse(planRun))
+	require.NoError(t, err)
+	require.Equal(t, *planStored.GraphID, gid, "the merged pull request's graph becomes the default-branch graph")
+
+	live, err := e.st.ListStacks(e.ctx, repoID, false)
+	require.NoError(t, err)
+	assert.False(t, has(live, gone), "a stack the merged graph no longer lists is dropped from the live list")
+	all, err := e.st.ListStacks(e.ctx, repoID, true)
+	require.NoError(t, err)
+	assert.True(t, has(all, gone), "the removed stack is kept for history")
+	for _, s := range all {
+		if s.Key == gone {
+			assert.NotNil(t, s.RemovedAt, "the dropped stack is stamped removed")
+		}
+	}
+	ov, err := e.st.Overview(e.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, len(live), ov.Stacks, "the overview counts only live stacks")
+}

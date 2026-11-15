@@ -137,6 +137,33 @@ func (s *Store) MarkStacksRemoved(ctx context.Context, repoID int64, keepKeys []
 	return int(tag.RowsAffected()), nil
 }
 
+// reconcileRemovedStacks moves stacks.removed_at to follow a change of the
+// repository's default-branch graph from oldGraphID to newGraphID. A stack
+// the old graph listed and the new one does not is stamped removed, and a
+// stack the new graph lists has removed_at cleared, so a stack deleted from
+// the default branch leaves the stack lists and /v1/overview and a stack
+// that returns is listed again. A stack that was never in the default
+// graph, such as one an open pull request proposes, is left alone.
+func (s *Store) reconcileRemovedStacks(ctx context.Context, repoID int64, oldGraphID *uuid.UUID, newGraphID uuid.UUID) error {
+	const op = "reconcile removed stacks"
+	if oldGraphID != nil {
+		if _, err := s.db.Exec(ctx, `
+			UPDATE stacks SET removed_at = now()
+			WHERE repo_id = $1 AND removed_at IS NULL
+			  AND id IN (SELECT stack_id FROM graph_stacks WHERE graph_id = $2)
+			  AND id NOT IN (SELECT stack_id FROM graph_stacks WHERE graph_id = $3)`,
+			repoID, *oldGraphID, newGraphID); err != nil {
+			return wrap(op, err)
+		}
+	}
+	_, err := s.db.Exec(ctx, `
+		UPDATE stacks SET removed_at = NULL
+		WHERE repo_id = $1 AND removed_at IS NOT NULL
+		  AND id IN (SELECT stack_id FROM graph_stacks WHERE graph_id = $2)`,
+		repoID, newGraphID)
+	return wrap(op, err)
+}
+
 // SetStackStateObject records the state object an apply or drift job of run
 // reported for the stack. The run must be an apply or drift run of the
 // stack's repository. A report from a run created before the run already
