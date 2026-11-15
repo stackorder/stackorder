@@ -80,6 +80,46 @@ func TestDefaultGraphFKRestorableInOneTransaction(t *testing.T) {
 	require.NoError(t, tx.Commit(ctx), "the cycle is satisfied at commit")
 }
 
+func TestMigrateUp(t *testing.T) {
+	ctx := t.Context()
+	s, err := store.Open(ctx, pgtest.DSN(t))
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	require.NoError(t, s.MigrateUp(ctx, 3))
+	ver, dirty, err := s.SchemaVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint(3), ver)
+	assert.False(t, dirty)
+
+	require.NoError(t, s.MigrateUp(ctx, 3), "to the current version is a no-op")
+
+	require.ErrorContains(t, s.MigrateUp(ctx, 2), "above the requested version 2",
+		"it refuses to migrate down instead of reverting")
+	ver, _, err = s.SchemaVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint(3), ver, "a refused down leaves the schema where it was")
+
+	require.NoError(t, s.MigrateUp(ctx, 9))
+	ver, dirty, err = s.SchemaVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint(9), ver)
+	assert.False(t, dirty)
+}
+
+func TestMigrateUpRefusesDirty(t *testing.T) {
+	ctx := t.Context()
+	s, err := store.Open(ctx, pgtest.DSN(t))
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	require.NoError(t, s.Migrate(ctx))
+	_, err = s.Pool().Exec(ctx, `UPDATE schema_migrations SET dirty = true`)
+	require.NoError(t, err)
+
+	require.ErrorContains(t, s.MigrateUp(ctx, 9), "dirty")
+}
+
 func TestMigrateConcurrentServers(t *testing.T) {
 	ctx := t.Context()
 	dsn := pgtest.DSN(t)

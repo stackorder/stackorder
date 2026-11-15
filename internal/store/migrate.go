@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
 	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
@@ -22,6 +24,66 @@ func (s *Store) Migrate(ctx context.Context) error {
 	return s.withMigrator(ctx, "migrate up", func(m *migrate.Migrate) error {
 		return m.Up()
 	})
+}
+
+// MigrateUp applies the pending up migrations until the schema is at version,
+// holding MigrationLockKey as Migrate does. It reads the applied version under
+// the lock and never reverts a migration: it refuses a dirty schema, and a
+// schema already above version, rather than migrating down. version is
+// normally LatestMigration; passing it the current version is a no-op.
+func (s *Store) MigrateUp(ctx context.Context, version uint) error {
+	return s.withMigrator(ctx, fmt.Sprintf("migrate up to %d", version), func(m *migrate.Migrate) error {
+		current, dirty, err := m.Version()
+		switch {
+		case errors.Is(err, migrate.ErrNilVersion):
+			current = 0
+		case err != nil:
+			return err
+		}
+		if dirty {
+			return fmt.Errorf("schema is dirty at version %d; repair it before migrating", current)
+		}
+		if current > version {
+			return fmt.Errorf("schema is at version %d, above the requested version %d; migrate does not revert migrations", current, version)
+		}
+		return m.Migrate(version)
+	})
+}
+
+// LatestMigration returns the highest version embedded in migrations.FS: the
+// version a full up migration reaches, and the target an operator compares the
+// applied version against. It needs no database connection.
+func LatestMigration() (uint, error) {
+	entries, err := migrations.FS.ReadDir(".")
+	if err != nil {
+		return 0, fmt.Errorf("store: read embedded migrations: %w", err)
+	}
+	var (
+		latest uint
+		found  bool
+	)
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".up.sql") {
+			continue
+		}
+		i := strings.IndexByte(name, '_')
+		if i <= 0 {
+			return 0, fmt.Errorf("store: migration %q does not start with NNNN_", name)
+		}
+		n, err := strconv.ParseUint(name[:i], 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("store: parse version in %q: %w", name, err)
+		}
+		if uint(n) > latest {
+			latest = uint(n)
+		}
+		found = true
+	}
+	if !found {
+		return 0, fmt.Errorf("store: no up migrations embedded")
+	}
+	return latest, nil
 }
 
 // MigrateDown reverts every applied migration. It exists for tests and for
