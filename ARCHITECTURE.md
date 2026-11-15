@@ -1006,7 +1006,8 @@ starting on the event), `events_processed_total{kind,result}`,
 for the App JWT), `scheduler_leader`,
 `http_requests_total{route,method,status}`, `http_request_duration_seconds`,
 `build_info{version,commit}`. Label values outside a known set are counted
-as `other`.
+as `other`, except `installation`, which is recorded verbatim and so is
+unbounded.
 
 ## Server configuration
 

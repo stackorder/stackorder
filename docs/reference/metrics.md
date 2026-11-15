@@ -8,7 +8,7 @@ The server exposes Prometheus metrics at `GET /metrics` and exports OpenTelemetr
 
 ## Metric names {#names}
 
-Every metric is defined in `internal/metrics` and carries the `stackorder_` prefix. Label values that could come from outside, such as event names or HTTP methods, are bounded: a value outside the known set is counted as `other` (`OTHER` for methods).
+Every metric is defined in `internal/metrics` and carries the `stackorder_` prefix. Label values that could come from outside, such as event names or HTTP methods, are bounded: a value outside the known set is counted as `other` (`OTHER` for methods). The `installation` label on `stackorder_github_rate_limit_remaining` is the exception: it is recorded verbatim, so its cardinality is unbounded.
 
 ### Runs and stacks {#runs}
 
