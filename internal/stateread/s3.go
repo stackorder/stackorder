@@ -45,6 +45,7 @@ type options struct {
 	stsEndpoint string
 	region      string
 	roleARN     string
+	externalID  string
 	creds       aws.CredentialsProvider
 	httpClient  *http.Client
 	wait        time.Duration
@@ -81,6 +82,14 @@ func WithRegion(region string) Option {
 // with the base credentials and refreshed before it expires.
 func WithRoleARN(roleARN string) Option {
 	return func(o *options) { o.roleARN = roleARN }
+}
+
+// WithExternalID sets externalID as the ExternalId of the STS AssumeRole
+// request WithRoleARN makes, so a role whose trust policy requires a
+// matching sts:ExternalId can be assumed. It has no effect without
+// WithRoleARN.
+func WithExternalID(externalID string) Option {
+	return func(o *options) { o.externalID = externalID }
 }
 
 // WithStaticCredentials signs requests, or the role assumption when
@@ -142,7 +151,12 @@ func New(ctx context.Context, grants []Grant, opts ...Option) (*Reader, error) {
 			}
 		})
 		cfg.Credentials = aws.NewCredentialsCache(stscreds.NewAssumeRoleProvider(client, o.roleARN,
-			func(ao *stscreds.AssumeRoleOptions) { ao.RoleSessionName = roleSessionName }))
+			func(ao *stscreds.AssumeRoleOptions) {
+				ao.RoleSessionName = roleSessionName
+				if o.externalID != "" {
+					ao.ExternalID = aws.String(o.externalID)
+				}
+			}))
 	}
 	client := s3.NewFromConfig(cfg, func(so *s3.Options) {
 		if o.s3Endpoint == "" {

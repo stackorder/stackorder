@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"sync"
@@ -488,6 +490,66 @@ func serveRoleAndState(state []byte) func(http.ResponseWriter, *http.Request, st
 			return
 		}
 		serveState(state)(w, r, region)
+	}
+}
+
+func TestRoleAssumptionSendsTheExternalID(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    []stateread.Option
+		wantID  string
+		present bool
+	}{
+		{"with an external ID", []stateread.Option{stateread.WithExternalID("acme-stackorder-42")}, "acme-stackorder-42", true},
+		{"without one", nil, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := fixture(t, "terraform.tfstate")
+			var (
+				mu     sync.Mutex
+				bodies []url.Values
+			)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost {
+					b, err := io.ReadAll(r.Body)
+					require.NoError(t, err)
+					v, err := url.ParseQuery(string(b))
+					require.NoError(t, err)
+					mu.Lock()
+					bodies = append(bodies, v)
+					mu.Unlock()
+					w.Header().Set("Content-Type", "text/xml")
+					_, _ = fmt.Fprint(w, assumeRoleResponse)
+					return
+				}
+				serveState(state)(w, r, "")
+			}))
+			t.Cleanup(srv.Close)
+
+			opts := append([]stateread.Option{
+				stateread.WithEndpoint(srv.URL + "/"),
+				stateread.WithRegion("us-east-1"),
+				stateread.WithStaticCredentials("AKIDEXAMPLE", "secret"),
+				stateread.WithRoleARN("arn:aws:iam::123456789012:role/acme-state-reader"),
+			}, tt.opts...)
+			r, err := stateread.New(t.Context(), []stateread.Grant{{Repository: producer, Bucket: "acme-state"}}, opts...)
+			require.NoError(t, err)
+			_, err = r.Read(t.Context(), producer, acme)
+			require.NoError(t, err)
+
+			mu.Lock()
+			defer mu.Unlock()
+			require.Len(t, bodies, 1)
+			assert.Equal(t, "AssumeRole", bodies[0].Get("Action"))
+			assert.Equal(t, "stackorder-stateread", bodies[0].Get("RoleSessionName"))
+			id, ok := bodies[0]["ExternalId"]
+			assert.Equal(t, tt.present, ok, "the external ID is sent only when set")
+			if tt.present {
+				require.Len(t, id, 1)
+				assert.Equal(t, tt.wantID, id[0])
+			}
+		})
 	}
 }
 
