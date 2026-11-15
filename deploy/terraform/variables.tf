@@ -863,7 +863,7 @@ variable "shared_outputs_external_id" {
   }
 
   validation {
-    condition     = var.shared_outputs_external_id == null || (length(var.shared_outputs_external_id) >= 2 && length(var.shared_outputs_external_id) <= 1224)
+    condition     = var.shared_outputs_external_id == null ? true : (length(var.shared_outputs_external_id) >= 2 && length(var.shared_outputs_external_id) <= 1224)
     error_message = "shared_outputs_external_id must be 2 to 1224 characters, the length AWS allows for an STS external ID."
   }
 
