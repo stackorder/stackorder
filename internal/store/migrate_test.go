@@ -37,11 +37,11 @@ func TestMigrateUpDownUp(t *testing.T) {
 		wantTables int
 		wantVer    uint
 	}{
-		{"up", s.Migrate, 22, 10},
-		{"up again is a no-op", s.Migrate, 22, 10},
+		{"up", s.Migrate, 22, 11},
+		{"up again is a no-op", s.Migrate, 22, 11},
 		{"down", s.MigrateDown, 0, 0},
 		{"down again is a no-op", s.MigrateDown, 0, 0},
-		{"up after down", s.Migrate, 22, 10},
+		{"up after down", s.Migrate, 22, 11},
 	}
 	for _, step := range steps {
 		require.NoError(t, step.apply(ctx), step.name)
@@ -51,6 +51,33 @@ func TestMigrateUpDownUp(t *testing.T) {
 		assert.Equal(t, step.wantVer, ver, step.name)
 		assert.False(t, dirty, step.name)
 	}
+}
+
+func TestDefaultGraphFKRestorableInOneTransaction(t *testing.T) {
+	ctx := t.Context()
+	s := pgtest.New(t)
+
+	var deferrable, deferred bool
+	require.NoError(t, s.Pool().QueryRow(ctx, `
+		SELECT condeferrable, condeferred FROM pg_constraint
+		WHERE conname = 'repos_default_graph_id_fkey'`).Scan(&deferrable, &deferred))
+	assert.True(t, deferrable, "repos_default_graph_id_fkey is deferrable")
+	assert.True(t, deferred, "repos_default_graph_id_fkey is initially deferred")
+
+	const graphID = "11111111-1111-1111-1111-111111111111"
+	tx, err := s.Pool().Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	_, err = tx.Exec(ctx, `INSERT INTO installations (id, account) VALUES (1, 'acme')`)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `
+		INSERT INTO repos (id, installation_id, full_name, default_graph_id)
+		VALUES (100, 1, 'acme/web', $1)`, graphID)
+	require.NoError(t, err, "a repo may reference a graph not yet loaded while the constraint is deferred")
+	_, err = tx.Exec(ctx, `INSERT INTO graphs (id, repo_id, sha) VALUES ($1, 100, 'abc')`, graphID)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(ctx), "the cycle is satisfied at commit")
 }
 
 func TestMigrateConcurrentServers(t *testing.T) {
@@ -103,7 +130,7 @@ func TestMigrateWithSingleConnectionPool(t *testing.T) {
 	t.Cleanup(s.Close)
 	ver, dirty, err := s.SchemaVersion(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, uint(10), ver)
+	assert.Equal(t, uint(11), ver)
 	assert.False(t, dirty)
 }
 
