@@ -78,6 +78,10 @@ func (s *server) ghes() bool {
 	return gh.IsEnterprise(s.webURL, s.cfg.Enterprise)
 }
 
+func (s *server) customGitHubURLs() bool {
+	return !strings.EqualFold(s.webURL, gh.DefaultWebURL)
+}
+
 func (s *server) webOrigin() string {
 	u, err := url.Parse(s.webURL)
 	if err != nil || u.Host == "" {
@@ -364,7 +368,7 @@ func (s *server) setupCallback(w http.ResponseWriter, r *http.Request) {
 		InstallURL:  s.installURL(creds.Slug),
 		SettingsURL: s.appSettingsURL(creds),
 	}
-	if s.ghes() {
+	if s.customGitHubURLs() {
 		page.Env = append(page.Env, envVar{"GITHUB_API_URL", s.apiURL}, envVar{"GITHUB_WEB_URL", s.webURL})
 	}
 	audience := s.cfg.OIDCAudience

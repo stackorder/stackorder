@@ -318,6 +318,25 @@ func TestSetupCallbackOnGHES(t *testing.T) {
 	assert.Contains(t, body, "audience https://stackorder.internal")
 }
 
+func TestSetupCallbackKeepsProxyURLsWhenNotEnterprise(t *testing.T) {
+	no := false
+	e := newSetupEnv(t, func(c *Config, _ *Deps) {
+		c.GitHubWebURL, c.Enterprise = "https://github.proxy.example.com", &no
+	})
+	require.False(t, e.srv.ghes(), "GITHUB_ENTERPRISE=false keeps the full github.com manifest behind a proxy web URL")
+	e.gh.SetManifestConversion("code-3", gh.AppCredentials{ID: 9, Slug: "so", PEM: "pem", WebhookSecret: "w"})
+	f := e.open(t, "/setup")
+	rec := e.do(withCookie(newRequest(t, http.MethodGet, "/setup/callback?code=code-3&state="+url.QueryEscape(f.action.Query().Get("state")), nil), f.cookie))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	body := html.UnescapeString(rec.Body.String())
+	assert.Contains(t, body, "https://github.proxy.example.com/apps/so/installations/new",
+		"the server links and talks to the proxy web URL")
+	assert.Contains(t, body, "GITHUB_API_URL="+e.gh.URL(),
+		"a proxied API URL must survive the restart the page tells the operator to perform")
+	assert.Contains(t, body, "GITHUB_WEB_URL=https://github.proxy.example.com",
+		"a proxied web URL must survive the restart the page tells the operator to perform")
+}
+
 func TestSetupInstalled(t *testing.T) {
 	e := newSetupEnv(t)
 	rec := e.do(newRequest(t, http.MethodGet, "/setup/installed?installation_id=4242&setup_action=install", nil))
