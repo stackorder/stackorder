@@ -14,7 +14,7 @@ Every metric is defined in `internal/metrics` and carries the `stackorder_` pref
 
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
-| `stackorder_runs_created_total` | counter | `trigger`, `mode` | Runs created, by trigger and mode; incremented once per run row, at every trigger (pull request, comment, manual and scheduled drift) |
+| `stackorder_runs_created_total` | counter | `trigger`, `mode` | Runs created, by trigger and mode; incremented once per run row, at every trigger: `pull_request` (a pull request's plan, and an `on_merge` apply after the merge), `comment` (a `plan` or `apply` comment), `rerequest` (a re-run from a check run or [`POST /v1/runs/{id}/rerun`](/reference/api#rerun)), `push` (a cross-repository plan of the stacks that depend on an upstream apply), `manual` (a manual apply) and `schedule` (a scheduled drift check) |
 | `stackorder_runs_total` | counter | `status`, `trigger`, `mode` | Each status a run enters, by trigger and mode; a run contributes to several series over its life, so this counts status transitions, not runs. Count runs with `stackorder_runs_created_total` |
 | `stackorder_stack_finished_total` | counter | `mode`, `status` | Stacks reaching a terminal status within a run: `applied`, `planned` for plan runs, `failed`, `blocked`, `noop`, `unconfirmed`, `unknown`, `skipped` |
 | `stackorder_stack_duration_seconds` | histogram | `mode` | Duration of each stack's plan, apply or drift job, from the row's start and finish times or the CLI's reported `duration_ms`; buckets from 5 s to 2 h |
