@@ -83,7 +83,7 @@ Outside Actions the commit is `HEAD`, the repository comes from the `origin` rem
 
 In Actions the CLI requests an OIDC token from `ACTIONS_ID_TOKEN_REQUEST_URL` for every call, with the audience `STACKORDER_OIDC_AUDIENCE` or, when that is unset, the server URL exactly as given, and sends it as `Authorization: Bearer <token>`. Outside Actions it sends `STACKORDER_API_KEY` instead.
 
-Network errors, timeouts and 5xx answers are retried three times, after 200 ms, 800 ms and 2 s, each attempt bounded by 30 s. A server that still does not answer is *unreachable*: `resolve`, `plan` and `drift` degrade to a local, `unconfirmed` result, and `apply` refuses (exit 3). A 4xx answer is never retried.
+Network errors, timeouts, `429 Too Many Requests` (from a rate limiter or reverse proxy in front of the server) and 5xx answers are retried three times, after 200 ms, 800 ms and 2 s, each attempt bounded by 30 s. When a retried answer carries a `Retry-After` header, in either its seconds or its HTTP-date form, the CLI waits the longer of it and the backoff, capped at one minute; a header that asks for longer stops the retries at once. A server that still does not answer is *unreachable*: `resolve`, `plan` and `drift` degrade to a local, `unconfirmed` result, and `apply` refuses (exit 3). Every other 4xx answer is never retried. Each attempt requests a fresh OIDC token, so a retry never replays one.
 
 When a result is unconfirmed in Actions, the CLI creates a neutral check run with `GITHUB_TOKEN` (`stackorder/resolve` or `stackorder/plan: <key>`) so the pull request shows why, and writes a warning annotation. Without `GITHUB_TOKEN` it only warns.
 

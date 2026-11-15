@@ -34,7 +34,7 @@ Every `stackorder` command exits with one of four codes. Scripts and hooks can r
 | 2xx | `0`, or `2` for `affected` and `drift` results |
 | `403 forbidden`, `409 conflict`, `409 refused`, `409 superseded`, `423 locked` | `3` |
 | `401 unauthorized`, `400 invalid`, `404 not_found`, `413` | `1` |
-| Network error, timeout or 5xx after three retries | Unreachable: `resolve`, `plan` and `drift` continue with an `unconfirmed` result and exit as if the call had not been made; `apply` exits `3` |
+| Network error, timeout, `429 Too Many Requests` or 5xx after three retries (honouring `Retry-After` up to a minute) | Unreachable: `resolve`, `plan` and `drift` continue with an `unconfirmed` result and exit as if the call had not been made; `apply` exits `3` |
 
 See [API errors](/reference/api#errors) for the codes themselves.
 

@@ -659,7 +659,11 @@ refuses with the generic codes above and the `v1.ErrCode*` codes
 throttle or 5xx, is 503 `unavailable`. A `principal.CodedError` answers
 with its own code, message and details and the status of its `Kind`:
 `ErrNotFound` 404, `ErrForbidden` 403, `ErrConflict` 409,
-`ErrUnprocessable` 422, `ErrUnavailable` 503, any other 500. The CLI exits 3 on
+`ErrUnprocessable` 422, `ErrUnavailable` 503, any other 500. The CLI's
+`internal/client` retries network errors, timeouts, `429` (from a rate limiter
+or reverse proxy in front of the server) and 5xx three times, honours a
+`Retry-After` header in either form, capped at a minute, and treats a `429` or
+5xx that persists through the retries as unreachable. The CLI exits 3 on
 `forbidden`, `conflict`, `refused`, `locked` and `superseded`,
 and on its own fail-closed decisions (an unreachable server during apply). `invalid` carries `details.field` and `details.reason` when a
 field is at fault, a JSON type error in a body included, whose field is

@@ -38,7 +38,7 @@ Stackorder degrades gracefully but never silently. Every refusal is a PR comment
 
 **Symptom.** Plans ran, but the checks are neutral and say `unconfirmed`. `stackorder apply` is refused.
 
-**Why.** The CLI could not reach the server: a network error, a timeout or a 5xx answer, three retries later, or an empty `server-url`. It computed the affected set locally, planned, and set a neutral check with the job's `GITHUB_TOKEN`, so nobody mistakes the fallback for a green light. Applies are refused because the server never confirmed the plans.
+**Why.** The CLI could not reach the server: a network error, a timeout, a `429 Too Many Requests` from a rate limiter or reverse proxy in front of the server, or a 5xx answer, three retries later, or an empty `server-url`. It honours a `Retry-After` header on a `429` or 5xx, waiting up to a minute before each retry, and gives up at once when the header asks for longer. It computed the affected set locally, planned, and set a neutral check with the job's `GITHUB_TOKEN`, so nobody mistakes the fallback for a green light. Applies are refused because the server never confirmed the plans.
 
 **Fix.**
 
