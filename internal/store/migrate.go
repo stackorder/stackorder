@@ -30,15 +30,17 @@ func (s *Store) Migrate(ctx context.Context) error {
 // holding MigrationLockKey as Migrate does. It reads the applied version under
 // the lock and never reverts a migration: it refuses a dirty schema, and a
 // schema already above version, rather than migrating down. version is
-// normally LatestMigration; passing it the current version is a no-op.
-func (s *Store) MigrateUp(ctx context.Context, version uint) error {
-	return s.withMigrator(ctx, fmt.Sprintf("migrate up to %d", version), func(m *migrate.Migrate) error {
-		current, dirty, err := m.Version()
+// normally LatestMigration; passing it the current version is a no-op. applied
+// reports whether a migration ran, so concurrent callers can tell the one that
+// did the work from those that found the database already migrated.
+func (s *Store) MigrateUp(ctx context.Context, version uint) (applied bool, err error) {
+	err = s.withMigrator(ctx, fmt.Sprintf("migrate up to %d", version), func(m *migrate.Migrate) error {
+		current, dirty, verr := m.Version()
 		switch {
-		case errors.Is(err, migrate.ErrNilVersion):
+		case errors.Is(verr, migrate.ErrNilVersion):
 			current = 0
-		case err != nil:
-			return err
+		case verr != nil:
+			return verr
 		}
 		if dirty {
 			return fmt.Errorf("schema is dirty at version %d; repair it before migrating", current)
@@ -46,8 +48,13 @@ func (s *Store) MigrateUp(ctx context.Context, version uint) error {
 		if current > version {
 			return fmt.Errorf("schema is at version %d, above the requested version %d; migrate does not revert migrations", current, version)
 		}
-		return m.Migrate(version)
+		if merr := m.Migrate(version); merr != nil {
+			return merr
+		}
+		applied = true
+		return nil
 	})
+	return applied, err
 }
 
 // LatestMigration returns the highest version embedded in migrations.FS: the

@@ -114,7 +114,8 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 		}
 	}
 
-	if err := st.MigrateUp(ctx, dest); err != nil {
+	applied, err := st.MigrateUp(ctx, dest)
+	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "stackorder-server migrate:", err)
 		return 1
 	}
@@ -123,10 +124,10 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 		_, _ = fmt.Fprintln(stderr, "stackorder-server migrate:", err)
 		return 1
 	}
-	if after == current {
-		_, _ = fmt.Fprintf(stdout, "database already at version %d\n", after)
-	} else {
+	if applied {
 		_, _ = fmt.Fprintf(stdout, "migrated database from version %d to version %d\n", current, after)
+	} else {
+		_, _ = fmt.Fprintf(stdout, "database already at version %d\n", after)
 	}
 	return 0
 }

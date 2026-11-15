@@ -5,6 +5,8 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,6 +47,48 @@ func TestMigrateCommand(t *testing.T) {
 		assert.Equal(t, 0, run([]string{"migrate", "--status"}, env, &stdout, &stderr))
 		assert.Equal(t, fmt.Sprintf("current=%d\ntarget=%d\ndirty=false\n", target, target), stdout.String())
 	})
+}
+
+func TestMigrateConcurrentReportsAppliedOnce(t *testing.T) {
+	target, err := store.LatestMigration()
+	require.NoError(t, err)
+	dsn := pgtest.DSN(t)
+	if strings.Contains(dsn, "?") {
+		dsn += "&pool_max_conns=2"
+	} else {
+		dsn += "?pool_max_conns=2"
+	}
+	env := envOf(map[string]string{"DATABASE_URL": dsn})
+
+	const n = 8
+	outs := make([]string, n)
+	codes := make([]int, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			var stdout, stderr bytes.Buffer
+			codes[i] = run([]string{"migrate"}, env, &stdout, &stderr)
+			outs[i] = stdout.String()
+		}(i)
+	}
+	wg.Wait()
+
+	migrated, already := 0, 0
+	for i, out := range outs {
+		assert.Equal(t, 0, codes[i], "every invocation exits 0")
+		switch {
+		case out == fmt.Sprintf("migrated database from version 0 to version %d\n", target):
+			migrated++
+		case out == fmt.Sprintf("database already at version %d\n", target):
+			already++
+		default:
+			t.Errorf("unexpected output %q", out)
+		}
+	}
+	assert.Equal(t, 1, migrated, "only the invocation that applied the migrations says it migrated")
+	assert.Equal(t, n-1, already, "the rest report the database was already migrated")
 }
 
 func TestMigrateStatusDoesNotMutate(t *testing.T) {
