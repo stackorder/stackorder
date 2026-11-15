@@ -1225,16 +1225,22 @@ plan text and keeps them.
 
 With an artifact bucket, clearing a stack's `plan_text` also clears its
 `plan_url` and queues the stack's `plan.txt` and `plan.json` objects in the
-`object_deletions` table in the same statement, and deleting a repository or
-an installation queues the objects of its runs before the cascade removes
-the rows; `object_deletions` has no foreign key to the run, so it outlives
-it. The prune job then sweeps the queue, deleting each object through
-`artifacts.S3Store.Delete` and clearing the row; a delete that fails, such
-as when the role lacks `s3:DeleteObject`, is logged and left for the next
-sweep rather than failing the prune, and `store.CountObjectDeletions` feeds
-the `pending_object_deletions` gauge. Two instances sweeping at once only
-repeat a harmless delete, since the object delete is idempotent and the row
-is cleared after it.
+`object_deletions` table in the same statement; a row an older server left
+with a `plan_url` after clearing only its plan text is reclaimed the same
+way, so an upgrade or a mixed-version prune strands nothing. Deleting a
+repository or an installation deletes its stack rows explicitly and queues
+the objects from the deleted rows, so a `plan_url` a concurrent result
+records up to the moment of deletion is captured rather than escaping
+through the cascade; `object_deletions` has no foreign key to the run, so it
+outlives it. The prune job then sweeps the queue, deleting each object
+through `artifacts.S3Store.Delete` and clearing the row; a delete that
+fails, such as when the role lacks `s3:DeleteObject`, is logged and left for
+the next sweep rather than failing the prune, and the sweep attempts each
+object once per pass, so a failure left at the head of the queue is not
+re-attempted until the next sweep. `store.CountObjectDeletions` feeds the
+`pending_object_deletions` gauge. Two instances sweeping at once only repeat
+a harmless delete, since the object delete is idempotent and the row is
+cleared after it.
 
 ## CLI environment
 

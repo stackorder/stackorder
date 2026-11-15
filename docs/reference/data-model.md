@@ -93,7 +93,7 @@ An hourly `prune` job applies the retention settings:
 
 | Data | Kept | Setting |
 | --- | --- | --- |
-| Plan text in `run_stacks` | 30 days after the row last changed; the summary stays. With an [artifact bucket](/reference/server-configuration#artifact-bucket), `plan_url` is cleared and the stack's `plan.txt` and `plan.json` objects are queued in `object_deletions` and deleted by the same prune job | `STACKORDER_PLAN_TEXT_RETENTION`, default `720h` |
+| Plan text in `run_stacks` | 30 days after the row last changed; the summary stays. With an [artifact bucket](/reference/server-configuration#artifact-bucket), `plan_url` is cleared and the stack's `plan.txt` and `plan.json` objects are queued in `object_deletions` and deleted by the same prune job. A row an older server left with a `plan_url` after clearing only its plan text is reclaimed the same way (migration 0013 indexes those rows), so an upgrade or a mixed-version prune cannot strand its objects | `STACKORDER_PLAN_TEXT_RETENTION`, default `720h` |
 | Webhook events | 7 days after they were received, once done or never claimed | `STACKORDER_EVENT_RETENTION`, default `168h` |
 | Finished jobs | 7 days after they finished | `STACKORDER_EVENT_RETENTION` |
 | Drift history | 90 days, always keeping the latest result of each stack | `STACKORDER_DRIFT_RETENTION`, default `2160h` |
