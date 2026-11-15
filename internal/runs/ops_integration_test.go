@@ -114,6 +114,50 @@ func TestDriftOpensAndClosesIssue(t *testing.T) {
 	require.ErrorIs(t, err, principal.ErrForbidden, "drift jobs must run under the default environment")
 }
 
+func TestDriftResolvedCommentNotDuplicatedAfterUnknownCreate(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Drift = v1.DriftConfig{Schedule: "0 6 * * *", OpenIssue: true}
+	e := newEnv(t, cfg)
+	g := testGraph(mainSHA)
+	gid, _, err := e.st.SaveGraph(e.ctx, repoID, &g)
+	require.NoError(t, err)
+	require.NoError(t, e.st.SetDefaultGraph(e.ctx, repoID, gid))
+
+	st, err := e.st.GetStackByKey(e.ctx, repoID, vpc)
+	require.NoError(t, err)
+	drifted := v1.StackResult{Mode: v1.ModeDrift, Status: v1.ResultSuccess, ExitCode: 2, HasChanges: true, Summary: &v1.PlanSummary{Changes: 1, Changed: []string{"aws_vpc.main"}}}
+	clean := v1.StackResult{Mode: v1.ModeDrift, Status: v1.ResultSuccess, Summary: &v1.PlanSummary{}}
+
+	require.NoError(t, e.svc.RunDriftStack(e.ctx, repoID, st.ID.String()))
+	ds := e.gh.Dispatches()
+	_, err = e.svc.RecordResult(e.ctx, e.dispatchJob(ds[len(ds)-1].RunID, v1.DefaultEnvironment), ds[len(ds)-1].Inputs["run_id"], vpc, drifted)
+	require.NoError(t, err)
+	issues := e.gh.Issues(repoName)
+	require.Len(t, issues, 1)
+	issueNum := issues[0].Number
+
+	e.clock.Advance(time.Hour)
+	require.NoError(t, e.svc.RunDriftStack(e.ctx, repoID, st.ID.String()))
+	ds = e.gh.Dispatches()
+	e.gh.ApplyThenFailNext("POST /repos/{owner}/{repo}/issues/{issue_number}/comments", http.StatusBadGateway, 1)
+	_, err = e.svc.RecordResult(e.ctx, e.dispatchJob(ds[len(ds)-1].RunID, v1.DefaultEnvironment), ds[len(ds)-1].Inputs["run_id"], vpc, clean)
+	require.NoError(t, err)
+	assert.Equal(t, gh.IssueClosed, e.gh.Issues(repoName)[0].State, "a resolved drift issue is closed before its comment is posted")
+
+	e.clock.Advance(time.Hour)
+	require.NoError(t, e.svc.RunDriftStack(e.ctx, repoID, st.ID.String()))
+	ds = e.gh.Dispatches()
+	_, err = e.svc.RecordResult(e.ctx, e.dispatchJob(ds[len(ds)-1].RunID, v1.DefaultEnvironment), ds[len(ds)-1].Inputs["run_id"], vpc, clean)
+	require.NoError(t, err)
+	resolved := 0
+	for _, c := range e.gh.Comments(repoName, issueNum) {
+		if strings.Contains(c.Body, "found no drift") {
+			resolved++
+		}
+	}
+	assert.Equal(t, 1, resolved, "the resolution comment is posted at most once after an unknown-outcome create")
+}
+
 func TestCommentRateLimitAndPermissions(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.openPull(7, headSHA)

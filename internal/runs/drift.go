@@ -191,13 +191,16 @@ func (s *Service) syncDriftIssue(ctx context.Context, repo store.Repo, stack sto
 		return s.st.SetDriftIssue(ctx, d.ID, is.Number)
 	case idx >= 0:
 		n := issues[idx].Number
-		if _, err := c.CreateIssueComment(ctx, repo.FullName, n, body); err != nil {
-			return fmt.Errorf("runs: comment on drift issue #%d: %w", n, err)
-		}
 		if _, err := c.UpdateIssue(ctx, repo.FullName, n, gh.IssueParams{State: gh.IssueClosed}); err != nil {
 			return fmt.Errorf("runs: close drift issue #%d: %w", n, err)
 		}
-		return s.st.SetDriftIssue(ctx, d.ID, n)
+		if err := s.st.SetDriftIssue(ctx, d.ID, n); err != nil {
+			return err
+		}
+		if _, err := c.CreateIssueComment(ctx, repo.FullName, n, body); err != nil {
+			return fmt.Errorf("runs: comment on drift issue #%d: %w", n, err)
+		}
+		return nil
 	}
 	return nil
 }
