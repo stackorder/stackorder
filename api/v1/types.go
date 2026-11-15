@@ -829,6 +829,36 @@ type Whoami struct {
 	Admin     bool     `json:"admin,omitempty"`
 }
 
+// APIKey is the metadata of an automation key, as listed by GET /v1/keys
+// and returned by POST /v1/keys and DELETE /v1/keys/{id}. It never carries
+// the secret.
+type APIKey struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Prefix     string     `json:"prefix"`
+	CreatedBy  string     `json:"created_by,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+}
+
+// CreateAPIKeyRequest is the body of POST /v1/keys.
+type CreateAPIKeyRequest struct {
+	Name string `json:"name"`
+}
+
+// CreatedAPIKey is the body of POST /v1/keys: the key's metadata and, in
+// Secret, the full `sk_` key shown exactly once.
+type CreatedAPIKey struct {
+	APIKey
+	Secret string `json:"secret"`
+}
+
+// APIKeyList is the body of GET /v1/keys, newest first.
+type APIKeyList struct {
+	Keys []APIKey `json:"keys"`
+}
+
 // AuditEntry is one audited action, such as an unlock or a re-run, as
 // listed by GET /v1/audit.
 type AuditEntry struct {
