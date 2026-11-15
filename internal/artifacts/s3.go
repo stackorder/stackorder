@@ -171,6 +171,21 @@ func (s *S3Store) Put(ctx context.Context, key, contentType string, body []byte)
 	return URLScheme + s.bucket + "/" + objectKey, nil
 }
 
+// Delete removes the object stored under key. S3 treats deleting a missing
+// object as success, so Delete is idempotent and reports no error for a key
+// with no object. A role without s3:DeleteObject fails here with an access
+// error, which the caller treats as a deletion to retry.
+func (s *S3Store) Delete(ctx context.Context, key string) error {
+	objectKey, err := s.validKey(key)
+	if err != nil {
+		return err
+	}
+	if _, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(objectKey)}); err != nil {
+		return fmt.Errorf("artifacts: delete s3://%s/%s: %w", s.bucket, objectKey, err)
+	}
+	return nil
+}
+
 // Get returns the body and content type stored under key, and ErrNotFound
 // when there is no such object.
 func (s *S3Store) Get(ctx context.Context, key string) (body []byte, contentType string, err error) {

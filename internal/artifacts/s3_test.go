@@ -70,3 +70,14 @@ func TestPutReportsUnreachableEndpoint(t *testing.T) {
 	_, err = s.Put(ctx, "runs/1/plan.txt", "text/plain", []byte("x"))
 	require.ErrorContains(t, err, "artifacts: put s3://bucket/plans/runs/1/plan.txt")
 }
+
+func TestDeleteRejectsEmptyKeyAndReportsUnreachableEndpoint(t *testing.T) {
+	s, err := offline(t, "bucket", "plans")
+	require.NoError(t, err)
+	require.ErrorContains(t, s.Delete(t.Context(), "/"), "a key is required")
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	err = s.Delete(ctx, "runs/1/plan.txt")
+	require.ErrorContains(t, err, "artifacts: delete s3://bucket/plans/runs/1/plan.txt")
+}

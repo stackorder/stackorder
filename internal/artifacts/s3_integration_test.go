@@ -138,6 +138,21 @@ func TestPutAndGet(t *testing.T) {
 	require.ErrorIs(t, err, artifacts.ErrNotFound)
 }
 
+func TestDelete(t *testing.T) {
+	ep, bucket := newBucket(t)
+	s := newStore(t, ep, bucket, "plans")
+
+	_, err := s.Put(t.Context(), "runs/r1/stacks-prod-vpc/plan.txt", "text/plain", []byte("x"))
+	require.NoError(t, err)
+
+	require.NoError(t, s.Delete(t.Context(), "runs/r1/stacks-prod-vpc/plan.txt"))
+	_, _, err = s.Get(t.Context(), "runs/r1/stacks-prod-vpc/plan.txt")
+	require.ErrorIs(t, err, artifacts.ErrNotFound, "the object is gone")
+
+	require.NoError(t, s.Delete(t.Context(), "runs/r1/stacks-prod-vpc/plan.txt"),
+		"deleting a missing object is not an error")
+}
+
 func TestContentTypes(t *testing.T) {
 	ep, bucket := newBucket(t)
 	s := newStore(t, ep, bucket, "plans")
