@@ -296,7 +296,8 @@ func isRateLimit(resp *response, e *APIError) bool {
 	if resp.header.Get("Retry-After") != "" || resp.header.Get("X-RateLimit-Remaining") == "0" {
 		return true
 	}
-	return strings.Contains(strings.ToLower(e.Message), "rate limit")
+	msg := strings.ToLower(e.Message)
+	return strings.Contains(msg, "rate limit") || strings.Contains(msg, "secondary") || strings.Contains(msg, "abuse")
 }
 
 func headerDelay(h http.Header, now time.Time) (time.Duration, bool) {

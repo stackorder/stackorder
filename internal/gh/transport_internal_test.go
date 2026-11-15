@@ -108,6 +108,11 @@ func secondaryLimit(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(`{"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}`))
 }
 
+func abuseLimit(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write([]byte(`{"message":"You have triggered an abuse detection mechanism. Please wait a few minutes before you try again."}`))
+}
+
 func get(route string) request {
 	return request{method: http.MethodGet, route: route, path: "/thing"}
 }
@@ -186,6 +191,20 @@ func TestRetryPolicy(t *testing.T) {
 			wantCalls:  2,
 		},
 		{
+			name:       "abuse detection 403 without headers waits a minute",
+			steps:      []func(http.ResponseWriter, *http.Request){abuseLimit, okJSON(`{"id":1}`)},
+			wantSleeps: []time.Duration{time.Minute},
+			wantCalls:  2,
+		},
+		{
+			name:       "repeated abuse detection 403 fails as a rate limit, not an edit refusal",
+			steps:      []func(http.ResponseWriter, *http.Request){abuseLimit, abuseLimit},
+			wantErr:    ErrRateLimited,
+			wantStatus: 403,
+			wantSleeps: []time.Duration{time.Minute},
+			wantCalls:  2,
+		},
+		{
 			name:       "rate limit beyond max wait fails at once",
 			steps:      []func(http.ResponseWriter, *http.Request){status(429, "Retry-After", "3600")},
 			wantErr:    ErrRateLimited,
@@ -252,6 +271,24 @@ func TestRateLimitedAfterExhaustingRetries(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr)
 	assert.True(t, apiErr.RateLimited())
 	assert.NotErrorIs(t, err, ErrNotFound)
+}
+
+func TestThrottling403IsNotEditRefused(t *testing.T) {
+	for _, step := range []struct {
+		name    string
+		handler func(http.ResponseWriter, *http.Request)
+	}{
+		{"secondary rate limit", secondaryLimit},
+		{"abuse detection", abuseLimit},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			h, _ := sequence(t, step.handler, step.handler)
+			tr, _, _ := testTransport(t, h)
+			err := tr.call(context.Background(), get("/thing"), nil)
+			require.ErrorIs(t, err, ErrRateLimited)
+			assert.NotErrorIs(t, err, ErrEditRefused, "a throttled 403 must stay transient, not trigger a recreate")
+		})
+	}
 }
 
 func TestRetryOnNetworkError(t *testing.T) {
