@@ -396,12 +396,14 @@ func (s *Service) timeOut(ctx context.Context, d store.Dispatch) error {
 // when that listing is not degraded. Omission is measured against the
 // installations and repositories stored before the sync, so repositories
 // the same sync newly discovers do not dilute it. A listing that omits a
-// majority of the stored installations, or a majority of an installation's
-// stored repositories, is treated as degraded and forgets nothing; because
-// a repository has no per-repository confirmation, a listing that omits all
-// of an installation's stored repositories is degraded as well, so a single
-// short or empty 200 cannot cascade-delete an installation's history. When
-// any listing fails nothing is forgotten. An installation that fails does
+// majority of the stored installations is treated as degraded and keeps
+// every one of them, reconciling their repositories from each listed
+// installation's own listing; a listing that omits a majority of a listed
+// installation's stored repositories keeps that installation's repositories,
+// and because a repository has no per-repository confirmation, a listing
+// that omits all of them keeps them as well, so a single short or empty 200
+// cannot cascade-delete an installation's history. When any listing fails
+// nothing is forgotten. An installation that fails does
 // not stop the others, and every failure is returned.
 func (s *Service) SyncInstallations(ctx context.Context) error {
 	observed, err := s.st.Now(ctx)
