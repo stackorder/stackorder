@@ -23,11 +23,13 @@ only DATABASE_URL, not STACKORDER_BASE_URL or the GitHub App settings.
 Flags:
   --to N     migrate up to version N instead of the latest
   --status   print the current and target version, change nothing, and exit
-             0 when up to date, 2 when migrations are pending, 1 when dirty
+             0 when up to date, 2 when migrations are pending, 1 when the
+             database is dirty or ahead of the latest version this binary embeds
 
 Exit codes:
   0  migrated, already up to date, or --status found the schema up to date
-  1  a usage, configuration, connection or migration error, or a dirty database
+  1  a usage, configuration, connection or migration error, a dirty database, or
+     a database ahead of the latest version this binary embeds
   2  --status found pending migrations
 `
 
@@ -106,6 +108,9 @@ func migrateCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 		_, _ = fmt.Fprintf(stdout, "current=%d\ntarget=%d\ndirty=%t\n", current, target, dirty)
 		switch {
 		case dirty:
+			return 1
+		case current > target:
+			_, _ = fmt.Fprintf(stderr, "stackorder-server migrate: database is at version %d, above the latest version %d this binary embeds; migrate does not revert migrations\n", current, target)
 			return 1
 		case current < target:
 			return 2

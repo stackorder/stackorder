@@ -118,6 +118,14 @@ func TestMigrateRefusesDatabaseAheadOfBinary(t *testing.T) {
 	assert.Equal(t, 1, run([]string{"migrate", "--to", "2"}, env, &stdout, &stderr))
 	assert.Contains(t, stderr.String(), "above the requested version 2",
 		"with --to the version was requested")
+
+	stdout.Reset()
+	stderr.Reset()
+	assert.Equal(t, 1, run([]string{"migrate", "--status"}, env, &stdout, &stderr),
+		"status agrees with migrate: an ahead database is not up to date")
+	assert.Equal(t, fmt.Sprintf("current=99\ntarget=%d\ndirty=false\n", target), stdout.String())
+	assert.Contains(t, stderr.String(),
+		fmt.Sprintf("database is at version 99, above the latest version %d this binary embeds", target))
 }
 
 func TestMigrateStatusDoesNotMutate(t *testing.T) {

@@ -1121,7 +1121,7 @@ declares it as `HEALTHCHECK`. `stackorder-server migrate` applies the
 embedded migrations to `DATABASE_URL` and exits, under the migration lock,
 needing neither `STACKORDER_BASE_URL` nor the GitHub App settings; `--to N`
 stops at a version, `--status` reports the applied and target version and
-exits 0 up to date, 2 pending, 1 dirty. At start-up, and daily at 04:00 UTC, the server
+exits 0 up to date, 2 pending, 1 dirty or ahead of the embedded latest. At start-up, and daily at 04:00 UTC, the server
 syncs installations and their repositories from the App API (adding and
 refreshing, reading `stackorder.yaml` only for repositories not seen before)
 so installations made in setup mode or lost webhooks are learned; when the

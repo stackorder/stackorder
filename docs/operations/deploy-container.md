@@ -22,7 +22,7 @@ docker run --rm -e DATABASE_URL='postgres://stackorder:change-me@db.internal:543
   ghcr.io/stackorder/stackorder:X.Y.Z migrate
 ```
 
-`migrate` needs only `DATABASE_URL`, takes the same lock as start-up so it is safe beside running instances, and `migrate --status` reports whether the database is up to date (exit `0`), has migrations pending (exit `2`) or is dirty (exit `1`). Platforms with an init container or a pre-deploy job can run it there; see [Upgrades and backups](./upgrades-and-backups#server) and [Migrating](/reference/server-configuration#migrate).
+`migrate` needs only `DATABASE_URL`, takes the same lock as start-up so it is safe beside running instances, and `migrate --status` reports whether the database is up to date (exit `0`), has migrations pending (exit `2`) or is dirty or ahead of the image (exit `1`). Platforms with an init container or a pre-deploy job can run it there; see [Upgrades and backups](./upgrades-and-backups#server) and [Migrating](/reference/server-configuration#migrate).
 
 ## `docker run` {#docker-run}
 

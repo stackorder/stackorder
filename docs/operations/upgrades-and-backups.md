@@ -35,7 +35,7 @@ docker run --rm -e DATABASE_URL="$DATABASE_URL" \
   ghcr.io/stackorder/stackorder:X.Y.Z migrate
 ```
 
-It takes the same migration lock as start-up, so it is safe while the old instances keep serving, and `stackorder-server migrate --status` reports whether a database is already at the image's version (exit `0`), has migrations pending (exit `2`) or is `dirty` (exit `1`). This is optional; without it the new instance migrates at start-up as before. See [Migrating](/reference/server-configuration#migrate).
+It takes the same migration lock as start-up, so it is safe while the old instances keep serving, and `stackorder-server migrate --status` reports whether a database is already at the image's version (exit `0`), has migrations pending (exit `2`) or is `dirty` or ahead of the image's version (exit `1`). This is optional; without it the new instance migrates at start-up as before. See [Migrating](/reference/server-configuration#migrate).
 
 In-flight runs survive an upgrade. Work is queued in Postgres and every handler is idempotent: on `SIGTERM` an instance hands unstarted work back to the queue and gives running handlers 30 s, and anything a killed instance had claimed is claimed again after 10 minutes. The per-minute reconciliation catches any wave that finished during the switch. GitHub does not retry a failed webhook delivery by itself; redeliver it from the App's delivery log if needed.
 

@@ -131,7 +131,7 @@ only DATABASE_URL, not STACKORDER_BASE_URL or the GitHub App settings.
   dirty=false
   ```
 
-  It exits `0` when the database is already at the target version, `2` when migrations are pending, and `1` when the database is `dirty` — left half way by a migration that failed, which a human must repair before it can be migrated or started.
+  It exits `0` when the database is already at the target version, `2` when migrations are pending, and `1` when the database is `dirty` — left half way by a migration that failed, which a human must repair before it can be migrated or started — or when the database is *ahead* of the binary, its version above the latest this binary embeds (as after a rolling downgrade), which `migrate` cannot bring up because it never reverts a migration. `--status` and plain `migrate` agree: both exit `1` on a database the binary cannot migrate up.
 
 It takes the same migration lock as start-up, so it is safe to run while servers are starting: they wait for each other and apply each migration once. It needs only `DATABASE_URL`, so it runs before `STACKORDER_BASE_URL` and the GitHub App are configured. Server start still migrates automatically; running `migrate` first does not change that.
 
