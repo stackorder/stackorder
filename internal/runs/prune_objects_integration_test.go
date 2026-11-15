@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stackorder/stackorder/internal/store"
 )
 
 func (e *env) hasArtifact(key string) bool {
@@ -70,6 +72,39 @@ func TestRepositoryDeletionDeletesPlanObjects(t *testing.T) {
 	n, err := e.st.CountObjectDeletions(e.ctx)
 	require.NoError(t, err)
 	assert.Zero(t, n)
+}
+
+func TestSweepAttemptsEachObjectOncePerSweep(t *testing.T) {
+	e := newEnv(t, baseConfig(), withArtifacts())
+	run := uuid.New()
+
+	_, err := e.st.Pool().Exec(e.ctx,
+		`INSERT INTO object_deletions (run_id, stack_key, enqueued_at) VALUES ($1, 'stacks/poison', now() - interval '1 hour')`,
+		run)
+	require.NoError(t, err)
+	_, err = e.st.Pool().Exec(e.ctx, `
+		INSERT INTO object_deletions (run_id, stack_key, enqueued_at)
+		SELECT $1, 'stacks/d' || g, now() - (300 - g) * interval '1 second'
+		FROM generate_series(1, 300) g`, run)
+	require.NoError(t, err)
+
+	e.artifacts.mu.Lock()
+	e.artifacts.failKeys = map[string]error{
+		store.PlanTextArtifactKey(run, "stacks/poison"): errors.New("AccessDenied: s3:DeleteObject"),
+	}
+	e.artifacts.mu.Unlock()
+
+	require.NoError(t, e.svc.Prune(e.ctx, 0, 0, 0))
+
+	var attempts int
+	require.NoError(t, e.st.Pool().QueryRow(e.ctx,
+		`SELECT attempts FROM object_deletions WHERE stack_key = 'stacks/poison'`).Scan(&attempts))
+	assert.Equal(t, 1, attempts, "a failed object is attempted once per sweep, not re-attempted as it stays at the head")
+
+	n, err := e.st.CountObjectDeletions(e.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n, "every deletable object drains in the one sweep, leaving only the failed one")
+	assert.Equal(t, 1, e.m.pendingDeletions())
 }
 
 func TestPruneKeepsObjectsWhenDeleteIsRefused(t *testing.T) {

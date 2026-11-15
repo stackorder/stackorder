@@ -590,11 +590,20 @@ const (
 // sweepObjectDeletions removes from the artifact store the plan objects that
 // pruning and repository deletion no longer reference. A delete that fails,
 // such as when the server's role lacks s3:DeleteObject, is logged and left
-// to be retried next time rather than failing the prune, and the pending
-// count is published so the backlog stays visible. Without an artifact
-// store there is nothing to delete, but the backlog is still reported.
+// to be retried on the next sweep rather than failing the prune; a failed
+// object stays at the head of the oldest-first queue, so the sweep skips
+// the rows it has already handled this pass and attempts each object once,
+// keeping attempts and the warning log one per object per sweep. The
+// pending count is published so the backlog stays visible. Without an
+// artifact store there is nothing to delete, but the backlog is still
+// reported.
 func (s *Service) sweepObjectDeletions(ctx context.Context) {
 	if s.artifacts != nil {
+		type objectRef struct {
+			runID uuid.UUID
+			key   string
+		}
+		seen := map[objectRef]bool{}
 		for batch := 0; batch < objectDeletionMaxBatch; batch++ {
 			pending, err := s.st.ClaimObjectDeletions(ctx, objectDeletionBatch)
 			if err != nil {
@@ -604,8 +613,14 @@ func (s *Service) sweepObjectDeletions(ctx context.Context) {
 			if len(pending) == 0 {
 				break
 			}
-			deleted := 0
+			attempted := false
 			for _, d := range pending {
+				ref := objectRef{d.RunID, d.StackKey}
+				if seen[ref] {
+					continue
+				}
+				seen[ref] = true
+				attempted = true
 				if err := s.deleteStackObjects(ctx, d.RunID, d.StackKey); err != nil {
 					s.log.WarnContext(ctx, "delete plan objects", "run_id", d.RunID, "stack", d.StackKey, "error", err)
 					if err := s.st.FailObjectDeletion(ctx, d.RunID, d.StackKey, err); err != nil {
@@ -616,9 +631,8 @@ func (s *Service) sweepObjectDeletions(ctx context.Context) {
 				if err := s.st.CompleteObjectDeletion(ctx, d.RunID, d.StackKey); err != nil {
 					s.log.WarnContext(ctx, "forget object deletion", "run_id", d.RunID, "stack", d.StackKey, "error", err)
 				}
-				deleted++
 			}
-			if deleted == 0 || len(pending) < objectDeletionBatch {
+			if !attempted || len(pending) < objectDeletionBatch {
 				break
 			}
 		}

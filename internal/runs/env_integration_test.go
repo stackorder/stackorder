@@ -218,6 +218,7 @@ type memArtifacts struct {
 	items     map[string][]byte
 	failPut   error
 	deleteErr error
+	failKeys  map[string]error
 }
 
 func (a *memArtifacts) Put(_ context.Context, key, _ string, body []byte) (string, error) {
@@ -241,6 +242,9 @@ func (a *memArtifacts) Delete(_ context.Context, key string) error {
 	defer a.mu.Unlock()
 	if a.deleteErr != nil {
 		return a.deleteErr
+	}
+	if err := a.failKeys[key]; err != nil {
+		return err
 	}
 	delete(a.items, key)
 	return nil
