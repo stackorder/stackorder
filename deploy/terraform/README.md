@@ -265,9 +265,11 @@ existing deployment that sets none of these inputs plans with no changes.
 - `capacity_provider_strategy` runs the tasks under a capacity provider
   strategy in place of `launch_type = "FARGATE"`, which ECS does not allow
   alongside it; set it to place tasks on `FARGATE_SPOT`. Each entry weights
-  a provider and may set a `base`. For a cluster the module creates it
-  associates the named providers; an existing cluster must already have
-  them associated.
+  a provider and may set a `base`. At least one provider must have a
+  positive weight, as ECS places no tasks when every weight is zero and an
+  omitted weight is zero. For a cluster the module creates it associates
+  the named providers; an existing cluster must already have them
+  associated.
 - `database_secret_arn`, `app_secret_arn` and `metrics_token_secret_arn`
   make the module write each value into a Secrets Manager secret you own
   instead of creating `<name>/database-url`, `<name>/app` and
@@ -819,7 +821,7 @@ No modules.
 | <a name="input_cpu_architecture"></a> [cpu\_architecture](#input\_cpu\_architecture) | CPU architecture of the task, X86\_64 or ARM64. | `string` | `"X86_64"` | no |
 | <a name="input_create_cluster"></a> [create\_cluster](#input\_create\_cluster) | Create an ECS cluster for the service. When false, cluster\_arn names an existing cluster to run in. | `bool` | `true` | no |
 | <a name="input_cluster_arn"></a> [cluster\_arn](#input\_cluster\_arn) | ARN of an existing ECS cluster to run the service in. Required when create\_cluster is false, must be null otherwise. With a capacity\_provider\_strategy the cluster must already have those capacity providers associated, which the module does only for a cluster it creates. | `string` | `null` | no |
-| <a name="input_capacity_provider_strategy"></a> [capacity\_provider\_strategy](#input\_capacity\_provider\_strategy) | Capacity provider strategy for the service, which replaces launch\_type = FARGATE; set it to run tasks on FARGATE\_SPOT. Each entry weights a provider, FARGATE or FARGATE\_SPOT, and may set a base, the first number of tasks to place on it. Empty keeps launch\_type = FARGATE. For a created cluster the module associates the named providers with it; an existing cluster must already have them. | `list(object({ capacity_provider = string weight = optional(number) base = optional(number) }))` | `[]` | no |
+| <a name="input_capacity_provider_strategy"></a> [capacity\_provider\_strategy](#input\_capacity\_provider\_strategy) | Capacity provider strategy for the service, which replaces launch\_type = FARGATE; set it to run tasks on FARGATE\_SPOT. Each entry weights a provider, FARGATE or FARGATE\_SPOT, and may set a base, the first number of tasks to place on it. At least one provider must have a positive weight, as ECS places no tasks when every weight is zero and an omitted weight is zero. Empty keeps launch\_type = FARGATE. For a created cluster the module associates the named providers with it; an existing cluster must already have them. | `list(object({ capacity_provider = string weight = optional(number) base = optional(number) }))` | `[]` | no |
 | <a name="input_enable_execute_command"></a> [enable\_execute\_command](#input\_enable\_execute\_command) | Enable ECS Exec. The SSM agent needs a writable root file system, so this also turns readonlyRootFilesystem off and grants the task role the ssmmessages permissions. | `bool` | `false` | no |
 | <a name="input_health_check_command"></a> [health\_check\_command](#input\_health\_check\_command) | Container health check command, starting with CMD or CMD-SHELL. The default runs the server's healthcheck subcommand, which GETs /healthz on the listen port. The distroless image has no shell or curl, so a replacement must be a command the image itself provides. Empty turns the container health check off and leaves task health to the load balancer check on /readyz. | `list(string)` | `["CMD", "/stackorder-server", "healthcheck"]` | no |
 | <a name="input_stop_timeout_seconds"></a> [stop\_timeout\_seconds](#input\_stop\_timeout\_seconds) | Seconds ECS waits after SIGTERM before it kills the container (stopTimeout), 2 to 120 on Fargate. The server drains HTTP for up to 15 s, then its workers for up to 30 s plus 5 s for cancelled handlers, so a value under 50 can cut the drain short. | `number` | `60` | no |

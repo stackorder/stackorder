@@ -90,7 +90,7 @@ run "capacity_provider_strategy_on_an_existing_cluster" {
   variables {
     create_cluster             = false
     cluster_arn                = "arn:aws:ecs:eu-west-1:123456789012:cluster/prod-shared"
-    capacity_provider_strategy = [{ capacity_provider = "FARGATE_SPOT" }]
+    capacity_provider_strategy = [{ capacity_provider = "FARGATE_SPOT", weight = 1 }]
   }
 
   assert {
@@ -240,6 +240,29 @@ run "capacity_provider_two_bases" {
     capacity_provider_strategy = [
       { capacity_provider = "FARGATE", base = 1 },
       { capacity_provider = "FARGATE_SPOT", base = 1 },
+    ]
+  }
+
+  expect_failures = [var.capacity_provider_strategy]
+}
+
+run "capacity_provider_omitted_weight_only" {
+  command = plan
+
+  variables {
+    capacity_provider_strategy = [{ capacity_provider = "FARGATE_SPOT" }]
+  }
+
+  expect_failures = [var.capacity_provider_strategy]
+}
+
+run "capacity_provider_all_weights_zero" {
+  command = plan
+
+  variables {
+    capacity_provider_strategy = [
+      { capacity_provider = "FARGATE", weight = 0 },
+      { capacity_provider = "FARGATE_SPOT", weight = 0 },
     ]
   }
 

@@ -378,7 +378,7 @@ variable "cluster_arn" {
 }
 
 variable "capacity_provider_strategy" {
-  description = "Capacity provider strategy for the service, which replaces launch_type = FARGATE; set it to run tasks on FARGATE_SPOT. Each entry weights a provider, FARGATE or FARGATE_SPOT, and may set a base, the first number of tasks to place on it. Empty keeps launch_type = FARGATE. For a created cluster the module associates the named providers with it; an existing cluster must already have them."
+  description = "Capacity provider strategy for the service, which replaces launch_type = FARGATE; set it to run tasks on FARGATE_SPOT. Each entry weights a provider, FARGATE or FARGATE_SPOT, and may set a base, the first number of tasks to place on it. At least one provider must have a positive weight, as ECS places no tasks when every weight is zero and an omitted weight is zero. Empty keeps launch_type = FARGATE. For a created cluster the module associates the named providers with it; an existing cluster must already have them."
   type = list(object({
     capacity_provider = string
     weight            = optional(number)
@@ -410,6 +410,11 @@ variable "capacity_provider_strategy" {
   validation {
     condition     = length([for s in var.capacity_provider_strategy : s if coalesce(s.base, 0) > 0]) <= 1
     error_message = "capacity_provider_strategy may set base on at most one provider, as ECS places the base on a single provider."
+  }
+
+  validation {
+    condition     = length(var.capacity_provider_strategy) == 0 || anytrue([for s in var.capacity_provider_strategy : coalesce(s.weight, 0) > 0])
+    error_message = "capacity_provider_strategy must give at least one provider a positive weight, as ECS places no tasks when every weight is zero; an omitted weight is zero."
   }
 }
 
