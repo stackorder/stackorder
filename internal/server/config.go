@@ -42,8 +42,10 @@ const (
 	// leader makes.
 	MaxSchedulerCatchUp = 168 * time.Hour
 	// PoolConnsBeyondWorkers is how many pgx pool connections the server
-	// keeps on top of one per worker, for the API, the webhook receiver,
-	// the scheduler and its leader lock.
+	// keeps on top of one per worker, for the API, the webhook receiver
+	// and the scheduler's bookkeeping. The scheduler's leader lock and the
+	// start-up migration lock each take a further connection outside the
+	// pool, so a running instance opens at most PoolMaxConns + 1.
 	PoolConnsBeyondWorkers = 8
 )
 
@@ -265,8 +267,9 @@ type Config struct {
 // STACKORDER_SESSION_KEY is unset. The pgx pool the server opens on
 // DATABASE_URL has STACKORDER_WORKERS + PoolConnsBeyondWorkers connections
 // (Config.PoolMaxConns) unless the DSN sets pool_max_conns, which then
-// wins; the scheduler's leader lock holds one of them for as long as the
-// server leads.
+// wins; the scheduler's leader lock opens one further connection outside
+// the pool for as long as the server leads, so a running instance opens at
+// most PoolMaxConns + 1.
 func LoadConfig(getenv func(string) string) (Config, error) {
 	e := &env{get: getenv}
 	cfg := Config{

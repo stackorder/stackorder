@@ -1209,7 +1209,13 @@ carry `stackorder.run_id`, `stackorder.event`, `stackorder.delivery`,
 `stackorder.job` and `stackorder.job_id`; `/healthz`, `/readyz` and
 `/metrics` are not traced. The pgx pool has `STACKORDER_WORKERS` + 8
 connections (`server.PoolConnsBeyondWorkers`) unless the DSN's
-`pool_max_conns` sizes it; the scheduler's leader lock holds one connection.
+`pool_max_conns` sizes it; the scheduler's leader lock takes one further
+connection outside the pool (`store.TryAdvisoryLock` opens its own
+`pgx.Conn`), so a running instance opens at most `pool_max_conns` + 1. The
+leader holds that connection; a non-leader opens and closes one every tick
+(30 s) to test the lock. The start-up migration lock (`store.Migrate`) takes a
+dedicated connection the same way, before the scheduler runs, so at most one
+connection beyond the pool is open at a time.
 
 ## Store notes
 
