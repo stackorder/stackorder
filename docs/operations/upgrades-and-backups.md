@@ -41,6 +41,8 @@ In-flight runs survive an upgrade. Work is queued in Postgres and every handler 
 
 Upgrading from v0.5.0 crosses a window where old and new replicas share the database. A v0.5.0 replica clears a stack's `removed_at` on every plan save; a replica on this release clears it only when a merge moves the default-branch graph. So while a v0.5.0 replica is still serving, an open pull request it replans can revive a stack that a merged pull request already deleted from the default branch, and because that stack is no longer on the default branch no later merge re-marks it — it stays in the stack lists and the overview count until its directory returns to the default branch. Complete the rollout promptly to keep the window short; the effect is cosmetic (a deleted stack counted as live) and touches no run or state.
 
+The server applies an installation's `suspend` and `unsuspend` webhooks in receive order (see the [data model](/reference/data-model#queue)). This guarantee holds once every replica runs the version that introduced it. While a v0.5.0 replica and a new one run together during the rollover, a `suspend` or `unsuspend` the old replica processes still takes effect in the order it is processed, as v0.5.0 always did, not by receive time; the daily installation sync and the finished upgrade settle it, so no action is required. To avoid even that transient, drain the old replicas before the new ones serve.
+
 To go back, deploy the previous image. The server never runs down migrations, so if the new version ran migrations the previous one does not understand, restore the snapshot from step 2.
 
 ## Upgrading the CLI and actions {#cli}
