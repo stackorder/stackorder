@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -174,4 +176,56 @@ func TestUpsertRepoConcurrently(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, name, got.FullName)
 	}
+}
+
+func TestSetDefaultGraphConcurrentTransitions(t *testing.T) {
+	f := newFixture(t)
+	graph := func(sha string, keys ...string) uuid.UUID {
+		g := &v1.Graph{Repo: f.repo.FullName, SHA: sha}
+		for _, k := range keys {
+			g.Stacks = append(g.Stacks, v1.Stack{Key: k, Path: k})
+		}
+		id, _, err := f.s.SaveGraph(f.ctx, f.repo.ID, g)
+		require.NoError(t, err)
+		return id
+	}
+	blocked := func(want int) {
+		require.Eventually(t, func() bool {
+			var n int
+			require.NoError(t, f.s.Pool().QueryRow(f.ctx, `
+				SELECT count(*) FROM pg_stat_activity
+				WHERE datname = current_database() AND wait_event_type = 'Lock' AND state = 'active'`).Scan(&n))
+			return n >= want
+		}, 5*time.Second, 10*time.Millisecond, "expected %d blocked writers", want)
+	}
+
+	old := graph("old", "a")
+	mid := graph("mid", "a", "b")
+	end := graph("end", "a")
+	require.NoError(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, old))
+
+	hold, err := f.s.Pool().Begin(f.ctx)
+	require.NoError(t, err)
+	_, err = hold.Exec(f.ctx, `SELECT default_graph_id FROM repos WHERE id = $1 FOR UPDATE`, f.repo.ID)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	wg.Go(func() { errs[0] = f.s.SetDefaultGraph(f.ctx, f.repo.ID, mid) })
+	blocked(1)
+	wg.Go(func() { errs[1] = f.s.SetDefaultGraph(f.ctx, f.repo.ID, end) })
+	blocked(2)
+
+	require.NoError(t, hold.Rollback(f.ctx))
+	wg.Wait()
+	require.NoError(t, errs[0])
+	require.NoError(t, errs[1])
+
+	_, gid, err := f.s.GetDefaultGraph(f.ctx, f.repo.ID)
+	require.NoError(t, err)
+	require.Equal(t, end, gid, "the later transition wins the default graph")
+	b, err := f.s.GetStackByKey(f.ctx, f.repo.ID, "b")
+	require.NoError(t, err)
+	assert.NotNil(t, b.RemovedAt,
+		"a stack added in the intermediate graph and dropped by the final one is removed, not leaked live")
 }

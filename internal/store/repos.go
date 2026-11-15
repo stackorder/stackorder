@@ -132,7 +132,7 @@ func (s *Store) SetDefaultGraph(ctx context.Context, repoID int64, graphID uuid.
 	const op = "set default graph"
 	return s.InTx(ctx, func(tx *Store) error {
 		var old *uuid.UUID
-		if err := tx.db.QueryRow(ctx, `SELECT default_graph_id FROM repos WHERE id = $1`, repoID).Scan(&old); err != nil {
+		if err := tx.db.QueryRow(ctx, `SELECT default_graph_id FROM repos WHERE id = $1 FOR UPDATE`, repoID).Scan(&old); err != nil {
 			return wrap(op, err)
 		}
 		if err := tx.execOne(ctx, op, `
