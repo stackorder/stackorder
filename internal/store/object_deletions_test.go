@@ -5,6 +5,7 @@ package store_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -75,6 +76,48 @@ func TestDeleteRepoQueuesPlanObjects(t *testing.T) {
 	pending, err := f.s.ClaimObjectDeletions(f.ctx, 10)
 	require.NoError(t, err)
 	require.Len(t, pending, 1, "only the stack that kept an object is queued")
+	assert.Equal(t, run.ID, pending[0].RunID)
+	assert.Equal(t, "stacks/a", pending[0].StackKey)
+}
+
+func TestDeleteRepoCapturesConcurrentPlanURL(t *testing.T) {
+	f := newFixture(t)
+	ids := f.stacks("stacks/a")
+	run := f.run(store.CreateRunParams{})
+	require.NoError(t, f.s.UpsertRunStacks(f.ctx, run.ID, []store.RunStack{{StackID: ids["stacks/a"]}}))
+
+	conn, err := f.s.Pool().Acquire(f.ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+	tx, err := conn.Begin(f.ctx)
+	require.NoError(t, err)
+	planURL := "s3://bucket/runs/" + run.ID.String() + "/stacks-a/plan.txt"
+	_, err = tx.Exec(f.ctx, `UPDATE run_stacks SET plan_url = $3 WHERE run_id = $1 AND stack_id = $2`,
+		run.ID, ids["stacks/a"], planURL)
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() { done <- f.s.DeleteRepo(f.ctx, f.repo.ID) }()
+
+	require.Eventually(t, func() bool {
+		var blocked int
+		require.NoError(t, f.s.Pool().QueryRow(f.ctx,
+			`SELECT count(*) FROM pg_locks WHERE NOT granted`).Scan(&blocked))
+		return blocked > 0
+	}, 10*time.Second, 10*time.Millisecond, "delete should block on the concurrent result's row lock")
+
+	require.NoError(t, tx.Commit(f.ctx))
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("delete did not finish after the concurrent result committed")
+	}
+
+	pending, err := f.s.ClaimObjectDeletions(f.ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, pending, 1, "the object of a plan_url recorded before deletion is queued, not stranded")
 	assert.Equal(t, run.ID, pending[0].RunID)
 	assert.Equal(t, "stacks/a", pending[0].StackKey)
 }
