@@ -30,6 +30,7 @@ func TestRunHook(t *testing.T) {
 		wantExit   int
 		wantStdout string
 		wantStderr string
+		wantOutput []string
 	}{
 		{
 			name:  "missing hook",
@@ -61,11 +62,13 @@ func TestRunHook(t *testing.T) {
 			name: "failing hook",
 			hook: HookPostApply,
 			setup: func(t *testing.T, root string) {
-				writeHook(t, root, HookPostApply, "echo policy failed >&2\nexit 3\n", 0o755)
+				writeHook(t, root, HookPostApply, "echo checking endpoint\necho policy failed >&2\nexit 3\n", 0o755)
 			},
 			wantRan:    true,
 			wantExit:   3,
+			wantStdout: "checking endpoint\n",
 			wantStderr: "policy failed\n",
+			wantOutput: []string{"checking endpoint", "policy failed"},
 		},
 		{
 			name: "not executable",
@@ -97,6 +100,9 @@ func TestRunHook(t *testing.T) {
 				require.ErrorAs(t, err, &exitErr)
 				assert.Equal(t, tt.wantExit, exitErr.ExitCode)
 				assert.Equal(t, "hook "+tt.hook, exitErr.Command)
+				for _, want := range tt.wantOutput {
+					assert.Contains(t, exitErr.Output, want)
+				}
 			default:
 				require.NoError(t, err)
 			}
@@ -121,6 +127,21 @@ func TestRunHookNilWriters(t *testing.T) {
 	ran, err := RunHook(execContext(t), root, HookPrePlan, nil, nil, nil)
 	require.NoError(t, err)
 	assert.True(t, ran)
+}
+
+func TestTailBufferKeepsBoundedTail(t *testing.T) {
+	b := &tailBuffer{max: 8}
+	for i := 0; i < 5; i++ {
+		_, _ = b.Write([]byte("abcd"))
+	}
+	assert.Len(t, b.buf, 8)
+	assert.Equal(t, "abcdabcd", b.String())
+
+	b2 := &tailBuffer{max: 4}
+	n, err := b2.Write([]byte("0123456789"))
+	require.NoError(t, err)
+	assert.Equal(t, 10, n)
+	assert.Equal(t, "6789", b2.String())
 }
 
 func TestHookPath(t *testing.T) {

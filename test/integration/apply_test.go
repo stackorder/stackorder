@@ -244,6 +244,7 @@ func TestPostApplyHookFailureBlocksDependents(t *testing.T) {
 	prod := f.apply(a.wave0[0], nil)[prodVPC]
 	requireExit(t, 1, prod)
 	assert.Contains(t, prod.stderr, "applied stacks/prod/vpc, but post-apply hook")
+	assert.Contains(t, prod.summary, "smoke test failed", "the hook's own diagnostic reaches the result error text")
 	requireExit(t, 0, f.apply(a.wave0[1], nil)[stagingVPC])
 
 	run := e.waitRun(a.runID, v1.RunFailed)

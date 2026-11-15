@@ -12,7 +12,12 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"sync"
 )
+
+// maxHookOutput bounds the hook output captured for an ExitError, keeping the
+// tail so a failing hook's last diagnostic reaches the result error text.
+const maxHookOutput = 1 << 20
 
 const (
 	// HooksDir is the repository relative directory holding hook scripts.
@@ -107,8 +112,10 @@ func RunHook(ctx context.Context, repoRoot, name string, env map[string]string, 
 	for _, k := range keys {
 		cmd.Env = append(cmd.Env, k+"="+env[k])
 	}
-	cmd.Stdout = orDiscard(stdout)
-	cmd.Stderr = orDiscard(stderr)
+	var mu sync.Mutex
+	captured := &tailBuffer{max: maxHookOutput}
+	cmd.Stdout = &lockedWriter{mu: &mu, w: io.MultiWriter(captured, orDiscard(stdout))}
+	cmd.Stderr = &lockedWriter{mu: &mu, w: io.MultiWriter(captured, orDiscard(stderr))}
 	configureInterrupt(cmd, DefaultInterruptTimeout)
 	err = cmd.Run()
 	if ctx.Err() != nil {
@@ -116,10 +123,32 @@ func RunHook(ctx context.Context, repoRoot, name string, env map[string]string, 
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
-		return true, &ExitError{Command: "hook " + name, ExitCode: exitErr.ExitCode()}
+		return true, &ExitError{Command: "hook " + name, ExitCode: exitErr.ExitCode(), Output: captured.String()}
 	}
 	if err != nil {
 		return true, fmt.Errorf("tf: hook %s: %w", name, err)
 	}
 	return true, nil
 }
+
+// tailBuffer keeps the last max bytes written to it, so a long-running hook's
+// final diagnostic survives while its memory stays bounded.
+type tailBuffer struct {
+	max int
+	buf []byte
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if t.max > 0 && len(p) >= t.max {
+		t.buf = append(t.buf[:0], p[len(p)-t.max:]...)
+		return n, nil
+	}
+	t.buf = append(t.buf, p...)
+	if t.max > 0 && len(t.buf) > t.max {
+		t.buf = append([]byte(nil), t.buf[len(t.buf)-t.max:]...)
+	}
+	return n, nil
+}
+
+func (t *tailBuffer) String() string { return string(t.buf) }

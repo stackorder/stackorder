@@ -225,7 +225,7 @@ Each hook runs with `bash`, from the repository root, with the job's environment
 | `STACKORDER_PLAN_FILE` | The path of the binary plan file; empty for `pre-plan`. |
 | `STACKORDER_PLAN_JSON` | The path of the plan as JSON, from `show -json`; empty for `pre-plan`. |
 
-Commit hooks with the executable bit set (`git update-index --chmod=+x`): a hook file without it is an error, not a skipped hook. Their output goes to the job log, through the same redaction as Terraform's in Actions.
+Commit hooks with the executable bit set (`git update-index --chmod=+x`): a hook file without it is an error, not a skipped hook. Their output goes to the job log, through the same redaction as Terraform's in Actions, and when a hook fails the tail of that output is also kept in the result's error text and the job step summary.
 
 Hooks are where OPA or conftest, Checkov or Infracost run.
 

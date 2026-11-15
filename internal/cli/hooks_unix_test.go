@@ -157,6 +157,7 @@ func TestHookFailures(t *testing.T) {
 		assert.Equal(t, v1.ResultFailure, got.Status)
 		assert.Equal(t, 2, got.ExitCode)
 		assert.Contains(t, got.ErrorText, "post-apply hook")
+		assert.Contains(t, got.ErrorText, "hook post-apply ran")
 		diffResources(t, fixtureResources(), got.Resources)
 	})
 	t.Run("hook without the executable bit", func(t *testing.T) {
