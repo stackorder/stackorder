@@ -222,3 +222,21 @@ func requireExit(t *testing.T, want int, res jobResult) {
 	t.Helper()
 	require.Equal(t, want, res.code, "exit code; stderr:\n%s", res.stderr)
 }
+
+func TestRunnerServerURLTrailingSlash(t *testing.T) {
+	e := shared(t)
+	f := newFixture(t, e, "oidc-audience-slash")
+	ev := f.openPR(1, f.co.head, "feature/vpc-subnet")
+	w := f.planWorkflow(ev)
+	w.server = e.BaseURL + "/"
+
+	res := w.run("resolve")
+
+	requireExit(t, 0, res)
+	auds := w.ts.Audiences()
+	require.NotEmpty(t, auds)
+	for _, aud := range auds {
+		require.Equal(t, e.BaseURL, aud,
+			"the CLI trims the trailing slash from the audience derived from the server URL, matching the server")
+	}
+}

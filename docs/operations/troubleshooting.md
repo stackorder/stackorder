@@ -171,7 +171,7 @@ The command is the first line whose first word is `stackorder` and second word a
 | Cause | Answer | Fix |
 | --- | --- | --- |
 | The job has no `id-token: write` | The CLI cannot get a token | Grant it on the job that calls the reusable workflow. A called workflow cannot widen its caller's permissions. |
-| Wrong audience | `401` | The CLI requests the `server-url` it was given as audience, exactly as written; it must equal `STACKORDER_OIDC_AUDIENCE`, which defaults to `STACKORDER_BASE_URL` without a trailing slash. |
+| Wrong audience | `401` | The CLI requests the `server-url` it was given as audience, with any trailing slash removed; it must equal `STACKORDER_OIDC_AUDIENCE`, which defaults to `STACKORDER_BASE_URL` without a trailing slash. |
 | Token too old, or reused | `401` | Tokens issued more than 10 minutes ago and tokens already seen are refused. The CLI requests a new one for every call, so this points at a clock problem or a replay. |
 | Repository unknown or suspended | `403` | Install the App on the repository, or unsuspend the installation. The server learns installations from webhooks, at start-up and daily. |
 | `job_workflow_ref` does not match | `403` | With `STACKORDER_REQUIRED_WORKFLOW_REF` set, only the pinned reusable workflows can register runs and post results. |

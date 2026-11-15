@@ -62,8 +62,8 @@ const (
 	// from the repository root.
 	EnvPlanDir = "STACKORDER_PLAN_DIR"
 	// EnvOIDCAudience overrides the audience of the runner's OIDC token,
-	// which defaults to the server URL; it must equal the server's
-	// STACKORDER_OIDC_AUDIENCE.
+	// which defaults to the server URL without a trailing slash; it must
+	// equal the server's STACKORDER_OIDC_AUDIENCE.
 	EnvOIDCAudience = "STACKORDER_OIDC_AUDIENCE"
 	// EnvLogFormat selects the log format: "json", or text otherwise.
 	EnvLogFormat = "STACKORDER_LOG_FORMAT"

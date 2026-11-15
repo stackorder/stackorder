@@ -18,16 +18,24 @@ func (a *app) newClient(gh *Context, apiKey bool) (*client.Client, error) {
 	}
 	var ts client.TokenSource
 	if gh.CI && !apiKey {
-		audience := os.Getenv(EnvOIDCAudience)
-		if audience == "" {
-			audience = a.server
-		}
-		ts = client.OIDCTokenSource(audience)
+		ts = client.OIDCTokenSource(a.oidcAudience())
 	} else {
 		ts = client.APIKeyTokenSource(strings.TrimSpace(os.Getenv(EnvAPIKey)))
 	}
 	opts := append([]client.Option{client.WithLogger(a.log)}, clientOptions...)
 	return client.New(a.server, ts, opts...), nil
+}
+
+// oidcAudience returns the audience for the runner's GitHub OIDC token. It is
+// STACKORDER_OIDC_AUDIENCE when set, which the server reads verbatim and so is
+// passed through unchanged; otherwise it is the server URL with trailing
+// slashes removed, matching the audience the server derives from
+// STACKORDER_BASE_URL.
+func (a *app) oidcAudience() string {
+	if audience := strings.TrimSpace(os.Getenv(EnvOIDCAudience)); audience != "" {
+		return audience
+	}
+	return strings.TrimRight(a.server, "/")
 }
 
 func firstNonEmpty(values ...string) string {

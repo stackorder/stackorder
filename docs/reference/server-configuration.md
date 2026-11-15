@@ -23,7 +23,7 @@ Values are trimmed of surrounding white space, and an empty value counts as unse
 | `GITHUB_WEB_URL` | `https://github.com` | GitHub web URL, for the manifest flow, sign-in and links. |
 | `GITHUB_OIDC_ISSUER` | `https://token.actions.githubusercontent.com` | Expected `iss` of runner tokens. |
 | `GITHUB_OIDC_JWKS_URL` | issuer + `/.well-known/jwks` | Where runner token signing keys are fetched. |
-| `STACKORDER_OIDC_AUDIENCE` | `STACKORDER_BASE_URL` | Expected `aud` of runner tokens. The CLI requests the server URL it was given as audience, so the two must match exactly. |
+| `STACKORDER_OIDC_AUDIENCE` | `STACKORDER_BASE_URL` | Expected `aud` of runner tokens, used verbatim. When unset it defaults to `STACKORDER_BASE_URL` with its trailing slash removed; the CLI derives the same default from the server URL, so a server URL with a trailing slash still matches. |
 | `STACKORDER_REQUIRED_WORKFLOW_REF` | unset | A glob that every runner token's `job_workflow_ref` must match, validated at start-up. See [below](#required-workflow-ref). |
 | `STACKORDER_ARTIFACT_BUCKET` | unset | S3 bucket name, not a URL, for full plan text. See [below](#artifact-bucket). |
 | `STACKORDER_ARTIFACT_PREFIX` | empty | Key prefix inside the bucket. Setting it without a bucket is an error. |
