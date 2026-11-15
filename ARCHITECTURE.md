@@ -1208,12 +1208,17 @@ installation listing and the repository listing of every unsuspended
 installation succeed, it also forgets a stored installation the App no
 longer lists, but only after `GET /app/installations/{id}` confirms it with
 a `404` (a `200` or any other answer keeps it), and stored repositories of
-an unsuspended installation that no listing names. A listing that omits a
-majority of the stored installations, or a majority of an installation's
-repositories, is treated as degraded and forgets nothing, and when any
-listing fails it forgets nothing; `InstallationRepos` fails a repository
-listing whose pages hold fewer repositories than the `total_count` GitHub
-reports. Traces
+an unsuspended installation that no listing names. Omission is measured
+against the installations and repositories stored before the sync, so
+repositories the same sync newly discovers do not dilute it. A listing that
+omits a majority of the stored installations, or a majority of an
+installation's repositories, is treated as degraded and forgets nothing;
+because a repository has no per-repository confirmation, a listing that omits
+all of an installation's stored repositories is degraded as well, so an empty
+or short `200` cannot delete a single-repository installation's only
+repository. When any listing fails it forgets nothing; `InstallationRepos`
+fails a repository listing whose pages hold fewer repositories than the
+`total_count` GitHub reports. Traces
 carry `stackorder.run_id`, `stackorder.event`, `stackorder.delivery`,
 `stackorder.job` and `stackorder.job_id`; `/healthz`, `/readyz` and
 `/metrics` are not traced. A queued row keeps the W3C trace context of the
