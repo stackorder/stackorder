@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -51,6 +52,8 @@ type fakeStore struct {
 	pingDeadline  time.Duration
 	repos         []store.Repo
 	keys          map[string]store.APIKey
+	keysByID      map[uuid.UUID]store.APIKey
+	audits        []store.AuditEntry
 	sessions      map[string]store.Session
 	jtis          map[string]bool
 	installations []store.Installation
@@ -69,6 +72,7 @@ type fakeStore struct {
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		keys:      map[string]store.APIKey{},
+		keysByID:  map[uuid.UUID]store.APIKey{},
 		sessions:  map[string]store.Session{},
 		jtis:      map[string]bool{},
 		stacks:    map[uuid.UUID]store.Stack{},
@@ -104,6 +108,84 @@ func (f *fakeStore) VerifyAPIKey(_ context.Context, plaintext string) (store.API
 		return store.APIKey{}, store.ErrNotFound
 	}
 	return k, nil
+}
+
+func (f *fakeStore) CreateAPIKey(_ context.Context, name, createdBy string) (string, store.APIKey, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	secret := store.APIKeyPrefix + name + "_" + uuid.NewString()
+	key := store.APIKey{
+		ID:        uuid.New(),
+		Name:      name,
+		Prefix:    secret[:min(len(secret), 10)],
+		CreatedBy: createdBy,
+		CreatedAt: time.Now().UTC(),
+	}
+	f.keys[secret] = key
+	f.keysByID[key.ID] = key
+	return secret, key, nil
+}
+
+func (f *fakeStore) GetAPIKey(_ context.Context, id uuid.UUID) (store.APIKey, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	k, ok := f.keysByID[id]
+	if !ok {
+		return store.APIKey{}, store.ErrNotFound
+	}
+	return k, nil
+}
+
+func (f *fakeStore) ListAPIKeys(_ context.Context) ([]store.APIKey, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]store.APIKey, 0, len(f.keysByID))
+	for _, k := range f.keysByID {
+		out = append(out, k)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		}
+		return out[i].ID.String() < out[j].ID.String()
+	})
+	return out, nil
+}
+
+func (f *fakeStore) RevokeAPIKey(_ context.Context, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	k, ok := f.keysByID[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	if k.RevokedAt == nil {
+		now := time.Now().UTC()
+		k.RevokedAt = &now
+		f.keysByID[id] = k
+		for secret, sk := range f.keys {
+			if sk.ID == id {
+				sk.RevokedAt = &now
+				f.keys[secret] = sk
+			}
+		}
+	}
+	return nil
+}
+
+func (f *fakeStore) RecordAudit(_ context.Context, e store.AuditEntry) (store.AuditEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	e.ID = int64(len(f.audits) + 1)
+	e.At = time.Now().UTC()
+	f.audits = append(f.audits, e)
+	return e, nil
+}
+
+func (f *fakeStore) auditLog() []store.AuditEntry {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]store.AuditEntry(nil), f.audits...)
 }
 
 func (f *fakeStore) GetSession(_ context.Context, token string) (store.Session, error) {

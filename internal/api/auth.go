@@ -20,6 +20,7 @@ const (
 	viaAPIKey
 	viaSession
 	sameOrigin
+	adminKey
 )
 
 const (
@@ -31,6 +32,12 @@ const (
 type identity struct {
 	principal.Principal
 	session *store.Session
+}
+
+// isAdmin reports whether the caller may manage API keys. Today every API
+// key is an administrator; a later scoped key narrows this.
+func (id identity) isAdmin() bool {
+	return id.Kind == principal.APIKey
 }
 
 func (id identity) sees(account string) bool {
@@ -73,6 +80,10 @@ func (s *server) with(mode authMode, h handler) http.Handler {
 				s.writeError(w, r, err)
 				return
 			}
+		}
+		if mode&adminKey != 0 && !id.isAdmin() {
+			s.writeError(w, r, forbidden("managing API keys requires an administrator API key"))
+			return
 		}
 		if err := h(w, r, id); err != nil {
 			s.writeError(w, r, err)

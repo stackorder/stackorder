@@ -727,3 +727,74 @@ func TestPlanText(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Contains(t, errorOf(t, rec).Message, "no artifact bucket")
 }
+
+func TestAPIKeyEndpointsIntegration(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+
+	post := func(target, bearer string, body any) *httptest.ResponseRecorder {
+		r := newRequest(t, http.MethodPost, target, body)
+		r.Header.Set("Origin", testBaseURL)
+		r.Header.Set("Authorization", "Bearer "+bearer)
+		rec := httptest.NewRecorder()
+		w.h.ServeHTTP(rec, r)
+		return rec
+	}
+
+	rec := post("/v1/keys", w.key, v1.CreateAPIKeyRequest{Name: "deploy"})
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	created := decodeBody[v1.CreatedAPIKey](t, rec)
+	require.True(t, strings.HasPrefix(created.Secret, store.APIKeyPrefix))
+	assert.Equal(t, "apikey:ci", created.CreatedBy)
+
+	meRec := httptest.NewRecorder()
+	meReq := newRequest(t, http.MethodGet, "/v1/me", nil)
+	meReq.Header.Set("Authorization", "Bearer "+created.Secret)
+	w.h.ServeHTTP(meRec, meReq)
+	require.Equal(t, http.StatusOK, meRec.Code, "the minted key works against the API")
+	assert.True(t, decodeBody[v1.Whoami](t, meRec).Admin)
+
+	listRec := httptest.NewRecorder()
+	listReq := newRequest(t, http.MethodGet, "/v1/keys", nil)
+	listReq.Header.Set("Authorization", "Bearer "+w.key)
+	w.h.ServeHTTP(listRec, listReq)
+	require.Equal(t, http.StatusOK, listRec.Code, listRec.Body.String())
+	list := decodeBody[v1.APIKeyList](t, listRec)
+	names := map[string]bool{}
+	for _, k := range list.Keys {
+		names[k.Name] = true
+		assert.NotEmpty(t, k.Prefix)
+	}
+	assert.True(t, names["ci"] && names["deploy"], "both keys are listed")
+	assert.NotContains(t, listRec.Body.String(), created.Secret, "the list never leaks a secret")
+
+	delReq := newRequest(t, http.MethodDelete, "/v1/keys/"+created.ID, nil)
+	delReq.Header.Set("Origin", testBaseURL)
+	delReq.Header.Set("Authorization", "Bearer "+w.key)
+	delRec := httptest.NewRecorder()
+	w.h.ServeHTTP(delRec, delReq)
+	require.Equal(t, http.StatusOK, delRec.Code, delRec.Body.String())
+	require.NotNil(t, decodeBody[v1.APIKey](t, delRec).RevokedAt)
+
+	gone := httptest.NewRecorder()
+	goneReq := newRequest(t, http.MethodGet, "/v1/me", nil)
+	goneReq.Header.Set("Authorization", "Bearer "+created.Secret)
+	w.h.ServeHTTP(gone, goneReq)
+	assert.Equal(t, http.StatusUnauthorized, gone.Code, "the revoked key stops working")
+
+	entries, _, err := w.st.ListAudit(ctx, store.AuditFilter{Actor: "apikey:ci"})
+	require.NoError(t, err)
+	actions := map[string]string{}
+	for _, e := range entries {
+		actions[e.Action] = e.Target
+	}
+	assert.Equal(t, "deploy", actions["api_key_created"])
+	assert.Equal(t, "deploy", actions["api_key_revoked"])
+
+	sessRec := httptest.NewRecorder()
+	sessReq := newRequest(t, http.MethodGet, "/v1/keys", nil)
+	sessReq.AddCookie(w.session)
+	w.h.ServeHTTP(sessRec, sessReq)
+	require.Equal(t, http.StatusForbidden, sessRec.Code, "a signed-in user is not an administrator")
+	assert.Contains(t, errorOf(t, sessRec).Message, "administrator API key")
+}
