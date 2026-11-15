@@ -151,7 +151,7 @@ func (c *Client) UpdateCheckRun(ctx context.Context, repo string, id int64, p Ch
 		return nil, err
 	}
 	var run CheckRun
-	if err := c.call(ctx, http.MethodPatch, "/repos/{owner}/{repo}/check-runs/{check_run_id}", rp+"/check-runs/"+i64(id), p.wire(true), &run); err != nil {
+	if err := c.callIdempotent(ctx, http.MethodPatch, "/repos/{owner}/{repo}/check-runs/{check_run_id}", rp+"/check-runs/"+i64(id), p.wire(true), &run); err != nil {
 		return nil, err
 	}
 	return &run, nil

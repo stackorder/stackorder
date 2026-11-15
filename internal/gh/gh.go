@@ -7,8 +7,16 @@
 // the endpoints and fields Stackorder needs: check runs, the sticky PR
 // comment, reviews, permissions and team membership, workflow dispatch and
 // run reconciliation, contents, tags, drift issues and deployment protection
-// rules. Every request retries network errors, 5xx responses and rate limits
-// with backoff, honouring Retry-After and X-RateLimit-Reset.
+// rules. Idempotent requests (reads, PUT, DELETE and the idempotent-in-effect
+// check-run, comment, issue, reaction, deployment-protection-rule and
+// installation-token writes) retry network errors, 5xx responses and rate
+// limits with backoff, honouring Retry-After and X-RateLimit-Reset. A
+// non-idempotent create — a new check run, comment, issue or workflow
+// dispatch — retries only while the request provably has not reached GitHub
+// (a connection error before it was written) or when GitHub reports it did
+// not act (a rate limit); after any other failure the error is returned and
+// marked with ErrUnknownOutcome, so a lost response never duplicates it and
+// the caller can tell the create may have been applied.
 package gh
 
 import (
@@ -46,6 +54,12 @@ var (
 	// ErrRateLimited is matched by errors.Is when GitHub refused a request
 	// for rate limiting and retrying did not help within the allowed wait.
 	ErrRateLimited = errors.New("gh: rate limited")
+	// ErrUnknownOutcome is matched by errors.Is when a request that is not
+	// safe to repeat failed after it may already have reached GitHub, so the
+	// caller cannot tell whether GitHub applied it. A create that returns an
+	// error matching ErrUnknownOutcome may have been applied, and the caller
+	// must look for the object before creating it again.
+	ErrUnknownOutcome = errors.New("gh: outcome unknown")
 	// ErrUnsupportedEvent is returned by ParseEvent for event names this
 	// package does not decode.
 	ErrUnsupportedEvent = errors.New("gh: unsupported event")

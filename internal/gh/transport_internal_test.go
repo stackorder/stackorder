@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -326,6 +327,93 @@ func TestNoRetryRequest(t *testing.T) {
 	r.noRetry = true
 	require.Error(t, tr.call(context.Background(), r, nil))
 	assert.Equal(t, int32(1), calls.Load())
+}
+
+func post(route string) request {
+	return request{method: http.MethodPost, route: route, path: "/thing", body: map[string]string{"a": "b"}}
+}
+
+func TestNonIdempotentNotRetriedAfter5xx(t *testing.T) {
+	h, calls := sequence(t, status(502), okJSON(`{"id":1}`))
+	tr, sl, _ := testTransport(t, h)
+	err := tr.call(context.Background(), post("/thing"), nil)
+	var apiErr *APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, 502, apiErr.Status)
+	assert.ErrorIs(t, err, ErrUnknownOutcome)
+	assert.Equal(t, int32(1), calls.Load())
+	assert.Empty(t, sl.all())
+}
+
+func TestNonIdempotentNotRetriedAfterSend(t *testing.T) {
+	var n atomic.Int32
+	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if n.Add(1) == 1 {
+			panic(http.ErrAbortHandler)
+		}
+		_, _ = w.Write([]byte(`{"id":1}`))
+	})
+	tr, sl, _ := testTransport(t, h)
+	err := tr.call(context.Background(), post("/thing"), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrUnknownOutcome)
+	assert.Equal(t, int32(1), n.Load())
+	assert.Empty(t, sl.all())
+}
+
+func TestNonIdempotentRetriedWhenNotSent(t *testing.T) {
+	var dials atomic.Int32
+	hc := &http.Client{Transport: &http.Transport{
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			dials.Add(1)
+			return nil, errors.New("connection refused")
+		},
+	}}
+	tr, err := newTransport(Config{BaseURL: "https://api.invalid", HTTPClient: hc, Clock: func() time.Time { return fixedNow }})
+	require.NoError(t, err)
+	sl := &sleeps{}
+	tr.sleep = sl.sleep
+	tr.jitter = func() float64 { return 0.5 }
+	callErr := tr.call(context.Background(), post("/thing"), nil)
+	require.Error(t, callErr)
+	assert.NotErrorIs(t, callErr, ErrUnknownOutcome, "a request that never left has a known outcome")
+	assert.Equal(t, int32(5), dials.Load())
+	assert.Len(t, sl.all(), 4)
+}
+
+func TestNonIdempotentRetriedOnRateLimit(t *testing.T) {
+	h, calls := sequence(t, status(429, "Retry-After", "1"), okJSON(`{"id":1}`))
+	tr, sl, _ := testTransport(t, h)
+	require.NoError(t, tr.call(context.Background(), post("/thing"), nil))
+	assert.Equal(t, int32(2), calls.Load())
+	assert.Equal(t, []time.Duration{time.Second}, sl.all())
+}
+
+func TestNonIdempotentRateLimitHasKnownOutcome(t *testing.T) {
+	h, _ := sequence(t, status(429, "Retry-After", "3600"))
+	tr, _, _ := testTransport(t, h)
+	err := tr.call(context.Background(), post("/thing"), nil)
+	require.ErrorIs(t, err, ErrRateLimited)
+	assert.NotErrorIs(t, err, ErrUnknownOutcome, "a rate limit means GitHub did not act")
+}
+
+func TestIdempotentOverrideRetriesAfter5xx(t *testing.T) {
+	h, calls := sequence(t, status(502), okJSON(`{"id":1}`))
+	tr, sl, _ := testTransport(t, h)
+	r := post("/thing")
+	r.idempotent = true
+	require.NoError(t, tr.call(context.Background(), r, nil))
+	assert.Equal(t, int32(2), calls.Load())
+	assert.Equal(t, []time.Duration{750 * time.Millisecond}, sl.all())
+}
+
+func TestIdempotentMethodClassification(t *testing.T) {
+	for _, m := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete, http.MethodOptions, http.MethodTrace} {
+		assert.True(t, idempotentMethod(m), m)
+	}
+	for _, m := range []string{http.MethodPost, http.MethodPatch} {
+		assert.False(t, idempotentMethod(m), m)
+	}
 }
 
 func TestContextCancelledDuringBackoff(t *testing.T) {

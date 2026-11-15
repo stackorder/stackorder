@@ -239,7 +239,7 @@ func (c *Client) ReviewDeploymentProtectionRule(ctx context.Context, repo string
 		State           string `json:"state"`
 		Comment         string `json:"comment,omitempty"`
 	}{EnvironmentName: environmentName, State: state, Comment: comment}
-	return c.call(ctx, http.MethodPost, "/repos/{owner}/{repo}/actions/runs/{run_id}/deployment_protection_rule",
+	return c.callIdempotent(ctx, http.MethodPost, "/repos/{owner}/{repo}/actions/runs/{run_id}/deployment_protection_rule",
 		rp+"/actions/runs/"+i64(runID)+"/deployment_protection_rule", body, nil)
 }
 

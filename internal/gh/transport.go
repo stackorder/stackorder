@@ -9,9 +9,11 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -39,14 +41,15 @@ func (staticToken) invalidate() bool { return false }
 func (staticToken) rateLimitScope() string { return "" }
 
 type request struct {
-	method  string
-	route   string
-	path    string
-	rawURL  string
-	query   url.Values
-	body    any
-	auth    tokenSource
-	noRetry bool
+	method     string
+	route      string
+	path       string
+	rawURL     string
+	query      url.Values
+	body       any
+	auth       tokenSource
+	idempotent bool
+	noRetry    bool
 }
 
 type response struct {
@@ -150,6 +153,7 @@ func (t *transport) do(ctx context.Context, r request) (*response, error) {
 		contentType = "application/json"
 	}
 	target := t.target(r)
+	idempotent := r.idempotent || idempotentMethod(r.method)
 	attempts := t.maxAttempts
 	if r.noRetry {
 		attempts = 1
@@ -164,14 +168,18 @@ func (t *transport) do(ctx context.Context, r request) (*response, error) {
 			}
 			token = tok
 		}
-		resp, err := t.once(ctx, r, target, token, payload, contentType)
+		resp, sent, err := t.once(ctx, r, target, token, payload, contentType)
 		if err != nil {
 			err = withoutURL(err)
 			if ctx.Err() != nil {
 				return nil, fmt.Errorf("gh: %s %s: %w", r.method, r.route, ctx.Err())
 			}
-			if attempt >= attempts {
-				return nil, fmt.Errorf("gh: %s %s: %w", r.method, r.route, err)
+			if attempt >= attempts || (sent && !idempotent) {
+				wrapped := fmt.Errorf("gh: %s %s: %w", r.method, r.route, err)
+				if sent && !idempotent {
+					wrapped = unknownOutcome{wrapped}
+				}
+				return nil, wrapped
 			}
 			if err := t.sleep(ctx, t.backoff(attempt)); err != nil {
 				return nil, fmt.Errorf("gh: %s %s: %w", r.method, r.route, err)
@@ -187,7 +195,13 @@ func (t *transport) do(ctx context.Context, r request) (*response, error) {
 			continue
 		}
 		wait, retry := t.retryDelay(resp, apiErr, attempt)
+		if retry && !idempotent && !apiErr.rateLimited {
+			retry = false
+		}
 		if !retry || attempt >= attempts || wait > t.maxWait {
+			if !idempotent && !apiErr.rateLimited && resp.status >= 500 {
+				return nil, unknownOutcome{apiErr}
+			}
 			return nil, apiErr
 		}
 		if err := t.sleep(ctx, wait); err != nil {
@@ -195,6 +209,23 @@ func (t *transport) do(ctx context.Context, r request) (*response, error) {
 		}
 	}
 }
+
+func idempotentMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete, http.MethodOptions, http.MethodTrace:
+		return true
+	default:
+		return false
+	}
+}
+
+type unknownOutcome struct{ err error }
+
+func (e unknownOutcome) Error() string { return e.err.Error() }
+
+func (e unknownOutcome) Unwrap() error { return e.err }
+
+func (unknownOutcome) Is(target error) bool { return target == ErrUnknownOutcome }
 
 func withoutURL(err error) error {
 	var urlErr *url.Error
@@ -204,14 +235,22 @@ func withoutURL(err error) error {
 	return err
 }
 
-func (t *transport) once(ctx context.Context, r request, target, token string, payload []byte, contentType string) (*response, error) {
+func (t *transport) once(ctx context.Context, r request, target, token string, payload []byte, contentType string) (*response, bool, error) {
 	var body io.Reader
 	if payload != nil {
 		body = bytes.NewReader(payload)
 	}
+	var sent atomic.Bool
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if info.Err == nil {
+				sent.Store(true)
+			}
+		},
+	})
 	req, err := http.NewRequestWithContext(ctx, r.method, target, body)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	req.Header.Set("Accept", MediaType)
 	req.Header.Set("X-GitHub-Api-Version", APIVersion)
@@ -226,16 +265,16 @@ func (t *transport) once(ctx context.Context, r request, target, token string, p
 	resp, err := t.hc.Do(req)
 	if err != nil {
 		t.observe(r, 0, time.Since(start))
-		return nil, err
+		return nil, sent.Load(), err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	t.observe(r, resp.StatusCode, time.Since(start))
 	t.observeRateLimit(r.auth, resp.Header)
 	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
+		return nil, sent.Load(), fmt.Errorf("read body: %w", err)
 	}
-	return &response{status: resp.StatusCode, header: resp.Header, body: data}, nil
+	return &response{status: resp.StatusCode, header: resp.Header, body: data}, sent.Load(), nil
 }
 
 func (t *transport) observe(r request, status int, d time.Duration) {

@@ -415,6 +415,76 @@ func TestComments(t *testing.T) {
 	require.ErrorIs(t, c.CreateReaction(ctx, repo, cm.ID, gh.ReactionEyes), gh.ErrNotFound)
 }
 
+func TestNonIdempotentCreateNotRetriedOn5xx(t *testing.T) {
+	fake, c := setup(t)
+	ctx := context.Background()
+	const route = "POST /repos/{owner}/{repo}/issues/{issue_number}/comments"
+	fake.FailNext(route, 502, 1)
+	_, err := c.CreateIssueComment(ctx, repo, 3, "hi")
+	var apiErr *gh.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, 502, apiErr.Status)
+	assert.Equal(t, 1, countRequests(fake, route))
+	assert.Empty(t, fake.Comments(repo, 3))
+}
+
+func TestWorkflowDispatchNotRetriedOn5xx(t *testing.T) {
+	fake, c := setup(t)
+	ctx := context.Background()
+	const route = "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches"
+	fake.FailNext(route, 500, 1)
+	err := c.DispatchWorkflow(ctx, repo, "stackorder.yml", "main", nil)
+	require.Error(t, err)
+	assert.Equal(t, 1, countRequests(fake, route))
+	assert.Empty(t, fake.Dispatches())
+}
+
+func TestNonIdempotentCreateRetriedOnRateLimit(t *testing.T) {
+	fake, c := setup(t)
+	ctx := context.Background()
+	const route = "POST /repos/{owner}/{repo}/issues/{issue_number}/comments"
+	fake.SecondaryRateLimitNext(time.Millisecond)
+	cm, err := c.CreateIssueComment(ctx, repo, 3, "hi")
+	require.NoError(t, err)
+	assert.Equal(t, "hi", cm.Body)
+	assert.Equal(t, 2, countRequests(fake, route))
+}
+
+func TestIdempotentUpdateRetriedOn5xx(t *testing.T) {
+	fake, c := setup(t)
+	ctx := context.Background()
+	cm, err := c.CreateIssueComment(ctx, repo, 3, "hi")
+	require.NoError(t, err)
+	const route = "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}"
+	fake.FailNext(route, 502, 1)
+	up, err := c.UpdateIssueComment(ctx, repo, cm.ID, "bye")
+	require.NoError(t, err)
+	assert.Equal(t, "bye", up.Body)
+	assert.Equal(t, 2, countRequests(fake, route))
+}
+
+func TestCreateCheckRunUnknownOutcomeStillCreated(t *testing.T) {
+	fake, c := setup(t)
+	ctx := context.Background()
+	const route = "POST /repos/{owner}/{repo}/check-runs"
+	fake.ApplyThenFailNext(route, 502, 1)
+	_, err := c.CreateCheckRun(ctx, repo, gh.CheckRunParams{Name: "plan", HeadSHA: "a1b2c3d4e5f6", Status: gh.CheckRunInProgress, ExternalID: "run-1"})
+	require.ErrorIs(t, err, gh.ErrUnknownOutcome)
+	assert.Equal(t, 1, countRequests(fake, route))
+	runs := fake.CheckRuns(repo)
+	require.Len(t, runs, 1, "GitHub applied the create before the 502")
+	assert.Equal(t, "run-1", runs[0].ExternalID)
+}
+
+func TestInstallationTokenRetriedOn5xx(t *testing.T) {
+	fake := ghfake.New(t)
+	fake.AddInstallation(1, "acme", repo)
+	fake.FailNext(tokenRoute, 500, 1)
+	_, err := fake.NewApp().Client(context.Background(), 1)
+	require.NoError(t, err)
+	assert.Equal(t, 2, countRequests(fake, tokenRoute))
+}
+
 func TestOwnComments(t *testing.T) {
 	fake, c := setup(t)
 	ctx := context.Background()
@@ -815,6 +885,16 @@ func TestReviewDeploymentProtectionRule(t *testing.T) {
 	require.Error(t, c.ReviewDeploymentProtectionRule(ctx, repo, 1, "production", "maybe", ""))
 	require.Error(t, c.ReviewDeploymentProtectionRule(ctx, repo, 1, "", gh.DeploymentApproved, ""))
 	assert.Len(t, fake.ProtectionRuleDecisions(), 2)
+}
+
+func TestReviewDeploymentProtectionRuleRetriedOn5xx(t *testing.T) {
+	fake, c := setup(t)
+	ctx := context.Background()
+	const route = "POST /repos/{owner}/{repo}/actions/runs/{run_id}/deployment_protection_rule"
+	fake.FailNext(route, 503, 1)
+	require.NoError(t, c.ReviewDeploymentProtectionRule(ctx, repo, 42, "production", gh.DeploymentApproved, ""))
+	assert.Equal(t, 2, countRequests(fake, route))
+	assert.Len(t, fake.ProtectionRuleDecisions(), 1)
 }
 
 func TestRunIDFromCallbackURL(t *testing.T) {

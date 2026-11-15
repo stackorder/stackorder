@@ -113,6 +113,7 @@ type Server struct {
 	decisions      []ProtectionRuleDecision
 	requests       []Request
 	failures       []failure
+	applyFailures  []failure
 	onDispatch     func(Dispatch)
 	nextID         int64
 	nextRepoID     int64
@@ -823,6 +824,40 @@ func (s *Server) FailNext(route string, status, n int) {
 	defer s.mu.Unlock()
 	s.failures = append(s.failures, failure{route: route, status: status, left: n})
 }
+
+// ApplyThenFailNext makes the next n requests matching route apply their
+// change and then answer status, modelling a create that GitHub processed
+// before a proxy answered 5xx or the response was lost. route follows the
+// same matching as FailNext.
+func (s *Server) ApplyThenFailNext(route string, status, n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.applyFailures = append(s.applyFailures, failure{route: route, status: status, left: n})
+}
+
+func (s *Server) takeApplyFailure(r *http.Request) (failure, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.applyFailures {
+		f := &s.applyFailures[i]
+		if f.left <= 0 {
+			continue
+		}
+		if f.route == "" || f.route == r.Pattern || f.route == r.Method+" "+r.URL.Path {
+			f.left--
+			return *f, true
+		}
+	}
+	return failure{}, false
+}
+
+type discardResponse struct{ header http.Header }
+
+func (d discardResponse) Header() http.Header { return d.header }
+
+func (discardResponse) Write(b []byte) (int, error) { return len(b), nil }
+
+func (discardResponse) WriteHeader(int) {}
 
 // RateLimitNext makes the next request fail with a primary rate limit 403
 // that resets at reset.

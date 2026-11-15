@@ -128,6 +128,15 @@ func (s *Server) handle(pattern string, mode authMode, h handlerFunc) {
 		if !s.authorize(sw, c, mode) {
 			return
 		}
+		if f, ok := s.takeApplyFailure(r); ok {
+			h(&statusWriter{ResponseWriter: discardResponse{header: http.Header{}}, status: http.StatusOK}, r, c)
+			msg := f.message
+			if msg == "" {
+				msg = http.StatusText(f.status)
+			}
+			writeError(sw, f.status, msg)
+			return
+		}
 		h(sw, r, c)
 	})
 }

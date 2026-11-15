@@ -103,7 +103,7 @@ func (c *Client) UpdateIssueComment(ctx context.Context, repo string, id int64, 
 		return nil, err
 	}
 	var cm Comment
-	if err := c.call(ctx, http.MethodPatch, "/repos/{owner}/{repo}/issues/comments/{comment_id}", rp+"/issues/comments/"+i64(id), commentBody{Body: body}, &cm); err != nil {
+	if err := c.callIdempotent(ctx, http.MethodPatch, "/repos/{owner}/{repo}/issues/comments/{comment_id}", rp+"/issues/comments/"+i64(id), commentBody{Body: body}, &cm); err != nil {
 		return nil, err
 	}
 	return &cm, nil
@@ -179,7 +179,7 @@ func (c *Client) CreateReaction(ctx context.Context, repo string, commentID int6
 	body := struct {
 		Content string `json:"content"`
 	}{Content: content}
-	return c.call(ctx, http.MethodPost, "/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions", rp+"/issues/comments/"+i64(commentID)+"/reactions", body, nil)
+	return c.callIdempotent(ctx, http.MethodPost, "/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions", rp+"/issues/comments/"+i64(commentID)+"/reactions", body, nil)
 }
 
 // CreateIssue opens an issue.
@@ -202,7 +202,7 @@ func (c *Client) UpdateIssue(ctx context.Context, repo string, number int, p Iss
 		return nil, err
 	}
 	var is Issue
-	if err := c.call(ctx, http.MethodPatch, "/repos/{owner}/{repo}/issues/{issue_number}", rp+"/issues/"+itoa(number), p, &is); err != nil {
+	if err := c.callIdempotent(ctx, http.MethodPatch, "/repos/{owner}/{repo}/issues/{issue_number}", rp+"/issues/"+itoa(number), p, &is); err != nil {
 		return nil, err
 	}
 	return &is, nil

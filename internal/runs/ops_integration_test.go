@@ -634,7 +634,7 @@ func TestDispatchFailure(t *testing.T) {
 func TestTransientDispatchFailureRecordsEveryGroupOfTheWave(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.planned(7, headSHA)
-	e.gh.FailNext("POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches", http.StatusServiceUnavailable, 10)
+	e.gh.FailNext("POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches", http.StatusServiceUnavailable, 2)
 	e.comment(7, applier, "stackorder apply")
 	apply := e.applyRun(7)
 	assert.Equal(t, v1.RunApplying, apply.Status)

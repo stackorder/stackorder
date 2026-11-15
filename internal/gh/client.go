@@ -52,6 +52,12 @@ func (c *Client) call(ctx context.Context, method, route, path string, body, out
 	return c.t.call(ctx, request{method: method, route: route, path: path, body: body, auth: c.auth}, out)
 }
 
+// callIdempotent is call for a POST or PATCH whose effect is idempotent, so
+// it may be retried after the request may already have reached GitHub.
+func (c *Client) callIdempotent(ctx context.Context, method, route, path string, body, out any) error {
+	return c.t.call(ctx, request{method: method, route: route, path: path, body: body, auth: c.auth, idempotent: true}, out)
+}
+
 func (c *Client) get(ctx context.Context, route, path string, out any) error {
 	return c.call(ctx, http.MethodGet, route, path, nil, out)
 }

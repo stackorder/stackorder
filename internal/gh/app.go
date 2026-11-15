@@ -170,10 +170,11 @@ func (a *App) InstallationToken(ctx context.Context, installationID int64) (Toke
 func (a *App) exchange(ctx context.Context, installationID int64) (Token, error) {
 	var tok Token
 	err := a.t.call(ctx, request{
-		method: http.MethodPost,
-		route:  "/app/installations/{installation_id}/access_tokens",
-		path:   "/app/installations/" + strconv.FormatInt(installationID, 10) + "/access_tokens",
-		auth:   a.jwtAuth(),
+		method:     http.MethodPost,
+		route:      "/app/installations/{installation_id}/access_tokens",
+		path:       "/app/installations/" + strconv.FormatInt(installationID, 10) + "/access_tokens",
+		auth:       a.jwtAuth(),
+		idempotent: true,
 	}, &tok)
 	if err != nil {
 		return Token{}, err
