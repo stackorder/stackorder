@@ -67,4 +67,8 @@ jobs:
           terraform_version: ${{ matrix.terraform }}
           terraform_wrapper: false
       - run: terraform init -backend=false -input=false
-      - run: terraform test
+      - name: Run each test file in its own process
+        run: |
+          for file in tests/*.tftest.hcl; do
+            terraform test -filter="$file"
+          done
