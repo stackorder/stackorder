@@ -125,16 +125,3 @@ func TestRecordDefaultGraphReconcilesRemovedStacks(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, len(live), ov.Stacks, "the overview counts only live stacks")
 }
-
-func TestRecordDefaultGraphSuspendedInstallation(t *testing.T) {
-	e := newEnv(t, baseConfig())
-	require.NoError(t, e.st.SuspendInstallation(e.ctx, instID, true))
-	e.gh.SetRef(repoName, "heads/main", newHeadSHA)
-
-	resp, err := e.svc.RecordDefaultGraph(e.ctx, e.pushJob("main", newHeadSHA), repoName, v1.RecordGraphRequest{Graph: testGraph(newHeadSHA)})
-	require.NoError(t, err)
-	assert.False(t, resp.Recorded, "a suspended installation records nothing")
-
-	_, _, gerr := e.st.GetDefaultGraph(e.ctx, repoID)
-	require.ErrorIs(t, gerr, store.ErrNotFound)
-}

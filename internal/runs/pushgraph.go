@@ -63,31 +63,7 @@ func (s *Service) RecordDefaultGraph(ctx context.Context, p principal.Principal,
 		return nil, &principal.InvalidError{Field: "graph.repo", Reason: fmt.Sprintf("is %s, the token belongs to %s", g.Repo, repo.FullName)}
 	}
 	resp := &v1.RecordGraphResponse{SHA: g.SHA}
-	if repo.Suspended {
-		resp.Reason = "the installation is suspended"
-		return resp, nil
-	}
-	client, err := s.client(ctx, repo)
-	if err != nil {
-		return nil, err
-	}
-	err = s.st.InTx(ctx, func(tx *store.Store) error {
-		if err := tx.LockKey(ctx, fmt.Sprintf("default-graph:%d", repo.ID)); err != nil {
-			return err
-		}
-		head, err := client.GetRef(ctx, repo.FullName, "heads/"+repo.DefaultBranch)
-		switch {
-		case errors.Is(err, gh.ErrNotFound):
-			resp.Reason = "the default branch has no head"
-			return nil
-		case err != nil:
-			return fmt.Errorf("runs: head of %s: %w", repo.FullName, err)
-		}
-		resp.Head = head
-		if head != g.SHA {
-			resp.Reason = "superseded by a newer commit on the default branch"
-			return nil
-		}
+	head, recorded, err := s.atDefaultHead(ctx, repo, g.SHA, func(tx *store.Store) error {
 		id, _, err := tx.SaveGraph(ctx, repo.ID, &g)
 		if err != nil {
 			return storeErr(err, "save graph of %s at %s", repo.FullName, shortSHA(g.SHA))
@@ -95,11 +71,59 @@ func (s *Service) RecordDefaultGraph(ctx context.Context, p principal.Principal,
 		if err := tx.SetDefaultGraph(ctx, repo.ID, id); err != nil {
 			return storeErr(err, "record default graph of %s", repo.FullName)
 		}
-		resp.Recorded = true
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	resp.Head = head
+	switch {
+	case recorded:
+		resp.Recorded = true
+	case head == "":
+		resp.Reason = "the default branch has no head"
+	default:
+		resp.Reason = "superseded by a newer commit on the default branch"
+	}
 	return resp, nil
+}
+
+// atDefaultHead serialises default-branch graph writes for the repository and
+// runs apply only while commit is still the head of the default branch, read
+// from GitHub under a per-repository lock. Every default-branch graph writer
+// goes through it, so a direct push and a delayed or out-of-order pull-request
+// merge share one ordering: the write whose commit is the branch head wins, and
+// an older write cannot replace a newer graph. head is the branch head that was
+// read (empty when the default branch has none); recorded reports whether apply
+// ran.
+func (s *Service) atDefaultHead(ctx context.Context, repo store.Repo, commit string, apply func(tx *store.Store) error) (head string, recorded bool, err error) {
+	client, err := s.client(ctx, repo)
+	if err != nil {
+		return "", false, err
+	}
+	err = s.st.InTx(ctx, func(tx *store.Store) error {
+		if err := tx.LockKey(ctx, fmt.Sprintf("default-graph:%d", repo.ID)); err != nil {
+			return err
+		}
+		h, err := client.GetRef(ctx, repo.FullName, "heads/"+repo.DefaultBranch)
+		switch {
+		case errors.Is(err, gh.ErrNotFound):
+			return nil
+		case err != nil:
+			return fmt.Errorf("runs: head of %s: %w", repo.FullName, err)
+		}
+		head = h
+		if h != commit {
+			return nil
+		}
+		if err := apply(tx); err != nil {
+			return err
+		}
+		recorded = true
+		return nil
+	})
+	if err != nil {
+		return "", false, err
+	}
+	return head, recorded, nil
 }

@@ -602,8 +602,11 @@ the head still equals that SHA; otherwise the response has `recorded: false`
 and a `reason`, so an out-of-order, superseded or force push, whose commit is
 no longer the head, cannot replace a newer graph, and the last push to reach
 the head wins. `SetDefaultGraph` reconciles `stacks.removed_at` exactly as a
-merge does. A suspended installation records nothing. The server never scans a
-repository itself; the graph is always the one a resolve job uploads. No
+merge does. A suspended installation's runner token is refused at
+authentication with 403 before the handler runs (`internal/api/auth.go`, like
+every runner endpoint), so a suspended installation records nothing. The server
+never scans a repository itself; the graph is always the one a resolve job
+uploads. No
 existing workflow posts here yet; a push trigger in `stackorder/actions` is a
 follow-up, and a repository that has not adopted it keeps the previous
 behaviour.
