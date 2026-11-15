@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -231,4 +232,36 @@ func TestSetupModeLogsTheSetupURL(t *testing.T) {
 	assert.Equal(t, "/setup", resp.Request.URL.RequestURI(), "the browser lands on the URL without the token")
 	assert.Contains(t, string(body), `id="manifest-form"`)
 	assert.NotContains(t, string(body), token)
+}
+
+func TestServerStartRefusesDirtySchema(t *testing.T) {
+	dsn := pgtest.DSN(t)
+	s, err := store.Open(t.Context(), dsn)
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+	require.NoError(t, s.Migrate(t.Context()))
+	_, err = s.Pool().Exec(t.Context(), `UPDATE schema_migrations SET dirty = true`)
+	require.NoError(t, err)
+
+	target, err := store.LatestMigration()
+	require.NoError(t, err)
+
+	vars := map[string]string{
+		server.EnvDatabaseURL: dsn,
+		server.EnvBaseURL:     "https://stackorder.example.com",
+	}
+	cfg, err := server.LoadConfig(func(name string) string { return vars[name] })
+	require.NoError(t, err)
+
+	_, err = server.New(t.Context(), cfg, server.WithLogger(slog.New(slog.DiscardHandler)))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), fmt.Sprintf("schema is dirty at version %d", target),
+		"the start-up error names the dirty version")
+	assert.Contains(t, err.Error(), "stackorder-server migrate --force",
+		"the start-up error points at the recovery command")
+	assert.Contains(t, err.Error(), "troubleshooting.md",
+		"the start-up error points at the recovery documentation")
+
+	var dirty *store.SchemaDirtyError
+	assert.ErrorAs(t, err, &dirty, "the start-up error carries the typed dirty error")
 }
