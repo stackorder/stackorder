@@ -47,6 +47,22 @@ func TestMigrateCommand(t *testing.T) {
 	})
 }
 
+func TestMigrateStatusDoesNotMutate(t *testing.T) {
+	dsn := pgtest.DSN(t)
+	env := envOf(map[string]string{"DATABASE_URL": dsn})
+	s, err := store.Open(t.Context(), dsn)
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 2, run([]string{"migrate", "--status"}, env, &stdout, &stderr))
+
+	var present bool
+	require.NoError(t, s.Pool().QueryRow(t.Context(),
+		`SELECT to_regclass('schema_migrations') IS NOT NULL`).Scan(&present))
+	assert.False(t, present, "migrate --status must not create schema_migrations on a fresh database")
+}
+
 func TestMigrateCommandToVersion(t *testing.T) {
 	target, err := store.LatestMigration()
 	require.NoError(t, err)

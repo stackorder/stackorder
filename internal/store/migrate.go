@@ -95,15 +95,29 @@ func (s *Store) MigrateDown(ctx context.Context) error {
 }
 
 // SchemaVersion returns the applied migration version and whether the last
-// migration failed half way. Version 0 means no migration has been applied.
+// migration failed half way. Version 0 means no migration has been applied. It
+// reads schema_migrations directly under MigrationLockKey and never creates
+// it, so reporting the version of an unmigrated database changes nothing.
 func (s *Store) SchemaVersion(ctx context.Context) (version uint, dirty bool, err error) {
-	err = s.withMigrator(ctx, "schema version", func(m *migrate.Migrate) error {
-		var verr error
-		version, dirty, verr = m.Version()
-		if errors.Is(verr, migrate.ErrNilVersion) {
+	err = s.withLock(ctx, "schema version", func(ctx context.Context, conn *pgx.Conn) error {
+		var present bool
+		if err := conn.QueryRow(ctx, `SELECT to_regclass('schema_migrations') IS NOT NULL`).Scan(&present); err != nil {
+			return wrap("schema version", err)
+		}
+		if !present {
+			version, dirty = 0, false
 			return nil
 		}
-		return verr
+		var v int64
+		switch err := conn.QueryRow(ctx, `SELECT version, dirty FROM schema_migrations`).Scan(&v, &dirty); {
+		case errors.Is(err, pgx.ErrNoRows):
+			version, dirty = 0, false
+		case err != nil:
+			return wrap("schema version", err)
+		default:
+			version = uint(v)
+		}
+		return nil
 	})
 	return version, dirty, err
 }

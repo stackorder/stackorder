@@ -107,6 +107,23 @@ func TestMigrateUp(t *testing.T) {
 	assert.False(t, dirty)
 }
 
+func TestSchemaVersionDoesNotCreateTable(t *testing.T) {
+	ctx := t.Context()
+	s, err := store.Open(ctx, pgtest.DSN(t))
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	ver, dirty, err := s.SchemaVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint(0), ver)
+	assert.False(t, dirty)
+
+	var present bool
+	require.NoError(t, s.Pool().QueryRow(ctx,
+		`SELECT to_regclass('schema_migrations') IS NOT NULL`).Scan(&present))
+	assert.False(t, present, "reporting the version must not create schema_migrations on a fresh database")
+}
+
 func TestMigrateUpRefusesDirty(t *testing.T) {
 	ctx := t.Context()
 	s, err := store.Open(ctx, pgtest.DSN(t))
