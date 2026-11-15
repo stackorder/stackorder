@@ -249,6 +249,38 @@ refused.
   the literal path. The server itself requires the metrics bearer token
   instead; see [Metrics](#metrics).
 
+## Existing infrastructure
+
+Every resource the module creates is optional through an input that defaults
+to creating it, so the defaults deploy a self-contained stack and an
+existing deployment that sets none of these inputs plans with no changes.
+
+- `create_vpc = false` runs in an existing VPC; give `vpc_id`,
+  `public_subnet_ids` and `private_subnet_ids` (see
+  [Network and access](#network-and-access) and the
+  [existing-vpc](examples/existing-vpc) example).
+- `create_cluster = false` runs the service in an existing ECS cluster named
+  by `cluster_arn`, instead of creating one. The cluster's name comes from
+  the ARN, so `ecs_cluster_name` still works.
+- `capacity_provider_strategy` runs the tasks under a capacity provider
+  strategy in place of `launch_type = "FARGATE"`, which ECS does not allow
+  alongside it; set it to place tasks on `FARGATE_SPOT`. Each entry weights
+  a provider and may set a `base`. For a cluster the module creates it
+  associates the named providers; an existing cluster must already have
+  them associated.
+- `database_secret_arn`, `app_secret_arn` and `metrics_token_secret_arn`
+  make the module write each value into a Secrets Manager secret you own
+  instead of creating `<name>/database-url`, `<name>/app` and
+  `<name>/metrics-token`. The module still composes and writes the value,
+  with a write-only argument, so nothing secret reaches state or the plan;
+  you own the secret resource and its name, KMS key, recovery window,
+  rotation and resource policy. The execution role is granted `kms:Decrypt`
+  on `kms_key_arn`; a supplied secret encrypted with a different customer
+  managed key must grant the execution role access in that key's policy.
+
+An existing database or load balancer is out of scope: the module always
+creates those.
+
 ## Single sign-on in front of the UI
 
 `oidc_authentication` (any OpenID Connect provider) or
@@ -676,6 +708,7 @@ No modules.
 | [aws\_db\_subnet\_group.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/db_subnet_group) | resource |
 | [aws\_default\_security\_group.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/default_security_group) | resource |
 | [aws\_ecs\_cluster.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecs_cluster) | resource |
+| [aws\_ecs\_cluster\_capacity\_providers.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecs_cluster_capacity_providers) | resource |
 | [aws\_ecs\_service.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecs_service) | resource |
 | [aws\_ecs\_task\_definition.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecs_task_definition) | resource |
 | [aws\_eip.nat](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eip) | resource |
@@ -784,6 +817,9 @@ No modules.
 | <a name="input_cpu"></a> [cpu](#input\_cpu) | Fargate task CPU units. | `number` | `256` | no |
 | <a name="input_memory"></a> [memory](#input\_memory) | Fargate task memory in MiB; must be a valid combination with cpu. | `number` | `512` | no |
 | <a name="input_cpu_architecture"></a> [cpu\_architecture](#input\_cpu\_architecture) | CPU architecture of the task, X86\_64 or ARM64. | `string` | `"X86_64"` | no |
+| <a name="input_create_cluster"></a> [create\_cluster](#input\_create\_cluster) | Create an ECS cluster for the service. When false, cluster\_arn names an existing cluster to run in. | `bool` | `true` | no |
+| <a name="input_cluster_arn"></a> [cluster\_arn](#input\_cluster\_arn) | ARN of an existing ECS cluster to run the service in. Required when create\_cluster is false, must be null otherwise. With a capacity\_provider\_strategy the cluster must already have those capacity providers associated, which the module does only for a cluster it creates. | `string` | `null` | no |
+| <a name="input_capacity_provider_strategy"></a> [capacity\_provider\_strategy](#input\_capacity\_provider\_strategy) | Capacity provider strategy for the service, which replaces launch\_type = FARGATE; set it to run tasks on FARGATE\_SPOT. Each entry weights a provider, FARGATE or FARGATE\_SPOT, and may set a base, the first number of tasks to place on it. Empty keeps launch\_type = FARGATE. For a created cluster the module associates the named providers with it; an existing cluster must already have them. | `list(object({ capacity_provider = string weight = optional(number) base = optional(number) }))` | `[]` | no |
 | <a name="input_enable_execute_command"></a> [enable\_execute\_command](#input\_enable\_execute\_command) | Enable ECS Exec. The SSM agent needs a writable root file system, so this also turns readonlyRootFilesystem off and grants the task role the ssmmessages permissions. | `bool` | `false` | no |
 | <a name="input_health_check_command"></a> [health\_check\_command](#input\_health\_check\_command) | Container health check command, starting with CMD or CMD-SHELL. The default runs the server's healthcheck subcommand, which GETs /healthz on the listen port. The distroless image has no shell or curl, so a replacement must be a command the image itself provides. Empty turns the container health check off and leaves task health to the load balancer check on /readyz. | `list(string)` | `["CMD", "/stackorder-server", "healthcheck"]` | no |
 | <a name="input_stop_timeout_seconds"></a> [stop\_timeout\_seconds](#input\_stop\_timeout\_seconds) | Seconds ECS waits after SIGTERM before it kills the container (stopTimeout), 2 to 120 on Fargate. The server drains HTTP for up to 15 s, then its workers for up to 30 s plus 5 s for cancelled handlers, so a value under 50 can cut the drain short. | `number` | `60` | no |
@@ -817,6 +853,9 @@ No modules.
 | <a name="input_db_password_version"></a> [db\_password\_version](#input\_db\_password\_version) | Version of the generated database password. Increase it to rotate the password: the database and the DATABASE\_URL secret get the new one in the same apply, and the service rolls. | `number` | `1` | no |
 | <a name="input_secrets_version"></a> [secrets\_version](#input\_secrets\_version) | Version of the app and metrics token secrets. Increase it after changing an ephemeral input, or to generate a new session key and metrics token; both secrets are rewritten and the service rolls. | `number` | `1` | no |
 | <a name="input_secret_recovery_window_days"></a> [secret\_recovery\_window\_days](#input\_secret\_recovery\_window\_days) | Days Secrets Manager keeps a deleted secret recoverable; 0 deletes immediately. | `number` | `30` | no |
+| <a name="input_database_secret_arn"></a> [database\_secret\_arn](#input\_database\_secret\_arn) | ARN of an existing Secrets Manager secret the module writes DATABASE\_URL into, instead of creating &lt;name&gt;/database-url. The module owns the secret value and writes it with a write-only argument; you own the secret resource, its name, KMS key, recovery window and policies. Null creates the secret. | `string` | `null` | no |
+| <a name="input_app_secret_arn"></a> [app\_secret\_arn](#input\_app\_secret\_arn) | ARN of an existing Secrets Manager secret the module writes the app secret into (the GitHub App credentials, the session key and the metrics token, as JSON), instead of creating &lt;name&gt;/app. The module owns the secret value and writes it with a write-only argument; you own the secret resource, its name, KMS key, recovery window and policies. Null creates the secret. | `string` | `null` | no |
+| <a name="input_metrics_token_secret_arn"></a> [metrics\_token\_secret\_arn](#input\_metrics\_token\_secret\_arn) | ARN of an existing Secrets Manager secret the module writes the metrics token into as plain text, for scrapers, instead of creating &lt;name&gt;/metrics-token. The module owns the secret value and writes it with a write-only argument; you own the secret resource, its name, KMS key, recovery window and policies. Null creates the secret. | `string` | `null` | no |
 | <a name="input_github_api_url"></a> [github\_api\_url](#input\_github\_api\_url) | GitHub API base URL (GITHUB\_API\_URL); GitHub Enterprise Server uses https://&lt;host&gt;/api/v3. | `string` | `"https://api.github.com"` | no |
 | <a name="input_required_workflow_ref"></a> [required\_workflow\_ref](#input\_required\_workflow\_ref) | Glob that runner tokens' job\_workflow\_ref must match (STACKORDER\_REQUIRED\_WORKFLOW\_REF), such as stackorder/actions/.github/workflows/\*.yml@refs/tags/v1\*. Null accepts any workflow. | `string` | `null` | no |
 | <a name="input_oidc_audience"></a> [oidc\_audience](#input\_oidc\_audience) | Audience runner OIDC tokens must carry (STACKORDER\_OIDC\_AUDIENCE). Null uses the public URL. | `string` | `null` | no |
@@ -838,13 +877,13 @@ No modules.
 | <a name="output_alb_zone_id"></a> [alb\_zone\_id](#output\_alb\_zone\_id) | Route53 zone id of the load balancer, for alias records. |
 | <a name="output_setup_url"></a> [setup\_url](#output\_setup\_url) | Page that creates the GitHub App from a manifest on the first deploy. It opens only with the one-time token the server logs at start-up: take the full URL from the setup\_url line in the log\_group\_name log group. |
 | <a name="output_webhook_url"></a> [webhook\_url](#output\_webhook\_url) | Webhook URL of the GitHub App. |
-| <a name="output_ecs_cluster_name"></a> [ecs\_cluster\_name](#output\_ecs\_cluster\_name) | Name of the ECS cluster. |
+| <a name="output_ecs_cluster_name"></a> [ecs\_cluster\_name](#output\_ecs\_cluster\_name) | Name of the ECS cluster the service runs in, whether the module created it or create\_cluster is false. |
 | <a name="output_ecs_service_name"></a> [ecs\_service\_name](#output\_ecs\_service\_name) | Name of the ECS service. |
 | <a name="output_task_definition_arn"></a> [task\_definition\_arn](#output\_task\_definition\_arn) | ARN of the current task definition revision. |
 | <a name="output_db_endpoint"></a> [db\_endpoint](#output\_db\_endpoint) | Host name of the database writer endpoint. |
-| <a name="output_db_secret_arn"></a> [db\_secret\_arn](#output\_db\_secret\_arn) | ARN of the Secrets Manager secret holding DATABASE\_URL. |
-| <a name="output_app_secret_arn"></a> [app\_secret\_arn](#output\_app\_secret\_arn) | ARN of the Secrets Manager secret holding the GitHub App credentials, the session key and the metrics token as JSON. |
-| <a name="output_metrics_token_secret_arn"></a> [metrics\_token\_secret\_arn](#output\_metrics\_token\_secret\_arn) | ARN of the Secrets Manager secret holding only the /metrics bearer token, as plain text; grant Prometheus read access to this one rather than to the app secret. |
+| <a name="output_db_secret_arn"></a> [db\_secret\_arn](#output\_db\_secret\_arn) | ARN of the Secrets Manager secret holding DATABASE\_URL, whether the module created it or database\_secret\_arn is set. |
+| <a name="output_app_secret_arn"></a> [app\_secret\_arn](#output\_app\_secret\_arn) | ARN of the Secrets Manager secret holding the GitHub App credentials, the session key and the metrics token as JSON, whether the module created it or app\_secret\_arn is set. |
+| <a name="output_metrics_token_secret_arn"></a> [metrics\_token\_secret\_arn](#output\_metrics\_token\_secret\_arn) | ARN of the Secrets Manager secret holding only the /metrics bearer token, as plain text, whether the module created it or metrics\_token\_secret\_arn is set; grant Prometheus read access to this one rather than to the app secret. |
 | <a name="output_artifact_bucket"></a> [artifact\_bucket](#output\_artifact\_bucket) | Name of the artifact bucket, or null when artifact\_bucket\_enabled is false. |
 | <a name="output_alb_access_logs_bucket"></a> [alb\_access\_logs\_bucket](#output\_alb\_access\_logs\_bucket) | Name of the load balancer access log bucket, or null when alb\_access\_logs\_enabled is false. |
 | <a name="output_security_group_ids"></a> [security\_group\_ids](#output\_security\_group\_ids) | Security group ids of the load balancer, the service and the database. |

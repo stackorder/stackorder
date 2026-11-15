@@ -36,6 +36,9 @@ All notable changes to this repository are documented here. The format follows [
 ### Changed
 
 - The documentation of `stackorder_runs_total` now says it counts each status a run enters, a transition count rather than a run count, and points at the new `stackorder_runs_created_total` for counting runs. The metric itself is unchanged.
+### Added
+
+- Terraform module: optional inputs to run on infrastructure you already have, each defaulting to today's behaviour so an existing deployment plans with no changes. `create_cluster` (default `true`) with `cluster_arn` runs the service in an existing ECS cluster instead of creating one. `capacity_provider_strategy` (default `[]`) runs the tasks under a capacity provider strategy, FARGATE and FARGATE_SPOT with weights and an optional base, in place of `launch_type = "FARGATE"`, which ECS forbids alongside it; for a cluster the module creates it associates the strategy's providers, an existing cluster must already have them. `database_secret_arn`, `app_secret_arn` and `metrics_token_secret_arn` (default `null`) make the module write each secret value, still with a write-only argument so nothing secret reaches state, into a Secrets Manager secret you own instead of creating `<name>/database-url`, `<name>/app` and `<name>/metrics-token`. An existing VPC was already supported through `create_vpc`, `vpc_id`, `public_subnet_ids` and `private_subnet_ids`; an existing database or load balancer stays out of scope. Upgrading from v0.5.0 moves the ECS cluster and the three secrets under `count` through `moved` blocks, so no resource is recreated and no state surgery is needed. See [Deploy on AWS](docs/operations/deploy-aws.md#existing-infra).
 
 ## [0.5.0] - 2026-11-02
 

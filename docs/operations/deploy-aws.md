@@ -94,6 +94,9 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 | `cpu` | `number` | `256` | Fargate task CPU units. |
 | `memory` | `number` | `512` | Fargate task memory in MiB; must be a valid combination with cpu. |
 | `cpu_architecture` | `string` | `"X86_64"` | CPU architecture of the task, X86_64 or ARM64. |
+| `create_cluster` | `bool` | `true` | Create an ECS cluster for the service. When false, cluster_arn names an existing cluster to run in. |
+| `cluster_arn` | `string` | `null` | ARN of an existing ECS cluster to run the service in. Required when create_cluster is false, must be null otherwise. With a capacity_provider_strategy the cluster must already have those capacity providers associated, which the module does only for a cluster it creates. |
+| `capacity_provider_strategy` | `list(object` | `[]` | Capacity provider strategy for the service, which replaces launch_type = FARGATE; set it to run tasks on FARGATE_SPOT. Each entry weights a provider, FARGATE or FARGATE_SPOT, and may set a base, the first number of tasks to place on it. Empty keeps launch_type = FARGATE. For a created cluster the module associates the named providers with it; an existing cluster must already have them. |
 | `enable_execute_command` | `bool` | `false` | Enable ECS Exec. The SSM agent needs a writable root file system, so this also turns readonlyRootFilesystem off and grants the task role the ssmmessages permissions. |
 | `health_check_command` | `list(string)` | `["CMD", "/stackorder-server", "healthcheck"]` | Container health check command, starting with CMD or CMD-SHELL. The default runs the server's healthcheck subcommand, which GETs /healthz on the listen port. The distroless image has no shell or curl, so a replacement must be a command the image itself provides. Empty turns the container health check off and leaves task health to the load balancer check on /readyz. |
 | `stop_timeout_seconds` | `number` | `60` | Seconds ECS waits after SIGTERM before it kills the container (stopTimeout), 2 to 120 on Fargate. The server drains HTTP for up to 15 s, then its workers for up to 30 s plus 5 s for cancelled handlers, so a value under 50 can cut the drain short. |
@@ -137,6 +140,9 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 | `db_password_version` | `number` | `1` | Version of the generated database password. Increase it to rotate the password: the database and the DATABASE_URL secret get the new one in the same apply, and the service rolls. |
 | `secrets_version` | `number` | `1` | Version of the app and metrics token secrets. Increase it after changing an ephemeral input, or to generate a new session key and metrics token; both secrets are rewritten and the service rolls. |
 | `secret_recovery_window_days` | `number` | `30` | Days Secrets Manager keeps a deleted secret recoverable; 0 deletes immediately. |
+| `database_secret_arn` | `string` | `null` | ARN of an existing Secrets Manager secret the module writes DATABASE_URL into, instead of creating `<name>/database-url`. The module owns the secret value and writes it with a write-only argument; you own the secret resource, its name, KMS key, recovery window and policies. Null creates the secret. |
+| `app_secret_arn` | `string` | `null` | ARN of an existing Secrets Manager secret the module writes the app secret into (the GitHub App credentials, the session key and the metrics token, as JSON), instead of creating `<name>/app`. The module owns the secret value and writes it with a write-only argument; you own the secret resource, its name, KMS key, recovery window and policies. Null creates the secret. |
+| `metrics_token_secret_arn` | `string` | `null` | ARN of an existing Secrets Manager secret the module writes the metrics token into as plain text, for scrapers, instead of creating `<name>/metrics-token`. The module owns the secret value and writes it with a write-only argument; you own the secret resource, its name, KMS key, recovery window and policies. Null creates the secret. |
 | `github_api_url` | `string` | `"https://api.github.com"` | GitHub API base URL (GITHUB_API_URL); GitHub Enterprise Server uses `https://<host>/api/v3`. |
 | `required_workflow_ref` | `string` | `null` | Glob that runner tokens' job_workflow_ref must match (STACKORDER_REQUIRED_WORKFLOW_REF), such as stackorder/actions/.github/workflows/*.yml@refs/tags/v1*. Null accepts any workflow. |
 | `oidc_audience` | `string` | `null` | Audience runner OIDC tokens must carry (STACKORDER_OIDC_AUDIENCE). Null uses the public URL. |
@@ -158,6 +164,17 @@ The tables follow the descriptions in `deploy/terraform/variables.tf` and `deplo
 | `shared_outputs_state` | `list(object({ repository = string, bucket = string, prefix = optional(string, ""), kms_key_arn = optional(string) }))` | `[]` | State objects whose root outputs the server may serve to the readers a stack lists (STACKORDER_STATE_BUCKETS): each entry grants one repository, owner/repo, or every repository with `*`, the objects of an S3 bucket under an optional key prefix, with the KMS key of those objects. The server reads a stack's state only under an entry of the stack's own repository, and a prefix covers a key only at a path segment boundary. Unless shared_outputs_role_arn is set, the task role gets read-only access to the objects under each prefix, for every repository at once, and kms:Decrypt through S3 with each kms_key_arn. Empty turns shared outputs off. |
 | `shared_outputs_role_arn` | `string` | `null` | IAM role the server assumes to read the state objects of shared_outputs_state (STACKORDER_STATE_ROLE_ARN), such as a role in the account of the state buckets. The task role then gets only sts:AssumeRole on it, and the role's own policies must grant the reads and kms:Decrypt, so shared_outputs_state takes no kms_key_arn. Null reads with the task role. Requires shared_outputs_state. |
 | `shared_outputs_external_id` | `string` | `null` | External ID the server sends when it assumes shared_outputs_role_arn (STACKORDER_STATE_EXTERNAL_ID), for a role whose trust policy requires a matching sts:ExternalId, as a role in another account commonly does. Null sends none. Requires shared_outputs_role_arn. |
+
+### Reusing existing infrastructure {#existing-infra}
+
+Each resource the module creates is optional through an input that defaults to creating it, so the defaults deploy a self-contained stack and an existing deployment that sets none of these inputs plans with no changes. The module moves the cluster and the three secrets under `count` with `moved` blocks, so the upgrade needs no state surgery.
+
+- `create_vpc = false` runs in an existing VPC named by `vpc_id`, with `public_subnet_ids` and `private_subnet_ids` (see [Network](#inputs) and the `examples/existing-vpc` example).
+- `create_cluster = false` runs the service in the existing cluster named by `cluster_arn` instead of creating one; `ecs_cluster_name` is then the name parsed from the ARN.
+- `capacity_provider_strategy` runs the tasks under a capacity provider strategy in place of `launch_type = FARGATE`, which ECS forbids alongside it; use it to place tasks on `FARGATE_SPOT`. For a cluster the module creates it associates the strategy's providers; an existing cluster must already have them associated.
+- `database_secret_arn`, `app_secret_arn` and `metrics_token_secret_arn` make the module write each value into a Secrets Manager secret you already own instead of creating `<name>/database-url`, `<name>/app` and `<name>/metrics-token`. The module still composes and writes the value with a write-only argument, so nothing secret reaches state or the plan; you own the secret resource and its name, KMS key, recovery window, rotation and resource policy. The execution role is granted `kms:Decrypt` on `kms_key_arn` only, so a supplied secret encrypted with a different customer managed key must grant the execution role access in that key's policy.
+
+An existing database or load balancer is out of scope; the module always creates those.
 
 ### What the module passes to the server {#server-environment}
 
@@ -193,13 +210,13 @@ By default the container runs `stackorder-server healthcheck` every 30 s with a 
 | `alb_zone_id` | Route53 zone id of the load balancer, for alias records. |
 | `setup_url` | Page that creates the GitHub App from a manifest on the first deploy. It opens only with the one-time token the server logs at start-up: take the full URL from the `setup_url` line in the `log_group_name` log group. |
 | `webhook_url` | Webhook URL of the GitHub App. |
-| `ecs_cluster_name` | Name of the ECS cluster. |
+| `ecs_cluster_name` | Name of the ECS cluster the service runs in, whether the module created it or create_cluster is false. |
 | `ecs_service_name` | Name of the ECS service. |
 | `task_definition_arn` | ARN of the current task definition revision. |
 | `db_endpoint` | Host name of the database writer endpoint. |
-| `db_secret_arn` | ARN of the Secrets Manager secret holding DATABASE_URL. |
-| `app_secret_arn` | ARN of the Secrets Manager secret holding the GitHub App credentials, the session key and the metrics token as JSON. |
-| `metrics_token_secret_arn` | ARN of the Secrets Manager secret holding only the `/metrics` bearer token, as plain text; grant Prometheus read access to this one rather than to the app secret. |
+| `db_secret_arn` | ARN of the Secrets Manager secret holding DATABASE_URL, whether the module created it or database_secret_arn is set. |
+| `app_secret_arn` | ARN of the Secrets Manager secret holding the GitHub App credentials, the session key and the metrics token as JSON, whether the module created it or app_secret_arn is set. |
+| `metrics_token_secret_arn` | ARN of the Secrets Manager secret holding only the `/metrics` bearer token, as plain text, whether the module created it or metrics_token_secret_arn is set; grant Prometheus read access to this one rather than to the app secret. |
 | `artifact_bucket` | Name of the artifact bucket, or null when artifact_bucket_enabled is false. |
 | `alb_access_logs_bucket` | Name of the load balancer access log bucket, or null when alb_access_logs_enabled is false. |
 | `security_group_ids` | Security group ids of the load balancer, the service and the database. |
