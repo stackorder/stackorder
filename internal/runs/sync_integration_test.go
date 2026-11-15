@@ -345,3 +345,38 @@ func TestSyncInstallationsShortRepositoryListingForgetsNothingAnywhere(t *testin
 	_, err = e.st.GetRepo(e.ctx, 900)
 	require.ErrorIs(t, err, store.ErrNotFound, "with its repositories")
 }
+
+func TestSyncInstallationsKeepsInstallationsButForgetsAListedInstallationsRepository(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.gh.SetRepo("beta/one", gh.Repository{ID: 710, DefaultBranch: "main"})
+	e.gh.SetRepo("beta/two", gh.Repository{ID: 711, DefaultBranch: "main"})
+	e.gh.AddInstallation(2, "beta", "beta/one", "beta/two")
+	_, err := e.st.UpsertInstallation(e.ctx, store.Installation{ID: 2, Account: "beta"})
+	require.NoError(t, err)
+	for _, r := range []store.RepoParams{
+		{ID: 710, InstallationID: 2, FullName: "beta/one"},
+		{ID: 711, InstallationID: 2, FullName: "beta/two"},
+		{ID: 712, InstallationID: 2, FullName: "beta/three"},
+	} {
+		_, err := e.st.UpsertRepo(e.ctx, r)
+		require.NoError(t, err)
+	}
+	for _, id := range []int64{8, 9, 10} {
+		_, err := e.st.UpsertInstallation(e.ctx, store.Installation{ID: id, Account: "gone"})
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+
+	for _, id := range []int64{8, 9, 10} {
+		_, err := e.st.GetInstallation(e.ctx, id)
+		require.NoError(t, err, "a listing that omits a majority of installations keeps every one, installation %d included", id)
+	}
+	for _, id := range []int64{710, 711} {
+		_, err := e.st.GetRepo(e.ctx, id)
+		require.NoError(t, err, "a listed installation's own complete repository listing still names repository %d", id)
+	}
+	_, err = e.st.GetRepo(e.ctx, 712)
+	require.ErrorIs(t, err, store.ErrNotFound,
+		"the installation-majority guard keeps installations, not the repositories a listed installation's own complete listing no longer names")
+}
