@@ -148,13 +148,13 @@ func TestMigrateForceRecoversDirty(t *testing.T) {
 	stderr.Reset()
 	assert.Equal(t, 1, run([]string{"migrate"}, env, &stdout, &stderr), "a dirty database refuses to migrate")
 	assert.Contains(t, stderr.String(), "schema is dirty at version 3")
-	assert.Contains(t, stderr.String(), "--force")
+	assert.Contains(t, stderr.String(), "--force N", "the hint names the version argument so it can be pasted")
 
 	stdout.Reset()
 	stderr.Reset()
 	assert.Equal(t, 1, run([]string{"migrate", "--status"}, env, &stdout, &stderr))
 	assert.Equal(t, fmt.Sprintf("current=3\ntarget=%d\ndirty=true\n", target), stdout.String())
-	assert.Contains(t, stderr.String(), "--force")
+	assert.Contains(t, stderr.String(), "--force N", "the hint names the version argument so it can be pasted")
 
 	stdout.Reset()
 	stderr.Reset()

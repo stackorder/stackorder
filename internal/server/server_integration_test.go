@@ -257,8 +257,8 @@ func TestServerStartRefusesDirtySchema(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), fmt.Sprintf("schema is dirty at version %d", target),
 		"the start-up error names the dirty version")
-	assert.Contains(t, err.Error(), "stackorder-server migrate --force",
-		"the start-up error points at the recovery command")
+	assert.Contains(t, err.Error(), "stackorder-server migrate --force N",
+		"the start-up error points at the recovery command with its version argument")
 	assert.Contains(t, err.Error(), "troubleshooting.md",
 		"the start-up error points at the recovery documentation")
 
