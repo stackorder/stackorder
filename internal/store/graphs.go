@@ -43,8 +43,9 @@ const graphSelect = `
 
 // SaveGraph stores the graph of a repository at one commit in a single
 // transaction. Stacks are upserted by key so their ids stay stable across
-// commits (last_seen_at is touched and removed_at cleared), modules are
-// upserted by key, and the graph's membership rows and edges are written.
+// commits (last_seen_at is touched; removed_at is left alone, since only a
+// default-branch graph change reconciles it), modules are upserted by key,
+// and the graph's membership rows and edges are written.
 // Saving the same repository and SHA again replaces the stored graph. Stacks
 // marked External, or belonging to another repository, are kept with the
 // graph only and get no stack id. The returned map holds the id of every
@@ -179,8 +180,7 @@ func upsertStacks(ctx context.Context, tx pgx.Tx, repoID int64, stacks []v1.Stac
 			environment = EXCLUDED.environment,
 			tool = EXCLUDED.tool,
 			config = EXCLUDED.config,
-			last_seen_at = now(),
-			removed_at = NULL
+			last_seen_at = now()
 		RETURNING key, id`,
 		repoID, keys, paths, workspaces, backends, envs, tools, configs)
 	if err != nil {

@@ -263,14 +263,14 @@ func TestMarkStacksRemoved(t *testing.T) {
 	assert.Len(t, all, 3)
 
 	again := f.stacks("b")
-	assert.Equal(t, ids["b"], again["b"])
+	assert.Equal(t, ids["b"], again["b"], "the stack keeps its id when a later graph lists it again")
 	b, err := f.s.GetStack(f.ctx, ids["b"])
 	require.NoError(t, err)
-	assert.Nil(t, b.RemovedAt, "seeing a stack again clears removed_at")
+	assert.NotNil(t, b.RemovedAt, "a non-default graph listing the stack again does not revive it")
 
 	n, err = f.s.MarkStacksRemoved(f.ctx, f.repo.ID, nil)
 	require.NoError(t, err)
-	assert.Equal(t, 2, n, "nil keep list removes every live stack")
+	assert.Equal(t, 1, n, "nil keep list removes every live stack")
 }
 
 func TestSetDefaultGraphReconcilesRemoved(t *testing.T) {
@@ -365,4 +365,42 @@ func TestReconcileRemovedStacksMigrationRepairsStaleRows(t *testing.T) {
 
 	f.exec(string(sql))
 	assert.ElementsMatch(t, []string{"a", "b", "new"}, liveKeys(), "running the migration again changes nothing")
+}
+
+func TestSaveGraphKeepsDefaultBranchRemoval(t *testing.T) {
+	f := newFixture(t)
+	graph := func(sha string, keys ...string) uuid.UUID {
+		g := &v1.Graph{Repo: f.repo.FullName, SHA: sha}
+		for _, k := range keys {
+			g.Stacks = append(g.Stacks, v1.Stack{Key: k, Path: k})
+		}
+		id, _ := f.saveGraph(f.repo.ID, g)
+		return id
+	}
+	liveKeys := func() []string {
+		stacks, err := f.s.ListStacks(f.ctx, f.repo.ID, false)
+		require.NoError(t, err)
+		keys := make([]string, len(stacks))
+		for i, s := range stacks {
+			keys[i] = s.Key
+		}
+		return keys
+	}
+
+	full := graph("full", "a", "legacy")
+	trimmed := graph("trimmed", "a")
+	require.NoError(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, full))
+	require.NoError(t, f.s.SetDefaultGraph(f.ctx, f.repo.ID, trimmed))
+	require.Equal(t, []string{"a"}, liveKeys(), "legacy is gone from the default branch")
+
+	graph("open-pr", "a", "legacy")
+	assert.Equal(t, []string{"a"}, liveKeys(),
+		"an open pull request's plan must not revive a stack gone from the default branch")
+	legacy, err := f.s.GetStackByKey(f.ctx, f.repo.ID, "legacy")
+	require.NoError(t, err)
+	assert.NotNil(t, legacy.RemovedAt, "the removed stack stays removed after a non-default graph save")
+
+	fresh, err := f.s.GetStackByKey(f.ctx, f.repo.ID, "a")
+	require.NoError(t, err)
+	assert.Nil(t, fresh.RemovedAt, "a stack still on the default branch stays live")
 }
