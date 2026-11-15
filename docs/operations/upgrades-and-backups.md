@@ -43,7 +43,7 @@ Upgrading from v0.5.0 crosses a window where old and new replicas share the data
 
 The server applies an installation's `suspend` and `unsuspend` webhooks in receive order (see the [data model](/reference/data-model#queue)). This guarantee holds once every replica runs the version that introduced it. While a v0.5.0 replica and a new one run together during the rollover, a `suspend` or `unsuspend` the old replica processes still takes effect in the order it is processed, as v0.5.0 always did, not by receive time; the daily installation sync and the finished upgrade settle it, so no action is required. To avoid even that transient, drain the old replicas before the new ones serve.
 
-To go back, deploy the previous image. The server never runs down migrations, so if the new version ran migrations the previous one does not understand, restore the snapshot from step 2.
+To go back, deploy the previous image. The server never runs down migrations, so if the new version ran migrations the previous one does not understand, restore the snapshot from step 2. For the same reason a replica of the previous version cannot start once the new one has migrated the database: its startup migration refuses a schema newer than it knows. During a rolling deploy already-running old replicas keep serving and draining normally, but do not count on restarting or rescheduling one after the migration has run without restoring the snapshot.
 
 ## Upgrading the CLI and actions {#cli}
 
