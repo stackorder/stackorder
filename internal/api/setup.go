@@ -75,7 +75,7 @@ type setupDonePage struct {
 }
 
 func (s *server) ghes() bool {
-	return !strings.EqualFold(s.webURL, gh.DefaultWebURL)
+	return gh.IsEnterprise(s.webURL, s.cfg.Enterprise)
 }
 
 func (s *server) webOrigin() string {

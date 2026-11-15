@@ -21,7 +21,7 @@ The manifest the server generates, in `internal/gh/manifest.go`, requests these 
 | Members | Read | Team membership | `apply.allowed_teams`, or `CODEOWNERS` teams with `apply.require_codeowner_review` |
 | Deployments | Read and write | Answering `deployment_protection_rule` requests | The App is a [custom deployment protection rule](/configuration/environments-and-authorization#layer-4) |
 
-The last three are needed only for the features in the right column, but the manifest requests them so that turning a feature on needs no change to the App. Remove them in the App's settings if you will never use them. On GitHub Enterprise Server the manifest leaves out Deployments, since not every release offers custom deployment protection rules.
+The last three are needed only for the features in the right column, but the manifest requests them so that turning a feature on needs no change to the App. Remove them in the App's settings if you will never use them. On GitHub Enterprise Server the manifest leaves out Deployments, since not every release offers custom deployment protection rules. The server treats itself as talking to Enterprise Server whenever `GITHUB_WEB_URL` is not `https://github.com`; set [`GITHUB_ENTERPRISE`](/reference/server-configuration#ghes) to `true` or `false` to decide it explicitly, for instance to keep the full manifest when reaching github.com through a proxy whose web URL differs.
 
 ### What the App cannot do {#not-requested}
 

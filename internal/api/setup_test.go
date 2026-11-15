@@ -167,6 +167,24 @@ func TestSetupPageOptions(t *testing.T) {
 	assert.Contains(t, f.csp, "form-action https://ghe.example.com")
 }
 
+func TestSetupManifestHonoursEnterpriseOverride(t *testing.T) {
+	yes, no := true, false
+
+	proxied := newSetupEnv(t, func(c *Config, _ *Deps) {
+		c.GitHubWebURL, c.Enterprise = "https://github.proxy.example.com", &no
+	})
+	f := proxied.open(t, "/setup")
+	assert.Contains(t, f.manifest["default_permissions"], "deployments",
+		"GITHUB_ENTERPRISE=false keeps the github.com manifest behind a proxy web URL")
+	assert.Contains(t, f.manifest["default_events"], gh.EventDeploymentProtectionRule)
+
+	forced := newSetupEnv(t, func(c *Config, _ *Deps) { c.Enterprise = &yes })
+	f = forced.open(t, "/setup")
+	assert.NotContains(t, f.manifest["default_permissions"], "deployments",
+		"GITHUB_ENTERPRISE=true drops Deployments even on github.com")
+	assert.NotContains(t, f.manifest["default_events"], gh.EventDeploymentProtectionRule)
+}
+
 func TestSetupWhenAlreadyConfigured(t *testing.T) {
 	e := newSetupEnv(t, func(c *Config, _ *Deps) { c.SetupMode = false })
 	rec := e.do(newRequest(t, http.MethodGet, "/setup", nil))

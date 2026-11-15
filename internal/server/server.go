@@ -331,6 +331,7 @@ func (s *Server) apiConfig() api.Config {
 		OAuthClientSecret:     s.cfg.OAuthClientSecret,
 		GitHubWebURL:          s.cfg.GitHubWebURL,
 		GitHubAPIURL:          s.cfg.GitHubAPIURL,
+		Enterprise:            s.cfg.GitHubEnterprise,
 		SetupMode:             s.cfg.SetupMode,
 		AllowResetup:          s.cfg.AllowResetup,
 		SetupToken:            s.cfg.SetupToken,

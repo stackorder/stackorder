@@ -1131,6 +1131,7 @@ unbounded.
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` | App identity; all three absent puts the server in setup mode |
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | Human sign-in |
 | `GITHUB_API_URL`, `GITHUB_WEB_URL` | Default `https://api.github.com` and `https://github.com`; GHES sets its own |
+| `GITHUB_ENTERPRISE` | `true` or `false` forces whether the server is treated as talking to GitHub Enterprise Server; unset infers it from `GITHUB_WEB_URL`, every root other than `https://github.com` counting as Enterprise Server. It decides what `internal/gh.IsEnterprise` returns, which drives the App manifest the setup flow offers |
 | `GITHUB_OIDC_ISSUER`, `GITHUB_OIDC_JWKS_URL` | Overrides for GHES and tests |
 | `STACKORDER_OIDC_AUDIENCE` | Default `STACKORDER_BASE_URL` |
 | `STACKORDER_REQUIRED_WORKFLOW_REF` | Optional glob pinning `job_workflow_ref`, validated at start-up |

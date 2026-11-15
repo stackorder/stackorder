@@ -43,6 +43,11 @@ type Config struct {
 	// GitHubAPIURL is the REST API root used for user lookups and the
 	// manifest conversion; gh.DefaultBaseURL when empty.
 	GitHubAPIURL string
+	// Enterprise decides whether the manifest and the setup page treat the
+	// server as talking to GitHub Enterprise Server. When nil it is inferred
+	// from GitHubWebURL, every root other than github.com counting as
+	// Enterprise Server.
+	Enterprise *bool
 	// SetupMode serves only /setup*, /healthz and /readyz, for a server
 	// started without App credentials.
 	SetupMode bool

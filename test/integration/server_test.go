@@ -245,7 +245,7 @@ func TestSetupMode(t *testing.T) {
 	assert.Equal(t, e.BaseURL+"/webhooks/github", manifest.HookAttributes.URL)
 	assert.Equal(t, e.BaseURL+"/setup/callback", manifest.RedirectURL)
 	assert.Equal(t, []string{e.BaseURL + "/auth/callback"}, manifest.CallbackURLs)
-	ghes := e.Server.Config().GitHubWebURL != gh.DefaultWebURL
+	ghes := e.Server.Config().IsEnterprise()
 	assert.ElementsMatch(t, gh.Manifest(e.BaseURL, "stackorder", ghes)["default_events"], manifest.DefaultEvents,
 		"the fake GitHub's web URL makes the manifest the Enterprise Server one")
 	assert.Equal(t, "write", manifest.Permissions["checks"])
@@ -260,6 +260,34 @@ func TestSetupMode(t *testing.T) {
 	var jobs int
 	require.NoError(t, e.Store.Pool().QueryRow(t.Context(), `SELECT count(*) FROM jobs`).Scan(&jobs))
 	assert.Zero(t, jobs, "setup mode runs no workers and no scheduler")
+}
+
+func TestSetupModeEnterpriseOverride(t *testing.T) {
+	e := NewEnv(t, SetupMode(), WithVar(server.EnvGitHubEnterprise, "false"))
+	require.False(t, e.Server.Config().IsEnterprise(),
+		"GITHUB_ENTERPRISE=false overrides the fake GitHub's non-github.com web URL")
+
+	token := e.Server.Config().SetupToken
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	browser := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	resp, err := browser.Get(e.URL("/setup?token=" + url.QueryEscape(token)))
+	require.NoError(t, err)
+	page, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(page))
+
+	m := manifestInput.FindStringSubmatch(string(page))
+	require.NotNil(t, m, "the setup page carries the App manifest")
+	var manifest struct {
+		DefaultEvents []string          `json:"default_events"`
+		Permissions   map[string]string `json:"default_permissions"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(html.UnescapeString(m[1])), &manifest))
+	assert.Contains(t, manifest.Permissions, "deployments",
+		"the forced github.com manifest keeps the Deployments permission")
+	assert.Contains(t, manifest.DefaultEvents, gh.EventDeploymentProtectionRule)
 }
 
 const serverBuildTimeout = 5 * time.Minute

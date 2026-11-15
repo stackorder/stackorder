@@ -49,6 +49,17 @@ type AppCredentials struct {
 	HTMLURL       string `json:"html_url"`
 }
 
+// IsEnterprise reports whether the server talks to a GitHub Enterprise
+// Server instance rather than github.com. When override is not nil it
+// decides; otherwise the web URL does, every root other than github.com
+// (case and a trailing slash ignored) counting as Enterprise Server.
+func IsEnterprise(webURL string, override *bool) bool {
+	if override != nil {
+		return *override
+	}
+	return !strings.EqualFold(strings.TrimRight(webURL, "/"), DefaultWebURL)
+}
+
 // Manifest returns the GitHub App manifest for a server at baseURL. With
 // ghes set, the optional deployment protection rule event and Deployments
 // permission are left out, since not every GitHub Enterprise Server release

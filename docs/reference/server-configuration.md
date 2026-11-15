@@ -21,6 +21,7 @@ Values are trimmed of surrounding white space, and an empty value counts as unse
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | unset | The App's OAuth credentials, for human sign-in. Set both or neither; without them `/auth/login` explains that sign-in is not configured. |
 | `GITHUB_API_URL` | `https://api.github.com` | GitHub API base URL. GitHub Enterprise Server uses `https://<host>/api/v3`. |
 | `GITHUB_WEB_URL` | `https://github.com` | GitHub web URL, for the manifest flow, sign-in and links. |
+| `GITHUB_ENTERPRISE` | inferred | `true` or `false`; other values are refused. Whether the server talks to GitHub Enterprise Server, which decides the App manifest `/setup` offers. Unset, it is inferred from `GITHUB_WEB_URL`: any value other than `https://github.com` (case and a trailing slash ignored) is treated as Enterprise Server. Set it when the web URL does not reflect that, such as reaching github.com through a proxy or mirror host. See [below](#ghes). |
 | `GITHUB_OIDC_ISSUER` | `https://token.actions.githubusercontent.com` | Expected `iss` of runner tokens. |
 | `GITHUB_OIDC_JWKS_URL` | issuer + `/.well-known/jwks` | Where runner token signing keys are fetched. |
 | `STACKORDER_OIDC_AUDIENCE` | `STACKORDER_BASE_URL` | Expected `aud` of runner tokens, used as set with any trailing slash kept. When unset it defaults to `STACKORDER_BASE_URL` with its trailing slash removed; the CLI derives the same default from the server URL, so a server URL with a trailing slash still matches. |
@@ -257,6 +258,8 @@ GITHUB_OIDC_ISSUER=https://github.example.com/_services/token
 ```
 
 `GITHUB_OIDC_JWKS_URL` defaults to the issuer followed by `/.well-known/jwks`. The App manifest flow is the same, except that the manifest leaves out the `deployment_protection_rule` event and the Deployments permission, which not every Enterprise Server release offers; add them in the App settings if your instance supports custom deployment protection rules. The page shown after the App is created also prints `GITHUB_API_URL` and `GITHUB_WEB_URL`.
+
+The server decides it is talking to Enterprise Server whenever `GITHUB_WEB_URL` is not `https://github.com`. Set `GITHUB_ENTERPRISE` when that inference is wrong: `GITHUB_ENTERPRISE=false` keeps the full github.com manifest for a server that reaches github.com through a proxy or mirror whose web URL is not `https://github.com`, and `GITHUB_ENTERPRISE=true` requests the Enterprise Server manifest even when the web URL is `https://github.com`. It changes only which permissions and events the manifest requests at `/setup`; it does not change the API or web URLs the server uses.
 
 ## HSTS {#hsts}
 

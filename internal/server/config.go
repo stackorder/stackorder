@@ -84,6 +84,7 @@ const (
 	EnvOAuthClientSecret   = "GITHUB_OAUTH_CLIENT_SECRET" //nolint:gosec // a variable name, not a secret
 	EnvGitHubAPIURL        = "GITHUB_API_URL"
 	EnvGitHubWebURL        = "GITHUB_WEB_URL"
+	EnvGitHubEnterprise    = "GITHUB_ENTERPRISE"
 	EnvOIDCIssuer          = "GITHUB_OIDC_ISSUER"
 	EnvOIDCJWKSURL         = "GITHUB_OIDC_JWKS_URL"
 	EnvOIDCAudience        = "STACKORDER_OIDC_AUDIENCE"
@@ -150,6 +151,11 @@ type Config struct {
 	// GITHUB_WEB_URL; gh.DefaultBaseURL and gh.DefaultWebURL.
 	GitHubAPIURL string
 	GitHubWebURL string
+	// GitHubEnterprise is GITHUB_ENTERPRISE, whether the server talks to a
+	// GitHub Enterprise Server instance. Unset (nil) infers it from
+	// GitHubWebURL; true or false decides it, regardless of the web URL.
+	// IsEnterprise resolves it.
+	GitHubEnterprise *bool
 
 	// OIDCIssuer is GITHUB_OIDC_ISSUER; oidc.DefaultIssuer.
 	OIDCIssuer string
@@ -280,6 +286,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		OAuthClientSecret:     e.str(EnvOAuthClientSecret),
 		GitHubAPIURL:          e.absoluteURL(EnvGitHubAPIURL, gh.DefaultBaseURL),
 		GitHubWebURL:          e.absoluteURL(EnvGitHubWebURL, gh.DefaultWebURL),
+		GitHubEnterprise:      e.triBool(EnvGitHubEnterprise),
 		OIDCIssuer:            e.absoluteURL(EnvOIDCIssuer, oidc.DefaultIssuer),
 		OIDCJWKSURL:           e.absoluteURL(EnvOIDCJWKSURL, ""),
 		OIDCAudience:          e.str(EnvOIDCAudience),
@@ -374,6 +381,13 @@ func (c Config) PoolMaxConns() int32 {
 		workers = DefaultWorkers
 	}
 	return int32(min(workers, 1<<20) + PoolConnsBeyondWorkers) //nolint:gosec
+}
+
+// IsEnterprise reports whether the server talks to a GitHub Enterprise
+// Server instance. GitHubEnterprise decides when set; otherwise it is
+// inferred from GitHubWebURL.
+func (c Config) IsEnterprise() bool {
+	return gh.IsEnterprise(c.GitHubWebURL, c.GitHubEnterprise)
 }
 
 func generateSessionKey() ([]byte, error) {
@@ -715,6 +729,19 @@ func (e *env) boolean(name string) bool {
 		return false
 	}
 	return b
+}
+
+func (e *env) triBool(name string) *bool {
+	v := e.str(name)
+	if v == "" {
+		return nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		e.fail(name, "must be true or false, got %q", v)
+		return nil
+	}
+	return &b
 }
 
 func (e *env) hexKey(name string, size int) []byte {

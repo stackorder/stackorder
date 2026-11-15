@@ -88,6 +88,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 	assert.Empty(t, cfg.WebhookSecret)
 	assert.Equal(t, gh.DefaultBaseURL, cfg.GitHubAPIURL)
 	assert.Equal(t, gh.DefaultWebURL, cfg.GitHubWebURL)
+	assert.Nil(t, cfg.GitHubEnterprise, "GITHUB_ENTERPRISE is unset by default")
+	assert.False(t, cfg.IsEnterprise(), "github.com is inferred as not Enterprise Server")
 	assert.Equal(t, oidc.DefaultIssuer, cfg.OIDCIssuer)
 	assert.Empty(t, cfg.OIDCJWKSURL)
 	assert.Equal(t, testBaseURL, cfg.OIDCAudience, "the audience defaults to the base URL")
@@ -131,6 +133,7 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 		EnvOAuthClientSecret:     "oauth-secret",
 		EnvGitHubAPIURL:          "https://github.example.com/api/v3/",
 		EnvGitHubWebURL:          "https://github.example.com",
+		EnvGitHubEnterprise:      "false",
 		EnvOIDCIssuer:            "https://github.example.com/_services/token",
 		EnvOIDCJWKSURL:           "https://github.example.com/_services/token/.well-known/jwks",
 		EnvOIDCAudience:          "sts.stackorder.example.com",
@@ -174,6 +177,9 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 	assert.Equal(t, "oauth-secret", cfg.OAuthClientSecret)
 	assert.Equal(t, "https://github.example.com/api/v3", cfg.GitHubAPIURL)
 	assert.Equal(t, "https://github.example.com", cfg.GitHubWebURL)
+	require.NotNil(t, cfg.GitHubEnterprise)
+	assert.False(t, *cfg.GitHubEnterprise)
+	assert.False(t, cfg.IsEnterprise(), "GITHUB_ENTERPRISE=false overrides the Enterprise web URL")
 	assert.Equal(t, "https://github.example.com/_services/token", cfg.OIDCIssuer)
 	assert.Equal(t, "https://github.example.com/_services/token/.well-known/jwks", cfg.OIDCJWKSURL)
 	assert.Equal(t, "sts.stackorder.example.com", cfg.OIDCAudience)
@@ -201,6 +207,35 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 	assert.Equal(t, "http://otel-collector:4318", cfg.OTLPEndpoint)
 	assert.Equal(t, testSetupToken, cfg.SetupToken)
 	assert.False(t, cfg.SetupTokenGenerated)
+}
+
+func TestLoadConfigGitHubEnterprise(t *testing.T) {
+	t.Run("unset infers from the web URL", func(t *testing.T) {
+		cfg, err := LoadConfig(envOf(with(appEnv(t), EnvGitHubWebURL, "https://github.example.com")))
+		require.NoError(t, err)
+		assert.Nil(t, cfg.GitHubEnterprise)
+		assert.True(t, cfg.IsEnterprise())
+	})
+	t.Run("true forces Enterprise Server on github.com", func(t *testing.T) {
+		cfg, err := LoadConfig(envOf(with(appEnv(t), EnvGitHubEnterprise, "true")))
+		require.NoError(t, err)
+		require.NotNil(t, cfg.GitHubEnterprise)
+		assert.True(t, *cfg.GitHubEnterprise)
+		assert.True(t, cfg.IsEnterprise())
+	})
+	t.Run("false forces github.com behaviour behind a proxy web URL", func(t *testing.T) {
+		cfg, err := LoadConfig(envOf(with(appEnv(t),
+			EnvGitHubWebURL, "https://github.proxy.example.com",
+			EnvGitHubEnterprise, "false")))
+		require.NoError(t, err)
+		require.NotNil(t, cfg.GitHubEnterprise)
+		assert.False(t, cfg.IsEnterprise())
+	})
+	t.Run("an invalid value is rejected", func(t *testing.T) {
+		_, err := LoadConfig(envOf(with(appEnv(t), EnvGitHubEnterprise, "maybe")))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), EnvGitHubEnterprise)
+	})
 }
 
 func TestLoadConfigPrivateKeySpellings(t *testing.T) {

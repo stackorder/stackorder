@@ -66,6 +66,28 @@ func TestManifestForEnterpriseServer(t *testing.T) {
 	assert.Len(t, gh.DefaultPermissions, 8)
 }
 
+func TestIsEnterprise(t *testing.T) {
+	yes, no := true, false
+	tests := []struct {
+		name     string
+		webURL   string
+		override *bool
+		want     bool
+	}{
+		{"github.com infers false", "https://github.com", nil, false},
+		{"github.com trailing slash", "https://github.com/", nil, false},
+		{"github.com upper case", "https://GitHub.com", nil, false},
+		{"other host infers true", "https://github.example.com", nil, true},
+		{"override true on github.com", "https://github.com", &yes, true},
+		{"override false on other host", "https://github.example.com", &no, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, gh.IsEnterprise(tt.webURL, tt.override))
+		})
+	}
+}
+
 func TestCreateAppFromManifest(t *testing.T) {
 	fake := ghfake.New(t)
 	want := gh.AppCredentials{
