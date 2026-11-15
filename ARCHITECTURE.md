@@ -1140,7 +1140,10 @@ lists, so the stack lists and `/v1/overview`, which filter on
 default branch, such as one an open pull request proposes, is left alone.
 Saving a non-default graph (`store.SaveGraph`, from any plan run) never
 clears `removed_at`, so a stack deleted from the default branch stays
-removed even while an open pull request's plan still lists it.
+removed even while an open pull request's plan still lists it; this holds
+only once every replica runs this code, since a v0.5.0 replica's
+`upsertStacks` still clears `removed_at` on every save and can revive an
+already-removed stack during a rolling upgrade.
 Migration `0010_reconcile_removed_stacks` repairs existing rows once,
 marking removed a stack absent from its repository's current default graph
 unless a graph newer than that default still lists it. `ModuleConsumers` and `StackModules` read each repository's

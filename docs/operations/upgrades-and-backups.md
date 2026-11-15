@@ -30,6 +30,8 @@ On AWS with the Terraform module, this is a change of the image tag and an apply
 
 In-flight runs survive an upgrade. Work is queued in Postgres and every handler is idempotent: on `SIGTERM` an instance hands unstarted work back to the queue and gives running handlers 30 s, and anything a killed instance had claimed is claimed again after 10 minutes. The per-minute reconciliation catches any wave that finished during the switch. GitHub does not retry a failed webhook delivery by itself; redeliver it from the App's delivery log if needed.
 
+Upgrading from v0.5.0 crosses a window where old and new replicas share the database. A v0.5.0 replica clears a stack's `removed_at` on every plan save; a replica on this release clears it only when a merge moves the default-branch graph. So while a v0.5.0 replica is still serving, an open pull request it replans can revive a stack that a merged pull request already deleted from the default branch, and because that stack is no longer on the default branch no later merge re-marks it — it stays in the stack lists and the overview count until its directory returns to the default branch. Complete the rollout promptly to keep the window short; the effect is cosmetic (a deleted stack counted as live) and touches no run or state.
+
 To go back, deploy the previous image. The server never runs down migrations, so if the new version ran migrations the previous one does not understand, restore the snapshot from step 2.
 
 ## Upgrading the CLI and actions {#cli}
