@@ -28,6 +28,7 @@ Available Commands:
   plan        Plan one stack, summarize and redact the plan, and report it to the server
   resolve     Scan the repository, resolve the affected stacks with the server and write the plan matrix
   unlock      Release orchestration locks through the server, audited
+  validate    Check stackorder.yaml, the .stackorder.yaml files and the dependency graph; needs no server
   version     Print the stackorder version
 
 Flags:
@@ -48,6 +49,7 @@ Use "stackorder [command] --help" for more information about a command.
 | [`drift`](#drift) | `plan -detailed-exitcode`, result upload; exits 2 on drift | The same |
 | [`check`](#check) | Records a named check verdict, usually from a hook | The same, with `STACKORDER_API_KEY` |
 | [`graph`](#graph), [`affected`](#affected) | Inspection | Inspection and debugging; `--format dot` for Graphviz |
+| [`validate`](#validate) | Checks the configuration and the graph before a run, with annotations | The same; needs no server |
 | [`unlock`](#unlock) | Not used | Releases orchestration locks through the API, audited; needs `STACKORDER_API_KEY` |
 | [`version`](#version) | Prints the version | The same |
 
@@ -374,6 +376,59 @@ Global Flags:
 Resolves locally, like `resolve` without a server, and prints the same table. `--format json` prints the `ResolveResponse`; `--format dot` prints the graph with the affected stacks highlighted and labelled with their wave. It never talks to the server and writes no step outputs.
 
 `affected` exits 2 when at least one stack is affected, 0 when none is, and 1 on a cycle or an error.
+
+## `validate` {#validate}
+
+```text
+$ stackorder validate --help
+Check stackorder.yaml, the .stackorder.yaml files and the dependency graph; needs no server
+
+Usage:
+  stackorder validate [flags]
+
+Flags:
+  -h, --help     help for validate
+      --strict   exit 1 on warnings as well as errors
+
+Global Flags:
+      --format string      output format: text, json, or dot where it applies (default "text")
+      --repo-root string   repository root (default GITHUB_WORKSPACE, else the git top level)
+      --server string      server base URL; empty means local mode (env STACKORDER_SERVER_URL)
+  -v, --verbose            log debug output
+```
+
+Parses the root `stackorder.yaml` and every `.stackorder.yaml` file, then scans the repository and checks the graph, reporting everything [`graph`](#graph) and [`affected`](#affected) would reject — unsupported versions, unknown keys, invalid globs and patterns, and dependency cycles — and every warning a scan reports. It is the check to run in a pull request or a pre-commit hook before anything talks to the server; it needs no server and no credentials.
+
+Each problem is one diagnostic with a severity, a message, and, where the loader knows them, the file and the line. Errors are the problems that make the configuration invalid; warnings leave it usable. The command parses every configuration file before it stops, so one run reports the problems of several files at once. When a file does not parse it is not possible to build the graph, so the graph checks are skipped until the files parse.
+
+```text
+stackorder.yaml:7: error: unknown field "paralel"
+stacks/prod/vpc/.stackorder.yaml: error: depends_on[0]: "/abs": stack path must be repository relative
+error: dependency cycle: stacks/prod/eks -> stacks/prod/vpc -> stacks/prod/eks
+warning: stacks/prod/db: var file prod.tfvars does not exist
+invalid: 2 errors, 1 warning
+```
+
+`--format json` prints a `ValidationReport`: `valid`, the `errors` and `warnings` counts, and `diagnostics`, each a `{severity, message, file, line, column}` where `file` is repository relative, and `line` and `column` are 1-based and left out when the loader does not know them. The shape is stable; fields are only ever added.
+
+```json
+{
+  "valid": false,
+  "errors": 1,
+  "warnings": 0,
+  "diagnostics": [
+    { "severity": "error", "message": "unknown field \"paralel\"", "file": "stackorder.yaml", "line": 7 }
+  ]
+}
+```
+
+In GitHub Actions `validate` also writes each diagnostic as a [workflow annotation](https://docs.github.com/actions/using-workflows/workflow-commands-for-github-actions) (`::error file=…,line=…::` or `::warning::`), so the problems appear on the pull request's files and in the run's summary. Add it as a step before `resolve`:
+
+```yaml
+- run: stackorder validate
+```
+
+`validate` exits 0 when there are no errors, and 1 when there is at least one error. Warnings do not fail the command unless `--strict` is given, which also exits 1 when there are only warnings.
 
 ## `unlock` {#unlock}
 

@@ -24,6 +24,7 @@ Every `stackorder` command exits with one of four codes. Scripts and hooks can r
 | `check` | Verdict recorded | Usage error, no run id, no server | | The server refused the verdict |
 | `graph` | Graph printed | Scan or config error | | |
 | `affected` | No stack affected | Scan or config error, cycle | At least one stack affected | |
+| `validate` | No errors (and no warnings, or no `--strict`) | A configuration or graph error, or a warning with `--strict` | | |
 | `unlock` | Every named lock released, or none was held | No server, no API key, unknown repository or stack | | The server refused the unlock |
 | `version` | Version printed | `--format dot`, which only `graph` and `affected` support | | |
 
