@@ -85,6 +85,9 @@ func (a *app) runResolve(ctx context.Context, o resolveOptions) error {
 	if gh.CI && gh.IsFork {
 		return a.resolveFork(ctx, gh)
 	}
+	if gh.PushToDefault() {
+		return a.recordDefaultBranchGraph(ctx, gh)
+	}
 	sr, err := a.scan(ctx, true, o.base)
 	if err != nil {
 		return err
@@ -117,6 +120,68 @@ func (a *app) runResolve(ctx context.Context, o resolveOptions) error {
 	}
 	a.stepSummary(resolveMarkdown(resp, note))
 	return a.printResolve(resp)
+}
+
+func (a *app) recordDefaultBranchGraph(ctx context.Context, gh *Context) error {
+	sr, err := a.scan(ctx, false, "")
+	if err != nil {
+		return err
+	}
+	if a.server == "" {
+		a.log.Info("no server is configured; the default-branch graph is not recorded")
+		return a.emitRecord(gh, nil)
+	}
+	cl, err := a.newClient(gh, false)
+	if err != nil {
+		return failed("%w", err)
+	}
+	resp, err := cl.RecordDefaultGraph(ctx, gh.Repository, v1.RecordGraphRequest{Graph: *sr.graph})
+	switch {
+	case err == nil:
+		if resp.Recorded {
+			a.log.Info("recorded the default-branch graph", "sha", resp.SHA)
+		} else {
+			a.log.Info("the default-branch graph was not recorded", "sha", resp.SHA, "reason", resp.Reason)
+		}
+		return a.emitRecord(gh, resp)
+	case isUnreachable(err):
+		a.warn("the server is unreachable; the default-branch graph is not recorded: " + err.Error())
+		return a.emitRecord(gh, nil)
+	}
+	return failed("recording the default-branch graph: %w", err)
+}
+
+func (a *app) emitRecord(gh *Context, resp *v1.RecordGraphResponse) error {
+	if resp == nil {
+		resp = &v1.RecordGraphResponse{SHA: gh.SHA}
+	}
+	a.stepSummary(recordMarkdown(resp))
+	if a.format == formatJSON {
+		return a.writeJSON(resp)
+	}
+	_, err := fmt.Fprintln(a.stdout, recordLine(resp))
+	return err
+}
+
+func recordLine(resp *v1.RecordGraphResponse) string {
+	if resp.Recorded {
+		return "recorded the default-branch graph at " + shortRef(resp.SHA)
+	}
+	if resp.Reason != "" {
+		return "default-branch graph not recorded: " + resp.Reason
+	}
+	return "default-branch graph not recorded"
+}
+
+func recordMarkdown(resp *v1.RecordGraphResponse) string {
+	return "### Default-branch graph\n\n" + recordLine(resp) + "\n"
+}
+
+func shortRef(sha string) string {
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
 }
 
 func (a *app) resolveWithServer(ctx context.Context, sr *scanResult, requested []string) (*v1.ResolveResponse, string, error) {

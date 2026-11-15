@@ -201,6 +201,14 @@ func (c *Context) Trigger() v1.Trigger {
 	return v1.TriggerManual
 }
 
+// PushToDefault reports whether the context is a push to the repository's
+// default branch inside GitHub Actions, where the resolve command records the
+// default-branch graph instead of resolving a pull request.
+func (c *Context) PushToDefault() bool {
+	return c.CI && c.EventName == "push" && c.DefaultBranch != "" &&
+		c.Ref == "refs/heads/"+c.DefaultBranch
+}
+
 func prFromRef(ref string) int {
 	rest, ok := strings.CutPrefix(ref, "refs/pull/")
 	if !ok {

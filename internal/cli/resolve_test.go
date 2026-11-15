@@ -353,6 +353,40 @@ func TestResolvePushBase(t *testing.T) {
 	assert.Equal(t, mergeSHA, fs.creates[0].SHA)
 }
 
+func TestResolveRecordsDefaultBranchGraph(t *testing.T) {
+	h := newHarness(t)
+	fs := newFakeServer(t)
+	h.ci(fs, "push", map[string]any{"before": baseSHA, "after": mergeSHA, "repository": map[string]any{"default_branch": "main"}})
+	t.Setenv("GITHUB_REF", "refs/heads/main")
+	d := installDeps(t, &fakeDeps{graph: sampleGraph()})
+
+	r := h.run("resolve")
+	require.Equal(t, 0, r.code, r.stderr)
+
+	require.Len(t, fs.records, 1)
+	assert.Equal(t, *sampleGraph(), fs.records[0].Graph)
+	assert.Empty(t, fs.creates, "a push to the default branch records the graph instead of creating a plan run")
+	assert.Empty(t, fs.graphs)
+	assert.Equal(t, []string{"Bearer oidc-token"}, fs.auth["default-graph"])
+	assert.Contains(t, r.stdout, "recorded the default-branch graph")
+	require.Len(t, d.scans, 1)
+	assert.Empty(t, d.diffs, "recording the default-branch graph does not diff changed paths")
+}
+
+func TestResolveDefaultBranchGraphSuperseded(t *testing.T) {
+	h := newHarness(t)
+	fs := newFakeServer(t)
+	h.ci(fs, "push", map[string]any{"after": mergeSHA, "repository": map[string]any{"default_branch": "main"}})
+	t.Setenv("GITHUB_REF", "refs/heads/main")
+	fs.setRecord(v1.RecordGraphResponse{Recorded: false, SHA: mergeSHA, Reason: "superseded by a newer commit on the default branch"})
+	installDeps(t, &fakeDeps{graph: sampleGraph()})
+
+	r := h.run("resolve")
+	require.Equal(t, 0, r.code, r.stderr)
+	assert.Contains(t, r.stdout, "not recorded")
+	assert.Contains(t, r.stdout, "superseded")
+}
+
 func TestAffected(t *testing.T) {
 	tests := []struct {
 		name     string

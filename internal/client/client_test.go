@@ -43,6 +43,7 @@ type apiServer struct {
 var routes = []string{
 	"POST /v1/runs",
 	"POST /v1/runs/{id}/graph",
+	"PUT /v1/repos/{owner}/{repo}/default-graph",
 	"POST /v1/runs/{id}/stacks/{key}/result",
 	"POST /v1/runs/{id}/stacks/{key}/checks/{name}",
 	"GET /v1/runs/{id}",
@@ -151,6 +152,22 @@ func TestMethods(t *testing.T) {
 				Waves:    [][]string{{"stacks/prod/vpc"}},
 				Matrix:   v1.Matrix{Include: []v1.MatrixEntry{{Stack: "stacks/prod/vpc", Key: "stacks/prod/vpc", Environment: v1.DefaultEnvironment}}},
 			},
+		},
+		{
+			name: "RecordDefaultGraph",
+			call: func(ctx context.Context, c *Client) (any, error) {
+				return c.RecordDefaultGraph(ctx, "acme/infra", v1.RecordGraphRequest{
+					Graph: v1.Graph{Repo: "acme/infra", SHA: "abc123", Stacks: []v1.Stack{{Key: "stacks/prod/vpc", Path: "stacks/prod/vpc"}}},
+				})
+			},
+			response:    v1.RecordGraphResponse{Recorded: true, SHA: "abc123", Head: "abc123"},
+			wantPattern: "PUT /v1/repos/{owner}/{repo}/default-graph",
+			wantPath:    "/v1/repos/acme/infra/default-graph",
+			wantValues:  map[string]string{},
+			wantBody: v1.RecordGraphRequest{
+				Graph: v1.Graph{Repo: "acme/infra", SHA: "abc123", Stacks: []v1.Stack{{Key: "stacks/prod/vpc", Path: "stacks/prod/vpc"}}},
+			},
+			want: &v1.RecordGraphResponse{Recorded: true, SHA: "abc123", Head: "abc123"},
 		},
 		{
 			name: "PostResult",

@@ -46,6 +46,9 @@ type fakeServer struct {
 	failCode  map[string]string
 	creates   []v1.CreateRunRequest
 	graphs    []v1.GraphUploadRequest
+	records   []v1.RecordGraphRequest
+	recordSet bool
+	record    v1.RecordGraphResponse
 	results   []postedResult
 	checks    []postedCheck
 	unlocks   []v1.UnlockRequest
@@ -84,6 +87,15 @@ func newFakeServer(t *testing.T) *fakeServer {
 		err := json.NewDecoder(r.Body).Decode(&req)
 		f.graphs = append(f.graphs, req)
 		return f.resolve, err
+	}))
+	mux.HandleFunc("PUT /v1/repos/{owner}/{repo}/default-graph", f.route("default-graph", func(r *http.Request) (any, error) {
+		var req v1.RecordGraphRequest
+		err := json.NewDecoder(r.Body).Decode(&req)
+		f.records = append(f.records, req)
+		if f.recordSet {
+			return f.record, err
+		}
+		return v1.RecordGraphResponse{Recorded: true, SHA: req.Graph.SHA, Head: req.Graph.SHA}, err
 	}))
 	mux.HandleFunc("POST /v1/runs/{id}/stacks/{key}/result", f.route("result", func(r *http.Request) (any, error) {
 		var res v1.StackResult
@@ -221,6 +233,13 @@ func (f *fakeServer) setResolve(resp v1.ResolveResponse) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.resolve = resp
+}
+
+func (f *fakeServer) setRecord(resp v1.RecordGraphResponse) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record = resp
+	f.recordSet = true
 }
 
 func (f *fakeServer) postedResults() []postedResult {

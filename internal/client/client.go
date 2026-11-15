@@ -165,6 +165,22 @@ func (c *Client) UploadGraph(ctx context.Context, runID string, req v1.GraphUplo
 	return &out, nil
 }
 
+// RecordDefaultGraph calls PUT /v1/repos/{owner}/{repo}/default-graph to make
+// the graph scanned by a push-triggered resolve job the repository's
+// default-branch graph.
+func (c *Client) RecordDefaultGraph(ctx context.Context, repo string, req v1.RecordGraphRequest) (*v1.RecordGraphResponse, error) {
+	owner, name, ok := strings.Cut(repo, "/")
+	if !ok || owner == "" || name == "" {
+		return nil, fmt.Errorf("client: repository %q is not owner/repo", repo)
+	}
+	p := "/v1/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(name) + "/default-graph"
+	var out v1.RecordGraphResponse
+	if err := c.do(ctx, http.MethodPut, p, true, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // PostResult calls POST /v1/runs/{id}/stacks/{key}/result with a plan, apply
 // or drift outcome.
 func (c *Client) PostResult(ctx context.Context, runID, stackKey string, res v1.StackResult) (*v1.RunStack, error) {
