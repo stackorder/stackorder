@@ -48,6 +48,9 @@ func Run(ctx context.Context, root string, opts Options) (*v1.ValidationReport, 
 	if err != nil {
 		return nil, fmt.Errorf("validate %s: %w", root, err)
 	}
+	if abs, err = filepath.EvalSymlinks(abs); err != nil {
+		return nil, fmt.Errorf("validate %s: %w", root, err)
+	}
 	diags, err := validateConfigs(abs)
 	if err != nil {
 		return nil, fmt.Errorf("validate %s: %w", root, err)
