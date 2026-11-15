@@ -14,51 +14,57 @@ import (
 const maxErrorText = 4 << 10
 
 // Event is a webhook delivery waiting in, or processed by, the queue. ID is
-// the GitHub delivery id.
+// the GitHub delivery id. TraceContext is the W3C trace context captured
+// when the delivery was queued, so the worker span can continue the trace
+// of the request that received it; it is nil when tracing was off.
 type Event struct {
-	ID         string          `db:"id"`
-	Kind       string          `db:"kind"`
-	Payload    json.RawMessage `db:"payload"`
-	ReceivedAt time.Time       `db:"received_at"`
-	ClaimedBy  string          `db:"claimed_by"`
-	ClaimedAt  *time.Time      `db:"claimed_at"`
-	Attempts   int             `db:"attempts"`
-	RunAfter   time.Time       `db:"run_after"`
-	DoneAt     *time.Time      `db:"done_at"`
-	LastError  string          `db:"last_error"`
+	ID           string          `db:"id"`
+	Kind         string          `db:"kind"`
+	Payload      json.RawMessage `db:"payload"`
+	ReceivedAt   time.Time       `db:"received_at"`
+	ClaimedBy    string          `db:"claimed_by"`
+	ClaimedAt    *time.Time      `db:"claimed_at"`
+	Attempts     int             `db:"attempts"`
+	RunAfter     time.Time       `db:"run_after"`
+	DoneAt       *time.Time      `db:"done_at"`
+	LastError    string          `db:"last_error"`
+	TraceContext json.RawMessage `db:"trace_context"`
 }
 
 // Job is a unit of internal work, such as a reconciliation or a scheduled
 // drift dispatch. DedupeKey is empty when the job has none.
 type Job struct {
-	ID        uuid.UUID       `db:"id"`
-	Kind      string          `db:"kind"`
-	Payload   json.RawMessage `db:"payload"`
-	DedupeKey string          `db:"dedupe_key"`
-	RunAfter  time.Time       `db:"run_after"`
-	ClaimedBy string          `db:"claimed_by"`
-	ClaimedAt *time.Time      `db:"claimed_at"`
-	Attempts  int             `db:"attempts"`
-	DoneAt    *time.Time      `db:"done_at"`
-	LastError string          `db:"last_error"`
-	CreatedAt time.Time       `db:"created_at"`
+	ID           uuid.UUID       `db:"id"`
+	Kind         string          `db:"kind"`
+	Payload      json.RawMessage `db:"payload"`
+	DedupeKey    string          `db:"dedupe_key"`
+	RunAfter     time.Time       `db:"run_after"`
+	ClaimedBy    string          `db:"claimed_by"`
+	ClaimedAt    *time.Time      `db:"claimed_at"`
+	Attempts     int             `db:"attempts"`
+	DoneAt       *time.Time      `db:"done_at"`
+	LastError    string          `db:"last_error"`
+	CreatedAt    time.Time       `db:"created_at"`
+	TraceContext json.RawMessage `db:"trace_context"`
 }
 
-const eventCols = `id, kind, payload, received_at, claimed_by, claimed_at, attempts, run_after, done_at, last_error`
+const eventCols = `id, kind, payload, received_at, claimed_by, claimed_at, attempts, run_after, done_at, last_error, trace_context`
 
 const jobCols = `id, kind, payload, COALESCE(dedupe_key, '') AS dedupe_key, run_after, claimed_by, claimed_at,
-	attempts, done_at, last_error, created_at`
+	attempts, done_at, last_error, created_at, trace_context`
 
 // InsertEvent stores a webhook delivery and reports whether it was new; a
 // delivery id seen before is ignored, which deduplicates redeliveries.
-func (s *Store) InsertEvent(ctx context.Context, id, kind string, payload json.RawMessage) (bool, error) {
+// traceContext is the W3C trace context to carry to the worker, nil when
+// tracing is off.
+func (s *Store) InsertEvent(ctx context.Context, id, kind string, payload, traceContext json.RawMessage) (bool, error) {
 	const op = "insert event"
 	if id == "" || kind == "" {
 		return false, invalid(op, "id and kind are required")
 	}
 	tag, err := s.db.Exec(ctx, `
-		INSERT INTO events (id, kind, payload) VALUES ($1, $2, $3::jsonb)
-		ON CONFLICT (id) DO NOTHING`, id, kind, jsonPayload(payload))
+		INSERT INTO events (id, kind, payload, trace_context) VALUES ($1, $2, $3::jsonb, $4::jsonb)
+		ON CONFLICT (id) DO NOTHING`, id, kind, jsonPayload(payload), traceColumn(traceContext))
 	if err != nil {
 		return false, wrap(op, err)
 	}
@@ -89,7 +95,7 @@ func (s *Store) ClaimEvents(ctx context.Context, worker string, n int) ([]Event,
 		UPDATE events e SET claimed_by = $1, claimed_at = now()
 		FROM c WHERE e.id = c.id
 		RETURNING e.id, e.kind, e.payload, e.received_at, e.claimed_by, e.claimed_at, e.attempts,
-		          e.run_after, e.done_at, e.last_error`, worker, n)
+		          e.run_after, e.done_at, e.last_error, e.trace_context`, worker, n)
 	if err != nil {
 		return nil, wrap("claim events", err)
 	}
@@ -130,7 +136,9 @@ func (s *Store) AbandonEvent(ctx context.Context, id string, cause error) error 
 // EnqueueJob adds a job due at runAfter (now when zero). With a non-empty
 // dedupeKey an existing job with that key, done or not, is returned instead
 // with inserted == false; keys stay taken until the job is pruned.
-func (s *Store) EnqueueJob(ctx context.Context, kind string, payload json.RawMessage, runAfter time.Time, dedupeKey string) (Job, bool, error) {
+// traceContext is the W3C trace context to carry to the worker, nil when
+// tracing is off.
+func (s *Store) EnqueueJob(ctx context.Context, kind string, payload json.RawMessage, runAfter time.Time, dedupeKey string, traceContext json.RawMessage) (Job, bool, error) {
 	const op = "enqueue job"
 	if kind == "" {
 		return Job{}, false, invalid(op, "kind is required")
@@ -140,10 +148,10 @@ func (s *Store) EnqueueJob(ctx context.Context, kind string, payload json.RawMes
 		at = &runAfter
 	}
 	out, err := queryOne[Job](ctx, s.db, `
-		INSERT INTO jobs (kind, payload, run_after, dedupe_key)
-		VALUES ($1, $2::jsonb, COALESCE($3::timestamptz, now()), NULLIF($4::text, ''))
+		INSERT INTO jobs (kind, payload, run_after, dedupe_key, trace_context)
+		VALUES ($1, $2::jsonb, COALESCE($3::timestamptz, now()), NULLIF($4::text, ''), $5::jsonb)
 		ON CONFLICT (dedupe_key) DO NOTHING
-		RETURNING `+jobCols, kind, jsonPayload(payload), at, dedupeKey)
+		RETURNING `+jobCols, kind, jsonPayload(payload), at, dedupeKey, traceColumn(traceContext))
 	if err == nil {
 		return out, true, nil
 	}
@@ -177,7 +185,7 @@ func (s *Store) ClaimJobs(ctx context.Context, worker string, n int) ([]Job, err
 		UPDATE jobs j SET claimed_by = $1, claimed_at = now()
 		FROM c WHERE j.id = c.id
 		RETURNING j.id, j.kind, j.payload, COALESCE(j.dedupe_key, '') AS dedupe_key, j.run_after,
-		          j.claimed_by, j.claimed_at, j.attempts, j.done_at, j.last_error, j.created_at`, worker, n)
+		          j.claimed_by, j.claimed_at, j.attempts, j.done_at, j.last_error, j.created_at, j.trace_context`, worker, n)
 	if err != nil {
 		return nil, wrap("claim jobs", err)
 	}
@@ -320,6 +328,13 @@ func (s *Store) PruneQueue(ctx context.Context, olderThan time.Duration) (events
 func jsonPayload(p json.RawMessage) string {
 	if len(p) == 0 {
 		return "{}"
+	}
+	return string(p)
+}
+
+func traceColumn(p json.RawMessage) any {
+	if len(p) == 0 {
+		return nil
 	}
 	return string(p)
 }

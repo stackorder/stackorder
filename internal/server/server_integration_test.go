@@ -112,7 +112,7 @@ func TestEveryJobKindIsExecuted(t *testing.T) {
 	for kind, payload := range merge(ok, failing) {
 		b, err := json.Marshal(payload)
 		require.NoError(t, err)
-		job, inserted, err := r.st.EnqueueJob(t.Context(), kind, b, time.Time{}, "test:"+kind)
+		job, inserted, err := r.st.EnqueueJob(t.Context(), kind, b, time.Time{}, "test:"+kind, nil)
 		require.NoError(t, err)
 		require.True(t, inserted)
 		ids[kind] = job.ID
@@ -159,7 +159,7 @@ func TestPoolIsSizedFromTheWorkers(t *testing.T) {
 func TestSetupModeRunsNoWorkers(t *testing.T) {
 	r := start(t, true)
 	assert.True(t, r.srv.Config().SetupMode)
-	inserted, err := r.st.InsertEvent(t.Context(), "delivery-1", gh.EventPing, json.RawMessage(`{}`))
+	inserted, err := r.st.InsertEvent(t.Context(), "delivery-1", gh.EventPing, json.RawMessage(`{}`), nil)
 	require.NoError(t, err)
 	require.True(t, inserted)
 	time.Sleep(500 * time.Millisecond)

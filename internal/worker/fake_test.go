@@ -184,7 +184,7 @@ func (f *fakeQueue) AbandonEvent(_ context.Context, id string, cause error) erro
 	return nil
 }
 
-func (f *fakeQueue) EnqueueJob(_ context.Context, kind string, payload json.RawMessage, runAfter time.Time, dedupeKey string) (store.Job, bool, error) {
+func (f *fakeQueue) EnqueueJob(_ context.Context, kind string, payload json.RawMessage, runAfter time.Time, dedupeKey string, traceContext json.RawMessage) (store.Job, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.keys == nil {
@@ -197,7 +197,7 @@ func (f *fakeQueue) EnqueueJob(_ context.Context, kind string, payload json.RawM
 	if runAfter.IsZero() {
 		runAfter = now
 	}
-	j := &store.Job{ID: uuid.New(), Kind: kind, Payload: payload, DedupeKey: dedupeKey, RunAfter: runAfter, CreatedAt: now}
+	j := &store.Job{ID: uuid.New(), Kind: kind, Payload: payload, DedupeKey: dedupeKey, RunAfter: runAfter, CreatedAt: now, TraceContext: traceContext}
 	f.jobs = append(f.jobs, j)
 	if dedupeKey != "" {
 		f.keys[dedupeKey] = j

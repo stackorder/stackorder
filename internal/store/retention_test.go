@@ -110,9 +110,9 @@ func TestPrune(t *testing.T) {
 		_, err := f.s.RecordDrift(f.ctx, store.Drift{StackID: ids["stacks/a"], CheckedAt: time.Now().Add(at)})
 		require.NoError(t, err)
 	}
-	_, err = f.s.InsertEvent(f.ctx, "old", "push", nil)
+	_, err = f.s.InsertEvent(f.ctx, "old", "push", nil, nil)
 	require.NoError(t, err)
-	job, _, err := f.s.EnqueueJob(f.ctx, "k", nil, time.Time{}, "")
+	job, _, err := f.s.EnqueueJob(f.ctx, "k", nil, time.Time{}, "", nil)
 	require.NoError(t, err)
 	require.NoError(t, f.s.CompleteJob(f.ctx, job.ID))
 	_, err = f.s.SeenJTI(f.ctx, "expired", time.Now().Add(-time.Hour))

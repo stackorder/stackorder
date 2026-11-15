@@ -138,7 +138,7 @@ func StoreEnqueue(st *store.Store) EnqueueFunc {
 		if err != nil {
 			return fmt.Errorf("runs: encode %s job: %w", kind, err)
 		}
-		if _, _, err := st.EnqueueJob(ctx, kind, b, runAfter, dedupeKey); err != nil {
+		if _, _, err := st.EnqueueJob(ctx, kind, b, runAfter, dedupeKey, nil); err != nil {
 			return fmt.Errorf("runs: enqueue %s job: %w", kind, err)
 		}
 		return nil

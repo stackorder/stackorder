@@ -3,6 +3,8 @@
 package webhook_test
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -34,9 +36,13 @@ type pgHarness struct {
 }
 
 func newPGHarness(t *testing.T) *pgHarness {
+	return newPGHarnessTrace(t, nil)
+}
+
+func newPGHarnessTrace(t *testing.T, injectTC func(context.Context) json.RawMessage) *pgHarness {
 	t.Helper()
 	ph := &pgHarness{t: t, st: pgtest.New(t), metrics: metrics.New(), wakes: make(chan struct{}, 16)}
-	h := webhook.New(secret, ph.st, func() { ph.wakes <- struct{}{} }, ph.metrics, nil)
+	h := webhook.New(secret, ph.st, func() { ph.wakes <- struct{}{} }, injectTC, ph.metrics, nil)
 	mux := http.NewServeMux()
 	mux.Handle(webhook.Pattern, h)
 	ph.srv = httptest.NewServer(mux)
@@ -81,6 +87,22 @@ func TestDeliveryIsStored(t *testing.T) {
 	assert.Nil(t, ev.ClaimedAt)
 	assert.Nil(t, ev.DoneAt)
 	assert.Len(t, ph.wakes, 1)
+}
+
+func TestTraceContextIsPersistedWithTheDelivery(t *testing.T) {
+	const tc = `{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}`
+	ph := newPGHarnessTrace(t, func(context.Context) json.RawMessage { return json.RawMessage(tc) })
+	body := `{"action":"opened","number":7}`
+	require.Equal(t, http.StatusAccepted, ph.post("pull_request", "traced-delivery", body, sign(body)))
+
+	ev, err := ph.st.GetEvent(t.Context(), "traced-delivery")
+	require.NoError(t, err)
+	assert.JSONEq(t, tc, string(ev.TraceContext), "the worker can continue the request's trace")
+
+	claimed, err := ph.st.ClaimEvents(t.Context(), "w", 10)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	assert.JSONEq(t, tc, string(claimed[0].TraceContext))
 }
 
 func TestRedeliveryIsDeduplicated(t *testing.T) {
@@ -129,7 +151,7 @@ func TestUnknownEventIsQueued(t *testing.T) {
 
 func BenchmarkServeHTTP(b *testing.B) {
 	st := pgtest.New(b)
-	h := webhook.New(secret, st, nil, metrics.New(), nil)
+	h := webhook.New(secret, st, nil, nil, metrics.New(), nil)
 	body := `{"action":"completed","workflow_run":{"id":1}}`
 	sig := sign(body)
 	b.ResetTimer()

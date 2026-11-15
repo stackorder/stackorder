@@ -61,7 +61,7 @@ type Queue interface {
 	CompleteEvent(ctx context.Context, id string) error
 	FailEvent(ctx context.Context, id string, cause error, retryAfter time.Duration) error
 	AbandonEvent(ctx context.Context, id string, cause error) error
-	EnqueueJob(ctx context.Context, kind string, payload json.RawMessage, runAfter time.Time, dedupeKey string) (store.Job, bool, error)
+	EnqueueJob(ctx context.Context, kind string, payload json.RawMessage, runAfter time.Time, dedupeKey string, traceContext json.RawMessage) (store.Job, bool, error)
 	ClaimJobs(ctx context.Context, worker string, n int) ([]store.Job, error)
 	CompleteJob(ctx context.Context, id uuid.UUID) error
 	FailJob(ctx context.Context, id uuid.UUID, cause error, retryAfter time.Duration) error
@@ -107,6 +107,10 @@ type Options struct {
 	// Metrics records processing outcomes, webhook lag and queue depth;
 	// optional.
 	Metrics *metrics.Registry
+	// TraceInject captures the W3C trace context of ctx so an enqueued
+	// job's worker span can continue the trace of the work that queued it.
+	// It returns nil when ctx carries no span; nil leaves jobs untraced.
+	TraceInject func(ctx context.Context) json.RawMessage
 }
 
 // DefaultBackoff waits 1 min, 5 min, 30 min and 2 h after the first four
@@ -121,14 +125,15 @@ func DefaultBackoff(attempt int) time.Duration {
 // be registered before or while the pool runs. It is safe for concurrent
 // use.
 type Pool struct {
-	q       Queue
-	opts    Options
-	name    string
-	log     *slog.Logger
-	metrics *metrics.Registry
-	wake    []chan struct{}
-	ids     []string
-	running atomic.Bool
+	q        Queue
+	opts     Options
+	name     string
+	log      *slog.Logger
+	metrics  *metrics.Registry
+	injectTC func(ctx context.Context) json.RawMessage
+	wake     []chan struct{}
+	ids      []string
+	running  atomic.Bool
 
 	mu     sync.RWMutex
 	events map[string]EventHandler
@@ -175,15 +180,16 @@ func New(q Queue, opts Options) *Pool {
 		host = "unknown"
 	}
 	p := &Pool{
-		q:       q,
-		opts:    opts,
-		name:    fmt.Sprintf("%s:%d", host, os.Getpid()),
-		log:     opts.Logger,
-		metrics: opts.Metrics,
-		wake:    make([]chan struct{}, opts.Workers),
-		ids:     make([]string, opts.Workers),
-		events:  map[string]EventHandler{},
-		jobs:    map[string]JobHandler{},
+		q:        q,
+		opts:     opts,
+		name:     fmt.Sprintf("%s:%d", host, os.Getpid()),
+		log:      opts.Logger,
+		metrics:  opts.Metrics,
+		injectTC: opts.TraceInject,
+		wake:     make([]chan struct{}, opts.Workers),
+		ids:      make([]string, opts.Workers),
+		events:   map[string]EventHandler{},
+		jobs:     map[string]JobHandler{},
 	}
 	for i := range p.wake {
 		p.wake[i] = make(chan struct{}, 1)
@@ -233,7 +239,11 @@ func (p *Pool) Enqueue(ctx context.Context, kind string, payload any, runAfter t
 	if err != nil {
 		return fmt.Errorf("worker: enqueue %s: %w", kind, err)
 	}
-	job, inserted, err := p.q.EnqueueJob(ctx, kind, raw, runAfter, dedupeKey)
+	var traceContext json.RawMessage
+	if p.injectTC != nil {
+		traceContext = p.injectTC(ctx)
+	}
+	job, inserted, err := p.q.EnqueueJob(ctx, kind, raw, runAfter, dedupeKey, traceContext)
 	if err != nil {
 		return fmt.Errorf("worker: enqueue %s: %w", kind, err)
 	}

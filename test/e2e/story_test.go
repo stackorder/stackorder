@@ -879,7 +879,7 @@ func (s *story) driftCheck(t *testing.T, key string, round int) (*dispatchJob, v
 	before := len(s.cp.gh.Dispatches())
 	payload, err := json.Marshal(runs.DriftJob{RepoID: repoID, StackID: stack.ID})
 	require.NoError(t, err)
-	_, _, err = s.cp.store.EnqueueJob(t.Context(), runs.JobDrift, payload, time.Time{}, fmt.Sprintf("e2e-drift:%s:%d", stack.ID, round))
+	_, _, err = s.cp.store.EnqueueJob(t.Context(), runs.JobDrift, payload, time.Time{}, fmt.Sprintf("e2e-drift:%s:%d", stack.ID, round), nil)
 	require.NoError(t, err)
 	var d ghfake.Dispatch
 	waitUntil(t, time.Minute, "the drift check of "+key+" is dispatched", func() bool {

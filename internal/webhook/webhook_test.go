@@ -25,6 +25,7 @@ var secret = []byte("s3cret")
 type inserted struct {
 	id, kind string
 	payload  json.RawMessage
+	trace    json.RawMessage
 }
 
 type fakeInserter struct {
@@ -37,7 +38,7 @@ type fakeInserter struct {
 	hasDeadline bool
 }
 
-func (f *fakeInserter) InsertEvent(ctx context.Context, id, kind string, payload json.RawMessage) (bool, error) {
+func (f *fakeInserter) InsertEvent(ctx context.Context, id, kind string, payload, traceContext json.RawMessage) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ctxErr = ctx.Err()
@@ -52,7 +53,7 @@ func (f *fakeInserter) InsertEvent(ctx context.Context, id, kind string, payload
 		return false, nil
 	}
 	f.seen[id] = true
-	f.rows = append(f.rows, inserted{id: id, kind: kind, payload: payload})
+	f.rows = append(f.rows, inserted{id: id, kind: kind, payload: payload, trace: traceContext})
 	return true, nil
 }
 
@@ -64,8 +65,12 @@ type harness struct {
 }
 
 func newHarness(key []byte) *harness {
+	return newHarnessTrace(key, nil)
+}
+
+func newHarnessTrace(key []byte, injectTC func(context.Context) json.RawMessage) *harness {
 	hs := &harness{store: &fakeInserter{}, metrics: metrics.New()}
-	hs.h = webhook.New(key, hs.store, func() { hs.notified++ }, hs.metrics, nil)
+	hs.h = webhook.New(key, hs.store, func() { hs.notified++ }, injectTC, hs.metrics, nil)
 	return hs
 }
 
@@ -293,9 +298,30 @@ func TestMetricsLabelUnknownEventsAsOther(t *testing.T) {
 	assert.False(t, raw, "header values never become label values")
 }
 
+func TestTraceContextIsCaptured(t *testing.T) {
+	const tc = `{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}`
+	var gotCtx context.Context
+	hs := newHarnessTrace(secret, func(ctx context.Context) json.RawMessage {
+		gotCtx = ctx
+		return json.RawMessage(tc)
+	})
+	rec := hs.send(delivery{event: "push", id: "traced", body: `{}`})
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Len(t, hs.store.rows, 1)
+	assert.JSONEq(t, tc, string(hs.store.rows[0].trace))
+	assert.NotNil(t, gotCtx, "the request context is passed to the injector")
+}
+
+func TestTraceContextOmittedWithoutInjector(t *testing.T) {
+	hs := newHarness(secret)
+	hs.send(delivery{event: "push", id: "untraced", body: `{}`})
+	require.Len(t, hs.store.rows, 1)
+	assert.Nil(t, hs.store.rows[0].trace)
+}
+
 func TestNilDependencies(t *testing.T) {
 	store := &fakeInserter{}
-	h := webhook.New(secret, store, nil, nil, nil)
+	h := webhook.New(secret, store, nil, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(`{}`))
 	req.Header.Set(gh.HeaderEvent, "push")
 	req.Header.Set(gh.HeaderDelivery, "x")

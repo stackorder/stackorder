@@ -36,31 +36,35 @@ const (
 var knownEvents = append([]string{gh.EventPing, gh.EventInstallation, gh.EventInstallationRepositories}, gh.DefaultEvents...)
 
 // EventInserter persists a delivery and reports whether its id was new.
-// *store.Store implements it.
+// traceContext carries the request's W3C trace context, nil when tracing
+// is off. *store.Store implements it.
 type EventInserter interface {
-	InsertEvent(ctx context.Context, id, kind string, payload json.RawMessage) (bool, error)
+	InsertEvent(ctx context.Context, id, kind string, payload, traceContext json.RawMessage) (bool, error)
 }
 
 // Handler is the webhook endpoint. It is safe for concurrent use.
 type Handler struct {
-	secret  []byte
-	events  EventInserter
-	notify  func()
-	metrics *metrics.Registry
-	logger  *slog.Logger
+	secret   []byte
+	events   EventInserter
+	notify   func()
+	injectTC func(ctx context.Context) json.RawMessage
+	metrics  *metrics.Registry
+	logger   *slog.Logger
 }
 
 // New returns a Handler verifying deliveries against secret and queueing
 // them in events. notify is called after a new delivery is queued so
-// workers wake at once; m and logger may be nil.
-func New(secret []byte, events EventInserter, notify func(), m *metrics.Registry, logger *slog.Logger) *Handler {
+// workers wake at once. injectTC captures the request's W3C trace context
+// to carry to the worker; it may be nil, which queues deliveries untraced.
+// m and logger may be nil.
+func New(secret []byte, events EventInserter, notify func(), injectTC func(ctx context.Context) json.RawMessage, m *metrics.Registry, logger *slog.Logger) *Handler {
 	if notify == nil {
 		notify = func() {}
 	}
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return &Handler{secret: bytes.Clone(secret), events: events, notify: notify, metrics: m, logger: logger}
+	return &Handler{secret: bytes.Clone(secret), events: events, notify: notify, injectTC: injectTC, metrics: m, logger: logger}
 }
 
 // ServeHTTP handles one delivery. It answers 401 for a missing or wrong
@@ -112,9 +116,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var traceContext json.RawMessage
+	if h.injectTC != nil {
+		traceContext = h.injectTC(r.Context())
+	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), insertTimeout)
 	defer cancel()
-	queued, err := h.events.InsertEvent(ctx, delivery, event, body)
+	queued, err := h.events.InsertEvent(ctx, delivery, event, body, traceContext)
 	if err != nil {
 		log.ErrorContext(ctx, "webhook not queued", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal", "delivery could not be queued")

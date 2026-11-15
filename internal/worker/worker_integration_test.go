@@ -42,7 +42,7 @@ func insertEvents(t *testing.T, st *store.Store, kind string, n int) []string {
 	ids := make([]string, n)
 	for i := range n {
 		ids[i] = fmt.Sprintf("%s-%03d", kind, i)
-		ok, err := st.InsertEvent(t.Context(), ids[i], kind, json.RawMessage(fmt.Sprintf(`{"n":%d}`, i)))
+		ok, err := st.InsertEvent(t.Context(), ids[i], kind, json.RawMessage(fmt.Sprintf(`{"n":%d}`, i)), nil)
 		require.NoError(t, err)
 		require.True(t, ok)
 	}
@@ -229,7 +229,7 @@ func TestPGNotifyWakesBeforePollInterval(t *testing.T) {
 	start(t, p)
 	require.Eventually(t, func() bool { return st.claims.Load() >= 2 }, eventually, time.Millisecond, "the workers went idle")
 
-	ok, err := st.InsertEvent(t.Context(), "fresh", "push", json.RawMessage(`{}`))
+	ok, err := st.InsertEvent(t.Context(), "fresh", "push", json.RawMessage(`{}`), nil)
 	require.NoError(t, err)
 	require.True(t, ok)
 	p.Notify()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -125,6 +126,71 @@ func (s *Server) traced(ctx context.Context, name string, fn func(context.Contex
 		span.SetStatus(codes.Error, err.Error())
 	}
 	return err
+}
+
+// injectTrace serializes the W3C trace context of ctx, so a queued row can
+// carry it to the worker. It returns nil when tracing is off or ctx carries
+// no span, which leaves the row untraced.
+func (s *Server) injectTrace(ctx context.Context) json.RawMessage {
+	if s.tracing == nil || !trace.SpanContextFromContext(ctx).IsValid() {
+		return nil
+	}
+	carrier := propagation.MapCarrier{}
+	s.tracing.propagator.Inject(ctx, carrier)
+	if len(carrier) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(map[string]string(carrier))
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+// extractTrace returns ctx with the trace context stored in raw as its
+// remote parent, so a span started from it continues the trace that queued
+// the row. It returns ctx unchanged when tracing is off or raw is empty or
+// malformed, as for rows queued before the upgrade or with tracing off.
+func (s *Server) extractTrace(ctx context.Context, raw json.RawMessage) context.Context {
+	if s.tracing == nil || len(raw) == 0 {
+		return ctx
+	}
+	var carrier map[string]string
+	if err := json.Unmarshal(raw, &carrier); err != nil || len(carrier) == 0 {
+		return ctx
+	}
+	return s.tracing.propagator.Extract(ctx, propagation.MapCarrier(carrier))
+}
+
+// traceLogHandler wraps a slog.Handler to add trace_id and span_id to every
+// record whose context carries a recording span, so logs can be joined with
+// the traces of the same request, event or job. Records logged without such
+// a context, as before tracing starts or outside any span, are unchanged.
+type traceLogHandler struct {
+	slog.Handler
+}
+
+func newTraceLogHandler(h slog.Handler) slog.Handler {
+	return traceLogHandler{Handler: h}
+}
+
+func (h traceLogHandler) Handle(ctx context.Context, rec slog.Record) error {
+	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+		rec = rec.Clone()
+		rec.AddAttrs(
+			slog.String("trace_id", sc.TraceID().String()),
+			slog.String("span_id", sc.SpanID().String()),
+		)
+	}
+	return h.Handler.Handle(ctx, rec)
+}
+
+func (h traceLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return traceLogHandler{Handler: h.Handler.WithAttrs(attrs)}
+}
+
+func (h traceLogHandler) WithGroup(name string) slog.Handler {
+	return traceLogHandler{Handler: h.Handler.WithGroup(name)}
 }
 
 func payloadRunID(payload json.RawMessage) (string, bool) {

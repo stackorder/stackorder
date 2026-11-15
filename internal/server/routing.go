@@ -100,6 +100,7 @@ func (s *Server) registerOn(h handlers, svc runService) {
 func (s *Server) eventHandler(kind string, r eventRoute) worker.EventHandler {
 	return func(ctx context.Context, ev store.Event) error {
 		ctx = runs.WithReceivedAt(ctx, ev.ReceivedAt)
+		ctx = s.extractTrace(ctx, ev.TraceContext)
 		return s.traced(ctx, "event "+kind, func(ctx context.Context) error {
 			parsed, err := gh.ParseEvent(kind, ev.Payload)
 			if err != nil {
@@ -117,6 +118,7 @@ func (s *Server) jobHandler(kind string, svc jobService) worker.JobHandler {
 		if id, ok := payloadRunID(job.Payload); ok {
 			attrs = append(attrs, AttrRunID.String(id))
 		}
+		ctx = s.extractTrace(ctx, job.TraceContext)
 		return s.traced(ctx, "job "+kind, func(ctx context.Context) error {
 			payload := job.Payload
 			if kind == runs.JobPrune {

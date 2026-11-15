@@ -90,13 +90,17 @@ func WithLogger(l *slog.Logger) Option {
 }
 
 // NewLogger returns the server's logger: JSON lines on w unless format is
-// LogFormatText, at level and above.
+// LogFormatText, at level and above. Records logged with a context that
+// carries a span also get trace_id and span_id.
 func NewLogger(w io.Writer, level slog.Level, format string) *slog.Logger {
 	opts := &slog.HandlerOptions{Level: level}
+	var h slog.Handler
 	if format == LogFormatText {
-		return slog.New(slog.NewTextHandler(w, opts))
+		h = slog.NewTextHandler(w, opts)
+	} else {
+		h = slog.NewJSONHandler(w, opts)
 	}
-	return slog.New(slog.NewJSONHandler(w, opts))
+	return slog.New(newTraceLogHandler(h))
 }
 
 // Server is the composed control plane. Create it with New, then call Run
@@ -232,10 +236,11 @@ func (s *Server) compose(ctx context.Context, deps *api.Deps) error {
 		return fmt.Errorf("server: OIDC verifier: %w", err)
 	}
 	s.pool = worker.New(s.st, worker.Options{
-		Workers: cfg.Workers,
-		Clock:   s.now,
-		Logger:  s.log.With("component", "worker"),
-		Metrics: s.metrics,
+		Workers:     cfg.Workers,
+		Clock:       s.now,
+		Logger:      s.log.With("component", "worker"),
+		Metrics:     s.metrics,
+		TraceInject: s.injectTrace,
 	})
 	runOpts := []runs.Option{runs.WithEnqueue(s.pool.Enqueue)}
 	if cfg.ArtifactBucket != "" {
@@ -272,7 +277,7 @@ func (s *Server) compose(ctx context.Context, deps *api.Deps) error {
 	deps.GitHub = app
 	deps.UI = ui.Handler()
 	deps.Metrics = s.metrics.Handler()
-	deps.Webhook = webhook.New(cfg.WebhookSecret, s.st, s.pool.Notify, s.metrics, s.log.With("component", "webhook"))
+	deps.Webhook = webhook.New(cfg.WebhookSecret, s.st, s.pool.Notify, s.injectTrace, s.metrics, s.log.With("component", "webhook"))
 	return nil
 }
 

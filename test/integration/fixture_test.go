@@ -196,7 +196,7 @@ func (e *Env) runJob(kind string, payload any) {
 	e.t.Helper()
 	body, err := json.Marshal(payload)
 	require.NoError(e.t, err)
-	job, inserted, err := e.Store.EnqueueJob(context.Background(), kind, body, time.Time{}, "integration:"+kind+":"+uuid.NewString())
+	job, inserted, err := e.Store.EnqueueJob(context.Background(), kind, body, time.Time{}, "integration:"+kind+":"+uuid.NewString(), nil)
 	require.NoError(e.t, err)
 	require.True(e.t, inserted)
 	e.waitJob(job.ID)

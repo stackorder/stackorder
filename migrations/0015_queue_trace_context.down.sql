@@ -1,0 +1,2 @@
+ALTER TABLE jobs DROP COLUMN IF EXISTS trace_context;
+ALTER TABLE events DROP COLUMN IF EXISTS trace_context;

@@ -37,7 +37,7 @@ func TestInsertEventDedup(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			inserted, err := f.s.InsertEvent(f.ctx, tc.id, tc.kind, json.RawMessage(tc.payload))
+			inserted, err := f.s.InsertEvent(f.ctx, tc.id, tc.kind, json.RawMessage(tc.payload), nil)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
@@ -61,7 +61,7 @@ func TestClaimEventsExclusive(t *testing.T) {
 		claimers = 8
 	)
 	for i := range events {
-		inserted, err := f.s.InsertEvent(f.ctx, fmt.Sprintf("delivery-%03d", i), "push", json.RawMessage(`{"n":`+fmt.Sprint(i)+`}`))
+		inserted, err := f.s.InsertEvent(f.ctx, fmt.Sprintf("delivery-%03d", i), "push", json.RawMessage(`{"n":`+fmt.Sprint(i)+`}`), nil)
 		require.NoError(t, err)
 		require.True(t, inserted)
 	}
@@ -106,7 +106,7 @@ func TestClaimEventsExclusive(t *testing.T) {
 
 func TestFailEventBackoffAndAttempts(t *testing.T) {
 	f := newFixture(t)
-	_, err := f.s.InsertEvent(f.ctx, "e1", "pull_request", nil)
+	_, err := f.s.InsertEvent(f.ctx, "e1", "pull_request", nil, nil)
 	require.NoError(t, err)
 
 	claimed, err := f.s.ClaimEvents(f.ctx, "w1", 10)
@@ -146,10 +146,10 @@ func TestFailEventBackoffAndAttempts(t *testing.T) {
 func TestReleaseStaleClaims(t *testing.T) {
 	f := newFixture(t)
 	for _, id := range []string{"stale", "fresh", "done"} {
-		_, err := f.s.InsertEvent(f.ctx, id, "push", nil)
+		_, err := f.s.InsertEvent(f.ctx, id, "push", nil, nil)
 		require.NoError(t, err)
 	}
-	job, _, err := f.s.EnqueueJob(f.ctx, "reconcile", nil, time.Time{}, "")
+	job, _, err := f.s.EnqueueJob(f.ctx, "reconcile", nil, time.Time{}, "", nil)
 	require.NoError(t, err)
 	claimed, err := f.s.ClaimEvents(f.ctx, "crashed", 10)
 	require.NoError(t, err)
@@ -177,6 +177,48 @@ func TestReleaseStaleClaims(t *testing.T) {
 	assert.Equal(t, job.ID, jobs[0].ID)
 }
 
+func TestTraceContextRoundTrips(t *testing.T) {
+	f := newFixture(t)
+	const tc = `{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}`
+
+	_, err := f.s.InsertEvent(f.ctx, "traced", "push", json.RawMessage(`{}`), json.RawMessage(tc))
+	require.NoError(t, err)
+	_, err = f.s.InsertEvent(f.ctx, "untraced", "push", json.RawMessage(`{}`), nil)
+	require.NoError(t, err)
+
+	traced, err := f.s.GetEvent(f.ctx, "traced")
+	require.NoError(t, err)
+	assert.JSONEq(t, tc, string(traced.TraceContext))
+	untraced, err := f.s.GetEvent(f.ctx, "untraced")
+	require.NoError(t, err)
+	assert.Nil(t, untraced.TraceContext, "a delivery queued with tracing off stores no context")
+
+	claimed, err := f.s.ClaimEvents(f.ctx, "w", 10)
+	require.NoError(t, err)
+	byID := map[string]json.RawMessage{}
+	for _, e := range claimed {
+		byID[e.ID] = e.TraceContext
+	}
+	assert.JSONEq(t, tc, string(byID["traced"]), "claimed events carry the trace context to the worker")
+	assert.Nil(t, byID["untraced"])
+
+	job, _, err := f.s.EnqueueJob(f.ctx, "reconcile", json.RawMessage(`{}`), time.Time{}, "traced-job", json.RawMessage(tc))
+	require.NoError(t, err)
+	assert.JSONEq(t, tc, string(job.TraceContext), "EnqueueJob returns the stored context")
+	plain, _, err := f.s.EnqueueJob(f.ctx, "reconcile", nil, time.Time{}, "untraced-job", nil)
+	require.NoError(t, err)
+	assert.Nil(t, plain.TraceContext)
+
+	claimedJobs, err := f.s.ClaimJobs(f.ctx, "w", 10)
+	require.NoError(t, err)
+	jobsByKey := map[string]json.RawMessage{}
+	for _, j := range claimedJobs {
+		jobsByKey[j.DedupeKey] = j.TraceContext
+	}
+	assert.JSONEq(t, tc, string(jobsByKey["traced-job"]))
+	assert.Nil(t, jobsByKey["untraced-job"])
+}
+
 func TestJobs(t *testing.T) {
 	f := newFixture(t)
 	later := time.Now().Add(time.Hour)
@@ -200,7 +242,7 @@ func TestJobs(t *testing.T) {
 	jobs := map[string]store.Job{}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			j, inserted, err := f.s.EnqueueJob(f.ctx, tc.kind, json.RawMessage(`{"a":1}`), tc.runAfter, tc.dedupe)
+			j, inserted, err := f.s.EnqueueJob(f.ctx, tc.kind, json.RawMessage(`{"a":1}`), tc.runAfter, tc.dedupe, nil)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
@@ -246,16 +288,16 @@ func TestJobs(t *testing.T) {
 func TestPruneQueue(t *testing.T) {
 	f := newFixture(t)
 	for _, id := range []string{"old-done", "old-open", "old-claimed", "new"} {
-		_, err := f.s.InsertEvent(f.ctx, id, "push", nil)
+		_, err := f.s.InsertEvent(f.ctx, id, "push", nil, nil)
 		require.NoError(t, err)
 	}
 	require.NoError(t, f.s.CompleteEvent(f.ctx, "old-done"))
 	f.exec(`UPDATE events SET claimed_by = 'w', claimed_at = now() WHERE id = 'old-claimed'`)
 	f.exec(`UPDATE events SET received_at = now() - interval '8 days' WHERE id LIKE 'old-%'`)
 
-	oldJob, _, err := f.s.EnqueueJob(f.ctx, "k", nil, time.Time{}, "old")
+	oldJob, _, err := f.s.EnqueueJob(f.ctx, "k", nil, time.Time{}, "old", nil)
 	require.NoError(t, err)
-	openJob, _, err := f.s.EnqueueJob(f.ctx, "k", nil, time.Time{}, "open")
+	openJob, _, err := f.s.EnqueueJob(f.ctx, "k", nil, time.Time{}, "open", nil)
 	require.NoError(t, err)
 	require.NoError(t, f.s.CompleteJob(f.ctx, oldJob.ID))
 	f.exec(`UPDATE jobs SET done_at = now() - interval '8 days' WHERE id = $1`, oldJob.ID)
@@ -268,7 +310,7 @@ func TestPruneQueue(t *testing.T) {
 
 	_, err = f.s.GetEvent(f.ctx, "old-claimed")
 	require.NoError(t, err, "in-flight events are kept")
-	_, inserted, err := f.s.EnqueueJob(f.ctx, "k", nil, time.Time{}, "old")
+	_, inserted, err := f.s.EnqueueJob(f.ctx, "k", nil, time.Time{}, "old", nil)
 	require.NoError(t, err)
 	assert.True(t, inserted, "a pruned job frees its dedupe key")
 }
@@ -276,10 +318,10 @@ func TestPruneQueue(t *testing.T) {
 func TestReleaseClaims(t *testing.T) {
 	f := newFixture(t)
 	for _, id := range []string{"mine-open", "mine-done", "theirs"} {
-		_, err := f.s.InsertEvent(f.ctx, id, "push", nil)
+		_, err := f.s.InsertEvent(f.ctx, id, "push", nil, nil)
 		require.NoError(t, err)
 	}
-	mine, _, err := f.s.EnqueueJob(f.ctx, "reconcile", nil, time.Time{}, "")
+	mine, _, err := f.s.EnqueueJob(f.ctx, "reconcile", nil, time.Time{}, "", nil)
 	require.NoError(t, err)
 	f.exec(`UPDATE events SET claimed_by = 'w1', claimed_at = now() WHERE id LIKE 'mine-%'`)
 	f.exec(`UPDATE events SET claimed_by = 'w2', claimed_at = now() WHERE id = 'theirs'`)
@@ -322,17 +364,17 @@ func TestQueueDepth(t *testing.T) {
 	assert.Equal(t, store.QueueDepth{}, d)
 
 	for _, id := range []string{"due", "claimed", "done", "later"} {
-		_, err := f.s.InsertEvent(f.ctx, id, "push", nil)
+		_, err := f.s.InsertEvent(f.ctx, id, "push", nil, nil)
 		require.NoError(t, err)
 	}
 	f.exec(`UPDATE events SET claimed_by = 'w', claimed_at = now() WHERE id = 'claimed'`)
 	require.NoError(t, f.s.CompleteEvent(f.ctx, "done"))
 	f.exec(`UPDATE events SET run_after = now() + interval '1 hour' WHERE id = 'later'`)
 	for range 3 {
-		_, _, err := f.s.EnqueueJob(f.ctx, "reconcile", nil, time.Time{}, "")
+		_, _, err := f.s.EnqueueJob(f.ctx, "reconcile", nil, time.Time{}, "", nil)
 		require.NoError(t, err)
 	}
-	_, _, err = f.s.EnqueueJob(f.ctx, "drift_stack", nil, time.Now().Add(time.Hour), "")
+	_, _, err = f.s.EnqueueJob(f.ctx, "drift_stack", nil, time.Now().Add(time.Hour), "", nil)
 	require.NoError(t, err)
 
 	d, err = f.s.QueueDepth(f.ctx)

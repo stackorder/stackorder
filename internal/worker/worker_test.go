@@ -312,6 +312,30 @@ func TestEnqueueWakesWorkers(t *testing.T) {
 	}
 }
 
+func TestEnqueueCapturesTraceContext(t *testing.T) {
+	q := &fakeQueue{}
+	type ctxKey struct{}
+	p := worker.New(q, worker.Options{TraceInject: func(ctx context.Context) json.RawMessage {
+		if ctx.Value(ctxKey{}) == nil {
+			return nil
+		}
+		return json.RawMessage(`{"traceparent":"tp"}`)
+	}})
+
+	require.NoError(t, p.Enqueue(context.WithValue(t.Context(), ctxKey{}, true), jobReconcile, nil, time.Time{}, "traced"))
+	require.NoError(t, p.Enqueue(t.Context(), jobStaleLocks, nil, time.Time{}, "untraced"))
+
+	assert.JSONEq(t, `{"traceparent":"tp"}`, string(q.job(jobReconcile).TraceContext))
+	assert.Nil(t, q.job(jobStaleLocks).TraceContext, "no span means no trace context")
+}
+
+func TestEnqueueWithoutTraceInjectIsUntraced(t *testing.T) {
+	q := &fakeQueue{}
+	p := worker.New(q, worker.Options{})
+	require.NoError(t, p.Enqueue(t.Context(), jobReconcile, nil, time.Time{}, ""))
+	assert.Nil(t, q.job(jobReconcile).TraceContext)
+}
+
 func TestEnqueuePayload(t *testing.T) {
 	q := &fakeQueue{}
 	p := worker.New(q, worker.Options{})
