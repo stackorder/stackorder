@@ -45,7 +45,7 @@ A failed event or job is retried after 1 min, 5 min, 30 min and 2 h, and becomes
 | --- | --- | --- | --- |
 | `stackorder_github_requests_total` | counter | `route`, `status` | GitHub API request attempts; `route` is `METHOD /template`, such as `POST /repos/{owner}/{repo}/check-runs`, and `status` is the HTTP status, `0` when no response arrived |
 | `stackorder_github_request_duration_seconds` | histogram | `route` | Latency of each attempt; buckets from 50 ms to 30 s |
-| `stackorder_github_rate_limit_remaining` | gauge | | `X-RateLimit-Remaining` of the last GitHub API response |
+| `stackorder_github_rate_limit_remaining` | gauge | `installation` | `X-RateLimit-Remaining` of the last GitHub API response drawn from that budget; `installation` is the installation id, or `app` for the App JWT. Absent until the first response, and so never zero on a freshly started server. Requests made with a user access token (the sign-in flow) are not tracked |
 
 ### HTTP and build {#http}
 
@@ -55,7 +55,7 @@ A failed event or job is retried after 1 min, 5 min, 30 min and 2 h, and becomes
 | `stackorder_http_request_duration_seconds` | histogram | `route`, `method` | Request latency, with the Prometheus default buckets |
 | `stackorder_build_info` | gauge | `version`, `commit` | Always `1`; the labels carry the build |
 
-The Go runtime and process collectors of `prometheus/client_golang` are registered too, as `go_*` and `process_*`. Counters and histograms with labels appear only once they have been observed.
+The Go runtime and process collectors of `prometheus/client_golang` are registered too, as `go_*` and `process_*`. Labelled metrics, including `github_rate_limit_remaining`, appear only once a value has been observed for a label set.
 
 ## Scraping {#scraping}
 
@@ -83,7 +83,7 @@ groups:
         expr: histogram_quantile(0.95, sum by (le) (rate(stackorder_webhook_lag_seconds_bucket[10m]))) > 60
         for: 10m
       - alert: StackorderGitHubRateLimitLow
-        expr: min(stackorder_github_rate_limit_remaining) < 500
+        expr: min by (installation) (stackorder_github_rate_limit_remaining) < 500
         for: 5m
       - alert: StackorderQueueBacklog
         expr: max by (queue) (stackorder_queue_depth) > 100

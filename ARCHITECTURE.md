@@ -1002,7 +1002,8 @@ starting on the event), `events_processed_total{kind,result}`,
 `events_dead_total{kind}`, `jobs_processed_total{kind,result}`,
 `queue_depth{queue}` (refreshed once a minute), `github_requests_total{route,status}`,
 `github_request_duration_seconds{route}` (routes as `METHOD /template`),
-`github_rate_limit_remaining`, `scheduler_leader`,
+`github_rate_limit_remaining{installation}` (the installation id, or `app`
+for the App JWT), `scheduler_leader`,
 `http_requests_total{route,method,status}`, `http_request_duration_seconds`,
 `build_info{version,commit}`. Label values outside a known set are counted
 as `other`.
