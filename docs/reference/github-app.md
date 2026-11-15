@@ -80,7 +80,7 @@ GitHub shows the new logo on the comments and checks the App already posted too.
 - The App's private key signs a 10-minute JWT.
 - The server exchanges the JWT for installation tokens, valid for one hour, cached per installation until 5 minutes before expiry.
 - Every call to GitHub uses the token of the installation it concerns, so a repository in one organisation can never be touched with another organisation's token.
-- Failed calls are retried, and `Retry-After` and rate-limit resets are respected.
+- Failed calls are retried with backoff, and `Retry-After` and rate-limit resets are respected. A call that creates something new — a check run, a comment, an issue or a workflow dispatch — is retried only while the request provably never reached GitHub, or when GitHub reports a rate limit and did no work, so a lost response or a server error does not post or dispatch it twice. Reads and updates, which GitHub applies the same way however often they are repeated, are always retried.
 
 Human sign-in uses the App's OAuth client with the `read:org` scope. A session is issued only to a user whose own account or one of whose organisations has the App installed, and the UI shows only those accounts' repositories.
 

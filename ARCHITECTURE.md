@@ -877,6 +877,34 @@ Comment commands are accepted only from users with push permission, then
 rate limited to 10 per PR per minute (counted from audit rows); a command
 runs at most once, and one that fails part way is answered with a comment.
 
+## GitHub client
+
+`internal/gh` talks to the REST API over `net/http`. It retries up to five
+attempts with exponential backoff and jitter, honouring `Retry-After` and
+`X-RateLimit-Reset`, but only for requests that are safe to repeat: reads and
+the `PUT`/`DELETE` endpoints, the `PATCH` of a check run, comment or issue
+(idempotent in effect, since the body sets fixed fields on a known object and
+the server sends no annotations, which GitHub would append), the `POST` of a
+reaction (GitHub answers `200` with the existing reaction), the installation-token
+exchange (minting another token is harmless) and the deployment-protection-rule
+review (a repeat is refused with `422`, which the caller already treats as
+answered). A non-idempotent create — a new check run, comment, issue, or a
+workflow dispatch — is retried only while the request provably has not reached
+GitHub (a connection error before the request body was written, detected with
+`httptrace`) or when GitHub reports it did not act (`429`, or a primary or
+secondary rate limit). After any other failure the error is returned, marked
+with `ErrUnknownOutcome` so a caller can tell that GitHub may have applied the
+create. Only the App-manifest conversion is never retried at all, because a
+code converts once.
+
+Callers then retry whole operations, so the change removes duplicates end to
+end rather than moving them into the worker. When a check-run create's outcome
+is unknown, the renderer looks for a check run carrying the run's `external_id`
+and adopts it before giving up. Comments, sticky comments, drift issues and
+fork notices are already found again by their marker, title or `external_id`
+before a create. A workflow dispatch left unsent is resent once by Reconcile,
+and run binding refuses a surplus workflow run (see Waves and dispatch).
+
 ## Waves and dispatch
 
 Waves are the longest-path layering of the affected subgraph over
@@ -910,8 +938,11 @@ does, and Reconcile never binds by position. The first OIDC call of a job
 also binds; a call that names no stack, or a stack no dispatch carries,
 where the environment has several dispatches in the wave, binds by the
 stacks the workflow run's jobs name. A workflow run whose dispatch is
-already bound binds nothing and its jobs are refused, which makes a
-duplicated dispatch (a retried POST after a processed 5xx) harmless.
+already bound binds nothing and its jobs are refused. The `gh` client does
+not retry the dispatch POST once it may have reached GitHub (see GitHub
+client), so a processed 5xx no longer dispatches twice; a dispatch left
+unsent by an error is resent by Reconcile, and this binding makes that
+duplicate harmless when GitHub had in fact accepted the first.
 Cross-repo plan runs use trigger `push` and are deduplicated per upstream
 run and repository.
 
