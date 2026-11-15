@@ -61,6 +61,7 @@ type Registry struct {
 	reg *prometheus.Registry
 
 	runs          *prometheus.CounterVec
+	runsCreated   *prometheus.CounterVec
 	stackFinished *prometheus.CounterVec
 	stackDuration *prometheus.HistogramVec
 	dispatches    *prometheus.CounterVec
@@ -98,6 +99,10 @@ func New() *Registry {
 			Namespace: Namespace, Name: "runs_total",
 			Help: "Runs entering each status, by trigger and mode.",
 		}, []string{"status", "trigger", "mode"}),
+		runsCreated: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: Namespace, Name: "runs_created_total",
+			Help: "Runs created, by trigger and mode; one per run row, counted once.",
+		}, []string{"trigger", "mode"}),
 		stackFinished: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: Namespace, Name: "stack_finished_total",
 			Help: "Stacks reaching a terminal status within a run, by mode.",
@@ -190,7 +195,7 @@ func New() *Registry {
 	r.reg.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-		r.runs, r.stackFinished, r.stackDuration, r.dispatches, r.driftedStacks, r.locksHeld, r.commands,
+		r.runs, r.runsCreated, r.stackFinished, r.stackDuration, r.dispatches, r.driftedStacks, r.locksHeld, r.commands,
 		r.webhookReceived, r.webhookDuplicates, r.webhookLag,
 		r.eventsProcessed, r.eventsDead, r.jobsProcessed, r.queueDepth, r.schedulerLeader,
 		r.artifactOps,

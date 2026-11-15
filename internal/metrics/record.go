@@ -17,6 +17,14 @@ func (r *Registry) RunStatusChanged(status v1.RunStatus, trigger v1.Trigger, mod
 	r.runs.WithLabelValues(string(status), string(trigger), string(mode)).Inc()
 }
 
+// RunCreated counts one run row created, by trigger and mode.
+func (r *Registry) RunCreated(trigger v1.Trigger, mode v1.RunMode) {
+	if r == nil {
+		return
+	}
+	r.runsCreated.WithLabelValues(string(trigger), string(mode)).Inc()
+}
+
 // StackFinished counts a stack reaching a terminal status and observes how
 // long its job took when d is positive.
 func (r *Registry) StackFinished(mode v1.RunMode, status v1.StackStatus, d time.Duration) {

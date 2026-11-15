@@ -20,6 +20,7 @@ import (
 
 type runsMetrics interface {
 	RunStatusChanged(status v1.RunStatus, trigger v1.Trigger, mode v1.RunMode)
+	RunCreated(trigger v1.Trigger, mode v1.RunMode)
 	StackFinished(mode v1.RunMode, status v1.StackStatus, d time.Duration)
 	Dispatched(mode v1.RunMode, ok bool)
 	SetDriftedStacks(n int)
@@ -35,6 +36,7 @@ var (
 
 func touchAll(r *metrics.Registry) {
 	r.RunStatusChanged(v1.RunPlanning, v1.TriggerPullRequest, v1.ModePlan)
+	r.RunCreated(v1.TriggerPullRequest, v1.ModePlan)
 	r.StackFinished(v1.ModeApply, v1.StackApplied, 42*time.Second)
 	r.Dispatched(v1.ModeApply, true)
 	r.SetDriftedStacks(3)
@@ -85,6 +87,7 @@ func TestRegistryExportsEveryMetric(t *testing.T) {
 		"stackorder_jobs_processed_total",
 		"stackorder_locks_held",
 		"stackorder_queue_depth",
+		"stackorder_runs_created_total",
 		"stackorder_runs_total",
 		"stackorder_scheduler_leader",
 		"stackorder_stack_duration_seconds",
@@ -116,6 +119,15 @@ func TestRecording(t *testing.T) {
 				r.RunStatusChanged(v1.RunFailed, v1.TriggerComment, v1.ModeApply)
 			},
 			series: `stackorder_runs_total{mode="apply",status="applied",trigger="comment"}`,
+			want:   2,
+		},
+		{
+			name: "run created",
+			record: func(r *metrics.Registry) {
+				r.RunCreated(v1.TriggerComment, v1.ModeApply)
+				r.RunCreated(v1.TriggerComment, v1.ModeApply)
+			},
+			series: `stackorder_runs_created_total{mode="apply",trigger="comment"}`,
 			want:   2,
 		},
 		{
