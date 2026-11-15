@@ -79,6 +79,20 @@ test('the configuration pages list every key of the configuration files', () => 
   }
 })
 
+test('the artifact error-rate expression aggregates the result label away on both sides', () => {
+  const artifacts = section(read('docs/reference/metrics.md'), 'artifacts')
+  const expr = artifacts.match(/Compute an error rate with `([^`]+)`/)?.[1]
+  assert.ok(expr, 'metrics.md gives an artifact error-rate expression')
+  const [numerator, denominator] = expr.split(' / ').map((side) => side.trim())
+  assert.ok(denominator, 'the error rate divides the error rate by a total')
+  assert.match(numerator, /rate\(stackorder_artifact_operations_total\{result="error"\}\[/)
+  assert.match(denominator, /rate\(stackorder_artifact_operations_total\[/)
+  assert.doesNotMatch(denominator, /result=/)
+  for (const [name, side] of [['numerator', numerator], ['denominator', denominator]]) {
+    assert.match(side, /^sum by \(operation\) \(rate\(/, `the ${name} aggregates result away so the match is on operation`)
+  }
+})
+
 test('the data model names the first and the latest migration', () => {
   const migrations = readdirSync(join(repoRoot, 'migrations'))
     .filter((name) => name.endsWith('.up.sql'))

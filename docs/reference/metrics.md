@@ -32,7 +32,7 @@ These appear only when `STACKORDER_ARTIFACT_BUCKET` is set; see [Server configur
 | --- | --- | --- | --- |
 | `stackorder_artifact_operations_total` | counter | `operation`, `result` | Reads and writes against the artifact store; `operation` is `write` or `read`, `result` is `ok` or `error` |
 
-The server writes a stack's full plan text and plan JSON to the bucket and reads the plan text back to serve `GET /v1/runs/{id}/stacks/{key}/plan`. A failed write (`operation="write",result="error"`) means the server fell back to keeping only the truncated plan text in Postgres, which a broken bucket policy or credentials cause silently; a read of an object that is gone counts as `ok`, as the store answered. Compute an error rate with `rate(stackorder_artifact_operations_total{result="error"}[5m]) / rate(stackorder_artifact_operations_total[5m])`.
+The server writes a stack's full plan text and plan JSON to the bucket and reads the plan text back to serve `GET /v1/runs/{id}/stacks/{key}/plan`. A failed write (`operation="write",result="error"`) marks any bucket `Put` that failed, of the plan text or the plan JSON, which a broken bucket policy or credentials cause silently; only a failed plan-text write makes the server fall back to keeping the truncated plan text in Postgres, while a failed plan-JSON write still serves the full plan text from the bucket. A read of an object that is gone counts as `ok`, as the store answered. Compute an error rate with `sum by (operation) (rate(stackorder_artifact_operations_total{result="error"}[5m])) / sum by (operation) (rate(stackorder_artifact_operations_total[5m]))`; aggregating the `result` label away on both sides keeps the division from matching the error series against itself.
 
 ### Webhooks and the queue {#queue}
 
