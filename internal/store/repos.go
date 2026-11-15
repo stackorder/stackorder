@@ -152,10 +152,23 @@ func (s *Store) GetDefaultGraph(ctx context.Context, repoID int64) (*v1.Graph, u
 		JOIN repos d ON d.default_graph_id = g.id WHERE d.id = $1`, repoID)
 }
 
-// DeleteRepo removes a repository and everything recorded for it. Deleting
-// an unknown repository is not an error.
+// DeleteRepo removes a repository and everything recorded for it, queueing
+// the plan objects its runs kept in the artifact store for removal in the
+// same transaction. Deleting an unknown repository is not an error.
 func (s *Store) DeleteRepo(ctx context.Context, id int64) error {
-	_, err := s.db.Exec(ctx, `DELETE FROM repos WHERE id = $1`, id)
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO object_deletions (run_id, stack_key)
+			SELECT rs.run_id, s.key FROM run_stacks rs
+			JOIN stacks s ON s.id = rs.stack_id
+			JOIN runs r ON r.id = rs.run_id
+			WHERE r.repo_id = $1 AND rs.plan_url <> ''
+			ON CONFLICT (run_id, stack_key) DO NOTHING`, id); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `DELETE FROM repos WHERE id = $1`, id)
+		return err
+	})
 	return wrap("delete repo", err)
 }
 

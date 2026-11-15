@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Installation is one installation of the GitHub App on an account.
@@ -60,9 +62,23 @@ func (s *Store) SuspendInstallation(ctx context.Context, id int64, suspended boo
 }
 
 // DeleteInstallation removes the installation together with its
-// repositories and everything recorded for them. Deleting an unknown
-// installation is not an error.
+// repositories and everything recorded for them, queueing the plan objects
+// their runs kept in the artifact store for removal in the same
+// transaction. Deleting an unknown installation is not an error.
 func (s *Store) DeleteInstallation(ctx context.Context, id int64) error {
-	_, err := s.db.Exec(ctx, `DELETE FROM installations WHERE id = $1`, id)
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO object_deletions (run_id, stack_key)
+			SELECT rs.run_id, s.key FROM run_stacks rs
+			JOIN stacks s ON s.id = rs.stack_id
+			JOIN runs r ON r.id = rs.run_id
+			JOIN repos p ON p.id = r.repo_id
+			WHERE p.installation_id = $1 AND rs.plan_url <> ''
+			ON CONFLICT (run_id, stack_key) DO NOTHING`, id); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `DELETE FROM installations WHERE id = $1`, id)
+		return err
+	})
 	return wrap("delete installation", err)
 }

@@ -25,6 +25,7 @@ func TestPrunePlanText(t *testing.T) {
 	for _, key := range []string{"stacks/a", "stacks/b"} {
 		_, err := f.s.UpdateRunStack(f.ctx, r.ID, ids[key], store.RunStackPatch{
 			Status: &planned, PlanText: ptr("+ resource"), Summary: &v1.PlanSummary{Adds: 1},
+			PlanURL: ptr("s3://bucket/runs/" + r.ID.String() + "/" + key + "/plan.txt"),
 		})
 		require.NoError(t, err)
 	}
@@ -38,11 +39,19 @@ func TestPrunePlanText(t *testing.T) {
 	a, err := f.s.GetRunStack(f.ctx, r.ID, ids["stacks/a"])
 	require.NoError(t, err)
 	assert.Empty(t, a.PlanText)
+	assert.Empty(t, a.PlanURL, "the link to the deleted object is cleared")
 	require.NotNil(t, a.Summary, "summaries are kept")
 	assert.Equal(t, 1, a.Adds)
 	b, err := f.s.GetRunStack(f.ctx, r.ID, ids["stacks/b"])
 	require.NoError(t, err)
 	assert.Equal(t, "+ resource", b.PlanText)
+	assert.NotEmpty(t, b.PlanURL, "a row that was kept keeps its object link")
+
+	pending, err := f.s.ClaimObjectDeletions(f.ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, pending, 1, "the pruned row's object is queued for removal")
+	assert.Equal(t, r.ID, pending[0].RunID)
+	assert.Equal(t, "stacks/a", pending[0].StackKey)
 
 	n, err = f.s.PrunePlanText(f.ctx, 30*24*time.Hour)
 	require.NoError(t, err)

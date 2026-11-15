@@ -38,16 +38,35 @@ type PruneResult struct {
 
 // PrunePlanText clears the plan text of stack rows last updated more than
 // olderThan ago, keeping their summaries, and returns how many were
-// cleared.
+// cleared. A row that kept its full plan text in the artifact store loses
+// its plan_url in the same statement and its objects are queued for
+// removal, so the link is never served for an object about to be deleted.
+// The rows are locked with FOR UPDATE SKIP LOCKED so concurrent instances
+// clear disjoint batches.
 func (s *Store) PrunePlanText(ctx context.Context, olderThan time.Duration) (int64, error) {
-	tag, err := s.db.Exec(ctx, `
-		UPDATE run_stacks SET plan_text = NULL
-		WHERE plan_text IS NOT NULL AND updated_at < now() - $1::bigint * interval '1 microsecond'`,
-		micros(olderThan))
+	var n int64
+	err := s.db.QueryRow(ctx, `
+		WITH expired AS (
+			SELECT rs.run_id, rs.stack_id, s.key AS stack_key, rs.plan_url
+			FROM run_stacks rs JOIN stacks s ON s.id = rs.stack_id
+			WHERE rs.plan_text IS NOT NULL
+			  AND rs.updated_at < now() - $1::bigint * interval '1 microsecond'
+			FOR UPDATE OF rs SKIP LOCKED
+		),
+		cleared AS (
+			UPDATE run_stacks rs SET plan_text = NULL, plan_url = ''
+			FROM expired e WHERE rs.run_id = e.run_id AND rs.stack_id = e.stack_id
+		),
+		queued AS (
+			INSERT INTO object_deletions (run_id, stack_key)
+			SELECT run_id, stack_key FROM expired WHERE plan_url <> ''
+			ON CONFLICT (run_id, stack_key) DO NOTHING
+		)
+		SELECT count(*) FROM expired`, micros(olderThan)).Scan(&n)
 	if err != nil {
 		return 0, wrap("prune plan text", err)
 	}
-	return tag.RowsAffected(), nil
+	return n, nil
 }
 
 // Prune applies a retention policy and removes expired OIDC token ids and

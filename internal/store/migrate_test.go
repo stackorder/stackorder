@@ -37,11 +37,11 @@ func TestMigrateUpDownUp(t *testing.T) {
 		wantTables int
 		wantVer    uint
 	}{
-		{"up", s.Migrate, 22, 11},
-		{"up again is a no-op", s.Migrate, 22, 11},
+		{"up", s.Migrate, 23, 12},
+		{"up again is a no-op", s.Migrate, 23, 12},
 		{"down", s.MigrateDown, 0, 0},
 		{"down again is a no-op", s.MigrateDown, 0, 0},
-		{"up after down", s.Migrate, 22, 11},
+		{"up after down", s.Migrate, 23, 12},
 	}
 	for _, step := range steps {
 		require.NoError(t, step.apply(ctx), step.name)
@@ -169,7 +169,7 @@ func TestMigrateConcurrentServers(t *testing.T) {
 	for _, err := range errs {
 		require.NoError(t, err)
 	}
-	assert.Equal(t, 22, tableCount(t, stores[0]))
+	assert.Equal(t, 23, tableCount(t, stores[0]))
 }
 
 func TestMigrateWithSingleConnectionPool(t *testing.T) {
@@ -199,7 +199,7 @@ func TestMigrateWithSingleConnectionPool(t *testing.T) {
 	t.Cleanup(s.Close)
 	ver, dirty, err := s.SchemaVersion(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, uint(11), ver)
+	assert.Equal(t, uint(12), ver)
 	assert.False(t, dirty)
 }
 
