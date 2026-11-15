@@ -262,6 +262,45 @@ func TestSyncInstallationsKeepsRepositoriesWhenListingOmitsMajority(t *testing.T
 	}
 }
 
+func TestSyncInstallationsKeepsAnInstallationsOnlyRepository(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.gh.AddInstallation(2, "beta")
+	_, err := e.st.UpsertInstallation(e.ctx, store.Installation{ID: 2, Account: "beta"})
+	require.NoError(t, err)
+	_, err = e.st.UpsertRepo(e.ctx, store.RepoParams{ID: 710, InstallationID: 2, FullName: "beta/one"})
+	require.NoError(t, err)
+
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+
+	_, err = e.st.GetRepo(e.ctx, 710)
+	require.NoError(t, err, "an empty repository listing is degraded and keeps the installation's only repository")
+}
+
+func TestSyncInstallationsDoesNotLetNewRepositoriesDiluteOmission(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	for id, name := range map[int64]string{720: "beta/new-one", 721: "beta/new-two", 722: "beta/new-three"} {
+		e.gh.SetRepo(name, gh.Repository{ID: id, DefaultBranch: "main"})
+	}
+	e.gh.AddInstallation(2, "beta", "beta/new-one", "beta/new-two", "beta/new-three")
+	_, err := e.st.UpsertInstallation(e.ctx, store.Installation{ID: 2, Account: "beta"})
+	require.NoError(t, err)
+	for _, r := range []store.RepoParams{
+		{ID: 710, InstallationID: 2, FullName: "beta/one"},
+		{ID: 711, InstallationID: 2, FullName: "beta/two"},
+		{ID: 712, InstallationID: 2, FullName: "beta/three"},
+	} {
+		_, err := e.st.UpsertRepo(e.ctx, r)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+
+	for _, id := range []int64{710, 711, 712} {
+		_, err := e.st.GetRepo(e.ctx, id)
+		require.NoError(t, err, "newly listed repositories do not dilute the omission of the stored ones, repository %d included", id)
+	}
+}
+
 func TestSyncInstallationsFailsOnShortRepositoryListing(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	for id, name := range map[int64]string{710: "beta/one", 711: "beta/two"} {

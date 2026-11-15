@@ -393,9 +393,13 @@ func (s *Service) timeOut(ctx context.Context, d store.Dispatch) error {
 // every active one, a stored installation the listing omits is forgotten
 // only after GET /app/installations/{id} confirms it with a 404, and a
 // stored repository a listed installation's listing omits is forgotten
-// when that listing is not degraded. A listing that omits a majority of
-// the stored installations, or a majority of an installation's stored
-// repositories, is treated as degraded and forgets nothing, so a single
+// when that listing is not degraded. Omission is measured against the
+// installations and repositories stored before the sync, so repositories
+// the same sync newly discovers do not dilute it. A listing that omits a
+// majority of the stored installations, or a majority of an installation's
+// stored repositories, is treated as degraded and forgets nothing; because
+// a repository has no per-repository confirmation, a listing that omits all
+// of an installation's stored repositories is degraded as well, so a single
 // short or empty 200 cannot cascade-delete an installation's history. When
 // any listing fails nothing is forgotten. An installation that fails does
 // not stop the others, and every failure is returned.
@@ -407,6 +411,14 @@ func (s *Service) SyncInstallations(ctx context.Context) error {
 	insts, err := s.gh.ListInstallations(ctx)
 	if err != nil {
 		return fmt.Errorf("runs: list installations: %w", err)
+	}
+	storedInsts, err := s.st.ListInstallations(ctx)
+	if err != nil {
+		return storeErr(err, "installations")
+	}
+	storedRepos, err := s.st.ListRepos(ctx)
+	if err != nil {
+		return storeErr(err, "repositories")
 	}
 	var errs []error
 	listing := installationListing{installations: map[int64]bool{}, listed: map[int64]bool{}, repos: map[int64]bool{}}
@@ -433,7 +445,7 @@ func (s *Service) SyncInstallations(ctx context.Context) error {
 	}
 	forgotten := 0
 	if complete {
-		n, err := s.forgetUnlisted(ctx, listing)
+		n, err := s.forgetUnlisted(ctx, listing, storedInsts, storedRepos)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -471,27 +483,38 @@ func (s *Service) syncInstallation(ctx context.Context, inst gh.Installation, ob
 // degradedListing reports whether a listing that omits omitted of total
 // stored records looks too incomplete to act on: a majority of a set of at
 // least two. A single short or empty 200, in front of the GitHub API or
-// from an incident, trips it and forgets nothing.
+// from an incident, trips it and forgets nothing. An omitted installation
+// gets a GET /app/installations/{id} confirmation before deletion, so the
+// single-installation case is left to that confirmation rather than treated
+// as degraded here; repositories, which get no such confirmation, use
+// degradedRepoListing.
 func degradedListing(omitted, total int) bool {
 	return total >= 2 && 2*omitted > total
 }
 
-func (s *Service) forgetUnlisted(ctx context.Context, l installationListing) (int, error) {
-	stored, err := s.st.ListInstallations(ctx)
-	if err != nil {
-		return 0, storeErr(err, "installations")
-	}
+// degradedRepoListing reports whether a repository listing that omits
+// omitted of an installation's total stored repositories looks too
+// incomplete to act on. Repositories get no per-repository confirmation
+// before deletion, so besides a majority it also treats a listing that
+// drops to zero (omitted == total) as degraded: an empty or short 200 for a
+// single-repository installation cannot cascade-delete its only repository
+// and its history.
+func degradedRepoListing(omitted, total int) bool {
+	return total > 0 && (omitted == total || degradedListing(omitted, total))
+}
+
+func (s *Service) forgetUnlisted(ctx context.Context, l installationListing, storedInsts []store.Installation, storedRepos []store.Repo) (int, error) {
 	var unlisted []store.Installation
-	for _, inst := range stored {
+	for _, inst := range storedInsts {
 		if !l.installations[inst.ID] {
 			unlisted = append(unlisted, inst)
 		}
 	}
 	var errs []error
 	forgotten := 0
-	if degradedListing(len(unlisted), len(stored)) {
+	if degradedListing(len(unlisted), len(storedInsts)) {
 		s.log.WarnContext(ctx, "keeping installations GitHub did not list; the listing omitted too many to trust",
-			"omitted", len(unlisted), "stored", len(stored))
+			"omitted", len(unlisted), "stored", len(storedInsts))
 	} else {
 		for _, inst := range unlisted {
 			gone, err := s.installationGone(ctx, inst.ID)
@@ -512,7 +535,7 @@ func (s *Service) forgetUnlisted(ctx context.Context, l installationListing) (in
 			s.log.InfoContext(ctx, "forgot an installation GitHub deleted", "installation", inst.ID, "account", inst.Account)
 		}
 	}
-	n, err := s.forgetUnlistedRepos(ctx, l)
+	n, err := s.forgetUnlistedRepos(ctx, l, storedRepos)
 	forgotten += n
 	if err != nil {
 		errs = append(errs, err)
@@ -534,14 +557,10 @@ func (s *Service) installationGone(ctx context.Context, id int64) (bool, error) 
 	return false, nil
 }
 
-func (s *Service) forgetUnlistedRepos(ctx context.Context, l installationListing) (int, error) {
-	repos, err := s.st.ListRepos(ctx)
-	if err != nil {
-		return 0, storeErr(err, "repositories")
-	}
+func (s *Service) forgetUnlistedRepos(ctx context.Context, l installationListing, storedRepos []store.Repo) (int, error) {
 	type tally struct{ total, omitted int }
 	perInstallation := map[int64]*tally{}
-	for _, r := range repos {
+	for _, r := range storedRepos {
 		if !l.listed[r.InstallationID] {
 			continue
 		}
@@ -557,14 +576,14 @@ func (s *Service) forgetUnlistedRepos(ctx context.Context, l installationListing
 	}
 	degraded := map[int64]bool{}
 	for id, t := range perInstallation {
-		if degradedListing(t.omitted, t.total) {
+		if degradedRepoListing(t.omitted, t.total) {
 			degraded[id] = true
 			s.log.WarnContext(ctx, "keeping repositories an installation did not list; the listing omitted too many to trust",
 				"installation", id, "omitted", t.omitted, "stored", t.total)
 		}
 	}
 	forgotten := 0
-	for _, r := range repos {
+	for _, r := range storedRepos {
 		if !l.listed[r.InstallationID] || l.repos[r.ID] || degraded[r.InstallationID] {
 			continue
 		}
