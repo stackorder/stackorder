@@ -240,22 +240,42 @@ func TestSyncInstallationsKeepsEverythingWhenListingOmitsMajority(t *testing.T) 
 
 func TestSyncInstallationsKeepsRepositoriesWhenListingOmitsMajority(t *testing.T) {
 	e := newEnv(t, baseConfig())
-	repos := map[int64]string{710: "beta/one", 711: "beta/two", 712: "beta/three", 713: "beta/four"}
-	names := make([]string, 0, len(repos))
-	for id, name := range repos {
-		e.gh.SetRepo(name, gh.Repository{ID: id, DefaultBranch: "main"})
-		names = append(names, name)
+	e.gh.SetRepo("beta/one", gh.Repository{ID: 710, DefaultBranch: "main"})
+	e.gh.AddInstallation(2, "beta", "beta/one")
+	for _, r := range []store.RepoParams{
+		{ID: 710, InstallationID: 2, FullName: "beta/one"},
+		{ID: 711, InstallationID: 2, FullName: "beta/two"},
+		{ID: 712, InstallationID: 2, FullName: "beta/three"},
+		{ID: 713, InstallationID: 2, FullName: "beta/four"},
+	} {
+		_, err := e.st.UpsertInstallation(e.ctx, store.Installation{ID: r.InstallationID, Account: "beta"})
+		require.NoError(t, err)
+		_, err = e.st.UpsertRepo(e.ctx, r)
+		require.NoError(t, err)
 	}
-	e.gh.AddInstallation(2, "beta", names...)
+
 	require.NoError(t, e.svc.SyncInstallations(e.ctx))
 
-	for _, id := range []int64{710, 711, 712} {
-		e.gh.HideRepo(id)
-	}
-	require.NoError(t, e.svc.SyncInstallations(e.ctx))
-
-	for id := range repos {
+	for _, id := range []int64{710, 711, 712, 713} {
 		_, err := e.st.GetRepo(e.ctx, id)
-		require.NoError(t, err, "a listing that omits a majority of an installation's repositories forgets none, repository %d included", id)
+		require.NoError(t, err, "a complete listing that omits a majority of an installation's stored repositories forgets none, repository %d included", id)
+	}
+}
+
+func TestSyncInstallationsFailsOnShortRepositoryListing(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	for id, name := range map[int64]string{710: "beta/one", 711: "beta/two"} {
+		e.gh.SetRepo(name, gh.Repository{ID: id, DefaultBranch: "main"})
+	}
+	e.gh.AddInstallation(2, "beta", "beta/one", "beta/two")
+	require.NoError(t, e.svc.SyncInstallations(e.ctx))
+
+	e.gh.HideRepo(711)
+	err := e.svc.SyncInstallations(e.ctx)
+	require.Error(t, err, "a repository listing shorter than its total_count is a failed listing")
+	assert.Contains(t, err.Error(), "1 of 2 repositories")
+	for _, id := range []int64{710, 711} {
+		_, err := e.st.GetRepo(e.ctx, id)
+		require.NoError(t, err, "a failed repository listing forgets nothing, repository %d included", id)
 	}
 }
