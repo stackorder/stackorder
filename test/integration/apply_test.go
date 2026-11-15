@@ -5,6 +5,7 @@ package integration
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -225,6 +226,43 @@ func TestApplyFailureBlocksDependents(t *testing.T) {
 	assert.Equal(t, "apikey:integration", viaAPI[0].Actor)
 	assert.Equal(t, "applied by hand", viaAPI[0].Details["reason"])
 	assert.Len(t, f.audit("unlock"), 3)
+}
+
+func TestPostApplyHookFailureBlocksDependents(t *testing.T) {
+	e := shared(t)
+	f := newFixture(t, e, "post-apply-failure", withEdit(func(root string) {
+		hook := filepath.Join(root, ".stackorder", "hooks", "post-apply.sh")
+		require.NoError(t, os.MkdirAll(filepath.Dir(hook), 0o750))
+		script := "#!/usr/bin/env bash\nif [ \"$STACKORDER_STACK\" = \"" + prodVPC + "\" ]; then\n  echo 'smoke test failed' >&2\n  exit 1\nfi\n"
+		require.NoError(t, os.WriteFile(hook, []byte(script), 0o755))
+	}))
+	f.eksChanges()
+	a := f.startApply(16, applyCommand)
+	head := f.co.head
+	require.Len(t, a.wave0, 2)
+
+	prod := f.apply(a.wave0[0], nil)[prodVPC]
+	requireExit(t, 1, prod)
+	assert.Contains(t, prod.stderr, "applied stacks/prod/vpc, but post-apply hook")
+	requireExit(t, 0, f.apply(a.wave0[1], nil)[stagingVPC])
+
+	run := e.waitRun(a.runID, v1.RunFailed)
+	stacks := runStacks(run)
+	assert.Equal(t, v1.StackFailed, stacks[prodVPC].Status, "the apply changed infrastructure but the hook failed, so the stack fails")
+	require.NotNil(t, stacks[prodVPC].ExitCode)
+	assert.Equal(t, 1, *stacks[prodVPC].ExitCode)
+	assert.Equal(t, v1.StackApplied, stacks[stagingVPC].Status, "unrelated stacks of the wave finish")
+	assert.Equal(t, v1.StackBlocked, stacks[prodEKS].Status)
+	assert.Equal(t, []string{prodVPC}, stacks[prodEKS].BlockedBy)
+	assert.Len(t, f.dispatches(a.runID), 2, "a failing post-apply hook does not dispatch later waves")
+	assert.Len(t, f.locks(), 5, "a failed before_merge apply keeps its locks")
+
+	assert.Equal(t, report.ConclusionFailure, f.check(head, report.CheckApply).Conclusion)
+	assert.Equal(t, "1 failed, 1 blocked", f.check(head, report.CheckApply).Output.Title)
+	assert.Equal(t, "Apply failed (exit code 1)", f.check(head, report.StackCheckName(report.CheckApply, prodVPC)).Output.Title)
+	replies := f.botComments(16, a.cmd.ID)
+	require.Len(t, replies, 1)
+	assert.Contains(t, replies[0].Body, "**Apply failed** in wave 0 of `"+head[:7]+"`: `stacks/prod/vpc` (failed). Blocked dependents: `stacks/prod/eks`. Later waves were not dispatched.")
 }
 
 func (f *fixture) duplicateOf(d ghfake.Dispatch) ghfake.Dispatch {

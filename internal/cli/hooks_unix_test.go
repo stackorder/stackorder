@@ -143,17 +143,21 @@ func TestHookFailures(t *testing.T) {
 		assert.NotContains(t, h.tfCommands(), "apply")
 		assert.Equal(t, v1.ResultFailure, fs.lastResult().Result.Status)
 	})
-	t.Run("post-apply failure after a successful apply", func(t *testing.T) {
+	t.Run("post-apply failure fails the stack but keeps its applied state", func(t *testing.T) {
 		h, fs := newApplyHarness(t)
 		h.savedPlan(h.sha)
+		h.tf.StateJSON = stateFixture(t)
 		installHooks(t, h.root, 0o755, "post-apply")
 		t.Setenv("HOOK_EXIT", "2")
 		r := h.run("apply", "--stack", "stacks/app")
 		require.Equal(t, ExitFailure, r.code, r.stderr)
 		assert.Contains(t, r.stderr, "applied stacks/app, but post-apply hook")
+		assert.Contains(t, h.tfCommands(), "apply")
 		got := fs.lastResult().Result
-		assert.Equal(t, v1.ResultSuccess, got.Status)
+		assert.Equal(t, v1.ResultFailure, got.Status)
+		assert.Equal(t, 2, got.ExitCode)
 		assert.Contains(t, got.ErrorText, "post-apply hook")
+		diffResources(t, fixtureResources(), got.Resources)
 	})
 	t.Run("hook without the executable bit", func(t *testing.T) {
 		h := newHarness(t)

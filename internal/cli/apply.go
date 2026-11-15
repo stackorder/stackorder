@@ -109,13 +109,13 @@ func (a *app) runApply(ctx context.Context, o applyOptions) error {
 	}
 	oc := &applyOutcome{res: v1.StackResult{Mode: v1.ModeApply}}
 	oc.err = s.apply(ctx, sha, o.planFile, o.local, recorded, oc)
-	if oc.err != nil {
+	switch {
+	case oc.err != nil:
 		s.fail(&oc.res, oc.err)
-	} else {
+	case oc.hookErr != nil:
+		s.fail(&oc.res, oc.hookErr)
+	default:
 		oc.res.Status = v1.ResultSuccess
-		if oc.hookErr != nil {
-			oc.res.ErrorText, _ = tf.Truncate(s.redactor.Redact(oc.hookErr.Error()), maxErrorText)
-		}
 	}
 	s.finalize(&oc.res)
 	s.flush()
