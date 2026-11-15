@@ -60,6 +60,20 @@ func (s *server) uploadGraph(w http.ResponseWriter, r *http.Request, id identity
 	return nil
 }
 
+func (s *server) recordDefaultGraph(w http.ResponseWriter, r *http.Request, id identity) error {
+	repo := r.PathValue("owner") + "/" + r.PathValue("repo")
+	var req v1.RecordGraphRequest
+	if err := decodeJSON(r, &req, true); err != nil {
+		return err
+	}
+	resp, err := s.runs.RecordDefaultGraph(r.Context(), id.Principal, repo, req)
+	if err != nil {
+		return err
+	}
+	s.writeJSON(w, r, http.StatusOK, resp)
+	return nil
+}
+
 func (s *server) recordResult(w http.ResponseWriter, r *http.Request, id identity) error {
 	runID, err := parseID(r.PathValue("id"), "run")
 	if err != nil {

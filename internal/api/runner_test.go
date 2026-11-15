@@ -40,6 +40,23 @@ func (e *runnerEnv) planToken(opts ...oidcfake.TokenOption) string {
 	return e.issuer.Token(e.issuer.PlanClaims("acme/infra", "100", 7, testSHA), opts...)
 }
 
+func (e *runnerEnv) pushToken(opts ...oidcfake.TokenOption) string {
+	return e.issuer.Token(e.issuer.PushClaims("acme/infra", "100", "main", testSHA), opts...)
+}
+
+func TestRecordDefaultGraphEndpointDelegates(t *testing.T) {
+	e := newRunnerEnv(t)
+	req := v1.RecordGraphRequest{Graph: v1.Graph{Repo: "acme/infra", SHA: testSHA}}
+	rec := e.do(bearer(newRequest(t, http.MethodPut, "/v1/repos/acme/infra/default-graph", req), e.pushToken()))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.True(t, decodeBody[v1.RecordGraphResponse](t, rec).Recorded)
+	call := e.runs.last()
+	assert.Equal(t, "RecordDefaultGraph", call.method)
+	assert.Equal(t, "acme/infra", call.repo)
+	assert.Equal(t, req, call.body)
+	assert.Equal(t, principal.OIDC, call.p.Kind)
+}
+
 func createRunBody() v1.CreateRunRequest {
 	return v1.CreateRunRequest{Repo: "acme/infra", SHA: testSHA, PRNumber: 7, Mode: v1.ModePlan, Trigger: v1.TriggerPullRequest}
 }

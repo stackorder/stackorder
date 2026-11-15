@@ -15,6 +15,7 @@ import (
 const (
 	eventPullRequest      = "pull_request"
 	eventWorkflowDispatch = "workflow_dispatch"
+	eventPush             = "push"
 )
 
 func claimsOf(p principal.Principal) (*oidc.Claims, error) {

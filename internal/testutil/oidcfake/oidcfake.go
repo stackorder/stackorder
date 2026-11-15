@@ -470,6 +470,20 @@ func (i *Issuer) DispatchClaims(repo, repoID string, runID int64, env, branch, s
 	return c
 }
 
+// PushClaims returns the claims GitHub puts in a token for a job of a workflow
+// triggered by a push of commit sha to branch of repo.
+func (i *Issuer) PushClaims(repo, repoID, branch, sha string) oidc.Claims {
+	ref := "refs/heads/" + branch
+	c := i.baseClaims(repo, repoID, sha)
+	c.Ref = ref
+	c.RefType = "branch"
+	c.EventName = "push"
+	c.Workflow = "stackorder plan"
+	c.WorkflowRef = repo + "/.github/workflows/stackorder-plan.yml@" + ref
+	c.JobWorkflowRef = PlanWorkflowRef
+	return c
+}
+
 func (i *Issuer) baseClaims(repo, repoID, sha string) oidc.Claims {
 	i.mu.Lock()
 	i.nextRunID++

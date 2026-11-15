@@ -454,6 +454,13 @@ func (f *fakeRuns) UploadGraph(_ context.Context, p principal.Principal, runID s
 	return &v1.ResolveResponse{RunID: runID, Waves: [][]string{{"stacks/prod/vpc"}}}, nil
 }
 
+func (f *fakeRuns) RecordDefaultGraph(_ context.Context, p principal.Principal, repo string, req v1.RecordGraphRequest) (*v1.RecordGraphResponse, error) {
+	if err := f.record(runsCall{method: "RecordDefaultGraph", p: p, repo: repo, body: req}); err != nil {
+		return nil, err
+	}
+	return &v1.RecordGraphResponse{Recorded: true, SHA: req.Graph.SHA}, nil
+}
+
 func (f *fakeRuns) RecordResult(_ context.Context, p principal.Principal, runID, stackKey string, res v1.StackResult) (*v1.RunStack, error) {
 	if err := f.record(runsCall{method: "RecordResult", p: p, runID: runID, stackKey: stackKey, body: res}); err != nil {
 		return nil, err

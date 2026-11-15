@@ -376,6 +376,28 @@ type GraphUploadRequest struct {
 	Stacks []string `json:"stacks,omitempty"`
 }
 
+// RecordGraphRequest is the body of PUT /v1/repos/{owner}/{repo}/default-graph.
+// It carries the graph a push-triggered resolve job scanned on the default
+// branch; the graph's SHA must be the pushed commit the token is for, or may
+// be left empty to take it from the token.
+type RecordGraphRequest struct {
+	Graph Graph `json:"graph"`
+}
+
+// RecordGraphResponse is the body returned by
+// PUT /v1/repos/{owner}/{repo}/default-graph. Recorded is true when the graph
+// became the repository's default-branch graph, and false when the pushed
+// commit is no longer the head of the default branch, which an out-of-order,
+// superseded or force push causes; Reason then explains why.
+type RecordGraphResponse struct {
+	Recorded bool   `json:"recorded"`
+	SHA      string `json:"sha"`
+	// Head is the current head of the default branch the record was checked
+	// against, when the server read it.
+	Head   string `json:"head,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
 // ResolveResponse is what the server returns from a graph upload and what the
 // CLI computes locally when the server is unreachable.
 type ResolveResponse struct {

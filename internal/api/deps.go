@@ -87,6 +87,9 @@ type RunService interface {
 	CreateRun(ctx context.Context, p principal.Principal, req v1.CreateRunRequest) (*v1.CreateRunResponse, error)
 	// UploadGraph stores a scanned graph and resolves the run against it.
 	UploadGraph(ctx context.Context, p principal.Principal, runID string, req v1.GraphUploadRequest) (*v1.ResolveResponse, error)
+	// RecordDefaultGraph records the default-branch graph a push-triggered
+	// resolve job scanned.
+	RecordDefaultGraph(ctx context.Context, p principal.Principal, repo string, req v1.RecordGraphRequest) (*v1.RecordGraphResponse, error)
 	// RecordResult records one stack's plan, apply or drift outcome and
 	// the resource list an apply or drift result carries.
 	RecordResult(ctx context.Context, p principal.Principal, runID, stackKey string, res v1.StackResult) (*v1.RunStack, error)
