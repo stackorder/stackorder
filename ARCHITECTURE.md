@@ -1010,7 +1010,9 @@ supported; fork pull requests get a neutral check from the server.
 
 ## Metrics
 
-All names carry the `stackorder_` prefix: `runs_total{status,trigger,mode}`,
+All names carry the `stackorder_` prefix: `runs_total{status,trigger,mode}`
+(each status a run enters, so a transition count, not a run count),
+`runs_created_total{trigger,mode}` (one per run row created),
 `stack_finished_total{mode,status}`, `stack_duration_seconds{mode}`,
 `dispatches_total{mode,result}`, `drifted_stacks`, `locks_held`,
 `commands_total{verb,accepted}`, `webhook_received_total{event}`,
