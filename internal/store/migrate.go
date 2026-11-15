@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -105,18 +106,21 @@ func (s *Store) MigrateUp(ctx context.Context, version uint) (applied bool, err 
 	return applied, err
 }
 
-// LatestMigration returns the highest version embedded in migrations.FS: the
-// version a full up migration reaches, and the target an operator compares the
-// applied version against. It needs no database connection.
-func LatestMigration() (uint, error) {
+// Migration identifies one embedded migration by its version and the name
+// after the NNNN_ prefix.
+type Migration struct {
+	Version uint
+	Name    string
+}
+
+// Migrations lists every embedded migration ordered by ascending version,
+// reading migrations.FS. It needs no database connection.
+func Migrations() ([]Migration, error) {
 	entries, err := migrations.FS.ReadDir(".")
 	if err != nil {
-		return 0, fmt.Errorf("store: read embedded migrations: %w", err)
+		return nil, fmt.Errorf("store: read embedded migrations: %w", err)
 	}
-	var (
-		latest uint
-		found  bool
-	)
+	var ms []Migration
 	for _, entry := range entries {
 		name := entry.Name()
 		if !strings.HasSuffix(name, ".up.sql") {
@@ -124,21 +128,79 @@ func LatestMigration() (uint, error) {
 		}
 		i := strings.IndexByte(name, '_')
 		if i <= 0 {
-			return 0, fmt.Errorf("store: migration %q does not start with NNNN_", name)
+			return nil, fmt.Errorf("store: migration %q does not start with NNNN_", name)
 		}
 		n, err := strconv.ParseUint(name[:i], 10, 64)
 		if err != nil {
-			return 0, fmt.Errorf("store: parse version in %q: %w", name, err)
+			return nil, fmt.Errorf("store: parse version in %q: %w", name, err)
 		}
-		if uint(n) > latest {
-			latest = uint(n)
+		ms = append(ms, Migration{Version: uint(n), Name: strings.TrimSuffix(name[i+1:], ".up.sql")})
+	}
+	if len(ms) == 0 {
+		return nil, fmt.Errorf("store: no up migrations embedded")
+	}
+	sort.Slice(ms, func(i, j int) bool { return ms[i].Version < ms[j].Version })
+	return ms, nil
+}
+
+// LatestMigration returns the highest version embedded in migrations.FS: the
+// version a full up migration reaches, and the target an operator compares the
+// applied version against. It needs no database connection.
+func LatestMigration() (uint, error) {
+	ms, err := Migrations()
+	if err != nil {
+		return 0, err
+	}
+	return ms[len(ms)-1].Version, nil
+}
+
+// SchemaBehindError reports that the database is at a migration version below
+// the one MigrateDownTo was asked to revert to. MigrateDownTo never applies a
+// migration, so it returns this rather than migrating up.
+type SchemaBehindError struct {
+	Current uint
+	Target  uint
+}
+
+func (e *SchemaBehindError) Error() string {
+	return fmt.Sprintf("schema is at version %d, below the requested version %d; migrate down does not apply migrations", e.Current, e.Target)
+}
+
+// MigrateDownTo reverts the applied migrations until the schema is at version,
+// holding MigrationLockKey as Migrate does. It reads the applied version under
+// the lock and refuses a dirty schema. It only reverts: a version equal to the
+// applied version is a no-op, and one above it is a *SchemaBehindError* rather
+// than an up migration. version 0 reverts every migration, like MigrateDown.
+// reverted reports whether a migration ran, so a caller can tell a real
+// downgrade from a database already at the target. The server never calls it;
+// an operator runs it through the migrate subcommand to roll the schema back
+// before starting an older release.
+func (s *Store) MigrateDownTo(ctx context.Context, version uint) (reverted bool, err error) {
+	err = s.withMigrator(ctx, fmt.Sprintf("migrate down to %d", version), func(m *migrate.Migrate) error {
+		current, dirty, verr := m.Version()
+		switch {
+		case errors.Is(verr, migrate.ErrNilVersion):
+			current = 0
+		case verr != nil:
+			return verr
 		}
-		found = true
-	}
-	if !found {
-		return 0, fmt.Errorf("store: no up migrations embedded")
-	}
-	return latest, nil
+		if dirty {
+			return fmt.Errorf("schema is dirty at version %d; repair it before migrating", current)
+		}
+		if current < version {
+			return &SchemaBehindError{Current: current, Target: version}
+		}
+		revert := m.Migrate
+		if version == 0 {
+			revert = func(uint) error { return m.Down() }
+		}
+		if merr := revert(version); merr != nil {
+			return merr
+		}
+		reverted = true
+		return nil
+	})
+	return reverted, err
 }
 
 // MigrateDown reverts every applied migration. It exists for tests and for

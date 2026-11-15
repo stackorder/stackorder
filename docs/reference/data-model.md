@@ -109,4 +109,4 @@ An hourly `prune` job applies the retention settings:
 
 ## Migrations {#migrations}
 
-Migrations are `golang-migrate` SQL files, `NNNN_name.up.sql` and `NNNN_name.down.sql`, embedded in the binary. The server runs them at start-up under a Postgres advisory lock, so several instances starting together apply each migration once, and it refuses to start if a migration fails. See [Upgrades and backups](/operations/upgrades-and-backups).
+Migrations are `golang-migrate` SQL files, `NNNN_name.up.sql` and `NNNN_name.down.sql`, embedded in the binary. The server runs the up files at start-up under a Postgres advisory lock, so several instances starting together apply each migration once, and it refuses to start if a migration fails or the schema is at a version it does not embed. It never runs the down files itself; every migration has one, and an operator rolling back to an older release runs them explicitly with [`stackorder-server migrate --down`](/reference/server-configuration#migrate). See [Upgrades and backups](/operations/upgrades-and-backups).

@@ -115,7 +115,7 @@ The server applies pending migrations at [start-up](#lifecycle), so you normally
 
 ```text
 $ stackorder-server migrate --help
-usage: stackorder-server migrate [--to N | --status | --force N]
+usage: stackorder-server migrate [--to N | --status | --down --to N [--yes] | --force N]
 
 Apply the embedded migrations to DATABASE_URL and exit, holding the same
 migration lock as start-up so it is safe next to starting servers. It needs
@@ -124,6 +124,7 @@ only DATABASE_URL, not STACKORDER_BASE_URL or the GitHub App settings.
 
 - `stackorder-server migrate` applies every pending migration and exits `0`; it prints `migrated database from version X to version Y`, or `database already at version N` when nothing was pending.
 - `stackorder-server migrate --to N` applies migrations only up to version `N`. It refuses with exit `1` when `N` is below the applied version, because this command only migrates up, or when there is no migration numbered `N`.
+- `stackorder-server migrate --down --to N` reverts the schema down to version `N`, to [roll back](/operations/upgrades-and-backups#rollback) before starting an older release. Run it with the newer image, which embeds the down migrations. Reverting a migration permanently drops the data the columns, tables and indexes it added held, so it is guarded: without `--yes` it prints the plan — the migrations it would run and the data each loses — and changes nothing; with `--yes` it reverts and prints `reverted database from version X to version N`. Stop every instance of the newer release first: one left running fails once the schema it uses is gone, and the older release refuses to start until the schema is at or below the version it embeds. It refuses with exit `1` a target above the applied version (it only reverts), a `dirty` database, and a database *ahead* of the binary (whose migrations it cannot revert because it does not embed them). It takes the same migration lock as start-up.
 - `stackorder-server migrate --status` changes nothing and prints the applied and target version for a script to read:
 
   ```text

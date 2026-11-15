@@ -4,14 +4,17 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	v1 "github.com/stackorder/stackorder/api/v1"
 	"github.com/stackorder/stackorder/internal/store"
 	"github.com/stackorder/stackorder/internal/testutil/pgtest"
 )
@@ -51,6 +54,122 @@ func TestMigrateUpDownUp(t *testing.T) {
 		assert.Equal(t, step.wantVer, ver, step.name)
 		assert.False(t, dirty, step.name)
 	}
+}
+
+func populateForDowngrade(f *fixture) {
+	t := f.t
+	ctx := f.ctx
+	s := f.s
+
+	g := &v1.Graph{
+		Repo: f.repo.FullName, SHA: "sha-pop",
+		Stacks: []v1.Stack{{Key: "a", Path: "a"}, {Key: "b", Path: "b", Environment: "prod"}},
+	}
+	graphID, ids := f.saveGraph(f.repo.ID, g)
+	stackA, stackB := ids["a"], ids["b"]
+	require.NoError(t, s.SetDefaultGraph(ctx, f.repo.ID, graphID))
+
+	apply := f.run(store.CreateRunParams{Mode: v1.ModeApply, SHA: "sha-apply", PRNumber: 7})
+	plan := f.run(store.CreateRunParams{Mode: v1.ModePlan, SHA: "sha-plan", PRNumber: 7})
+	require.NoError(t, s.SetRunComment(ctx, plan.ID, 4242))
+
+	require.NoError(t, s.UpsertRunStacks(ctx, apply.ID, []store.RunStack{
+		{StackID: stackA, Status: v1.StackApplied, Via: []string{"a"}, PlanURL: "s3://plans/a", PlanOutput: "changes", BlockedBy: []string{"x"}},
+		{StackID: stackB, Wave: 1, Status: v1.StackApplied},
+	}))
+
+	_, _, err := s.CreateDispatchChunk(ctx, apply.ID, 0, "prod", v1.ModeApply, 0)
+	require.NoError(t, err)
+	_, _, err = s.CreateDispatchChunk(ctx, apply.ID, 0, "prod", v1.ModeApply, 1)
+	require.NoError(t, err, "a second chunk shares the pre-0005 base key; its down must delete it before re-adding the unique constraint")
+
+	require.NoError(t, s.SetStackStateObject(ctx, stackA, v1.StateObject{Bucket: "state", Key: "a.tfstate"}, apply.ID))
+	require.NoError(t, s.SetStackResources(ctx, stackA, apply.ID, resourceList("aws_vpc.main"), store.ObservedNow))
+
+	_, err = s.UpsertCheck(ctx, store.Check{RunID: apply.ID, StackID: stackA, Name: "plan", Status: v1.CheckPass, Summary: "ok"})
+	require.NoError(t, err)
+	_, err = s.TryLockStacks(ctx, []uuid.UUID{stackA}, apply.ID, 7, "apply")
+	require.NoError(t, err)
+	_, err = s.RecordDrift(ctx, store.Drift{StackID: stackB, RunID: &apply.ID, Drifted: true})
+	require.NoError(t, err)
+
+	_, _, err = s.CreateSession(ctx, store.NewSession{Login: "alice", TTL: time.Hour})
+	require.NoError(t, err)
+	_, _, err = s.CreateAPIKey(ctx, store.NewAPIKey{Name: "ci", CreatedBy: "alice"})
+	require.NoError(t, err)
+	scopedInstallation := int64(1)
+	scopedExpiry := time.Now().Add(time.Hour)
+	_, _, err = s.CreateAPIKey(ctx, store.NewAPIKey{
+		Name:           "dashboard",
+		CreatedBy:      "alice",
+		ReadOnly:       true,
+		InstallationID: &scopedInstallation,
+		ExpiresAt:      &scopedExpiry,
+	})
+	require.NoError(t, err, "a scoped key exercises the 0016 down migration against the columns it drops")
+	_, err = s.RecordAudit(ctx, store.AuditEntry{Actor: "alice", Action: "lock.release", Target: "stacks/a"})
+	require.NoError(t, err)
+	_, err = s.SeenJTI(ctx, "jti-1", time.Now().Add(time.Hour))
+	require.NoError(t, err)
+
+	traceCtx := json.RawMessage(`{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}`)
+	_, err = s.InsertEvent(ctx, "evt-1", "push", json.RawMessage(`{}`), traceCtx)
+	require.NoError(t, err)
+	_, _, err = s.EnqueueJob(ctx, "plan", json.RawMessage(`{}`), time.Now(), "dedupe-1", traceCtx)
+	require.NoError(t, err)
+}
+
+func TestMigrateDownToPopulatedRoundTrip(t *testing.T) {
+	f := newFixture(t)
+	ctx := f.ctx
+	latest, err := store.LatestMigration()
+	require.NoError(t, err)
+
+	populateForDowngrade(f)
+	require.Equal(t, 23, tableCount(t, f.s))
+
+	for v := latest; v > 0; v-- {
+		reverted, err := f.s.MigrateDownTo(ctx, v-1)
+		require.NoErrorf(t, err, "down to %d with data present", v-1)
+		assert.Truef(t, reverted, "down to %d reverted a migration", v-1)
+		got, dirty, err := f.s.SchemaVersion(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, v-1, got)
+		assert.False(t, dirty)
+	}
+	assert.Equal(t, 0, tableCount(t, f.s))
+
+	require.NoError(t, f.s.Migrate(ctx))
+	got, _, err := f.s.SchemaVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, latest, got)
+	assert.Equal(t, 23, tableCount(t, f.s), "every table returns after migrating up again")
+}
+
+func TestMigrateDownTo(t *testing.T) {
+	f := newFixture(t)
+	ctx := f.ctx
+	latest, err := store.LatestMigration()
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, latest, uint(3))
+	populateForDowngrade(f)
+
+	reverted, err := f.s.MigrateDownTo(ctx, latest-2)
+	require.NoError(t, err)
+	assert.True(t, reverted)
+	got, _, err := f.s.SchemaVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, latest-2, got)
+
+	reverted, err = f.s.MigrateDownTo(ctx, latest-2)
+	require.NoError(t, err)
+	assert.False(t, reverted, "already at the target is a no-op")
+
+	_, err = f.s.MigrateDownTo(ctx, latest)
+	var behind *store.SchemaBehindError
+	require.ErrorAs(t, err, &behind, "a target above the applied version is refused, not migrated up")
+	assert.Equal(t, latest-2, behind.Current)
+	assert.Equal(t, latest, behind.Target)
 }
 
 func TestDefaultGraphFKRestorableInOneTransaction(t *testing.T) {

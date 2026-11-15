@@ -254,6 +254,88 @@ func TestMigrateStatusDoesNotMutate(t *testing.T) {
 	assert.False(t, present, "migrate --status must not create schema_migrations on a fresh database")
 }
 
+func TestMigrateDownCommand(t *testing.T) {
+	target, err := store.LatestMigration()
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, target, uint(3), "test assumes at least three migrations")
+	dsn := pgtest.DSN(t)
+	env := envOf(map[string]string{"DATABASE_URL": dsn})
+
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 0, run([]string{"migrate"}, env, &stdout, &stderr))
+
+	down := target - 1
+
+	t.Run("dry run prints the plan and changes nothing", func(t *testing.T) {
+		stdout.Reset()
+		stderr.Reset()
+		assert.Equal(t, 0, run([]string{"migrate", "--down", "--to", fmt.Sprint(down)}, env, &stdout, &stderr))
+		assert.Contains(t, stdout.String(), fmt.Sprintf("reverts the schema from version %d to version %d", target, down))
+		assert.Contains(t, stdout.String(), fmt.Sprintf("%04d", target))
+		assert.Contains(t, stdout.String(), "dry run")
+		assert.Contains(t, stdout.String(), migrationLoss(target),
+			"the plan names what reverting the top migration loses")
+		assert.Contains(t, stderr.String(), "Stop every stackorder-server instance of the newer release first")
+
+		s, err := store.Open(t.Context(), dsn)
+		require.NoError(t, err)
+		t.Cleanup(s.Close)
+		v, _, err := s.SchemaVersion(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, target, v, "a dry run leaves the schema at the latest version")
+	})
+
+	t.Run("--yes reverts to the target", func(t *testing.T) {
+		stdout.Reset()
+		stderr.Reset()
+		assert.Equal(t, 0, run([]string{"migrate", "--down", "--to", fmt.Sprint(down), "--yes"}, env, &stdout, &stderr))
+		assert.Contains(t, stdout.String(), fmt.Sprintf("reverted database from version %d to version %d", target, down))
+	})
+
+	t.Run("reverting again is a no-op", func(t *testing.T) {
+		stdout.Reset()
+		stderr.Reset()
+		assert.Equal(t, 0, run([]string{"migrate", "--down", "--to", fmt.Sprint(down), "--yes"}, env, &stdout, &stderr))
+		assert.Contains(t, stdout.String(), fmt.Sprintf("database already at version %d", down))
+	})
+
+	t.Run("refuses a target above the applied version", func(t *testing.T) {
+		stdout.Reset()
+		stderr.Reset()
+		assert.Equal(t, 1, run([]string{"migrate", "--down", "--to", fmt.Sprint(target), "--yes"}, env, &stdout, &stderr))
+		assert.Contains(t, stderr.String(), fmt.Sprintf("database is at version %d, below the requested version %d", down, target))
+	})
+
+	t.Run("migrate up again restores the schema", func(t *testing.T) {
+		stdout.Reset()
+		stderr.Reset()
+		assert.Equal(t, 0, run([]string{"migrate"}, env, &stdout, &stderr))
+		assert.Contains(t, stdout.String(), fmt.Sprintf("migrated database from version %d to version %d", down, target))
+	})
+}
+
+func TestMigrateDownRefusesDatabaseAheadOfBinary(t *testing.T) {
+	target, err := store.LatestMigration()
+	require.NoError(t, err)
+	dsn := pgtest.DSN(t)
+	env := envOf(map[string]string{"DATABASE_URL": dsn})
+
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 0, run([]string{"migrate"}, env, &stdout, &stderr))
+
+	s, err := store.Open(t.Context(), dsn)
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+	_, err = s.Pool().Exec(t.Context(), `UPDATE schema_migrations SET version = 99`)
+	require.NoError(t, err)
+
+	stdout.Reset()
+	stderr.Reset()
+	assert.Equal(t, 1, run([]string{"migrate", "--down", "--to", "2", "--yes"}, env, &stdout, &stderr))
+	assert.Contains(t, stderr.String(),
+		fmt.Sprintf("database is at version 99, above the latest version %d this binary embeds", target))
+}
+
 func TestMigrateCommandToVersion(t *testing.T) {
 	target, err := store.LatestMigration()
 	require.NoError(t, err)

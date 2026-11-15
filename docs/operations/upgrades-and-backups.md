@@ -45,9 +45,59 @@ Upgrading from v0.5.0 crosses a window where old and new replicas share the data
 
 The server applies an installation's `suspend` and `unsuspend` webhooks in receive order (see the [data model](/reference/data-model#queue)). This guarantee holds once every replica runs the version that introduced it. While a v0.5.0 replica and a new one run together during the rollover, a `suspend` or `unsuspend` the old replica processes still takes effect in the order it is processed, as v0.5.0 always did, not by receive time; the daily installation sync and the finished upgrade settle it, so no action is required. To avoid even that transient, drain the old replicas before the new ones serve.
 
-[API key scopes](/reference/api#api-key-scopes) are enforced only by a replica on this release. Migration `0016_api_key_scopes` stores a scoped or expiring key in the same table, and under the same SHA-256 hash, that v0.5.0 accepts, and a v0.5.0 replica reads neither the scope columns nor the expiry: it authenticates every unrevoked key as a full, installation-wide, never-expiring administrator. So during the rolling upgrade a read-only, installation-scoped or expired key minted by a new replica is honoured as an unrestricted administrator, including past its expiry, by any v0.5.0 replica still serving. Existing keys are unaffected — they are unscoped administrators already — so mint and hand out scoped or expiring keys only once every replica runs this release. Before rolling back to a version without scope enforcement, revoke every scoped or expiring key you issued, because that version ignores all three restrictions.
+[API key scopes](/reference/api#api-key-scopes) are enforced only by a replica on this release. Migration `0016_api_key_scopes` stores a scoped or expiring key in the same table, and under the same SHA-256 hash, that v0.5.0 accepts, and a v0.5.0 replica reads neither the scope columns nor the expiry: it authenticates every unrevoked key as a full, installation-wide, never-expiring administrator. So during the rolling upgrade a read-only, installation-scoped or expired key minted by a new replica is honoured as an unrestricted administrator, including past its expiry, by any v0.5.0 replica still serving. Existing keys are unaffected — they are unscoped administrators already — so mint and hand out scoped or expiring keys only once every replica runs this release. Before rolling back to a version without scope enforcement, revoke every scoped or expiring key you issued, because that version ignores all three restrictions (see [Rolling back](#rollback)).
 
-To go back, deploy the previous image. The server never runs down migrations, so if the new version ran migrations the previous one does not understand, restore the snapshot from step 2. For the same reason a replica of the previous version cannot start once the new one has migrated the database: its startup migration refuses a schema newer than it knows. During a rolling deploy already-running old replicas keep serving and draining normally, but do not count on restarting or rescheduling one after the migration has run without restoring the snapshot.
+During a rolling deploy already-running old replicas keep serving and draining normally, but a replica of the previous version cannot start once the new one has migrated the database: its start-up migration refuses a schema newer than it knows. So do not count on restarting or rescheduling an old replica after the migration has run without first rolling the schema back or restoring the snapshot.
+
+To go back to a previous release, see [Rolling back](#rollback).
+
+## Rolling back {#rollback}
+
+The server only migrates up: an older image refuses to start when the schema is at a version it does not embed. So before you redeploy a previous image, revert the schema to that release's version with the **newer** image's `migrate --down` — it embeds the down migrations the older one does not:
+
+1. Read the table below for the schema version of the release you are going back to, and what reverting to it drops.
+2. If the rollback reverts migration 0016 — any target below schema 16 — revoke every read-only, installation-scoped or expiring API key **first**. Reverting 0016 drops the scope columns, so the older schema and release honour every surviving key as a full, never-expiring administrator (see the version 15 row below). List the keys and their scopes with `stackorder-server api-key list` and revoke each restricted one with `stackorder-server api-key revoke <id>`.
+3. Take a database snapshot if the downgrade drops data you want to keep.
+4. Stop every instance of the newer release, or scale it to zero. A newer instance left running fails once the columns and tables it uses are gone, and keeps writing data the older schema has no place for.
+5. Preview the plan, then apply it, with the image you are rolling back **from**:
+
+   ```sh
+   docker run --rm -e DATABASE_URL="$DATABASE_URL" \
+     ghcr.io/stackorder/stackorder:X.Y.Z migrate --down --to N
+   docker run --rm -e DATABASE_URL="$DATABASE_URL" \
+     ghcr.io/stackorder/stackorder:X.Y.Z migrate --down --to N --yes
+   ```
+
+   Without `--yes` it lists the migrations it would revert and the data each loses and changes nothing; `--yes` reverts. It takes the same [migration lock](/reference/server-configuration#migrate) as start-up, so it is safe beside a starting server, but not beside a running one — stop them in step 4.
+6. Deploy the previous image. It starts because the schema is now at or below the version it embeds, and does not migrate.
+
+A downgrade is purely additive to undo only when every migration it reverts is additive; where it drops data, that data is gone unless you restored a snapshot. Reverting below the oldest release's version is a teardown, not a rollback, and `migrate --down` refuses `--to 0`.
+
+| Release | Schema version |
+| --- | --- |
+| v0.1.0, v0.2.0 | 6 |
+| v0.3.0 | 7 |
+| v0.4.0 | 8 |
+| v0.5.0 | 9 |
+| This release | 16 |
+
+Reverting down from version 16 drops, one version at a time:
+
+| To version | Reverting drops |
+| --- | --- |
+| 15 | **The API-key scopes, and with them every restriction on every key.** `api_keys.read_only`, `api_keys.installation_id` and `api_keys.expires_at` are dropped, so once the schema is below 16 — and under the older release, which never read these columns — every read-only, installation-scoped or expiring key is honoured as a full, installation-wide, never-expiring administrator, including past its expiry. **Revoke every scoped or expiring key _before_ you run `migrate --down` below 16**: list the keys and their scopes with `stackorder-server api-key list` and revoke each restricted one with `stackorder-server api-key revoke <id>`. Unscoped keys are unaffected — they were full administrators already. |
+| 14 | The trace context carried across the work queue (`events.trace_context` and `jobs.trace_context`); queued and in-flight rows lose the stored W3C trace context, so a worker span no longer continues the trace of the request or job that enqueued the row. Observability only — no run or state data is affected. |
+| 13 | The observation time that orders each installation's `suspend`/`unsuspend` webhooks in receive order (`installations.suspend_observed_at`); the older release resolves `suspend` and `unsuspend` by processing order again, as v0.5.0 did, and the daily installation sync settles each installation's suspension on its next run. |
+| 12 | Nothing: the `run_stacks_stranded_idx` index that finds stranded plan objects to reclaim; the next upgrade re-creates it. |
+| 11 | The `object_deletions` queue and every row in it: objects already unreferenced in Postgres but not yet deleted from the [artifact bucket](/reference/server-configuration#artifact-bucket) are then never deleted and stay orphaned there, so reclaim their space out of band (for example with a bucket lifecycle rule) if you need it. |
+| 10 | Nothing is dropped, but the `repos.default_graph_id` foreign key becomes `NOT DEFERRABLE` again, so the single-transaction [data-only restore](#data-only) no longer works; restore a full snapshot instead. |
+| 9 | Nothing is dropped; the one-time `stacks.removed_at` reconcile is simply not re-run. |
+| 8 | Every stack's [resource list](/guide/concepts#resources) (`stack_resources`); each stack's next apply or drift job records it again. |
+| 7 | Where each stack's [state object](/configuration/outputs#state-location) lives (`stacks.state_object`); until each producer's next apply or drift job records it again, stacks that read shared outputs fail to plan. |
+| 6 | The comment id tying a run to its pull-request comment (`runs.comment_id`); the next run opens a new comment instead of editing the old one. |
+| 5 | The node keys a change reached each stack through (`run_stacks.via`). |
+
+Going below version 5 drops the run-service columns, then the authentication, queue, run and graph tables in turn — a full teardown rather than a release downgrade.
 
 ## Upgrading the CLI and actions {#cli}
 
