@@ -97,8 +97,8 @@ func TestInstallationEventsAppliedInReceiveOrder(t *testing.T) {
 	received := time.Now().UTC()
 	suspendID := "wh-order-suspend-" + account
 	unsuspendID := "wh-order-unsuspend-" + account
-	queueEvent(t, e, suspendID, e.GH.InstallationEvent("suspend", inst), received)
-	queueEvent(t, e, unsuspendID, e.GH.InstallationEvent("unsuspend", inst), received.Add(time.Second))
+	queueEvent(t, e, suspendID, e.GH.InstallationEvent("suspend", inst), received, received.Add(2*time.Second))
+	queueEvent(t, e, unsuspendID, e.GH.InstallationEvent("unsuspend", inst), received.Add(time.Second), received)
 
 	e.WaitFor(func() bool {
 		s, se := e.EventDone(suspendID)
@@ -110,18 +110,18 @@ func TestInstallationEventsAppliedInReceiveOrder(t *testing.T) {
 
 	in, err = e.Store.GetInstallation(t.Context(), inst)
 	require.NoError(t, err)
-	assert.Nil(t, in.SuspendedAt, "the later unsuspend wins however the claimers interleave")
+	assert.Nil(t, in.SuspendedAt, "the later unsuspend wins though the earlier suspend is processed after it")
 	repo, err := e.Store.GetRepo(t.Context(), f.id)
 	require.NoError(t, err)
 	assert.False(t, repo.Suspended)
 }
 
-func queueEvent(t *testing.T, e *Env, id string, payload any, receivedAt time.Time) {
+func queueEvent(t *testing.T, e *Env, id string, payload any, receivedAt, runAfter time.Time) {
 	t.Helper()
 	body, err := json.Marshal(payload)
 	require.NoError(t, err)
 	_, err = e.Store.Pool().Exec(context.Background(),
-		`INSERT INTO events (id, kind, payload, received_at) VALUES ($1, $2, $3::jsonb, $4)`,
-		id, gh.EventInstallation, body, receivedAt)
+		`INSERT INTO events (id, kind, payload, received_at, run_after) VALUES ($1, $2, $3::jsonb, $4, $5)`,
+		id, gh.EventInstallation, body, receivedAt, runAfter)
 	require.NoError(t, err)
 }
