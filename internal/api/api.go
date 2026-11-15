@@ -25,6 +25,7 @@ type server struct {
 	metrics    http.Handler
 	webhook    http.Handler
 	artifacts  ArtifactReader
+	artifactM  ArtifactMetrics
 	instrument func(route string) func(http.Handler) http.Handler
 	log        *slog.Logger
 	now        func() time.Time
@@ -77,6 +78,7 @@ func newServer(cfg Config, d Deps, db dataStore) *server {
 		metrics:    d.Metrics,
 		webhook:    d.Webhook,
 		artifacts:  d.Artifacts,
+		artifactM:  d.ArtifactMetrics,
 		instrument: d.Instrument,
 		log:        d.Logger,
 		now:        d.Clock,

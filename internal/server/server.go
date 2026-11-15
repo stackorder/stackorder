@@ -249,6 +249,7 @@ func (s *Server) compose(ctx context.Context, deps *api.Deps) error {
 		}
 		runOpts = append(runOpts, runs.WithArtifactStore(a))
 		deps.Artifacts = a
+		deps.ArtifactMetrics = s.metrics
 	}
 	if len(cfg.StateGrants) > 0 {
 		reader, err := s.stateReader(ctx)

@@ -112,6 +112,13 @@ type ArtifactReader interface {
 	Get(ctx context.Context, key string) (body []byte, contentType string, err error)
 }
 
+// ArtifactMetrics counts reads served from the artifact bucket.
+// *metrics.Registry satisfies it; a nil one, or a nil field, discards the
+// counts.
+type ArtifactMetrics interface {
+	ArtifactRead(ok bool)
+}
+
 // Deps are the collaborators of the API handler.
 type Deps struct {
 	// Store is required.
@@ -136,6 +143,8 @@ type Deps struct {
 	// Artifacts serves the full plan text of GET
 	// /v1/runs/{id}/stacks/{key}/plan; that endpoint answers 404 when nil.
 	Artifacts ArtifactReader
+	// ArtifactMetrics counts reads from Artifacts. Optional.
+	ArtifactMetrics ArtifactMetrics
 	// Instrument, when set, wraps the handler of every route with the
 	// middleware it returns for that route's pattern.
 	Instrument func(route string) func(http.Handler) http.Handler

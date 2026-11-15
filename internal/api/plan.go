@@ -38,7 +38,11 @@ func (s *server) planText(w http.ResponseWriter, r *http.Request, id identity) e
 		return notFound("this server has no artifact bucket, so it serves no full plan text")
 	}
 	body, _, err := s.artifacts.Get(r.Context(), store.PlanTextArtifactKey(run.ID, key))
-	if errors.Is(err, artifacts.ErrNotFound) {
+	notFoundErr := errors.Is(err, artifacts.ErrNotFound)
+	if s.artifactM != nil {
+		s.artifactM.ArtifactRead(err == nil || notFoundErr)
+	}
+	if notFoundErr {
 		return notFound(fmt.Sprintf("the full plan text of %s in run %s is no longer in the artifact bucket", key, run.ID))
 	}
 	if err != nil {

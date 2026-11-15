@@ -47,6 +47,61 @@ func (m *memArtifacts) readCount() int {
 	return len(m.reads)
 }
 
+type recArtifactReads struct {
+	mu         sync.Mutex
+	ok, failed int
+}
+
+func (r *recArtifactReads) ArtifactRead(ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if ok {
+		r.ok++
+	} else {
+		r.failed++
+	}
+}
+
+func (r *recArtifactReads) counts() (ok, failed int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ok, r.failed
+}
+
+func TestPlanTextCountsReads(t *testing.T) {
+	mem := &memArtifacts{items: map[string]string{}}
+	rec := &recArtifactReads{}
+	e := newRunnerEnv(t, func(_ *Config, d *Deps) { d.Artifacts = mem; d.ArtifactMetrics = rec })
+	run := uuid.New()
+	e.db.runs[run] = store.Run{ID: run, RepoID: 100, Repo: "acme/infra"}
+	const blue = "stacks/prod/apps:blue"
+	e.db.runStacks[run] = []store.RunStack{
+		{Key: blue, PlanText: "Plan:", PlanTextTruncated: true, PlanURL: "s3://bucket/" + store.PlanTextArtifactKey(run, blue)},
+	}
+	mem.items[store.PlanTextArtifactKey(run, blue)] = "the whole plan"
+	session := e.session("octocat", "acme")
+
+	resp := e.do(withCookie(newRequest(t, http.MethodGet, planTarget(run, blue), nil), session))
+	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	ok, failed := rec.counts()
+	assert.Equal(t, 1, ok, "a served read is counted ok")
+	assert.Zero(t, failed)
+
+	delete(mem.items, store.PlanTextArtifactKey(run, blue))
+	resp = e.do(withCookie(newRequest(t, http.MethodGet, planTarget(run, blue), nil), session))
+	require.Equal(t, http.StatusNotFound, resp.Code)
+	ok, failed = rec.counts()
+	assert.Equal(t, 2, ok, "a missing object counts as a successful read")
+	assert.Zero(t, failed)
+
+	mem.err = errors.New("s3: connection reset")
+	resp = e.do(withCookie(newRequest(t, http.MethodGet, planTarget(run, blue), nil), session))
+	require.Equal(t, http.StatusInternalServerError, resp.Code)
+	ok, failed = rec.counts()
+	assert.Equal(t, 2, ok)
+	assert.Equal(t, 1, failed, "a store error counts as a failed read")
+}
+
 func planTarget(runID uuid.UUID, key string) string {
 	return "/v1/runs/" + runID.String() + "/stacks/" + url.PathEscape(key) + "/plan"
 }
