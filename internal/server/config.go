@@ -19,6 +19,7 @@ import (
 
 	"github.com/stackorder/stackorder/internal/gh"
 	"github.com/stackorder/stackorder/internal/oidc"
+	"github.com/stackorder/stackorder/internal/sched"
 	"github.com/stackorder/stackorder/internal/stateread"
 )
 
@@ -30,6 +31,15 @@ const (
 	DefaultEventRetention    = 168 * time.Hour
 	DefaultDriftRetention    = 2160 * time.Hour
 	DefaultLogFormat         = LogFormatJSON
+	// DefaultSchedulerCatchUp is STACKORDER_SCHEDULER_CATCH_UP when unset:
+	// how far a new scheduler leader looks back to enqueue the latest
+	// missed fire of each schedule.
+	DefaultSchedulerCatchUp = sched.DefaultCatchUp
+	// MaxSchedulerCatchUp is the largest STACKORDER_SCHEDULER_CATCH_UP the
+	// server accepts; only the latest fire of each schedule is caught up, so
+	// a longer window gains nothing and would only widen the cron walk a new
+	// leader makes.
+	MaxSchedulerCatchUp = 168 * time.Hour
 	// PoolConnsBeyondWorkers is how many pgx pool connections the server
 	// keeps on top of one per worker, for the API, the webhook receiver,
 	// the scheduler and its leader lock.
@@ -83,6 +93,7 @@ const (
 	EnvPlanTextRetention   = "STACKORDER_PLAN_TEXT_RETENTION"
 	EnvEventRetention      = "STACKORDER_EVENT_RETENTION"
 	EnvDriftRetention      = "STACKORDER_DRIFT_RETENTION"
+	EnvSchedulerCatchUp    = "STACKORDER_SCHEDULER_CATCH_UP"
 	EnvWorkers             = "STACKORDER_WORKERS"
 	EnvAllowResetup        = "STACKORDER_ALLOW_RESETUP"
 	EnvSetupToken          = "STACKORDER_SETUP_TOKEN" //nolint:gosec // a variable name, not a secret
@@ -172,6 +183,10 @@ type Config struct {
 	PlanTextRetention time.Duration
 	EventRetention    time.Duration
 	DriftRetention    time.Duration
+	// SchedulerCatchUp is STACKORDER_SCHEDULER_CATCH_UP, how far a new
+	// scheduler leader looks back to enqueue the latest missed fire of each
+	// schedule; DefaultSchedulerCatchUp, at most MaxSchedulerCatchUp.
+	SchedulerCatchUp time.Duration
 	// Workers is STACKORDER_WORKERS, the worker goroutines; DefaultWorkers.
 	Workers int
 
@@ -233,6 +248,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		PlanTextRetention:   e.duration(EnvPlanTextRetention, DefaultPlanTextRetention),
 		EventRetention:      e.duration(EnvEventRetention, DefaultEventRetention),
 		DriftRetention:      e.duration(EnvDriftRetention, DefaultDriftRetention),
+		SchedulerCatchUp:    e.duration(EnvSchedulerCatchUp, DefaultSchedulerCatchUp),
 		Workers:             e.positiveInt(EnvWorkers, DefaultWorkers),
 		AllowResetup:        e.boolean(EnvAllowResetup),
 		SetupToken:          e.setupToken(EnvSetupToken),
@@ -245,6 +261,9 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	}
 	if cfg.OIDCAudience == "" {
 		cfg.OIDCAudience = cfg.BaseURL
+	}
+	if cfg.SchedulerCatchUp > MaxSchedulerCatchUp {
+		e.fail(EnvSchedulerCatchUp, "must be at most %s, got %s", MaxSchedulerCatchUp, cfg.SchedulerCatchUp)
 	}
 	e.app(&cfg)
 	e.oauth(&cfg)
@@ -350,6 +369,9 @@ func (c *Config) withDefaults() {
 	if c.DriftRetention <= 0 {
 		c.DriftRetention = DefaultDriftRetention
 	}
+	if c.SchedulerCatchUp <= 0 {
+		c.SchedulerCatchUp = DefaultSchedulerCatchUp
+	}
 	if c.Workers <= 0 {
 		c.Workers = DefaultWorkers
 	}
@@ -392,6 +414,9 @@ func (c *Config) validate() error {
 	}
 	if c.LogFormat != LogFormatJSON && c.LogFormat != LogFormatText {
 		errs = append(errs, fmt.Errorf("%s must be %q or %q, got %q", EnvLogFormat, LogFormatJSON, LogFormatText, c.LogFormat))
+	}
+	if c.SchedulerCatchUp > MaxSchedulerCatchUp {
+		errs = append(errs, fmt.Errorf("%s must be at most %s, got %s", EnvSchedulerCatchUp, MaxSchedulerCatchUp, c.SchedulerCatchUp))
 	}
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("server: invalid configuration:\n%w", err)

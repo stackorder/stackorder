@@ -208,6 +208,35 @@ func TestDriftWindowBoundaries(t *testing.T) {
 	}
 }
 
+func TestCatchUpWindow(t *testing.T) {
+	last := at("2026-09-20T00:00:00Z")
+	now := at("2026-09-28T09:30:00Z")
+
+	t.Run("default drops a daily slot missed for more than an hour", func(t *testing.T) {
+		q := &recorder{}
+		s := newTestScheduler(&repos{}, q, nil)
+		require.NoError(t, s.enqueueDue(t.Context(), last, now))
+		assert.Empty(t, q.keys(runs.JobStaleLocks), "08:00 is older than the one hour default")
+	})
+
+	t.Run("a wider window catches up the latest missed daily slot once", func(t *testing.T) {
+		q := &recorder{}
+		s := newScheduler(&repos{list: []store.Repo{repo(7, "0 8 * * *")}},
+			func(context.Context) (leaderLock, bool, error) { return nil, false, nil }, q,
+			Options{CatchUp: 26 * time.Hour})
+		require.NoError(t, s.enqueueDue(t.Context(), last, now))
+		assert.Equal(t, prefixed("stale_locks:", unix("2026-09-28T08:00:00Z")), q.keys(runs.JobStaleLocks),
+			"only the most recent 08:00 fire is enqueued, not one per missed day")
+		assert.Equal(t, prefixed("schedule_drift:7:", unix("2026-09-28T08:00:00Z")), q.keys(runs.JobScheduleDrift))
+	})
+
+	t.Run("an unset window keeps the one hour default", func(t *testing.T) {
+		s := newScheduler(&repos{}, func(context.Context) (leaderLock, bool, error) { return nil, false, nil },
+			&recorder{}, Options{})
+		assert.Equal(t, DefaultCatchUp, s.catchUp)
+	})
+}
+
 func TestReposWithoutUsableSchedule(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))

@@ -102,6 +102,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	assert.Equal(t, 720*time.Hour, cfg.PlanTextRetention)
 	assert.Equal(t, 168*time.Hour, cfg.EventRetention)
 	assert.Equal(t, 2160*time.Hour, cfg.DriftRetention)
+	assert.Equal(t, time.Hour, cfg.SchedulerCatchUp)
 	assert.Equal(t, 4, cfg.Workers)
 	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
 	assert.Equal(t, LogFormatJSON, cfg.LogFormat)
@@ -139,6 +140,7 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 		EnvPlanTextRetention:   "240h",
 		EnvEventRetention:      "72h",
 		EnvDriftRetention:      "1h30m",
+		EnvSchedulerCatchUp:    "26h",
 		EnvWorkers:             "16",
 		EnvLogLevel:            "DEBUG",
 		EnvLogFormat:           "Text",
@@ -177,6 +179,7 @@ func TestLoadConfigEveryVariable(t *testing.T) {
 	assert.Equal(t, 240*time.Hour, cfg.PlanTextRetention)
 	assert.Equal(t, 72*time.Hour, cfg.EventRetention)
 	assert.Equal(t, 90*time.Minute, cfg.DriftRetention)
+	assert.Equal(t, 26*time.Hour, cfg.SchedulerCatchUp)
 	assert.Equal(t, 16, cfg.Workers)
 	assert.Equal(t, slog.LevelDebug, cfg.LogLevel)
 	assert.Equal(t, LogFormatText, cfg.LogFormat)
@@ -272,6 +275,9 @@ func TestLoadConfigInvalid(t *testing.T) {
 		{"plan text retention", with(minimalEnv(), EnvPlanTextRetention, "30d"), EnvPlanTextRetention + " must be a positive Go duration"},
 		{"event retention zero", with(minimalEnv(), EnvEventRetention, "0s"), EnvEventRetention + " must be a positive Go duration"},
 		{"drift retention negative", with(minimalEnv(), EnvDriftRetention, "-1h"), EnvDriftRetention + " must be a positive Go duration"},
+		{"catch up not a duration", with(minimalEnv(), EnvSchedulerCatchUp, "60"), EnvSchedulerCatchUp + " must be a positive Go duration"},
+		{"catch up zero", with(minimalEnv(), EnvSchedulerCatchUp, "0s"), EnvSchedulerCatchUp + " must be a positive Go duration"},
+		{"catch up too long", with(minimalEnv(), EnvSchedulerCatchUp, "169h"), EnvSchedulerCatchUp + " must be at most 168h"},
 		{"workers not a number", with(minimalEnv(), EnvWorkers, "four"), EnvWorkers + " must be a positive integer"},
 		{"workers zero", with(minimalEnv(), EnvWorkers, "0"), EnvWorkers + " must be a positive integer"},
 		{"log level", with(minimalEnv(), EnvLogLevel, "verbose"), EnvLogLevel + " must be debug, info, warn or error"},

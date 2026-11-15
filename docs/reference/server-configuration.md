@@ -35,6 +35,7 @@ Values are trimmed of surrounding white space, and an empty value counts as unse
 | `STACKORDER_PLAN_TEXT_RETENTION` | `720h` | How long stored plan text is kept (30 days). |
 | `STACKORDER_EVENT_RETENTION` | `168h` | How long webhook events and finished jobs are kept (7 days). |
 | `STACKORDER_DRIFT_RETENTION` | `2160h` | How long drift history is kept (90 days); the latest result of each stack is always kept. |
+| `STACKORDER_SCHEDULER_CATCH_UP` | `1h` | How far a new scheduler leader looks back to catch up schedules missed while no instance was leading, such as during an outage; a positive Go duration, at most `168h`. For each schedule only the latest fire in the window is enqueued, so a window wider than an outage recovers the daily `08:00` and `04:00` UTC maintenance jobs and the latest drift fire without a burst of repeated work. See [below](#scheduler-catch-up). |
 | `STACKORDER_WORKERS` | `4` | Worker goroutines claiming events and jobs; a positive integer. The database pool gets this many connections plus 8, for the API, the webhook receiver and the scheduler, unless `DATABASE_URL` sets `pool_max_conns`. |
 | `STACKORDER_ALLOW_RESETUP` | `false` | A boolean, such as `true` or `false`; other values are refused. `true` lets a server that already has App credentials create another App through `/setup?force=1`. See [below](#setup-mode). |
 | `STACKORDER_SETUP_TOKEN` | generated | The one-time token that opens `/setup`: at least 32 letters, digits, `.`, `_`, `~` or `-`, such as the output of `openssl rand -hex 32`. When unset and `/setup` can create an App, the server generates one from 32 random bytes at each start and logs the setup URL with it. See [below](#setup-token). |
@@ -42,7 +43,7 @@ Values are trimmed of surrounding white space, and an empty value counts as unse
 | `STACKORDER_LOG_FORMAT` | `json` | `json`, or `text` for human-readable lines. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP HTTP base URL, such as `http://otel-collector:4318`; spans go to `<endpoint>/v1/traces`. Unset disables tracing. See [Metrics and tracing](/reference/metrics#tracing). |
 
-Retention values are positive Go durations, such as `720h` or `90m`. URL variables must be absolute `http` or `https` URLs.
+Retention values and `STACKORDER_SCHEDULER_CATCH_UP` are positive Go durations, such as `720h` or `90m`. URL variables must be absolute `http` or `https` URLs.
 
 ## Setup mode {#setup-mode}
 
@@ -77,6 +78,12 @@ Whoever creates the App owns it, so `/setup` opens only with a one-time token. A
 4. Serve HTTP.
 
 On `SIGTERM` or `SIGINT` the server stops accepting connections, gives in-flight requests 15 s to finish, stops the scheduler, hands unstarted work back to the queue and gives running handlers 30 s to drain. A second signal stops it at once.
+
+## Scheduler catch-up {#scheduler-catch-up}
+
+Only one instance schedules at a time: it is elected leader by a Postgres advisory lock, while every instance runs the jobs the leader enqueues. When a new instance takes the lead, after a restart, a deploy or an outage, it catches up the schedules that fired while no instance was leading. It looks back `STACKORDER_SCHEDULER_CATCH_UP`, one hour by default, and for each schedule enqueues only the latest fire in that window, so catching up never releases a burst of identical jobs. Jobs carry a dedupe key naming their slot, so if several instances or ticks see the same fire it is still enqueued once.
+
+The housekeeping schedules are the per-minute reconcile, the hourly prune, `stale_locks` at `08:00` UTC and `sync_installations` at `04:00` UTC; drift runs fire on each repository's [`drift.schedule`](/configuration/drift). With the one-hour default, an outage longer than an hour drops the daily `08:00` and `04:00` jobs and that window's drift fires, which resume at their next scheduled time. Set a window wider than the outages you want to recover from, such as `26h` to cover a full day, and the leader enqueues the most recent missed fire of each daily job and of each drift schedule once on recovery; because only the latest fire is kept, a wider window never multiplies the work. The maximum is `168h`.
 
 ## Commands {#commands}
 

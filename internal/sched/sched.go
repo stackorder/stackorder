@@ -17,9 +17,12 @@
 //
 // A slot is due when its fire time falls within (last tick, now]. Missed
 // ticks are caught up, but only the latest fire time of each schedule in
-// the window is enqueued, and a new leader looks back at most an hour, so
-// an outage never releases a burst of identical jobs. Cron expressions
-// are evaluated in UTC unless they carry a CRON_TZ= prefix.
+// the window is enqueued, and a new leader looks back at most the catch-up
+// window (one hour by default, Options.CatchUp), so an outage never
+// releases a burst of identical jobs. A window longer than an outage
+// recovers the daily maintenance slots and the latest drift fire it
+// covered. Cron expressions are evaluated in UTC unless they carry a
+// CRON_TZ= prefix.
 package sched
 
 import (
@@ -38,7 +41,8 @@ import (
 	"github.com/stackorder/stackorder/internal/store"
 )
 
-const catchUp = time.Hour
+// DefaultCatchUp is the look-back window Options.CatchUp takes when unset.
+const DefaultCatchUp = time.Hour
 
 // ErrRunning is returned by Run when the scheduler is already running.
 var ErrRunning = errors.New("sched: scheduler is already running")
@@ -74,6 +78,10 @@ type Options struct {
 	// Tick is how often the leader enqueues due slots and every other
 	// instance tries to take the lead; default 30 s.
 	Tick time.Duration
+	// CatchUp is how far a new leader looks back to enqueue the latest
+	// missed fire of each schedule; default DefaultCatchUp. A value below
+	// one takes the default.
+	CatchUp time.Duration
 	// Logger receives the scheduler's logs; discarded when nil.
 	Logger *slog.Logger
 	// Metrics records scheduler_leader; optional.
@@ -105,6 +113,7 @@ type Scheduler struct {
 	q       Enqueuer
 	now     func() time.Time
 	tick    time.Duration
+	catchUp time.Duration
 	log     *slog.Logger
 	metrics *metrics.Registry
 	leader  atomic.Bool
@@ -127,6 +136,9 @@ func newScheduler(repos repoLister, tryLock lockFunc, q Enqueuer, opts Options) 
 	if opts.Tick <= 0 {
 		opts.Tick = 30 * time.Second
 	}
+	if opts.CatchUp <= 0 {
+		opts.CatchUp = DefaultCatchUp
+	}
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.DiscardHandler)
 	}
@@ -136,6 +148,7 @@ func newScheduler(repos repoLister, tryLock lockFunc, q Enqueuer, opts Options) 
 		q:       q,
 		now:     opts.Clock,
 		tick:    opts.Tick,
+		catchUp: opts.CatchUp,
 		log:     opts.Logger,
 		metrics: opts.Metrics,
 		crons:   map[int64]parsedCron{},
@@ -178,7 +191,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 					s.log.WarnContext(ctx, "scheduler could not try the leader lock", "error", err)
 				}
 			case ok:
-				lock, last = l, now.Add(-catchUp)
+				lock, last = l, now.Add(-s.catchUp)
 				s.setLeader(true)
 				s.log.InfoContext(ctx, "scheduler took the lead")
 			}
@@ -214,7 +227,7 @@ func (s *Scheduler) setLeader(leader bool) {
 
 func (s *Scheduler) enqueueDue(ctx context.Context, last, now time.Time) error {
 	from := last.UTC()
-	if floor := now.Add(-catchUp); from.Before(floor) {
+	if floor := now.Add(-s.catchUp); from.Before(floor) {
 		from = floor
 	}
 	var errs []error

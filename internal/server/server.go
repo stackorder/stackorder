@@ -261,6 +261,7 @@ func (s *Server) compose(ctx context.Context, deps *api.Deps) error {
 	s.register(s.runs)
 	s.sched = sched.New(s.st, s.pool, sched.Options{
 		Clock:   s.now,
+		CatchUp: cfg.SchedulerCatchUp,
 		Logger:  s.log.With("component", "sched"),
 		Metrics: s.metrics,
 	})

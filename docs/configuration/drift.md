@@ -34,7 +34,7 @@ drift:
 
 Drift jobs run in `stackorder-run.yml` under the environment `default`, whatever the stack's own environment, and assume `aws-plan-role-arn` (falling back to `aws-role-arn`), never an apply role. They never wait for an environment's reviewers, and the plan role's trust policy must admit `repo:<owner>/<repo>:environment:default`, written with the repository's own [subject prefix](/operations/security-hardening#immutable-subjects); see [Security hardening](/operations/security-hardening#trust-policies).
 
-Only one server instance schedules at a time; the scheduler is elected leader with a Postgres advisory lock, and any instance can execute the work. A new leader catches up on at most the last hour of missed schedules, enqueuing only the latest fire of each.
+Only one server instance schedules at a time; the scheduler is elected leader with a Postgres advisory lock, and any instance can execute the work. A new leader catches up on missed schedules over the [catch-up window](/reference/server-configuration#scheduler-catch-up), `STACKORDER_SCHEDULER_CATCH_UP` and one hour by default, enqueuing only the latest fire of each. Widen it past your longest expected outage to resume a stack's drift checks on recovery rather than at their next scheduled time.
 
 ## Where drift shows up {#where}
 

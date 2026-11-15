@@ -1030,12 +1030,14 @@ unbounded.
 | `STACKORDER_ALLOW_RESETUP` | `true` lets a server with App credentials create another App through `/setup?force=1`; default `false`, and then `/setup?force=1` and `/setup/callback` answer 404 outside setup mode |
 | `STACKORDER_SETUP_TOKEN` | One-time bootstrap token `/setup` requires, at least 32 URL-safe characters; when unset and `/setup` can create an App, 32 random bytes, base64url encoded, generated at start |
 | `STACKORDER_PLAN_TEXT_RETENTION`, `STACKORDER_EVENT_RETENTION`, `STACKORDER_DRIFT_RETENTION` | Durations, defaults `720h`, `168h`, `2160h` |
+| `STACKORDER_SCHEDULER_CATCH_UP` | How far a new scheduler leader looks back for missed schedules, default `1h`, at most `168h`; only the latest fire of each schedule in the window is enqueued |
 | `STACKORDER_WORKERS` | Worker goroutines, default 4; the pgx pool gets this many connections plus 8 unless `DATABASE_URL` sets `pool_max_conns` |
 | `STACKORDER_LOG_LEVEL`, `STACKORDER_LOG_FORMAT` | `info` / `json` by default |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Enables tracing; spans carry `stackorder.run_id` |
 
 The server refuses to start without `DATABASE_URL` and `STACKORDER_BASE_URL`;
-retentions must be positive durations; `STACKORDER_ARTIFACT_PREFIX` without a
+retentions must be positive durations, as must `STACKORDER_SCHEDULER_CATCH_UP`,
+which is also at most `168h`; `STACKORDER_ARTIFACT_PREFIX` without a
 bucket is an error; a partial set of the three `GITHUB_APP_*` variables is an
 error. Without all three it starts in setup mode, runs migrations, and serves
 only `/setup*`, `/healthz` and `/readyz`. Whenever `/setup` can create an
@@ -1102,7 +1104,8 @@ unstarted claims back through `store.ReleaseClaims` and cancels handlers
 after a 30 s drain; the stale claim age (10 m) exceeds the handler timeout
 (5 m); `store.QueueDepth` feeds the gauges. Scheduler: cron runs in UTC
 unless the expression carries a `CRON_TZ=` prefix; a new leader catches up
-at most one hour, keeping the latest fire per window; dedupe keys are
+over `STACKORDER_SCHEDULER_CATCH_UP` (`1h` by default, at most `168h`),
+keeping the latest fire per window; dedupe keys are
 `reconcile:<minute>`, `prune:<hour>`, `stale_locks:<day>`,
 `schedule_drift:<repo>:<fire unix>`, `drift:<stack>:<hour>`,
 `dispatch_wave:<run>:<wave>`, `sync_installations:<fire unix>` and
