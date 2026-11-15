@@ -155,6 +155,14 @@ dependencies.
   for named policy checks.
 - Sticky PR comment: one per PR, found by the hidden marker
   `<!-- stackorder:sticky -->` on its first line (and by the App's own login).
+- Check runs (`runs.check_runs`) and an apply run's comment (`runs.comment_id`)
+  record ids of GitHub objects the App created. When editing one is refused
+  because it is gone or no longer the App's to edit — a 404, a 410 or a
+  non–rate-limit 403, which `gh.ErrEditRefused` matches and GitHub returns
+  after the App of a deployment is replaced — the server creates a fresh one
+  rather than give up; a rate limit or a 5xx is transient and never does. A
+  `comment_id` of 0 marks a terminal run that has no comment and gets none,
+  not a live run whose comment is suppressed.
 - Plan artifact name: `v1.PlanArtifactName(key, sha)`, i.e.
   `stackorder-plan-<slug>-<sha>`, where `v1.StackKeySlug(key)` is the key
   with `/` and `:` replaced by `-`, then `-` and the first 8 hex characters

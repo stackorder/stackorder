@@ -665,20 +665,23 @@ func TestApplyCommentIsCreatedOnce(t *testing.T) {
 	})
 }
 
-func TestDeletedApplyCommentIsNotPostedAgain(t *testing.T) {
+func TestDeletedApplyCommentIsPostedAgain(t *testing.T) {
 	e := newEnv(t, baseConfig())
 	e.planned(7, headSHA)
 	e.comment(7, applier, "stackorder apply")
 	apply := e.applyRun(7)
-	e.gh.DeleteComment(repoName, e.runComment(7, apply.ID).ID)
+	deleted := e.runComment(7, apply.ID).ID
+	e.gh.DeleteComment(repoName, deleted)
 
 	wave0 := e.gh.Dispatches()
 	require.Len(t, wave0, 2)
 	e.reportAll(wave0[0], nil)
-	assert.Empty(t, e.runComments(7), "a deleted apply comment is not posted again")
+	reposted := e.runComments(7)
+	require.Len(t, reposted, 1, "a deleted comment of a live apply is posted again")
+	assert.NotEqual(t, deleted, reposted[0].ID)
 	stored := e.storedRun(apply.ID).CommentID
 	require.NotNil(t, stored)
-	assert.Zero(t, *stored)
+	assert.Equal(t, reposted[0].ID, *stored, "the run tracks the new comment, not a suppressing zero")
 
 	reported := map[int64]bool{wave0[0].RunID: true}
 	for progressed := true; progressed; {
@@ -692,13 +695,64 @@ func TestDeletedApplyCommentIsNotPostedAgain(t *testing.T) {
 		}
 	}
 	assert.Equal(t, v1.RunApplied, e.run(apply.ID).Status)
-	assert.Empty(t, e.runComments(7))
+	final := e.runComments(7)
+	require.Len(t, final, 1, "the apply comment persists through completion")
 	reply := e.lastComment(7)
 	assert.Contains(t, reply, "**Apply of `3333333` succeeded.**")
-	assert.NotContains(t, reply, "apply comment")
-	assert.Contains(t, reply, "Per-stack results are in the [run details](https://stackorder.test/runs/"+apply.ID+").")
-	assert.Contains(t, e.sticky(7), "): applied, requested by octocat. [Run details](https://stackorder.test/runs/"+apply.ID+")",
-		"the sticky falls back to the run details")
+	assert.Contains(t, reply, "Per-stack results are in the [apply comment](https://github.com/acme/infra/pull/7#issuecomment-"+
+		strconv.FormatInt(final[0].ID, 10)+")")
+}
+
+func TestApplyCheckRunIsRecreatedWhenEditIsRefused(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.planned(7, headSHA)
+	e.comment(7, applier, "stackorder apply")
+	apply := e.applyRun(7)
+	first := e.check(report.CheckApply)
+
+	var prod ghfake.Dispatch
+	for _, d := range e.gh.Dispatches() {
+		if entries(t, d)[0].Environment == "production" {
+			prod = d
+		}
+	}
+	_, err := e.svc.GetRunForPrincipal(e.ctx, e.dispatchJob(prod.RunID, "production"), apply.ID)
+	require.NoError(t, err)
+	jobEvent := func() *gh.WorkflowJobEvent {
+		return e.gh.WorkflowJobEvent("in_progress", repoName, gh.WorkflowJob{
+			RunID: prod.RunID, Name: "run / apply (" + vpc + ", " + vpc + ", production, 0)", Status: gh.RunStatusInProgress,
+			HTMLURL: "https://github.com/acme/infra/actions/runs/9/job/1",
+		})
+	}
+
+	e.gh.FailNext("PATCH /repos/{owner}/{repo}/check-runs/{check_run_id}", http.StatusForbidden, 50)
+	require.NoError(t, e.svc.HandleWorkflowJob(e.ctx, jobEvent()))
+	applies := e.checksNamed(report.CheckApply)
+	require.Len(t, applies, 2, "a refused check run update creates a new check run")
+	recreated := e.storedRun(apply.ID).CheckRuns[report.CheckApply]
+	assert.NotEqual(t, first.ID, recreated)
+	assert.Equal(t, applies[1].ID, recreated, "the run tracks the new check run")
+	assert.Equal(t, gh.CheckRunInProgress, applies[1].Status)
+}
+
+func TestApplyCommentIsRecreatedWhenCommentIdIsZero(t *testing.T) {
+	e := newEnv(t, baseConfig())
+	e.planned(7, headSHA)
+	e.comment(7, applier, "stackorder apply")
+	apply := e.applyRun(7)
+	e.gh.DeleteComment(repoName, e.runComment(7, apply.ID).ID)
+	_, err := e.st.Pool().Exec(e.ctx, `UPDATE runs SET comment_id = 0 WHERE id = $1`, apply.ID)
+	require.NoError(t, err)
+
+	wave0 := e.gh.Dispatches()
+	require.NotEmpty(t, wave0)
+	e.reportAll(wave0[0], nil)
+
+	reposted := e.runComments(7)
+	require.Len(t, reposted, 1, "a stored zero no longer suppresses a live apply's comment")
+	stored := e.storedRun(apply.ID).CommentID
+	require.NotNil(t, stored)
+	assert.Equal(t, reposted[0].ID, *stored)
 }
 
 func TestStickyListsEveryApplyOfThePullRequest(t *testing.T) {

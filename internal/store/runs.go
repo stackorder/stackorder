@@ -83,7 +83,10 @@ type Run struct {
 	// run to their ids.
 	CheckRuns map[string]int64 `db:"check_runs"`
 	// CommentID is the id of the pull request comment that tracks an apply
-	// run: nil until looked up, 0 when the run has none and gets none.
+	// run: nil until looked up and a positive id once posted. It is 0 only for
+	// a terminal run that has no such comment and gets none; a run still in
+	// progress whose comment is missing or no longer editable is given a new
+	// one, so a stored 0 never suppresses a live run's comment.
 	CommentID  *int64     `db:"comment_id"`
 	CreatedAt  time.Time  `db:"created_at"`
 	StartedAt  *time.Time `db:"started_at"`

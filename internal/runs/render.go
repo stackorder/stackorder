@@ -168,9 +168,6 @@ func (s *Service) renderSticky(ctx context.Context, w *checkWriter, repo store.R
 }
 
 func (s *Service) renderRunComment(ctx context.Context, w *checkWriter, run *store.Run, detail v1.Run, opts report.Options) {
-	if run.CommentID != nil && *run.CommentID == 0 {
-		return
-	}
 	if run.Status == v1.RunApplying {
 		opts.PendingApprovals = s.pendingApprovals(ctx, w, *run)
 	}
@@ -326,7 +323,7 @@ func (w *checkWriter) write(ctx context.Context, run *store.Run, name string, ou
 func (w *checkWriter) upsert(ctx context.Context, run *store.Run, name string, p gh.CheckRunParams) error {
 	if id, ok := run.CheckRuns[name]; ok {
 		_, err := w.c.UpdateCheckRun(ctx, w.repo.FullName, id, p)
-		if err == nil || !errors.Is(err, gh.ErrNotFound) {
+		if err == nil || !errors.Is(err, gh.ErrEditRefused) {
 			return wrapCheck(name, err)
 		}
 	}
@@ -345,15 +342,11 @@ func (w *checkWriter) upsert(ctx context.Context, run *store.Run, name string, p
 }
 
 func (w *checkWriter) runComment(ctx context.Context, run *store.Run, body string) error {
-	if run.CommentID != nil {
-		if *run.CommentID == 0 {
-			return nil
-		}
+	if run.CommentID != nil && *run.CommentID > 0 {
 		_, err := w.c.UpdateIssueComment(ctx, w.repo.FullName, *run.CommentID, body)
-		if !errors.Is(err, gh.ErrNotFound) {
+		if !errors.Is(err, gh.ErrEditRefused) {
 			return err
 		}
-		return w.setRunComment(ctx, run, 0)
 	}
 	found, err := w.c.OwnComments(ctx, w.repo.FullName, run.PRNumber, report.RunMarker(run.ID.String()))
 	if err != nil {
@@ -414,7 +407,7 @@ func (w *checkWriter) superseded(ctx context.Context, run *store.Run, by string)
 	}
 	for _, name := range names {
 		p := w.params(run, name, out)
-		if _, err := w.c.UpdateCheckRun(ctx, w.repo.FullName, run.CheckRuns[name], p); err != nil && !errors.Is(err, gh.ErrNotFound) {
+		if _, err := w.c.UpdateCheckRun(ctx, w.repo.FullName, run.CheckRuns[name], p); err != nil && !errors.Is(err, gh.ErrEditRefused) {
 			w.errs = append(w.errs, wrapCheck(name, err))
 		}
 	}
