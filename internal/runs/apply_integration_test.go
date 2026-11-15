@@ -348,12 +348,14 @@ func TestApplyAcrossThreeWaves(t *testing.T) {
 	assert.Equal(t, gh.CheckRunInProgress, e.check(report.CheckApply).Status)
 	assert.Equal(t, gh.CheckRunQueued, e.check(report.StackCheckName(report.CheckApply, apps)).Status)
 
+	createdBefore := e.m.createdRuns()
 	again := e.comment(7, applier, "stackorder apply")
 	assert.Contains(t, e.lastComment(7), "apply run "+apply.ID+" of this pull request is still applying")
 	assert.Equal(t, []string{gh.ReactionEyes}, e.gh.Reactions(again.ID), "a refused apply gets no rocket")
 	assert.Len(t, e.gh.Dispatches(), 2, "a second apply while one runs dispatches nothing")
 	assert.Equal(t, apply.ID, e.applyRun(7).ID)
 	assert.Len(t, e.runComments(7), 1, "a refused apply gets no apply comment")
+	assert.Equal(t, createdBefore, e.m.createdRuns(), "an apply refused because one is already running rolls back its insert and is not counted")
 
 	prod := wave0[byEnv["production"]]
 	bound, err := e.svc.GetRunForPrincipal(e.ctx, e.dispatchJob(prod.RunID, "production"), apply.ID)
@@ -1029,6 +1031,7 @@ func TestManualRunLocks(t *testing.T) {
 	assert.Equal(t, v1.StackPlanned, first.Run.Stacks[0].Status)
 	assert.Equal(t, map[string]int{vpc: 0}, e.locks())
 
+	createdBefore := e.m.createdRuns()
 	_, err = e.svc.CreateRun(e.ctx, apiKey(), req)
 	var locked *principal.LockedError
 	require.ErrorAs(t, err, &locked)
@@ -1039,6 +1042,7 @@ func TestManualRunLocks(t *testing.T) {
 	manual, _, err := e.st.ListRuns(e.ctx, store.RunFilter{RepoID: repoID, Mode: v1.ModeApply})
 	require.NoError(t, err)
 	assert.Len(t, manual, 1, "a refused manual run leaves nothing behind")
+	assert.Equal(t, createdBefore, e.m.createdRuns(), "a manual run refused by a lock conflict rolls back its insert and is not counted")
 
 	e.comment(7, applier, "stackorder apply")
 	assert.Contains(t, e.lastComment(7), "locked by a manual run", "a pull request cannot apply over a manual lock")
@@ -1473,11 +1477,15 @@ func TestCrossRepoPlanIsRetriedAfterAFailedFirstAttempt(t *testing.T) {
 	e.gh.FailNext("GET /repos/{owner}/{repo}/contents/{path...}", http.StatusServiceUnavailable, 5)
 	require.Error(t, e.svc.RunCrossRepoPlan(e.ctx, job))
 	assert.Zero(t, downstreamRuns())
+	assert.Empty(t, e.m.createdRuns(), "a cross-repo plan that fails before inserting a run counts nothing")
 
 	require.NoError(t, e.svc.RunCrossRepoPlan(e.ctx, job))
 	assert.Equal(t, 1, downstreamRuns(), "the retry plans what the failed attempt did not")
+	created := e.m.createdRuns()
+	assert.Equal(t, []string{"plan/push"}, created, "the cross-repo plan is counted once when it is created")
 	require.NoError(t, e.svc.RunCrossRepoPlan(e.ctx, job))
 	assert.Equal(t, 1, downstreamRuns(), "the plan is still started once per upstream run")
+	assert.Equal(t, created, e.m.createdRuns(), "a cross-repo plan already claimed by an earlier attempt rolls back and is not counted")
 }
 
 func TestCrossRepoPlanFollowsTheStacksAFailedApplyApplied(t *testing.T) {
